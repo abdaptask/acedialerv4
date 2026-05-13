@@ -1,0 +1,62 @@
+# Render Blueprint for the ACE Dialer 2.0 backend.
+# Render reads this file when you connect the repo and creates the services automatically.
+#
+# After the first push, go to https://dashboard.render.com -> "New" -> "Blueprint"
+# and point it at this repo. Render will provision all three services below.
+
+services:
+  # ----- HTTP API -----
+  - type: web
+    name: ace-dialer-api
+    runtime: node
+    region: virginia
+    plan: starter
+    branch: main
+    rootDir: .
+    buildCommand: npm install && npm run build -w apps/api
+    startCommand: npm start -w apps/api
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: LOG_LEVEL
+        value: info
+      # Add the rest (DATABASE_URL, REDIS_URL, TELNYX_API_KEY, etc.)
+      # in the Render dashboard for this service. See .env.example.
+
+  # ----- Real-time WebSocket -----
+  - type: web
+    name: ace-dialer-socket
+    runtime: node
+    region: virginia
+    plan: starter
+    branch: main
+    rootDir: .
+    buildCommand: npm install && npm run build -w apps/socket
+    startCommand: npm start -w apps/socket
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: LOG_LEVEL
+        value: info
+
+  # ----- Telnyx Webhooks -----
+  - type: web
+    name: ace-dialer-webhooks
+    runtime: node
+    region: virginia
+    plan: starter
+    branch: main
+    rootDir: .
+    buildCommand: npm install && npm run build -w apps/webhooks
+    startCommand: npm start -w apps/webhooks
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: LOG_LEVEL
+        value: info

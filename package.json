@@ -1,0 +1,23 @@
+{
+  "name": "acedialerv4",
+  "version": "0.1.0",
+  "private": true,
+  "description": "ACE Dialer 2.0 — backend monorepo",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "lint": "echo \"(lint to be added in phase 1)\"",
+    "test": "echo \"(tests to be added in phase 1)\""
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "tsx": "^4.7.0",
+    "typescript": "^5.4.5"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
