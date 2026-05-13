@@ -1,0 +1,30 @@
+// ACE Dialer 2.0 — Prisma schema.
+// Phase 1: just the users table. More tables come online phase by phase.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_DATABASE_URL")
+}
+
+model User {
+  id              Int       @id @default(autoincrement())
+  email           String    @unique
+  passwordHash    String    @map("password_hash")
+  firstName       String?   @map("first_name")
+  lastName        String?   @map("last_name")
+  phoneExtension  String?   @map("phone_extension")
+  sipPassword     String?   @map("sip_password")
+  jobDivaUserId   String?   @map("jobdiva_user_id")
+  isAdmin         Boolean   @default(false) @map("is_admin")
+  isActive        Boolean   @default(true)  @map("is_active")
+  lastLoginAt     DateTime? @map("last_login_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt      @map("updated_at")
+
+  @@map("users")
+}

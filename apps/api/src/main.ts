@@ -1,31 +1,43 @@
 // ACE Dialer API — HTTP service.
-// Phase 0: just /health and /. Real endpoints land in Phase 1.
-import Fastify from 'fastify';
+// Phase 1: /health, /, /auth/login, /auth/me.
+import Fastify, { type FastifyReply, type FastifyRequest } from 'fastify';
 import cors from '@fastify/cors';
+import jwt from '@fastify/jwt';
+import { config } from './config.js';
+import { authRoutes } from './auth/auth.routes.js';
 
 const SERVICE_NAME = 'ace-dialer-api';
 const START_TIME = new Date().toISOString();
 
 const app = Fastify({
-  logger: {
-    level: process.env.LOG_LEVEL ?? 'info',
-  },
+  logger: { level: config.logLevel },
 });
 
-const allowedOrigins = (process.env.ALLOWED_ORIGINS ?? '*')
-  .split(',')
-  .map((s) => s.trim())
-  .filter(Boolean);
-
 await app.register(cors, {
-  origin: allowedOrigins.length === 1 && allowedOrigins[0] === '*' ? true : allowedOrigins,
+  origin:
+    config.allowedOrigins.length === 1 && config.allowedOrigins[0] === '*'
+      ? true
+      : config.allowedOrigins,
   credentials: true,
+});
+
+await app.register(jwt, {
+  secret: config.jwtSecret,
+  sign: { expiresIn: config.jwtExpiresIn },
+});
+
+app.decorate('authenticate', async function (request: FastifyRequest, reply: FastifyReply) {
+  try {
+    await request.jwtVerify();
+  } catch {
+    reply.code(401).send({ error: 'Unauthorised' });
+  }
 });
 
 app.get('/', async () => ({
   service: SERVICE_NAME,
   status: 'ok',
-  version: '0.1.0',
+  version: '0.2.0',
 }));
 
 app.get('/health', async () => ({
@@ -36,18 +48,17 @@ app.get('/health', async () => ({
   timestamp: new Date().toISOString(),
 }));
 
-const port = Number(process.env.PORT ?? 3000);
-const host = '0.0.0.0';
+await app.register(authRoutes);
 
+const host = '0.0.0.0';
 try {
-  await app.listen({ port, host });
-  app.log.info({ port, host }, `[${SERVICE_NAME}] listening`);
+  await app.listen({ port: config.port, host });
+  app.log.info({ port: config.port, host }, `[${SERVICE_NAME}] listening`);
 } catch (err) {
   app.log.error(err);
   process.exit(1);
 }
 
-// Graceful shutdown for Render's SIGTERM.
 const shutdown = async (signal: string) => {
   app.log.info({ signal }, `[${SERVICE_NAME}] shutting down`);
   await app.close();

@@ -1,8 +1,5 @@
 # Render Blueprint for the ACE Dialer 2.0 backend.
 # Render reads this file when you connect the repo and creates the services automatically.
-#
-# After the first push, go to https://dashboard.render.com -> "New" -> "Blueprint"
-# and point it at this repo. Render will provision all three services below.
 
 services:
   # ----- HTTP API -----
@@ -13,7 +10,7 @@ services:
     plan: free
     branch: main
     rootDir: .
-    buildCommand: npm install && npm run build -w apps/api
+    buildCommand: npm install && npm run build:api
     startCommand: npm start -w apps/api
     healthCheckPath: /health
     autoDeploy: true
@@ -22,8 +19,11 @@ services:
         value: production
       - key: LOG_LEVEL
         value: info
-      # Add the rest (DATABASE_URL, REDIS_URL, TELNYX_API_KEY, etc.)
-      # in the Render dashboard for this service. See .env.example.
+      # Required env vars to set in the Render dashboard (Environment tab):
+      #   DATABASE_URL         — Supabase Transaction Pooler URL (port 6543)
+      #   DIRECT_DATABASE_URL  — Supabase Direct URL (port 5432) — for prisma db push
+      #   JWT_SECRET           — any random 32+ char string
+      #   ALLOWED_ORIGINS      — comma-separated client origins
 
   # ----- Real-time WebSocket -----
   - type: web
@@ -33,7 +33,7 @@ services:
     plan: free
     branch: main
     rootDir: .
-    buildCommand: npm install && npm run build -w apps/socket
+    buildCommand: npm install && npm run build:socket
     startCommand: npm start -w apps/socket
     healthCheckPath: /health
     autoDeploy: true
@@ -51,7 +51,7 @@ services:
     plan: free
     branch: main
     rootDir: .
-    buildCommand: npm install && npm run build -w apps/webhooks
+    buildCommand: npm install && npm run build:webhooks
     startCommand: npm start -w apps/webhooks
     healthCheckPath: /health
     autoDeploy: true

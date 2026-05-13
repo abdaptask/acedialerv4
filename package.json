@@ -2,15 +2,21 @@
   "name": "acedialerv4",
   "version": "0.1.0",
   "private": true,
-  "description": "ACE Dialer 2.0 — backend monorepo",
+  "description": "ACE Dialer 2.0 backend monorepo",
   "workspaces": [
     "apps/*",
     "packages/*"
   ],
   "scripts": {
-    "build": "npm run build --workspaces --if-present",
-    "lint": "echo \"(lint to be added in phase 1)\"",
-    "test": "echo \"(tests to be added in phase 1)\""
+    "build": "npm run build -w packages/db && npm run build --workspaces --if-present",
+    "build:api": "npm run db:generate && npm run db:push && npm run build -w packages/db && npm run build -w apps/api",
+    "build:socket": "npm run build -w apps/socket",
+    "build:webhooks": "npm run build -w apps/webhooks",
+    "db:generate": "npm run generate -w packages/db",
+    "db:push": "npm run db:push -w packages/db",
+    "db:seed": "npm run seed -w packages/db",
+    "lint": "echo \"(lint to be added in phase 2)\"",
+    "test": "echo \"(tests to be added in phase 2)\""
   },
   "devDependencies": {
     "@types/node": "^20.11.0",
