@@ -1,5 +1,7 @@
 import { useState, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Phone, Delete } from 'lucide-react';
+import { useSip } from '../contexts/SipContext';
 
 const KEYS: Array<{ digit: string; letters?: string }> = [
   { digit: '1' },
@@ -17,7 +19,6 @@ const KEYS: Array<{ digit: string; letters?: string }> = [
 ];
 
 function formatNumber(raw: string): string {
-  // Light US-style formatting; full libphonenumber comes when SIP wires up.
   const d = raw.replace(/[^\d*#+]/g, '');
   if (d.length === 0) return '';
   if (d.length <= 3) return d;
@@ -28,21 +29,39 @@ function formatNumber(raw: string): string {
 
 export default function Dialpad() {
   const [number, setNumber] = useState('');
+  const { sipState, call } = useSip();
+  const navigate = useNavigate();
 
   const append = useCallback((d: string) => setNumber((n) => n + d), []);
   const backspace = useCallback(() => setNumber((n) => n.slice(0, -1)), []);
-  const longPressZero = useCallback(() => setNumber((n) => n + '+'), []);
 
   const handleCall = useCallback(() => {
     if (!number) return;
-    // Phase 4.5: replace this alert with the real SIP call.
-    alert(`Placing call to ${number}\n\n(SIP wiring lands in Phase 4.5)`);
-  }, [number]);
+    if (sipState !== 'registered') {
+      alert(`Can't call yet — SIP state: ${sipState}. Wait for "Registered" badge above keypad.`);
+      return;
+    }
+    call(number);
+    navigate('/in-call');
+  }, [number, sipState, call, navigate]);
+
+  const statusLabel =
+    sipState === 'registered' ? 'Registered' :
+    sipState === 'connecting' ? 'Connecting…' :
+    sipState === 'failed' ? 'Connection failed' :
+    'Disconnected';
+
+  const statusClass =
+    sipState === 'registered' ? 'sip-status ok' :
+    sipState === 'failed' ? 'sip-status err' :
+    'sip-status warn';
 
   return (
     <div className="dialpad">
+      <div className={statusClass}>{statusLabel}</div>
+
       <div className="number-display" aria-live="polite">
-        {formatNumber(number) || ' '}
+        {formatNumber(number) || ' '}
       </div>
 
       <div className="keypad">
@@ -52,12 +71,6 @@ export default function Dialpad() {
             type="button"
             className="keypad-btn"
             onClick={() => append(digit)}
-            onContextMenu={(e) => {
-              if (digit === '0') {
-                e.preventDefault();
-                longPressZero();
-              }
-            }}
           >
             <span className="digit">{digit}</span>
             {letters && <span className="letters">{letters}</span>}
@@ -71,7 +84,7 @@ export default function Dialpad() {
           type="button"
           className="call-btn"
           onClick={handleCall}
-          disabled={!number}
+          disabled={!number || sipState !== 'registered'}
           aria-label="Call"
         >
           <Phone size={32} strokeWidth={2} fill="white" />

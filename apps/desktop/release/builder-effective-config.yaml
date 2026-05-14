@@ -1,0 +1,40 @@
+directories:
+  output: release
+  buildResources: assets
+appId: com.aptask.acedialer
+productName: ACE Dialer
+electronVersion: 31.7.7
+asar: true
+files:
+  - filter:
+      - dist/**/*
+      - package.json
+extraResources:
+  - from: ../web/dist
+    to: web
+    filter:
+      - '**/*'
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  publisherName: ApTask
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: ACE Dialer
+mac:
+  target:
+    - target: dmg
+      arch:
+        - x64
+        - arm64
+  category: public.app-category.business
+  hardenedRuntime: false
+linux:
+  target:
+    - AppImage

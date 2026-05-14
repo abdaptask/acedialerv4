@@ -271,3 +271,90 @@ body {
   font-size: 0.85rem;
   margin-top: 1rem;
 }
+
+/* ============ SIP STATUS BADGE ============ */
+.sip-status {
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  text-align: center;
+  padding: 0.4rem 0;
+  margin-top: 0.5rem;
+}
+.sip-status.ok { color: #34c759; }
+.sip-status.warn { color: rgba(255, 255, 255, 0.5); }
+.sip-status.err { color: #ff6961; }
+
+/* ============ IN-CALL SCREEN ============ */
+.in-call {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  max-width: 420px;
+  padding: 3rem 1.5rem 3rem;
+  min-height: 100%;
+  margin: 0 auto;
+}
+.in-call-number {
+  font-size: 2.4rem;
+  font-weight: 300;
+  text-align: center;
+  margin-top: 2rem;
+  color: #fff;
+  letter-spacing: 0.02em;
+}
+.in-call-status {
+  font-size: 1.05rem;
+  color: rgba(255, 255, 255, 0.6);
+  text-align: center;
+  margin-top: 0.6rem;
+  flex: 0 0 auto;
+}
+.in-call-controls {
+  display: flex;
+  gap: 2.5rem;
+  margin: 2.5rem 0;
+  justify-content: center;
+}
+.in-call-btn {
+  background: rgba(255, 255, 255, 0.15);
+  border: none;
+  color: #fff;
+  width: 75px;
+  height: 75px;
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.15rem;
+  padding: 0;
+  font-size: 0.65rem;
+  letter-spacing: 0.08em;
+  transition: background 0.08s ease;
+}
+.in-call-btn:hover:not(:disabled) { background: rgba(255, 255, 255, 0.25); }
+.in-call-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.in-call-btn.active { background: #fff; color: #000; }
+.in-call-btn span { font-weight: 600; }
+
+.hangup-btn {
+  background: #ff3b30;
+  border: none;
+  color: #fff;
+  width: 75px;
+  height: 75px;
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 1rem;
+  transition: background 0.08s ease, transform 0.08s ease;
+}
+.hangup-btn:hover { background: #d92e25; }
+.hangup-btn:active { transform: scale(0.94); }

@@ -3,6 +3,7 @@ import { Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import Login from './pages/Login';
 import Layout from './pages/Layout';
 import Dialpad from './pages/Dialpad';
+import InCall from './pages/InCall';
 import Recents from './pages/Recents';
 import Voicemail from './pages/Voicemail';
 import Contacts from './pages/Contacts';
@@ -17,10 +18,7 @@ export default function App() {
   const navigate = useNavigate();
 
   useEffect(() => {
-    if (!token) {
-      setLoading(false);
-      return;
-    }
+    if (!token) { setLoading(false); return; }
     getMe(token)
       .then((u) => setUser(u))
       .catch(() => {
@@ -58,6 +56,7 @@ export default function App() {
       >
         <Route index element={<Navigate to="/keypad" replace />} />
         <Route path="keypad" element={<Dialpad />} />
+        <Route path="in-call" element={<InCall />} />
         <Route path="favorites" element={<Favorites />} />
         <Route path="recents" element={<Recents />} />
         <Route path="contacts" element={<Contacts />} />
