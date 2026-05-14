@@ -1,7 +1,12 @@
 import { useEffect, useState } from 'react';
 import { Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import Login from './pages/Login';
-import Dashboard from './pages/Dashboard';
+import Layout from './pages/Layout';
+import Dialpad from './pages/Dialpad';
+import Recents from './pages/Recents';
+import Voicemail from './pages/Voicemail';
+import Contacts from './pages/Contacts';
+import Favorites from './pages/Favorites';
 import type { User } from './api';
 import { getMe } from './api';
 
@@ -11,7 +16,6 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
 
-  // On mount, if there's a token, validate it via /auth/me.
   useEffect(() => {
     if (!token) {
       setLoading(false);
@@ -30,7 +34,7 @@ export default function App() {
     sessionStorage.setItem('ace_token', newToken);
     setToken(newToken);
     setUser(newUser);
-    navigate('/dashboard');
+    navigate('/keypad');
   }
 
   function handleLogout() {
@@ -46,13 +50,20 @@ export default function App() {
     <Routes>
       <Route
         path="/login"
-        element={user ? <Navigate to="/dashboard" /> : <Login onSuccess={handleLoginSuccess} />}
+        element={user ? <Navigate to="/keypad" /> : <Login onSuccess={handleLoginSuccess} />}
       />
       <Route
-        path="/dashboard"
-        element={user ? <Dashboard user={user} onLogout={handleLogout} /> : <Navigate to="/login" />}
-      />
-      <Route path="*" element={<Navigate to={user ? '/dashboard' : '/login'} />} />
+        path="/"
+        element={user ? <Layout user={user} onLogout={handleLogout} /> : <Navigate to="/login" />}
+      >
+        <Route index element={<Navigate to="/keypad" replace />} />
+        <Route path="keypad" element={<Dialpad />} />
+        <Route path="favorites" element={<Favorites />} />
+        <Route path="recents" element={<Recents />} />
+        <Route path="contacts" element={<Contacts />} />
+        <Route path="voicemail" element={<Voicemail />} />
+      </Route>
+      <Route path="*" element={<Navigate to={user ? '/keypad' : '/login'} />} />
     </Routes>
   );
 }

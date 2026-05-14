@@ -1,1 +1,1 @@
-{"root":["./src/App.tsx","./src/api.ts","./src/main.tsx","./src/vite-env.d.ts","./src/pages/Dashboard.tsx","./src/pages/Login.tsx"],"version":"5.9.3"}
+{"root":["./src/App.tsx","./src/api.ts","./src/main.tsx","./src/vite-env.d.ts","./src/pages/Contacts.tsx","./src/pages/Dashboard.tsx","./src/pages/Dialpad.tsx","./src/pages/Favorites.tsx","./src/pages/Layout.tsx","./src/pages/Login.tsx","./src/pages/Recents.tsx","./src/pages/Voicemail.tsx"],"version":"5.9.3"}
