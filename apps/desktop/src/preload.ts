@@ -1,10 +1,19 @@
-// Preload — runs in an isolated context between Electron main and the renderer.
-// Anything exposed via contextBridge becomes window.aceDesktop.* in the React app.
-// Phase 3: just expose version + platform info. Native features come in Phase 4.
-import { contextBridge } from 'electron';
+// Preload — bridges Electron main process and renderer in a sandboxed way.
+// Anything exposed via contextBridge becomes window.ace.* in the React app.
+import { contextBridge, ipcRenderer } from 'electron';
 
 contextBridge.exposeInMainWorld('aceDesktop', {
   version: process.versions.electron,
   platform: process.platform,
   arch: process.arch,
+});
+
+// Phase 5.2: incoming-call bridge. Renderer asks main to wake the window when
+// an inbound call rings, so a minimized dialer pops to the front.
+contextBridge.exposeInMainWorld('ace', {
+  isElectron: true,
+  appVersion: process.env.npm_package_version,
+  onIncomingCall: (number?: string) => {
+    ipcRenderer.send('ace:incoming-call', { number });
+  },
 });

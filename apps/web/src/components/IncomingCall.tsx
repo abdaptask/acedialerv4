@@ -1,7 +1,6 @@
-// Phase 5.2: full-screen / banner UI shown when an inbound call rings.
-// Picks full-screen on /keypad (idle), banner everywhere else, so the user
-// doesn't get yanked out of a tab they were working in.
-import { useEffect } from 'react';
+// Phase 5.2: full-screen UI when an inbound call rings, plus OS-level
+// notification + Electron window restore so the user never misses a call.
+import { useEffect, useRef } from 'react';
 import { useLocation } from 'react-router-dom';
 import { Phone, PhoneOff } from 'lucide-react';
 import { useSip } from '../contexts/SipContext';
@@ -19,27 +18,83 @@ function formatNumber(n: string | undefined): string {
   return n;
 }
 
+// Ask permission for OS notifications lazily — most browsers want this off
+// a user gesture, but Electron grants it automatically.
+let notifPermissionAsked = false;
+async function ensureNotificationPermission(): Promise<boolean> {
+  if (typeof Notification === 'undefined') return false;
+  if (Notification.permission === 'granted') return true;
+  if (Notification.permission === 'denied') return false;
+  if (notifPermissionAsked) return false;
+  notifPermissionAsked = true;
+  try {
+    const p = await Notification.requestPermission();
+    return p === 'granted';
+  } catch {
+    return false;
+  }
+}
+
 export default function IncomingCall() {
   const { incoming, acceptCall, declineCall } = useSip();
   const location = useLocation();
+  const lastNotifiedRef = useRef<string | null>(null);
 
-  // Start/stop the ringtone in lockstep with the incoming call state.
+  // Side-effects when a new incoming call shows up.
   useEffect(() => {
-    if (incoming) {
-      ringtone.start();
-      return () => ringtone.stop();
+    if (!incoming) return;
+
+    // 1. Ringtone
+    ringtone.start();
+
+    // 2. Tell the Electron main process to restore/focus/flash the window.
+    //    The preload bridge exposes window.ace.onIncomingCall(...).
+    if (window.ace?.onIncomingCall) {
+      try {
+        window.ace.onIncomingCall(incoming.fromNumber ?? incoming.number);
+      } catch (e) {
+        console.warn('[incoming] electron bridge failed', e);
+      }
     }
-    return undefined;
+
+    // 3. OS notification (browser toast / Windows action center).
+    //    Only fire once per call, and only if the window isn't already focused.
+    if (incoming.callId && lastNotifiedRef.current !== incoming.callId) {
+      lastNotifiedRef.current = incoming.callId;
+      const hidden =
+        typeof document !== 'undefined' && (document.hidden || !document.hasFocus());
+      if (hidden) {
+        void (async () => {
+          const ok = await ensureNotificationPermission();
+          if (!ok) return;
+          try {
+            const n = new Notification('Incoming call', {
+              body: formatNumber(incoming.fromNumber ?? incoming.number),
+              tag: incoming.callId,
+              requireInteraction: true,
+              silent: true, // we already play our own ring
+            });
+            n.onclick = () => {
+              window.focus();
+              n.close();
+            };
+          } catch (e) {
+            console.warn('[incoming] Notification failed', e);
+          }
+        })();
+      }
+    }
+
+    return () => {
+      ringtone.stop();
+    };
   }, [incoming]);
 
   if (!incoming) return null;
 
-  // Electron: always go full-screen (this IS the dialer, not a side widget).
-  // Web: full-screen only on /keypad/login; slim banner on other tabs so the
-  // user can keep glancing at Recents/Contacts while accepting.
+  // Electron: always go full-screen. Web: full-screen on idle, banner elsewhere.
   const isElectron =
-    typeof navigator !== 'undefined' &&
-    /electron/i.test(navigator.userAgent);
+    typeof navigator !== 'undefined' && /electron/i.test(navigator.userAgent);
   const fullScreen =
     isElectron ||
     location.pathname === '/keypad' ||

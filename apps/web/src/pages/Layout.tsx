@@ -10,6 +10,9 @@ interface Props {
 
 export default function Layout({ user, onLogout }: Props) {
   const navigate = useNavigate();
+  const isElectron =
+    typeof navigator !== 'undefined' &&
+    /electron/i.test(navigator.userAgent);
 
   return (
     <div className="app-shell">
@@ -17,6 +20,7 @@ export default function Layout({ user, onLogout }: Props) {
 
       <header className="app-header">
         <span className="brand">ACE Dialer</span>
+        <span className="version">v{__APP_VERSION__}{isElectron ? ' · Desktop' : ' · Web'}</span>
         <span className="who">{user.firstName ?? user.email}</span>
         <div className="header-actions">
           <button className="icon-btn" onClick={() => navigate('/settings')} aria-label="Settings">

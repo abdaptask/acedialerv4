@@ -1,7 +1,6 @@
 // Electron main process — owns the application lifecycle, creates the window,
-// and (Phase 4+) bridges to native features (system tray, OS notifications,
-// keytar credential storage, SIP/audio if we keep PJSUA2).
-import { app, BrowserWindow, shell, Menu } from 'electron';
+// and (Phase 4+) bridges to native features (system tray, OS notifications, etc.).
+import { app, BrowserWindow, shell, Menu, ipcMain, Notification } from 'electron';
 import * as path from 'node:path';
 
 let mainWindow: BrowserWindow | null = null;
@@ -24,7 +23,6 @@ function createWindow() {
   });
 
   // ----- Grant media permissions without prompting -----
-  // Phase 4.5: grant everything for development. Tighten before production.
   const session = mainWindow.webContents.session;
   session.setPermissionRequestHandler((_wc, _permission, callback) => callback(true));
   session.setPermissionCheckHandler(() => true);
@@ -51,6 +49,52 @@ function createWindow() {
     mainWindow = null;
   });
 }
+
+// ----- IPC: incoming call from the renderer -----
+// Renderer fires this whenever a new inbound call starts ringing.
+// We restore the window from minimized, bring it to the foreground, flash the
+// taskbar icon, and (if focus is denied by Windows) show an OS notification
+// the user can click to focus.
+ipcMain.on('ace:incoming-call', (_event, payload: { number?: string }) => {
+  const win = mainWindow;
+  if (!win) return;
+
+  try {
+    if (win.isMinimized()) win.restore();
+    win.setAlwaysOnTop(true);
+    win.show();
+    win.focus();
+    // Drop always-on-top after a beat — we just wanted to surface it.
+    setTimeout(() => {
+      try { win.setAlwaysOnTop(false); } catch { /* noop */ }
+    }, 1500);
+    // Flash the taskbar to draw attention (no-op on macOS).
+    if (process.platform === 'win32') win.flashFrame(true);
+  } catch (e) {
+    console.error('[main] window surface failed', e);
+  }
+
+  // Belt-and-suspenders: native notification if window is somehow still hidden.
+  if (Notification.isSupported()) {
+    try {
+      const notif = new Notification({
+        title: 'Incoming call',
+        body: payload?.number ? `From ${payload.number}` : 'Tap to answer',
+        silent: true, // renderer plays its own ring
+      });
+      notif.on('click', () => {
+        try {
+          if (win.isMinimized()) win.restore();
+          win.show();
+          win.focus();
+        } catch { /* noop */ }
+      });
+      notif.show();
+    } catch (e) {
+      console.warn('[main] notification failed', e);
+    }
+  }
+});
 
 function buildMenu() {
   const isMac = process.platform === 'darwin';

@@ -708,3 +708,10 @@ body {
 .call-row.missed .call-meta {
   color: #ef4444;
 }
+
+.app-header .version {
+  font-size: 11px;
+  opacity: 0.45;
+  margin-left: 8px;
+  letter-spacing: 0.02em;
+}

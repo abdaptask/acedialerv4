@@ -1,9 +1,14 @@
 /// <reference types="vite/client" />
 
-interface ImportMetaEnv {
-  readonly VITE_API_URL?: string;
-}
+// Injected by vite.config.ts at build time.
+declare const __APP_VERSION__: string;
 
-interface ImportMeta {
-  readonly env: ImportMetaEnv;
+// Electron IPC bridge exposed by apps/desktop/src/preload.ts.
+interface AceElectronBridge {
+  onIncomingCall: (number?: string) => void;
+  isElectron: boolean;
+  appVersion?: string;
+}
+interface Window {
+  ace?: AceElectronBridge;
 }
