@@ -17,24 +17,17 @@ export function SipProvider({ children }: { children: React.ReactNode }) {
   const [callState, setCallState] = useState<CallEvent>({ state: 'idle' });
 
   useEffect(() => {
-    const wsUri = import.meta.env.VITE_SIP_WS_URL as string | undefined;
     const username = import.meta.env.VITE_SIP_USERNAME as string | undefined;
     const password = import.meta.env.VITE_SIP_PASSWORD as string | undefined;
-    const domain = (import.meta.env.VITE_SIP_DOMAIN as string | undefined) ?? 'sip.telnyx.com';
+    const callerNumber = import.meta.env.VITE_SIP_FROM_NUMBER as string | undefined;
 
-    if (!wsUri || !username || !password) {
-      console.warn('[sip] missing VITE_SIP_* env vars — calls will not work yet');
+    if (!username || !password) {
+      console.warn('[sip] missing VITE_SIP_USERNAME or VITE_SIP_PASSWORD — calls disabled');
       setSipState('failed');
       return;
     }
 
-    sipService.connect({
-      wsUri,
-      uri: `sip:${username}@${domain}`,
-      authorizationUser: username,
-      password,
-      displayName: 'ACE Dialer',
-    });
+    sipService.connect({ username, password, callerNumber });
 
     const offState = sipService.on<SipState>('state', (s) => setSipState(s));
     const offCall = sipService.on<CallEvent>('call', (e) => setCallState(e));

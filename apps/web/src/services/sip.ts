@@ -1,15 +1,15 @@
-// Thin wrapper around JsSIP. Phase 4.5: outbound calls only.
-import JsSIP from 'jssip';
+// Telnyx WebRTC service. Replaces the JsSIP-based implementation.
+// Telnyx's SDK handles SDP munging, TURN credentials, codec negotiation, and DTLS-SRTP
+// internally — all the things we were fighting manually with JsSIP.
+import { TelnyxRTC } from '@telnyx/webrtc';
 
 export type SipState = 'disconnected' | 'connecting' | 'registered' | 'failed';
 export type CallState = 'idle' | 'calling' | 'ringing' | 'connected' | 'ended';
 
 export interface SipConfig {
-  wsUri: string;
-  uri: string;
-  authorizationUser: string;
+  username: string;
   password: string;
-  displayName?: string;
+  callerNumber?: string;
 }
 
 export interface CallEvent {
@@ -28,14 +28,6 @@ function toE164(raw: string): string {
   return `+${cleaned}`;
 }
 
-function buildAudioConstraints(): MediaStreamConstraints['audio'] {
-  const micId = localStorage.getItem('ace_mic');
-  if (micId && micId !== 'default') {
-    return { deviceId: { exact: micId } };
-  }
-  return true;
-}
-
 function applySpeakerSelection(audioEl: HTMLAudioElement): void {
   const speakerId = localStorage.getItem('ace_speaker');
   if (speakerId && speakerId !== 'default' && 'setSinkId' in audioEl) {
@@ -47,10 +39,10 @@ function applySpeakerSelection(audioEl: HTMLAudioElement): void {
 }
 
 export class SipService {
+  private client: TelnyxRTC | null = null;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private ua: any = null;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private currentSession: any = null;
+  private currentCall: any = null;
+  private callerNumber: string = '';
   private audioEl: HTMLAudioElement;
   private listeners: Map<string, Set<Listener>> = new Map();
 
@@ -73,109 +65,123 @@ export class SipService {
   }
 
   connect(config: SipConfig): void {
-    if (this.ua) this.disconnect();
+    if (this.client) this.disconnect();
 
-    const socket = new JsSIP.WebSocketInterface(config.wsUri);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    this.ua = new (JsSIP as any).UA({
-      uri: config.uri,
+    this.callerNumber = config.callerNumber ?? '';
+
+    this.client = new TelnyxRTC({
+      login: config.username,
       password: config.password,
-      authorization_user: config.authorizationUser,
-      display_name: config.displayName,
-      sockets: [socket],
-      register: true,
-      session_timers: false,
     });
 
-    this.ua.on('connecting', () => this.emit<SipState>('state', 'connecting'));
-    this.ua.on('connected', () => this.emit<SipState>('state', 'connecting'));
-    this.ua.on('disconnected', () => this.emit<SipState>('state', 'disconnected'));
-    this.ua.on('registered', () => this.emit<SipState>('state', 'registered'));
-    this.ua.on('unregistered', () => this.emit<SipState>('state', 'disconnected'));
-    this.ua.on('registrationFailed', () => this.emit<SipState>('state', 'failed'));
+    this.client.on('telnyx.ready', () => {
+      console.log('[sip] telnyx.ready');
+      this.emit<SipState>('state', 'registered');
+    });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    this.ua.on('newRTCSession', (data: any) => {
-      this.bindSession(data.session);
+    this.client.on('telnyx.error', (e: any) => {
+      console.warn('[sip] telnyx.error', e);
+      this.emit<SipState>('state', 'failed');
     });
 
-    this.ua.start();
+    this.client.on('telnyx.socket.close', () => {
+      console.log('[sip] socket closed');
+      this.emit<SipState>('state', 'disconnected');
+    });
+
+    this.client.on('telnyx.socket.open', () => {
+      console.log('[sip] socket open');
+      this.emit<SipState>('state', 'connecting');
+    });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    this.client.on('telnyx.notification', (notif: any) => {
+      const call = notif.call;
+      if (!call) return;
+      this.currentCall = call;
+      console.log('[sip] call state', call.state, { id: call.id });
+
+      switch (call.state) {
+        case 'new':
+        case 'trying':
+        case 'requesting':
+          this.emit<CallEvent>('call', {
+            state: 'calling',
+            number: call.options?.destinationNumber,
+          });
+          break;
+        case 'ringing':
+        case 'early':
+          this.emit<CallEvent>('call', { state: 'ringing' });
+          break;
+        case 'answering':
+        case 'active':
+          this.emit<CallEvent>('call', { state: 'connected' });
+          // SDK attaches remoteStream automatically via remoteElement option, but be safe.
+          if (call.remoteStream && this.audioEl) {
+            this.audioEl.srcObject = call.remoteStream;
+            this.audioEl.play().catch(() => {});
+            applySpeakerSelection(this.audioEl);
+          }
+          break;
+        case 'hangup':
+        case 'destroy':
+        case 'purge':
+          this.emit<CallEvent>('call', { state: 'ended' });
+          this.currentCall = null;
+          break;
+      }
+    });
+
+    this.emit<SipState>('state', 'connecting');
+    this.client.connect();
   }
 
   call(rawNumber: string): void {
-    if (!this.ua) throw new Error('SIP not connected');
+    if (!this.client) throw new Error('SIP not connected');
     const e164 = toE164(rawNumber);
-    const targetUri = `sip:${e164}@sip.telnyx.com`;
-    console.log('[sip] dialing', { rawNumber, e164, targetUri });
+    console.log('[sip] dialing', { rawNumber, e164, callerNumber: this.callerNumber });
 
     applySpeakerSelection(this.audioEl);
 
-    this.currentSession = this.ua.call(targetUri, {
-      mediaConstraints: { audio: buildAudioConstraints(), video: false },
-      rtcOfferConstraints: { offerToReceiveAudio: true, offerToReceiveVideo: false },
-      pcConfig: {
-        iceServers: [
-          { urls: 'stun:stun.telnyx.com:3478' },
-          { urls: 'stun:stun.l.google.com:19302' },
-        ],
-      },
+    this.currentCall = this.client.newCall({
+      destinationNumber: e164,
+      callerNumber: this.callerNumber,
+      callerName: 'ACE Dialer',
+      audio: true,
+      video: false,
+      remoteElement: 'ace-remote-audio',
     });
-    this.bindSession(this.currentSession);
     this.emit<CallEvent>('call', { state: 'calling', number: e164 });
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private bindSession(session: any): void {
-    this.currentSession = session;
-
-    session.on('progress', () => this.emit<CallEvent>('call', { state: 'ringing' }));
-    session.on('accepted', () => this.emit<CallEvent>('call', { state: 'connected' }));
-    session.on('confirmed', () => this.emit<CallEvent>('call', { state: 'connected' }));
-    session.on('ended', () => {
-      this.emit<CallEvent>('call', { state: 'ended' });
-      this.currentSession = null;
-    });
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    session.on('failed', (e: any) => {
-      const reason = e?.cause ?? e?.message?.reason_phrase ?? 'failed';
-      console.warn('[sip] call failed', { reason, raw: e });
-      this.emit<CallEvent>('call', { state: 'ended', reason });
-      this.currentSession = null;
-    });
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    session.on('peerconnection', (data: any) => {
-      const pc: RTCPeerConnection = data.peerconnection;
-      pc.addEventListener('track', (ev: RTCTrackEvent) => {
-        if (ev.streams && ev.streams[0]) {
-          this.audioEl.srcObject = ev.streams[0];
-          applySpeakerSelection(this.audioEl);
-        }
-      });
-    });
-  }
-
   hangup(): void {
-    this.currentSession?.terminate();
+    if (this.currentCall && typeof this.currentCall.hangup === 'function') {
+      this.currentCall.hangup();
+    }
   }
 
   toggleMute(): boolean {
-    if (!this.currentSession) return false;
-    const isMuted = this.currentSession.isMuted().audio;
-    if (isMuted) this.currentSession.unmute({ audio: true });
-    else this.currentSession.mute({ audio: true });
-    return !isMuted;
+    if (!this.currentCall) return false;
+    if (typeof this.currentCall.toggleAudioMute === 'function') {
+      this.currentCall.toggleAudioMute();
+      return Boolean(this.currentCall.audioMuted);
+    }
+    return false;
   }
 
   sendDTMF(digit: string): void {
-    this.currentSession?.sendDTMF(digit);
+    if (this.currentCall && typeof this.currentCall.dtmf === 'function') {
+      this.currentCall.dtmf(digit);
+    }
   }
 
   disconnect(): void {
-    this.currentSession?.terminate();
-    this.ua?.stop();
-    this.ua = null;
-    this.currentSession = null;
+    this.hangup();
+    this.client?.disconnect();
+    this.client = null;
+    this.currentCall = null;
   }
 }
 
