@@ -30,7 +30,11 @@ function createWindow() {
   const devUrl = process.env.VITE_DEV_SERVER_URL;
   if (devUrl) {
     mainWindow.loadURL(devUrl);
-    mainWindow.webContents.openDevTools({ mode: 'detach' });
+    // Only auto-open DevTools when explicitly requested. Otherwise the user
+    // can toggle via Ctrl+Shift+I or View menu.
+    if (process.env.ACE_DEVTOOLS === '1') {
+      mainWindow.webContents.openDevTools({ mode: 'detach' });
+    }
   } else {
     const indexPath = path.join(process.resourcesPath, 'web', 'index.html');
     mainWindow.loadFile(indexPath);
