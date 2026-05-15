@@ -3,11 +3,18 @@
 // Injected by vite.config.ts at build time.
 declare const __APP_VERSION__: string;
 
-// Electron IPC bridge exposed by apps/desktop/src/preload.ts.
+// Electron preload bridge (apps/desktop/src/preload.ts).
 interface AceElectronBridge {
-  onIncomingCall: (number?: string) => void;
   isElectron: boolean;
   appVersion?: string;
+  onIncomingCall: (number?: string, callId?: string) => void;
+  acceptCall: () => void;
+  declineCall: () => void;
+  notifyCallEnded: () => void;
+  onAcceptRequest: (cb: () => void) => () => void;
+  onDeclineRequest: (cb: () => void) => () => void;
+  onClose: (cb: () => void) => () => void;
+  getQueryParam: (name: string) => string | null;
 }
 interface Window {
   ace?: AceElectronBridge;

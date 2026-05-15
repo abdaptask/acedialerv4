@@ -30,6 +30,7 @@ export function SipProvider({ children }: { children: React.ReactNode }) {
   const [incoming, setIncoming] = useState<CallEvent | null>(null);
   const logRef = useRef<Map<string, CallLogState>>(new Map());
   const rejectedRef = useRef<Set<string>>(new Set());
+  const currentIncomingRef = useRef<string | null>(null);
 
   useEffect(() => {
     const username = import.meta.env.VITE_SIP_USERNAME as string | undefined;
@@ -44,11 +45,35 @@ export function SipProvider({ children }: { children: React.ReactNode }) {
 
     sipService.connect({ username, password, callerNumber });
 
+    // ----- Electron floating-ringer bridge -----
+    // The ringer popup (managed by the Electron main process) emits accept /
+    // decline events here. We respond just as if the user clicked the in-app
+    // Accept/Decline buttons.
+    const offAccept = window.ace?.onAcceptRequest?.(() => {
+      sipService.acceptCall();
+    });
+    const offDecline = window.ace?.onDeclineRequest?.(() => {
+      if (currentIncomingRef.current) {
+        rejectedRef.current.add(currentIncomingRef.current);
+      }
+      sipService.declineCall();
+      setIncoming(null);
+    });
+
     const offState = sipService.on<SipState>('state', (s) => setSipState(s));
     const offCall = sipService.on<CallEvent>('call', (e) => {
       // Inbound ringing -> show ring UI; don't overwrite callState yet.
       if (e.state === 'incoming') {
         setIncoming(e);
+        currentIncomingRef.current = e.callId ?? null;
+        // Tell Electron main to pop the floating ringer.
+        if (window.ace?.onIncomingCall) {
+          try {
+            window.ace.onIncomingCall(e.fromNumber ?? e.number, e.callId);
+          } catch (err) {
+            console.warn('[sip] electron bridge failed', err);
+          }
+        }
       } else {
         setCallState(e);
         // ALWAYS clear the incoming banner the moment we receive a non-incoming
@@ -57,8 +82,20 @@ export function SipProvider({ children }: { children: React.ReactNode }) {
         // captured by this listener's closure.
         setIncoming((prev) => {
           if (!prev) return prev;
-          if (prev.callId === e.callId) return null;
-          if (e.state === 'ended') return null;
+          if (prev.callId === e.callId) {
+            currentIncomingRef.current = null;
+            if (window.ace?.notifyCallEnded) {
+              try { window.ace.notifyCallEnded(); } catch { /* noop */ }
+            }
+            return null;
+          }
+          if (e.state === 'ended') {
+            currentIncomingRef.current = null;
+            if (window.ace?.notifyCallEnded) {
+              try { window.ace.notifyCallEnded(); } catch { /* noop */ }
+            }
+            return null;
+          }
           return prev;
         });
       }
@@ -68,6 +105,8 @@ export function SipProvider({ children }: { children: React.ReactNode }) {
     return () => {
       offState();
       offCall();
+      if (offAccept) offAccept();
+      if (offDecline) offDecline();
       sipService.disconnect();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
