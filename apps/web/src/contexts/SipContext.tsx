@@ -51,11 +51,16 @@ export function SipProvider({ children }: { children: React.ReactNode }) {
         setIncoming(e);
       } else {
         setCallState(e);
-        // If the ringing inbound transitioned (accepted/declined/ended),
-        // clear the incoming banner.
-        if (incoming && (e.callId === incoming.callId || e.state === 'ended')) {
-          setIncoming(null);
-        }
+        // ALWAYS clear the incoming banner the moment we receive a non-incoming
+        // event for the same call (or any 'ended' event). Use the functional
+        // setter form so we read the LATEST incoming value, not a stale one
+        // captured by this listener's closure.
+        setIncoming((prev) => {
+          if (!prev) return prev;
+          if (prev.callId === e.callId) return null;
+          if (e.state === 'ended') return null;
+          return prev;
+        });
       }
       void logCallEvent(e, logRef.current, rejectedRef.current);
     });
