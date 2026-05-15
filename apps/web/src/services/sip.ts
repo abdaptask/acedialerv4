@@ -109,21 +109,41 @@ export class SipService {
 
       console.log('[sip] call state', call.state, {
         id: call.id,
-        direction: call.direction,
+        rawDirection: call.direction,
+        options: call.options,
         cause: call.cause,
         causeCode: call.causeCode,
         sipCode: call.sipCode,
         sipReason: call.sipReason,
       });
 
-      // For inbound calls Telnyx fields:
-      //   call.options.remoteCallerNumber = the PSTN caller
-      //   call.options.destinationNumber  = OUR DID (the one they dialed)
-      const direction: 'inbound' | 'outbound' =
-        call.direction === 'inbound' ? 'inbound' : 'outbound';
+      // Robust direction detection. The Telnyx SDK's call.direction field
+      // isn't always reliable (varies by version), so we also infer from:
+      //   - call.options.remoteCallerNumber: set on inbound only by some SDK versions
+      //   - whether we initiated the call (this.currentCall set in our call() method)
+      //   - whether the call's destination matches OUR number (= someone dialed us)
+      const sdkDir = String(call.direction ?? '').toLowerCase();
       const destNumber: string | undefined = call.options?.destinationNumber;
       const remoteCaller: string | undefined =
         call.options?.remoteCallerNumber ?? call.options?.callerNumber;
+      const weInitiated = this.currentCall && this.currentCall.id === call.id;
+
+      let direction: 'inbound' | 'outbound';
+      if (sdkDir === 'inbound' || sdkDir === 'incoming') {
+        direction = 'inbound';
+      } else if (sdkDir === 'outbound' || sdkDir === 'outgoing') {
+        direction = 'outbound';
+      } else if (weInitiated) {
+        direction = 'outbound';
+      } else if (destNumber && this.callerNumber && destNumber === this.callerNumber) {
+        // Call destined to OUR number that we didn't initiate -> inbound.
+        direction = 'inbound';
+      } else if (remoteCaller && !weInitiated) {
+        direction = 'inbound';
+      } else {
+        direction = 'outbound';
+      }
+
       const fromNumber = direction === 'outbound' ? this.callerNumber : remoteCaller;
       const toNumber = direction === 'outbound' ? destNumber : this.callerNumber;
 

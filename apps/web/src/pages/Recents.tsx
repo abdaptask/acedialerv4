@@ -40,13 +40,35 @@ function formatTime(iso: string): string {
   return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
 }
 
+function isMissed(c: CallRecord): boolean {
+  // Any inbound call that didn't connect counts as red:
+  // - missed (rang out)
+  // - no_answer (Telnyx-side timeout)
+  // - rejected (user clicked Decline)
+  // - failed
+  if (c.direction !== 'inbound') return false;
+  return (
+    c.status === 'missed' ||
+    c.status === 'no_answer' ||
+    c.status === 'rejected' ||
+    c.status === 'failed'
+  );
+}
+
 function callIcon(c: CallRecord) {
-  const missed =
-    c.direction === 'inbound' &&
-    (c.status === 'no_answer' || c.status === 'missed' || c.status === 'failed');
-  if (missed) return <PhoneMissed size={18} className="ico missed" />;
+  if (isMissed(c)) return <PhoneMissed size={18} className="ico missed" />;
   if (c.direction === 'inbound') return <PhoneIncoming size={18} className="ico in" />;
   return <PhoneOutgoing size={18} className="ico out" />;
+}
+
+function statusLabel(c: CallRecord): string {
+  if (c.direction === 'inbound') {
+    if (c.status === 'rejected') return 'Declined';
+    if (c.status === 'missed' || c.status === 'no_answer') return 'Missed';
+    if (c.status === 'failed') return 'Failed';
+    return 'Incoming';
+  }
+  return 'Outgoing';
 }
 
 export default function Recents() {
@@ -103,14 +125,19 @@ export default function Recents() {
       <ul className="call-list">
         {calls.map((c) => {
           const number = c.direction === 'inbound' ? c.fromNumber : c.toNumber;
+          const missed = isMissed(c);
           return (
-            <li key={c.id} className="call-row" onClick={() => handleCallBack(c)}>
+            <li
+              key={c.id}
+              className={`call-row${missed ? ' missed' : ''}`}
+              onClick={() => handleCallBack(c)}
+            >
               <div className="call-left">
                 {callIcon(c)}
                 <div className="call-text">
                   <div className="call-number">{formatNumber(number)}</div>
                   <div className="call-meta">
-                    {c.direction === 'inbound' ? 'Incoming' : 'Outgoing'}
+                    {statusLabel(c)}
                     {c.durationSeconds > 0 && ` · ${formatDuration(c.durationSeconds)}`}
                   </div>
                 </div>

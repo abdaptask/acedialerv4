@@ -702,3 +702,9 @@ body {
   50% { opacity: 0.8; }
   80%, 100% { opacity: 0.2; }
 }
+
+/* Missed / rejected inbound calls: red number + red meta text */
+.call-row.missed .call-number,
+.call-row.missed .call-meta {
+  color: #ef4444;
+}

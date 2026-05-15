@@ -29,6 +29,7 @@ export function SipProvider({ children }: { children: React.ReactNode }) {
   const [callState, setCallState] = useState<CallEvent>({ state: 'idle' });
   const [incoming, setIncoming] = useState<CallEvent | null>(null);
   const logRef = useRef<Map<string, CallLogState>>(new Map());
+  const rejectedRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     const username = import.meta.env.VITE_SIP_USERNAME as string | undefined;
@@ -56,7 +57,7 @@ export function SipProvider({ children }: { children: React.ReactNode }) {
           setIncoming(null);
         }
       }
-      void logCallEvent(e, logRef.current);
+      void logCallEvent(e, logRef.current, rejectedRef.current);
     });
 
     return () => {
@@ -75,6 +76,8 @@ export function SipProvider({ children }: { children: React.ReactNode }) {
     hangup: () => sipService.hangup(),
     acceptCall: () => sipService.acceptCall(),
     declineCall: () => {
+      // Tag the call so logCallEvent records it as 'rejected' instead of 'missed'.
+      if (incoming?.callId) rejectedRef.current.add(incoming.callId);
       sipService.declineCall();
       setIncoming(null);
     },
@@ -92,7 +95,11 @@ export function useSip(): SipContextValue {
 }
 
 // ---------- Call history logging ----------
-async function logCallEvent(event: CallEvent, log: Map<string, CallLogState>): Promise<void> {
+async function logCallEvent(
+  event: CallEvent,
+  log: Map<string, CallLogState>,
+  rejected: Set<string>,
+): Promise<void> {
   const token = sessionStorage.getItem('ace_token');
   if (!token) return;
   if (!event.callId) return;
@@ -143,15 +150,18 @@ async function logCallEvent(event: CallEvent, log: Map<string, CallLogState>): P
       ? Math.max(0, Math.floor((endedAt - entry.answeredAt) / 1000))
       : 0;
     const cause = (event.hangupCause ?? '').toLowerCase();
+    const wasRejected = event.callId ? rejected.has(event.callId) : false;
     const status = entry.answeredAt
       ? 'completed'
-      : cause === 'no_answer'
-        ? 'no_answer'
-        : cause === 'normal_clearing'
-          ? 'completed'
-          : event.direction === 'inbound'
-            ? 'missed'
-            : 'failed';
+      : wasRejected
+        ? 'rejected'
+        : cause === 'no_answer'
+          ? 'no_answer'
+          : cause === 'normal_clearing'
+            ? 'completed'
+            : event.direction === 'inbound'
+              ? 'missed'
+              : 'failed';
 
     if (entry.posted) {
       try {
