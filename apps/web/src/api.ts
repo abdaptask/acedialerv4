@@ -59,3 +59,50 @@ export async function getCalls(token: string): Promise<CallRecord[]> {
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 }
+
+export interface CreateCallInput {
+  telnyxCallId: string;
+  direction?: 'inbound' | 'outbound';
+  fromNumber: string;
+  toNumber: string;
+  status?: string;
+  startedAt?: string;
+}
+
+export async function createCall(token: string, input: CreateCallInput): Promise<CallRecord> {
+  const res = await fetch(`${API_URL}/calls`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+export interface UpdateCallInput {
+  status?: string;
+  answeredAt?: string | null;
+  endedAt?: string | null;
+  durationSeconds?: number;
+  hangupCause?: string | null;
+}
+
+export async function updateCall(
+  token: string,
+  idOrTelnyxCallId: string | number,
+  input: UpdateCallInput
+): Promise<CallRecord> {
+  const res = await fetch(`${API_URL}/calls/${idOrTelnyxCallId}`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}

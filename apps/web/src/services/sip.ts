@@ -16,6 +16,11 @@ export interface CallEvent {
   state: CallState;
   number?: string;
   reason?: string;
+  callId?: string;
+  fromNumber?: string;
+  toNumber?: string;
+  direction?: 'inbound' | 'outbound';
+  hangupCause?: string;
 }
 
 type Listener<T = unknown> = (payload: T) => void;
@@ -108,23 +113,35 @@ export class SipService {
         sipReason: call.sipReason,
       });
 
+      const direction: 'inbound' | 'outbound' = call.direction === 'inbound' ? 'inbound' : 'outbound';
+      const destNumber: string | undefined = call.options?.destinationNumber;
+      const remoteCaller: string | undefined =
+        call.options?.remoteCallerNumber ?? call.options?.callerNumber;
+      const fromNumber = direction === 'outbound' ? this.callerNumber : remoteCaller;
+      const toNumber = direction === 'outbound' ? destNumber : this.callerNumber;
+
+      const baseEvent: CallEvent = {
+        state: 'idle',
+        callId: call.id,
+        fromNumber,
+        toNumber,
+        direction,
+        number: destNumber,
+      };
+
       switch (call.state) {
         case 'new':
         case 'trying':
         case 'requesting':
-          this.emit<CallEvent>('call', {
-            state: 'calling',
-            number: call.options?.destinationNumber,
-          });
+          this.emit<CallEvent>('call', { ...baseEvent, state: 'calling' });
           break;
         case 'ringing':
         case 'early':
-          this.emit<CallEvent>('call', { state: 'ringing' });
+          this.emit<CallEvent>('call', { ...baseEvent, state: 'ringing' });
           break;
         case 'answering':
         case 'active':
-          this.emit<CallEvent>('call', { state: 'connected' });
-          // SDK attaches remoteStream automatically via remoteElement option, but be safe.
+          this.emit<CallEvent>('call', { ...baseEvent, state: 'connected' });
           if (call.remoteStream && this.audioEl) {
             this.audioEl.srcObject = call.remoteStream;
             this.audioEl.play().catch(() => {});
@@ -134,7 +151,11 @@ export class SipService {
         case 'hangup':
         case 'destroy':
         case 'purge':
-          this.emit<CallEvent>('call', { state: 'ended' });
+          this.emit<CallEvent>('call', {
+            ...baseEvent,
+            state: 'ended',
+            hangupCause: call.cause ?? call.sipReason ?? undefined,
+          });
           this.currentCall = null;
           break;
       }
@@ -159,7 +180,14 @@ export class SipService {
       video: false,
       remoteElement: 'ace-remote-audio',
     });
-    this.emit<CallEvent>('call', { state: 'calling', number: e164 });
+    this.emit<CallEvent>('call', {
+      state: 'calling',
+      number: e164,
+      callId: this.currentCall?.id,
+      fromNumber: this.callerNumber,
+      toNumber: e164,
+      direction: 'outbound',
+    });
   }
 
   hangup(): void {
