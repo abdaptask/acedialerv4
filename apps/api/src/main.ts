@@ -8,6 +8,7 @@ import { config } from './config.js';
 import { authRoutes } from './auth/auth.routes.js';
 import { callsRoutes } from './calls/calls.routes.js';
 import { messagesRoutes } from './messages/messages.routes.js';
+import { voicemailsRoutes } from './voicemails/voicemails.routes.js';
 
 const SERVICE_NAME = 'ace-dialer-api';
 const START_TIME = new Date().toISOString();
@@ -56,6 +57,7 @@ app.get('/health', async () => ({
 await app.register(authRoutes);
 await app.register(callsRoutes);
 await app.register(messagesRoutes);
+await app.register(voicemailsRoutes);
 
 const host = '0.0.0.0';
 try {

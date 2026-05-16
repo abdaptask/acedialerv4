@@ -65,6 +65,7 @@ export default function App() {
         <Route path="contacts" element={<Contacts />} />
         <Route path="voicemail" element={<Voicemail />} />
         <Route path="settings" element={<Settings />} />
+        <Route path="settings/:section" element={<Settings />} />
       </Route>
       <Route path="*" element={<Navigate to={user ? '/keypad' : '/login'} />} />
     </Routes>

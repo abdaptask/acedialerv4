@@ -30,6 +30,7 @@ model User {
 
   calls           Call[]
   messages        Message[]
+  voicemails      Voicemail[]
 
   @@map("users")
 }
@@ -40,6 +41,10 @@ model Call {
   user            User      @relation(fields: [userId], references: [id])
   telnyxCallId    String    @unique @map("telnyx_call_id")
   sessionId       String?   @map("session_id")
+  /// Telnyx Voice API Call Control ID, populated by the webhook handler when
+  /// Call Control is enabled on the SIP connection. Needed to bridge two legs
+  /// into a 3-way conference.
+  callControlId   String?   @map("call_control_id")
   direction       String    // 'inbound' | 'outbound'
   fromNumber      String    @map("from_number")
   toNumber        String    @map("to_number")
@@ -82,4 +87,28 @@ model Message {
   @@index([userId, threadKey, createdAt])
   @@index([userId, createdAt])
   @@map("messages")
+}
+
+// Phase 5.6 — Voicemail.
+// Populated by the webhook when Telnyx finishes recording an unanswered call.
+model Voicemail {
+  id              Int       @id @default(autoincrement())
+  userId          Int       @map("user_id")
+  user            User      @relation(fields: [userId], references: [id])
+  telnyxCallId    String?   @map("telnyx_call_id")
+  /// Caller's E.164 number.
+  fromNumber      String    @map("from_number")
+  /// The DID the caller dialed (our number).
+  toNumber        String    @map("to_number")
+  recordingUrl    String    @map("recording_url")
+  durationSeconds Int       @default(0) @map("duration_seconds")
+  transcription   String?
+  /// When the caller hung up after leaving the message.
+  receivedAt      DateTime  @map("received_at")
+  listenedAt      DateTime? @map("listened_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt      @map("updated_at")
+
+  @@index([userId, receivedAt])
+  @@map("voicemails")
 }

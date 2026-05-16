@@ -66,6 +66,7 @@ app.post('/webhooks/telnyx/calls', async (request) => {
     const direction = payload.direction === 'outgoing' ? 'outbound' : 'inbound';
     const fromNumber: string = payload.from ?? '';
     const toNumber: string = payload.to ?? '';
+    const callControlId: string | undefined = payload.call_control_id;
 
     app.log.info(
       { eventType: event.event_type, callId, direction, fromNumber, toNumber },
@@ -76,11 +77,15 @@ app.post('/webhooks/telnyx/calls', async (request) => {
       case 'call.initiated': {
         await prisma.call.upsert({
           where: { telnyxCallId: callId },
-          update: { status: 'initiated' },
+          update: {
+            status: 'initiated',
+            ...(callControlId ? { callControlId } : {}),
+          },
           create: {
             userId: PILOT_USER_ID,
             telnyxCallId: callId,
             sessionId: payload.call_session_id ?? null,
+            callControlId: callControlId ?? null,
             direction,
             fromNumber,
             toNumber,
@@ -98,6 +103,7 @@ app.post('/webhooks/telnyx/calls', async (request) => {
           data: {
             status: 'answered',
             answeredAt: new Date(),
+            ...(callControlId ? { callControlId } : {}),
           },
         });
         break;
@@ -285,6 +291,142 @@ app.post('/webhooks/telnyx/sms', async (request) => {
 app.post('/webhooks/telnyx/failover', async (request) => {
   app.log.info({ payload: request.body }, '[telnyx] failover event');
   return { received: true };
+});
+
+// ---------- Phase 5.6: TexML inbound flow ----------
+// Point a Telnyx TexML application at this URL on your DID's voice settings.
+// When a PSTN call comes in, Telnyx fetches this and follows the instructions:
+//   1. Dial the WebRTC user for up to 25s.
+//   2. If the user is busy / declines / times out, fall through to greet + record.
+//   3. The recording finalisation hits /webhooks/telnyx/voicemail which inserts
+//      a Voicemail row.
+//
+// Configure once: Telnyx Portal → Voice → TexML Applications → New →
+//   Webhook URL: https://<this-host>/texml/inbound  Method: POST or GET
+//   Then on your DID → Voice settings → assign this TexML application.
+//
+// Env vars consumed:
+//   PILOT_SIP_USERNAME   the WebRTC user's SIP credential username
+//                        (URI becomes sip:<username>@sip.telnyx.com)
+//   PILOT_VOICEMAIL_GREETING (optional) override the default Polly greeting
+const texmlHandler = async () => {
+  const sipUser = process.env.PILOT_SIP_USERNAME ?? '';
+  const greeting =
+    process.env.PILOT_VOICEMAIL_GREETING ??
+    'You\'ve reached ACE Dialer. Please leave a message after the tone, then press pound or hang up.';
+
+  if (!sipUser) {
+    app.log.warn('[texml] PILOT_SIP_USERNAME not set; returning hangup-only flow');
+  }
+
+  // Telnyx's TexML reference is a Twilio-compatible superset.
+  //   <Dial><Sip>…</Sip></Dial>      → bridge to SIP target
+  //   timeout                        → seconds before considering no-answer
+  //   <Say>                          → text-to-speech
+  //   <Record maxLength transcribe action> → record voicemail + POST to action
+  //   <Hangup/>                      → end the call
+  const xml = sipUser
+    ? `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Dial timeout="25" answerOnBridge="true">
+    <Sip>sip:${sipUser}@sip.telnyx.com</Sip>
+  </Dial>
+  <Say voice="Polly.Joanna">${greeting}</Say>
+  <Record maxLength="120"
+          playBeep="true"
+          transcribe="true"
+          action="/webhooks/telnyx/voicemail"
+          method="POST"
+          finishOnKey="#" />
+  <Hangup/>
+</Response>`
+    : `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say voice="Polly.Joanna">Service not yet configured.</Say>
+  <Hangup/>
+</Response>`;
+
+  return xml;
+};
+
+app.get('/texml/inbound', async (_request, reply) => {
+  const xml = await texmlHandler();
+  reply.type('application/xml').send(xml);
+});
+app.post('/texml/inbound', async (_request, reply) => {
+  const xml = await texmlHandler();
+  reply.type('application/xml').send(xml);
+});
+
+// Phase 5.6 — Voicemail recording webhook.
+// Telnyx Call Control flow: on no-answer, transfer the call to a recording
+// action that records the caller's message and fires a webhook to this URL
+// (or call.recording.saved with a custom client_state tag we set in the flow).
+// Accepts both shapes:
+//   - data.event_type === 'call.recording.saved' WITH client_state === 'voicemail'
+//   - top-level { from, to, recording_url, duration_seconds, transcription, telnyx_call_id }
+app.post('/webhooks/telnyx/voicemail', async (request) => {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const body = request.body as any;
+
+    // Variant A — Telnyx native event envelope.
+    const event = body?.data;
+    let fromNumber: string | undefined;
+    let toNumber: string | undefined;
+    let recordingUrl: string | undefined;
+    let durationSeconds = 0;
+    let telnyxCallId: string | undefined;
+    let receivedAt: Date = new Date();
+    let transcription: string | undefined;
+
+    if (event?.payload) {
+      const payload = event.payload;
+      fromNumber = payload.from;
+      toNumber = payload.to;
+      const urls = payload.recording_urls?.mp3 ?? payload.recording_urls ?? [];
+      recordingUrl = Array.isArray(urls) ? urls[0] : urls;
+      durationSeconds = payload.recording_duration_millis
+        ? Math.floor(payload.recording_duration_millis / 1000)
+        : 0;
+      telnyxCallId = payload.call_session_id ?? payload.call_control_id;
+      if (payload.start_time) receivedAt = new Date(payload.start_time);
+      transcription = payload.transcription?.text;
+    } else {
+      // Variant B — minimal custom shape.
+      fromNumber = body?.from;
+      toNumber = body?.to;
+      recordingUrl = body?.recording_url;
+      durationSeconds = Number(body?.duration_seconds ?? 0);
+      telnyxCallId = body?.telnyx_call_id;
+      transcription = body?.transcription;
+      if (body?.received_at) receivedAt = new Date(body.received_at);
+    }
+
+    if (!fromNumber || !recordingUrl) {
+      app.log.warn({ body }, '[telnyx] voicemail webhook missing from or recording_url');
+      return { received: true };
+    }
+
+    await prisma.voicemail.create({
+      data: {
+        userId: PILOT_USER_ID,
+        telnyxCallId: telnyxCallId ?? null,
+        fromNumber,
+        toNumber: toNumber ?? PILOT_NUMBER,
+        recordingUrl,
+        durationSeconds,
+        transcription: transcription ?? null,
+        receivedAt,
+      },
+    });
+
+    app.log.info({ fromNumber, recordingUrl, durationSeconds }, '[telnyx] voicemail recorded');
+    return { received: true };
+  } catch (e) {
+    app.log.error({ err: e }, '[telnyx] voicemail handler error');
+    return { received: true, error: String(e) };
+  }
 });
 
 // Catch-all for any path we didn't register — helps diagnose if Telnyx is posting

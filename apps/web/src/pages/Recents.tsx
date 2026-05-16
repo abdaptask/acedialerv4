@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { PhoneIncoming, PhoneOutgoing, PhoneMissed, Phone, RefreshCcw } from 'lucide-react';
+import { PhoneIncoming, PhoneOutgoing, PhoneMissed, Phone, RefreshCcw, Play } from 'lucide-react';
 import { getCalls, type CallRecord } from '../api';
 import { useSip } from '../contexts/SipContext';
 
@@ -75,6 +75,7 @@ export default function Recents() {
   const [calls, setCalls] = useState<CallRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [expandedId, setExpandedId] = useState<number | null>(null);
   const { sipState, call } = useSip();
   const navigate = useNavigate();
 
@@ -126,26 +127,48 @@ export default function Recents() {
         {calls.map((c) => {
           const number = c.direction === 'inbound' ? c.fromNumber : c.toNumber;
           const missed = isMissed(c);
+          const isExpanded = expandedId === c.id;
           return (
             <li
               key={c.id}
-              className={`call-row${missed ? ' missed' : ''}`}
-              onClick={() => handleCallBack(c)}
+              className={`call-row${missed ? ' missed' : ''}${isExpanded ? ' expanded' : ''}`}
             >
-              <div className="call-left">
-                {callIcon(c)}
-                <div className="call-text">
-                  <div className="call-number">{formatNumber(number)}</div>
-                  <div className="call-meta">
-                    {statusLabel(c)}
-                    {c.durationSeconds > 0 && ` · ${formatDuration(c.durationSeconds)}`}
+              <div className="call-row-main" onClick={() => handleCallBack(c)}>
+                <div className="call-left">
+                  {callIcon(c)}
+                  <div className="call-text">
+                    <div className="call-number">{formatNumber(number)}</div>
+                    <div className="call-meta">
+                      {statusLabel(c)}
+                      {c.durationSeconds > 0 && ` · ${formatDuration(c.durationSeconds)}`}
+                      {c.recordingUrl && ' · Recorded'}
+                    </div>
                   </div>
                 </div>
+                <div className="call-right">
+                  {c.recordingUrl && (
+                    <button
+                      type="button"
+                      className="callback-ico recording-toggle"
+                      aria-label={isExpanded ? 'Hide recording' : 'Play recording'}
+                      title={isExpanded ? 'Hide recording' : 'Play recording'}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setExpandedId(isExpanded ? null : c.id);
+                      }}
+                    >
+                      <Play size={16} />
+                    </button>
+                  )}
+                  <span className="call-time">{formatTime(c.startedAt)}</span>
+                  <Phone size={18} className="callback-ico" />
+                </div>
               </div>
-              <div className="call-right">
-                <span className="call-time">{formatTime(c.startedAt)}</span>
-                <Phone size={18} className="callback-ico" />
-              </div>
+              {isExpanded && c.recordingUrl && (
+                <div className="call-recording">
+                  <audio controls src={c.recordingUrl} preload="none" style={{ width: '100%' }} />
+                </div>
+              )}
             </li>
           );
         })}

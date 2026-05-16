@@ -1,7 +1,11 @@
 import { useState, useCallback, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { Phone, Delete } from 'lucide-react';
 import { useSip } from '../contexts/SipContext';
+
+interface DialpadLocationState {
+  addCall?: boolean;
+}
 
 const KEYS: Array<{ digit: string; letters?: string }> = [
   { digit: '1' },
@@ -31,8 +35,10 @@ function formatNumber(raw: string): string {
 
 export default function Dialpad() {
   const [number, setNumber] = useState('');
-  const { sipState, call } = useSip();
+  const { sipState, callState, call, addCall } = useSip();
   const navigate = useNavigate();
+  const location = useLocation();
+  const isAddCall = !!(location.state as DialpadLocationState | null)?.addCall && callState.state !== 'idle';
 
   const append = useCallback((d: string) => setNumber((n) => n + d), []);
   const backspace = useCallback(() => setNumber((n) => n.slice(0, -1)), []);
@@ -44,9 +50,13 @@ export default function Dialpad() {
       alert(`Can't call yet — SIP state: ${sipState}. Wait for "Registered" badge above keypad.`);
       return;
     }
-    call(number);
+    if (isAddCall) {
+      addCall(number);
+    } else {
+      call(number);
+    }
     navigate('/in-call');
-  }, [number, sipState, call, navigate]);
+  }, [number, sipState, isAddCall, call, addCall, navigate]);
 
   // Keyboard input — listen at the document level so the dialpad is "always focused".
   useEffect(() => {
@@ -89,8 +99,29 @@ export default function Dialpad() {
     sipState === 'failed' ? 'sip-status err' :
     'sip-status warn';
 
+  const heldDisplay = (() => {
+    const n = callState.toNumber ?? callState.fromNumber ?? callState.number;
+    if (!n) return '';
+    const d = n.replace(/[^\d]/g, '');
+    if (d.length === 11 && d.startsWith('1')) return `(${d.slice(1, 4)}) ${d.slice(4, 7)}-${d.slice(7)}`;
+    if (d.length === 10) return `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`;
+    return n;
+  })();
+
   return (
     <div className="dialpad">
+      {isAddCall && (
+        <button
+          type="button"
+          className="addcall-banner"
+          onClick={() => navigate('/in-call')}
+          title="Back to active call"
+        >
+          <span className="addcall-tag">On hold</span>
+          <span className="addcall-num">{heldDisplay}</span>
+          <span className="addcall-back">Tap to return</span>
+        </button>
+      )}
       <div className={statusClass}>{statusLabel}</div>
 
       <div className="number-display" aria-live="polite">
