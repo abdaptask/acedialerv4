@@ -14,7 +14,7 @@ import {
   Video,
   MessageSquare,
   X,
-  Merge,
+  ArrowLeftRight,
 } from 'lucide-react';
 import { useSip } from '../contexts/SipContext';
 import { startRecording, stopRecording } from '../api';
@@ -51,7 +51,6 @@ export default function InCall() {
     transferCall,
     sendDTMF,
     swap,
-    mergeLines,
   } = useSip();
   const [duration, setDuration] = useState(0);
   const [muted, setMuted] = useState(false);
@@ -192,16 +191,10 @@ export default function InCall() {
           />
           {secondaryState ? (
             <ControlBtn
-              icon={<Merge size={26} />}
-              label={conference ? 'Conference' : 'Merge'}
-              onClick={async () => {
-                if (conference) return;
-                const r = await mergeLines();
-                if (r.ok) showToast('Calls merged');
-                else showToast(r.reason ?? 'Merge failed');
-              }}
-              active={conference}
-              disabled={!isConnected || conference}
+              icon={<ArrowLeftRight size={26} />}
+              label="Swap"
+              onClick={swap}
+              disabled={!isConnected}
             />
           ) : (
             <ControlBtn
