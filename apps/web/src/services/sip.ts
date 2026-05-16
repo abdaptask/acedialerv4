@@ -105,6 +105,35 @@ export class SipService {
     applySpeakerSelection(this.audioEl);
   }
 
+  /**
+   * Unhold the surviving call when its sibling ended, and re-emit a
+   * 'connected' event so the UI swaps focus back to it. Tolerant of SDK
+   * variations where `held` may be undefined or `unhold` missing.
+   */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private autoResume(call: any, line: 'primary' | 'secondary'): void {
+    try {
+      if (call?.held && typeof call.unhold === 'function') {
+        call.unhold();
+      }
+    } catch (e) {
+      console.warn('[sip] autoResume unhold failed', e);
+    }
+    this.attachRemoteAudio(call);
+    const destNumber: string | undefined = call?.options?.destinationNumber;
+    const remoteCaller: string | undefined =
+      call?.options?.remoteCallerNumber ?? call?.options?.callerNumber;
+    this.emit<CallEvent>('call', {
+      state: 'connected',
+      callId: call?.id,
+      fromNumber: this.callerNumber || remoteCaller,
+      toNumber: destNumber || this.callerNumber,
+      direction: 'outbound',
+      number: destNumber ?? remoteCaller,
+      line,
+    });
+  }
+
   // Attach the call's remote audio stream to our <audio> element. Handles
   // SDK-version differences (some expose `remoteStream`, others expose
   // `peer.remoteStreams[]` or surface tracks via the peerconnection). Also
@@ -286,15 +315,23 @@ export class SipService {
             this.incomingCall = null;
           }
           if (this.currentCall && this.currentCall.id === call.id) {
+            // Primary leg ended.
             this.currentCall = null;
-            // If a secondary line is still up, promote it to primary so it
-            // becomes the focused line.
             if (this.secondaryCall) {
+              // Promote secondary → primary so it becomes the focused line.
+              // Also unhold it: with no other active leg, the user should
+              // immediately hear the surviving party.
               this.currentCall = this.secondaryCall;
               this.secondaryCall = null;
+              this.autoResume(this.currentCall, 'primary');
             }
           } else if (this.secondaryCall && this.secondaryCall.id === call.id) {
+            // Secondary leg ended. Primary may have been on hold during the
+            // add-call flow; unhold it so the user hears the first party
+            // again (iPhone behavior — without this, the held leg looks
+            // dropped from the user's perspective).
             this.secondaryCall = null;
+            if (this.currentCall) this.autoResume(this.currentCall, 'primary');
           }
           if (!this.currentCall && !this.secondaryCall) this.conference = false;
           break;
