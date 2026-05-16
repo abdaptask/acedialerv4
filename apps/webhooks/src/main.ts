@@ -309,53 +309,71 @@ app.post('/webhooks/telnyx/failover', async (request) => {
 //   PILOT_SIP_USERNAME   the WebRTC user's SIP credential username
 //                        (URI becomes sip:<username>@sip.telnyx.com)
 //   PILOT_VOICEMAIL_GREETING (optional) override the default Polly greeting
-const texmlHandler = async () => {
+// Escape XML special chars (mostly for the user-supplied greeting).
+function xmlEscape(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const texmlHandler = (request: any): string => {
   const sipUser = process.env.PILOT_SIP_USERNAME ?? '';
   const greeting =
     process.env.PILOT_VOICEMAIL_GREETING ??
-    'You\'ve reached ACE Dialer. Please leave a message after the tone, then press pound or hang up.';
+    "You've reached ACE Dialer. Please leave a message after the tone, then press pound or hang up.";
 
   if (!sipUser) {
     app.log.warn('[texml] PILOT_SIP_USERNAME not set; returning hangup-only flow');
   }
 
-  // Telnyx's TexML reference is a Twilio-compatible superset.
-  //   <Dial><Sip>…</Sip></Dial>      → bridge to SIP target
-  //   timeout                        → seconds before considering no-answer
-  //   <Say>                          → text-to-speech
-  //   <Record maxLength transcribe action> → record voicemail + POST to action
-  //   <Hangup/>                      → end the call
+  // Build an ABSOLUTE URL for the Record action — Telnyx requires absolute
+  // URLs for callbacks. Prefer an explicit env var, fall back to the host
+  // header Telnyx hit us on (Render sets x-forwarded-proto correctly).
+  const proto = (request?.headers?.['x-forwarded-proto'] as string) ?? 'https';
+  const host = (request?.headers?.host as string) ?? 'ace-dialer-webhooks.onrender.com';
+  const baseUrl = (process.env.WEBHOOKS_PUBLIC_URL ?? `${proto}://${host}`).replace(/\/+$/, '');
+  const recordAction = `${baseUrl}/webhooks/telnyx/voicemail`;
+
+  // Telnyx's TexML reference is a Twilio-compatible subset. Sticking to the
+  // safe core verbs/attributes to avoid parser errors:
+  //   <Dial><Sip>…</Sip></Dial>            → bridge to SIP target
+  //   timeout                              → seconds before no-answer fallthrough
+  //   <Say voice="alice">                  → standard TTS voice; Polly.* voices
+  //                                          aren't always accepted.
+  //   <Record action maxLength playBeep>   → record + POST to action URL
+  //   <Hangup/>                            → end the call
   const xml = sipUser
     ? `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Dial timeout="25" answerOnBridge="true">
-    <Sip>sip:${sipUser}@sip.telnyx.com</Sip>
+  <Dial timeout="25">
+    <Sip>sip:${xmlEscape(sipUser)}@sip.telnyx.com</Sip>
   </Dial>
-  <Say voice="Polly.Joanna">${greeting}</Say>
-  <Record maxLength="120"
-          playBeep="true"
-          transcribe="true"
-          action="/webhooks/telnyx/voicemail"
-          method="POST"
-          finishOnKey="#" />
+  <Say voice="alice">${xmlEscape(greeting)}</Say>
+  <Record maxLength="120" playBeep="true" action="${xmlEscape(recordAction)}" method="POST" finishOnKey="#" />
   <Hangup/>
 </Response>`
     : `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say voice="Polly.Joanna">Service not yet configured.</Say>
+  <Say voice="alice">Service not yet configured.</Say>
   <Hangup/>
 </Response>`;
 
   return xml;
 };
 
-app.get('/texml/inbound', async (_request, reply) => {
-  const xml = await texmlHandler();
-  reply.type('application/xml').send(xml);
+app.get('/texml/inbound', async (request, reply) => {
+  const xml = texmlHandler(request);
+  app.log.info({ length: xml.length, sipUser: Boolean(process.env.PILOT_SIP_USERNAME) }, '[texml] inbound served');
+  reply.type('application/xml; charset=utf-8').send(xml);
 });
-app.post('/texml/inbound', async (_request, reply) => {
-  const xml = await texmlHandler();
-  reply.type('application/xml').send(xml);
+app.post('/texml/inbound', async (request, reply) => {
+  const xml = texmlHandler(request);
+  app.log.info({ length: xml.length, sipUser: Boolean(process.env.PILOT_SIP_USERNAME) }, '[texml] inbound served');
+  reply.type('application/xml; charset=utf-8').send(xml);
 });
 
 // Phase 5.6 — Voicemail recording webhook.
