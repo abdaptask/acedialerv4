@@ -31,19 +31,24 @@ async function authenticate(): Promise<string | null> {
   }
 
   const base = config.jobDivaBaseUrl.replace(/\/+$/, '');
-  const params = new URLSearchParams({
-    clientid: config.jobDivaClientId ?? '',
-    username: config.jobDivaUsername,
-    password: config.jobDivaPassword,
-  });
-
-  const url = `${base}/apiv2/jobdiva/authenticate?${params.toString()}`;
-  log('auth: GET /apiv2/jobdiva/authenticate');
+  // JobDiva V2 wants HTTP Basic Auth: username:password in the Authorization
+  // header. clientid travels as a query-string param.
+  const basic = Buffer.from(
+    `${config.jobDivaUsername}:${config.jobDivaPassword}`,
+    'utf-8',
+  ).toString('base64');
+  const url = `${base}/apiv2/jobdiva/authenticate?clientid=${encodeURIComponent(
+    config.jobDivaClientId ?? '',
+  )}`;
+  log('auth: GET /apiv2/jobdiva/authenticate (basic auth)');
 
   try {
     const res = await fetch(url, {
       method: 'GET',
-      headers: { Accept: 'application/json, text/plain, */*' },
+      headers: {
+        Accept: 'application/json, text/plain, */*',
+        Authorization: `Basic ${basic}`,
+      },
     });
     const text = await res.text();
     log('auth: status', res.status, 'len', text.length);
