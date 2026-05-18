@@ -408,6 +408,37 @@ export class SipService {
     }
   }
 
+  // Enumerate available audio output devices (speakers, headphones, etc.).
+  // Requires prior microphone permission to expose device labels.
+  async listAudioOutputs(): Promise<MediaDeviceInfo[]> {
+    if (!navigator.mediaDevices?.enumerateDevices) return [];
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      return devices.filter((d) => d.kind === 'audiooutput');
+    } catch (e) {
+      console.warn('[sip] enumerateDevices failed', e);
+      return [];
+    }
+  }
+
+  // Route the remote audio stream to a specific output device.
+  // Uses HTMLMediaElement.setSinkId (Chrome/Edge). Persists across calls
+  // via localStorage so applySpeakerSelection() can re-apply it.
+  async setAudioOutput(deviceId: string): Promise<void> {
+    localStorage.setItem('ace_speaker', deviceId);
+    if (!this.audioEl) return;
+    if (!('setSinkId' in this.audioEl)) {
+      console.warn('[sip] setSinkId not supported in this browser');
+      return;
+    }
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await (this.audioEl as any).setSinkId(deviceId);
+    } catch (e) {
+      console.warn('[sip] setSinkId failed', e);
+    }
+  }
+
   disconnect(): void {
     this.hangup();
     this.declineCall();
