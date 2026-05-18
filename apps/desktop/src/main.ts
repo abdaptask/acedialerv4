@@ -70,8 +70,8 @@ function createRingerWindow(callerNumber?: string): void {
 
   const display = screen.getPrimaryDisplay();
   const wa = display.workArea;
-  const w = 360;
-  const h = 180;
+  const w = 440;
+  const h = 240;
   const x = wa.x + wa.width - w - 24;
   const y = wa.y + wa.height - h - 24;
 
@@ -88,6 +88,7 @@ function createRingerWindow(callerNumber?: string): void {
     fullscreenable: false,
     alwaysOnTop: true,
     skipTaskbar: true,
+    focusable: true,
     show: false,
     backgroundColor: '#0a3a2e',
     webPreferences: {
@@ -97,6 +98,8 @@ function createRingerWindow(callerNumber?: string): void {
       sandbox: false,
     },
   });
+  // Pin above full-screen windows too (presentations, video calls, etc.).
+  try { ringerWindow.setAlwaysOnTop(true, 'screen-saver'); } catch { /* noop */ }
 
   const html = `<!doctype html>
 <html><head><meta charset="utf-8"><title>Incoming Call</title>
@@ -105,22 +108,23 @@ function createRingerWindow(callerNumber?: string): void {
     background: linear-gradient(180deg, #0a3a2e 0%, #0a1f1a 100%);
     color: #fff; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI",
     Roboto, sans-serif; user-select: none; -webkit-app-region: drag; }
-  .wrap { padding: 14px 18px; display: flex; flex-direction: column;
+  .wrap { padding: 20px 24px; display: flex; flex-direction: column;
     justify-content: space-between; height: 100%; box-sizing: border-box; }
   .tag { font-size: 11px; opacity: .7; letter-spacing: .08em;
     text-transform: uppercase; }
-  .caller { font-size: 22px; font-weight: 600; margin-top: 4px;
+  .caller { font-size: 28px; font-weight: 700; margin-top: 6px;
     word-break: break-all; }
+  .tag { font-size: 12px; }
   .row { display: flex; justify-content: space-around; gap: 16px;
     margin-top: 14px; -webkit-app-region: no-drag; }
-  button { width: 56px; height: 56px; border-radius: 50%; border: none;
+  button { width: 72px; height: 72px; border-radius: 50%; border: none;
     color: #fff; cursor: pointer; display: flex; align-items: center;
     justify-content: center; box-shadow: 0 6px 18px rgba(0,0,0,.35);
     transition: transform .1s; }
   button:active { transform: scale(.95); }
   button.accept { background: #22c55e; }
   button.decline { background: #ef4444; }
-  button svg { width: 24px; height: 24px; fill: none; stroke: #fff;
+  button svg { width: 30px; height: 30px; fill: none; stroke: #fff;
     stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 </style></head>
 <body>
@@ -208,15 +212,23 @@ ipcMain.on('ace:incoming-call', (_event, payload: { number?: string; callId?: st
   const win = mainWindow;
   if (!win) return;
 
-  // Surface the main window too (in case user wants to use the full UI).
+  // Aggressively surface the main window: restore from minimized, show if
+  // hidden, focus, briefly always-on-top, and flash the taskbar (Windows).
   try {
     if (win.isMinimized()) win.restore();
+    if (!win.isVisible()) win.show();
+    win.setAlwaysOnTop(true);
+    win.focus();
+    setTimeout(() => {
+      try { win.setAlwaysOnTop(false); } catch { /* noop */ }
+    }, 2500);
     if (process.platform === 'win32') win.flashFrame(true);
   } catch (e) {
     console.error('[main] surface failed', e);
   }
 
-  // Show the small floating ringer regardless of main-window visibility.
+  // Always also show the small floating ringer in the corner so the user can
+  // accept without leaving whatever app they were focused on.
   createRingerWindow(payload?.number);
 });
 

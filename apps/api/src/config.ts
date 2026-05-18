@@ -27,7 +27,7 @@ export const config = {
   // Telnyx server-side API
   telnyxApiKey: optional('TELNYX_API_KEY'),
   telnyxMessagingProfileId: optional('TELNYX_MESSAGING_PROFILE_ID'),
-  pilotFromNumber: optional('PILOT_TELNYX_NUMBER', '+15758001313'),
+  pilotFromNumber: optional('PILOT_TELNYX_NUMBER', '+17322001305'),
 
   // Supabase Storage (for MMS uploads)
   supabaseUrl: optional('SUPABASE_URL'),

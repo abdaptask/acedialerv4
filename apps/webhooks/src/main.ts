@@ -9,7 +9,7 @@ const START_TIME = new Date().toISOString();
 
 // Phase 5: pilot has one user. Hardcoded until multi-user support lands.
 const PILOT_USER_ID = 1;
-const PILOT_NUMBER = process.env.PILOT_TELNYX_NUMBER ?? '+15758001313';
+const PILOT_NUMBER = process.env.PILOT_TELNYX_NUMBER ?? '+17322001305';
 
 const app = Fastify({
   logger: { level: process.env.LOG_LEVEL ?? 'info' },
