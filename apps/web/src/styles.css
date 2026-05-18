@@ -448,6 +448,53 @@ body {
 .addcall-num { font-size: 0.95rem; font-weight: 500; }
 .addcall-back { font-size: 0.7rem; color: rgba(255, 255, 255, 0.7); }
 
+/* Inline status banner for "Add Call" (replaces blocking alerts). */
+.addcall-status {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  width: 100%;
+  max-width: 360px;
+  margin: 0 auto 0.6rem;
+  padding: 0.55rem 0.85rem;
+  border-radius: 12px;
+  color: #fff;
+  font-size: 0.85rem;
+  text-align: left;
+}
+.addcall-status.preparing {
+  background: rgba(255, 204, 0, 0.18);
+  border: 0.5px solid rgba(255, 204, 0, 0.45);
+}
+.addcall-status.error {
+  background: rgba(255, 59, 48, 0.22);
+  border: 0.5px solid rgba(255, 59, 48, 0.55);
+}
+.addcall-status-text { flex: 1; line-height: 1.3; }
+.addcall-status-cancel {
+  background: rgba(255, 255, 255, 0.18);
+  border: none;
+  color: #fff;
+  padding: 0.3rem 0.65rem;
+  border-radius: 8px;
+  font-size: 0.78rem;
+  cursor: pointer;
+  font-family: inherit;
+}
+.addcall-status-cancel:hover { background: rgba(255, 255, 255, 0.28); }
+.spinner {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  border-top-color: #fff;
+  animation: spin 0.8s linear infinite;
+  flex-shrink: 0;
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
 /* ============ RETURN-TO-CALL BANNER (global, in Layout) ============ */
 .return-to-call-banner {
   position: sticky;

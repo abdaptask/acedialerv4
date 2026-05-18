@@ -42,6 +42,15 @@ export default function Dialpad() {
     !!(location.state as DialpadLocationState | null)?.addCall &&
     callState.state !== 'idle';
 
+  // Inline status for Add Call. While we wait for Telnyx to register the
+  // active leg (so we have a callControlId to bridge with), we show this
+  // to the user instead of blocking with an alert.
+  const [addCallStatus, setAddCallStatus] = useState<
+    | { state: 'idle' }
+    | { state: 'preparing' }
+    | { state: 'error'; message: string }
+  >({ state: 'idle' });
+
   const append = useCallback((d: string) => setNumber((n) => n + d), []);
   const backspace = useCallback(() => setNumber((n) => n.slice(0, -1)), []);
   const clear = useCallback(() => setNumber(''), []);
@@ -53,13 +62,19 @@ export default function Dialpad() {
       return;
     }
     if (isAddCall) {
-      // Server-originated Leg B via Telnyx Call Control. Auto-bridges to
-      // Leg A on answer so the user hears the new party.
+      // Server-originated Leg B via Telnyx Call Control. addCall() waits up
+      // to 15s for the leg's callControlId to arrive before failing, so we
+      // show an inline "Preparing…" state during that window.
+      setAddCallStatus({ state: 'preparing' });
       const res = await addCall(number);
       if (!res.ok) {
-        alert(`Add Call failed: ${res.hint ?? res.error ?? 'unknown error'}`);
+        setAddCallStatus({
+          state: 'error',
+          message: res.hint ?? res.error ?? 'Add Call failed.',
+        });
         return;
       }
+      setAddCallStatus({ state: 'idle' });
     } else {
       call(number);
     }
@@ -130,6 +145,35 @@ export default function Dialpad() {
           <span className="addcall-back">Tap to return</span>
         </button>
       )}
+
+      {addCallStatus.state === 'preparing' && (
+        <div className="addcall-status preparing" role="status">
+          <span className="spinner" aria-hidden="true" />
+          <span className="addcall-status-text">
+            Preparing call via Telnyx Call Control…
+          </span>
+          <button
+            type="button"
+            className="addcall-status-cancel"
+            onClick={() => setAddCallStatus({ state: 'idle' })}
+          >
+            Cancel
+          </button>
+        </div>
+      )}
+      {addCallStatus.state === 'error' && (
+        <div className="addcall-status error" role="alert">
+          <span className="addcall-status-text">{addCallStatus.message}</span>
+          <button
+            type="button"
+            className="addcall-status-cancel"
+            onClick={() => setAddCallStatus({ state: 'idle' })}
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
       <div className={statusClass}>{statusLabel}</div>
 
       <div className="number-display" aria-live="polite">

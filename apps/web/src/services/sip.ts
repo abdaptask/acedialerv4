@@ -325,10 +325,43 @@ export class SipService {
     this.incomingCall = null;
   }
 
+  // Hangup must ALWAYS terminate the call from the user's POV — even if the
+  // SDK call object is in a weird state, missing methods, or throws. We try
+  // the SDK first, fall back to a forced local reset + 'ended' event so the
+  // UI navigates back to the keypad.
   hangup(): void {
-    if (this.currentCall && typeof this.currentCall.hangup === 'function') {
-      this.currentCall.hangup();
+    const tryFn = (label: string, fn: (() => unknown) | undefined) => {
+      if (typeof fn !== 'function') return false;
+      try {
+        fn();
+        return true;
+      } catch (e) {
+        console.warn(`[sip] ${label} threw`, e);
+        return false;
+      }
+    };
+
+    let success = false;
+    if (this.currentCall) {
+      success = tryFn('currentCall.hangup', this.currentCall.hangup?.bind(this.currentCall));
     }
+    if (this.secondCall) {
+      tryFn('secondCall.hangup', this.secondCall.hangup?.bind(this.secondCall));
+    }
+
+    // Even if SDK calls hung up cleanly, force a local 'ended' emit so the
+    // UI cleans up (auto-navigate to keypad). The SDK's own state event will
+    // arrive shortly and be idempotent.
+    const callId = this.currentCall?.id;
+    const cause = success ? 'user_hangup' : 'force_hangup';
+    this.heldLocal = false;
+    this.currentCall = null;
+    this.secondCall = null;
+    this.emit<CallEvent>('call', {
+      state: 'ended',
+      callId,
+      hangupCause: cause,
+    });
   }
 
   toggleHold(): boolean {

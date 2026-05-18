@@ -66,6 +66,12 @@ export function SipProvider({ children }: { children: React.ReactNode }) {
   const rejectedRef = useRef<Set<string>>(new Set());
   const currentIncomingRef = useRef<string | null>(null);
   const ccPollRef = useRef<number | null>(null);
+  // Mirror of activeCallControlId for use inside async functions (setState
+  // captures are stale by the time addCall awaits the poll).
+  const activeCallControlIdRef = useRef<string | null>(null);
+  useEffect(() => { activeCallControlIdRef.current = activeCallControlId; }, [activeCallControlId]);
+  const callStateRef = useRef<CallEvent>(callState);
+  useEffect(() => { callStateRef.current = callState; }, [callState]);
 
   useEffect(() => {
     const username = import.meta.env.VITE_SIP_USERNAME as string | undefined;
@@ -210,12 +216,26 @@ export function SipProvider({ children }: { children: React.ReactNode }) {
     toggleHold: () => sipService.toggleHold(),
     isOnHold: () => sipService.isOnHold(),
     // Phase 5.4 (rebuild): Transfer goes through the API → Telnyx Call Control.
-    // Returns immediately with ok/error so the UI can toast it.
+    // Waits up to 10s for the leg's callControlId to arrive if needed.
     transferCall: async (destination) => {
       const token = sessionStorage.getItem('ace_token');
-      const telnyxCallId = callState.callId;
+      const telnyxCallId = callStateRef.current.callId;
       if (!token || !telnyxCallId) {
         return { ok: false, error: 'no_active_call' };
+      }
+      if (!activeCallControlIdRef.current) {
+        const start = Date.now();
+        while (!activeCallControlIdRef.current && Date.now() - start < 10_000) {
+          await new Promise((r) => setTimeout(r, 500));
+        }
+        if (!activeCallControlIdRef.current) {
+          return {
+            ok: false,
+            error: 'no_call_control_id',
+            hint:
+              'Telnyx hasn’t registered this call leg. Link your SIP Connection to a Call Control App in the Telnyx portal (see docs/telnyx-call-control-setup.md step 2).',
+          };
+        }
       }
       const res = await transferCallApi(token, telnyxCallId, destination);
       return res;
@@ -227,19 +247,35 @@ export function SipProvider({ children }: { children: React.ReactNode }) {
     // (not the SDK). Server auto-bridges to Leg A on answer so the user hears
     // the new party immediately. The held-line strip + Merge button become
     // informational since the bridge happens automatically.
+    //
+    // If activeCallControlId isn't ready yet (webhook hasn't fired), we wait
+    // up to 15s for it to arrive rather than failing immediately. This lets
+    // the user tap Add Call right after a call connects without timing the
+    // webhook race themselves.
     addCall: async (number) => {
       const token = sessionStorage.getItem('ace_token');
-      const legATelnyxCallId = callState.callId;
+      const legATelnyxCallId = callStateRef.current.callId;
       if (!token || !legATelnyxCallId) {
         return { ok: false, error: 'no_active_call' };
       }
-      if (!activeCallControlId) {
-        return {
-          ok: false,
-          error: 'no_call_control_id',
-          hint: 'Waiting for Telnyx to register this leg — try again in a couple seconds.',
-        };
+
+      // Wait for callControlId up to 15s if it hasn't arrived yet.
+      if (!activeCallControlIdRef.current) {
+        console.log('[add-call] waiting for callControlId…');
+        const start = Date.now();
+        while (!activeCallControlIdRef.current && Date.now() - start < 15_000) {
+          await new Promise((r) => setTimeout(r, 500));
+        }
+        if (!activeCallControlIdRef.current) {
+          return {
+            ok: false,
+            error: 'no_call_control_id',
+            hint:
+              'Telnyx hasn’t registered this call leg. The SIP Connection probably isn’t linked to a Call Control App in the Telnyx portal yet — see docs/telnyx-call-control-setup.md (step 2).',
+          };
+        }
       }
+
       const res = await addLegApi(token, legATelnyxCallId, number);
       if (res.ok && res.legB) {
         setSecondCallNumber(res.legB.toNumber);
