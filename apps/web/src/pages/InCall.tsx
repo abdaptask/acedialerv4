@@ -11,12 +11,13 @@ import {
   Play,
   PhoneForwarded,
   CircleDot,
-  Video,
   MessageSquare,
   X,
   ArrowLeftRight,
   Merge,
+  Check,
 } from 'lucide-react';
+import { startRecording, stopRecording } from '../api';
 import { useSip } from '../contexts/SipContext';
 import { ringtone } from '../services/ringtone';
 import { useJobDivaContact } from '../hooks/useJobDivaContact';
@@ -53,6 +54,8 @@ export default function InCall() {
     secondCallNumber,
     swapCalls,
     mergeCalls,
+    listAudioOutputs,
+    setAudioOutput,
   } = useSip();
   const [duration, setDuration] = useState(0);
   const [muted, setMuted] = useState(false);
@@ -61,6 +64,13 @@ export default function InCall() {
   const [showTransfer, setShowTransfer] = useState(false);
   const [transferTarget, setTransferTarget] = useState('');
   const [toast, setToast] = useState<string | null>(null);
+  const [recording, setRecording] = useState(false);
+  const [recordingPending, setRecordingPending] = useState(false);
+  const [showAudio, setShowAudio] = useState(false);
+  const [audioDevices, setAudioDevices] = useState<MediaDeviceInfo[]>([]);
+  const [activeAudioId, setActiveAudioId] = useState<string>(() =>
+    localStorage.getItem('ace_speaker') ?? 'default',
+  );
   const navigate = useNavigate();
 
   // Tick the duration once we're connected.
@@ -103,6 +113,39 @@ export default function InCall() {
   const handleDTMF = (digit: string) => {
     sendDTMF(digit);
   };
+  const handleOpenAudio = async () => {
+    setShowAudio(true);
+    const list = await listAudioOutputs();
+    setAudioDevices(list);
+  };
+  const handlePickAudio = async (deviceId: string) => {
+    await setAudioOutput(deviceId);
+    setActiveAudioId(deviceId);
+    setShowAudio(false);
+    showToast('Audio output updated');
+  };
+
+  const handleRecord = async () => {
+    if (recordingPending) return;
+    const callId = callState.callId;
+    if (!callId) return;
+    const token = sessionStorage.getItem('ace_token');
+    if (!token) return;
+    setRecordingPending(true);
+    try {
+      const fn = recording ? stopRecording : startRecording;
+      const r = await fn(token, callId);
+      if (r.ok) {
+        setRecording((v) => !v);
+        showToast(recording ? 'Recording stopped' : 'Recording started');
+      } else {
+        showToast(r.hint ?? r.error ?? 'Recording failed');
+      }
+    } finally {
+      setRecordingPending(false);
+    }
+  };
+
   const handleTransfer = () => {
     const t = transferTarget.trim();
     if (!t) return;
@@ -134,6 +177,11 @@ export default function InCall() {
 
   return (
     <div className="in-call">
+      {recording && (
+        <div className="rec-badge" role="status">
+          <span className="rec-dot" /> REC
+        </div>
+      )}
       {hasSecondCall && (
         <button
           type="button"
@@ -172,7 +220,7 @@ export default function InCall() {
           <ControlBtn
             icon={<Volume2 size={26} />}
             label="Audio"
-            onClick={() => navigate('/settings')}
+            onClick={handleOpenAudio}
           />
           {hasSecondCall ? (
             <ControlBtn
@@ -207,15 +255,10 @@ export default function InCall() {
           />
           <ControlBtn
             icon={<CircleDot size={26} />}
-            label="Record"
-            onClick={() => showToast('Recording — coming soon')}
-            disabled={!isConnected}
-          />
-          <ControlBtn
-            icon={<Video size={26} />}
-            label="Meet"
-            onClick={() => showToast('Meet — coming soon')}
-            disabled={!isConnected}
+            label={recording ? 'Stop Rec' : 'Record'}
+            active={recording}
+            onClick={handleRecord}
+            disabled={!isConnected || recordingPending}
           />
           <ControlBtn
             icon={<MessageSquare size={26} />}
@@ -229,6 +272,47 @@ export default function InCall() {
               else navigate('/messages');
             }}
           />
+          {/* Empty 9th cell — keeps the 3x3 grid visually symmetric without Meet */}
+          <div className="ic-ctrl-placeholder" aria-hidden="true" />
+        </div>
+      )}
+
+      {showAudio && (
+        <div className="audio-picker" role="dialog" aria-label="Audio output">
+          <div className="audio-picker-box">
+            <div className="audio-picker-title">Audio output</div>
+            {audioDevices.length === 0 ? (
+              <div className="audio-picker-empty">
+                No output devices detected.
+                <br />
+                <span className="muted" style={{ fontSize: 12 }}>
+                  Grant microphone permission to enumerate audio devices.
+                </span>
+              </div>
+            ) : (
+              <ul className="audio-picker-list">
+                {audioDevices.map((d) => {
+                  const id = d.deviceId || 'default';
+                  const active = activeAudioId === id;
+                  return (
+                    <li
+                      key={id}
+                      className={`audio-picker-item${active ? ' active' : ''}`}
+                      onClick={() => handlePickAudio(id)}
+                    >
+                      <span className="audio-picker-label">
+                        {d.label || (id === 'default' ? 'System default' : id.slice(0, 8))}
+                      </span>
+                      {active && <Check size={16} />}
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+            <button className="audio-picker-close" onClick={() => setShowAudio(false)}>
+              Close
+            </button>
+          </div>
         </div>
       )}
 

@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { MessageSquare, Clock, User as UserIcon, Grid3x3, Voicemail, LogOut, Settings as SettingsIcon } from 'lucide-react';
 import type { User } from '../api';
@@ -18,8 +18,13 @@ export default function Layout({ user, onLogout }: Props) {
     typeof navigator !== 'undefined' &&
     /electron/i.test(navigator.userAgent);
 
+  // Auto-navigate to InCall only on the *transition* into 'connected'
+  // (otherwise we'd fight Add-Call → keypad navigation).
+  const prevStateRef = useRef(callState.state);
   useEffect(() => {
-    if (callState.state === 'connected' && location.pathname !== '/in-call') {
+    const prev = prevStateRef.current;
+    prevStateRef.current = callState.state;
+    if (callState.state === 'connected' && prev !== 'connected' && location.pathname !== '/in-call') {
       navigate('/in-call');
     }
   }, [callState.state, location.pathname, navigate]);

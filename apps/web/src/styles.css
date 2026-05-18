@@ -1424,3 +1424,120 @@ body {
   gap: 4px;
   opacity: 0.8;
 }
+
+/* REC indicator badge (top of in-call screen when recording) */
+.rec-badge {
+  position: absolute;
+  top: 12px;
+  right: 16px;
+  background: #ef4444;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  padding: 4px 10px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.35);
+  z-index: 20;
+}
+.rec-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #fff;
+  animation: rec-pulse 1.2s infinite;
+}
+@keyframes rec-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+/* Keep .in-call positioning context for the absolute REC badge */
+.in-call { position: relative; }
+
+/* Empty placeholder in the 3x3 grid — visual symmetry without rendering a button */
+.ic-ctrl-placeholder {
+  width: 64px;
+  height: 64px;
+  visibility: hidden;
+}
+
+/* Audio output picker (popover-style modal) */
+.audio-picker {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 900;
+}
+.audio-picker-box {
+  background: #111827;
+  color: #e5e7eb;
+  border-radius: 16px;
+  padding: 20px 18px 16px;
+  width: 320px;
+  max-width: 90vw;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.audio-picker-title {
+  font-size: 14px;
+  font-weight: 600;
+  opacity: 0.85;
+  letter-spacing: 0.02em;
+}
+.audio-picker-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 280px;
+  overflow-y: auto;
+}
+.audio-picker-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #1f2937;
+  cursor: pointer;
+  font-size: 13px;
+}
+.audio-picker-item:hover { background: #374151; }
+.audio-picker-item.active {
+  background: #2563eb;
+  color: #fff;
+}
+.audio-picker-label {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.audio-picker-empty {
+  font-size: 13px;
+  opacity: 0.7;
+  text-align: center;
+  padding: 16px 0;
+}
+.audio-picker-close {
+  background: transparent;
+  color: inherit;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  padding: 8px 14px;
+  font-size: 13px;
+  align-self: flex-end;
+  cursor: pointer;
+}
+.audio-picker-close:hover { background: rgba(255, 255, 255, 0.05); }

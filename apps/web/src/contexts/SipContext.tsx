@@ -21,6 +21,9 @@ interface SipContextValue {
   addCall: (number: string) => void;
   swapCalls: () => void;
   mergeCalls: () => Promise<boolean>;
+  // Audio device selection
+  listAudioOutputs: () => Promise<MediaDeviceInfo[]>;
+  setAudioOutput: (deviceId: string) => Promise<void>;
 }
 
 const SipContext = createContext<SipContextValue | null>(null);
@@ -154,6 +157,8 @@ export function SipProvider({ children }: { children: React.ReactNode }) {
       const priorTo = callState.toNumber ?? callState.fromNumber ?? callState.number ?? null;
       setSecondCallNumber(priorTo);
     },
+    listAudioOutputs: () => sipService.listAudioOutputs(),
+    setAudioOutput: (deviceId) => sipService.setAudioOutput(deviceId),
     mergeCalls: async () => {
       const token = sessionStorage.getItem('ace_token');
       const legA = sipService.getActiveCallId();
