@@ -1,25 +1,28 @@
-// JobDiva API client — Phase 5.5.
+// JobDiva V2 API client — Phase 5.5.
 //
-// JobDiva exposes a REST API at api.jobdiva.com (tenants may differ).
-// Auth model: GET /api/jobdiva/authenticate?clientid=...&username=...&password=...
-// returns a bearer token. We cache it for the duration JobDiva says it's valid
-// (or 12h as a conservative default), and refresh on 401.
+// Confirmed endpoints (api.jobdiva.com / V2):
+//   GET  /apiv2/jobdiva/authenticate                           → bearer token
+//   GET  /apiv2/jobdiva/quickCandidateProfileSearch?<filters>  → candidate rows
 //
-// For the pilot we need just one operation: phone -> contact lookup. JobDiva's
-// most useful endpoint here is `/api/jobdiva/searchcandidate` with a phone
-// filter, or `/api/jobdiva/contacts/search`. We try both shapes so this works
-// across tenants with minor schema differences.
+// Auth: query string with clientid, username, password.
+// Token in subsequent calls as `Authorization: Bearer <token>`.
 import { config } from '../config.js';
 
 interface CachedToken {
   token: string;
-  expiresAt: number; // ms epoch
+  expiresAt: number;
 }
 
 let tokenCache: CachedToken | null = null;
 
+function log(...args: unknown[]): void {
+  // Use console so it shows in Render's plain log stream regardless of logger config.
+  console.log('[jobdiva]', ...args);
+}
+
 async function authenticate(): Promise<string | null> {
   if (!config.jobDivaBaseUrl || !config.jobDivaUsername || !config.jobDivaPassword) {
+    log('not configured — missing JOBDIVA_BASE_URL / USERNAME / PASSWORD');
     return null;
   }
   const now = Date.now();
@@ -27,70 +30,49 @@ async function authenticate(): Promise<string | null> {
     return tokenCache.token;
   }
 
+  const base = config.jobDivaBaseUrl.replace(/\/+$/, '');
   const params = new URLSearchParams({
     clientid: config.jobDivaClientId ?? '',
     username: config.jobDivaUsername,
     password: config.jobDivaPassword,
   });
 
-  // Two common JobDiva auth shapes — try both:
-  // 1. GET /api/jobdiva/authenticate?clientid=&username=&password=  → returns text token
-  // 2. POST /api/jobdiva/authenticate  with same as JSON body       → returns JSON { token }
-  const base = config.jobDivaBaseUrl.replace(/\/+$/, '');
+  const url = `${base}/apiv2/jobdiva/authenticate?${params.toString()}`;
+  log('auth: GET /apiv2/jobdiva/authenticate');
 
-  // Try GET first (typical for hosted JobDiva V2).
   try {
-    const res = await fetch(`${base}/api/jobdiva/authenticate?${params.toString()}`, {
+    const res = await fetch(url, {
       method: 'GET',
-      headers: { Accept: 'application/json, text/plain' },
+      headers: { Accept: 'application/json, text/plain, */*' },
     });
-    if (res.ok) {
-      const text = await res.text();
-      let token: string | null = null;
-      try {
-        const json = JSON.parse(text);
-        token = json.token ?? json.access_token ?? json.bearer ?? null;
-      } catch {
-        // Plain text token
-        token = text.replace(/^"|"$/g, '').trim() || null;
-      }
-      if (token) {
-        tokenCache = { token, expiresAt: now + 12 * 60 * 60 * 1000 };
-        return token;
-      }
+    const text = await res.text();
+    log('auth: status', res.status, 'len', text.length);
+    if (!res.ok) {
+      log('auth: failed body=', text.slice(0, 300));
+      return null;
     }
-  } catch {
-    // fall through to POST attempt
-  }
-
-  // Fallback: POST JSON body.
-  try {
-    const res = await fetch(`${base}/api/jobdiva/authenticate`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-      body: JSON.stringify({
-        clientid: config.jobDivaClientId,
-        username: config.jobDivaUsername,
-        password: config.jobDivaPassword,
-      }),
-    });
-    if (res.ok) {
-      const json = (await res.json().catch(() => ({}))) as Record<string, unknown>;
-      const token =
+    let token: string | null = null;
+    try {
+      const json = JSON.parse(text);
+      token =
         (json.token as string | undefined) ??
         (json.access_token as string | undefined) ??
         (json.bearer as string | undefined) ??
         null;
-      if (token) {
-        tokenCache = { token, expiresAt: now + 12 * 60 * 60 * 1000 };
-        return token;
-      }
+    } catch {
+      token = text.replace(/^"|"$/g, '').trim() || null;
     }
-  } catch {
-    // give up
+    if (!token) {
+      log('auth: no token in response body');
+      return null;
+    }
+    log('auth: ok, token len=', token.length);
+    tokenCache = { token, expiresAt: now + 12 * 60 * 60 * 1000 };
+    return token;
+  } catch (e) {
+    log('auth: network error', e);
+    return null;
   }
-
-  return null;
 }
 
 export interface JobDivaContact {
@@ -101,14 +83,10 @@ export interface JobDivaContact {
   jobTitle?: string;
   email?: string;
   type?: 'candidate' | 'contact';
-  sourceUrl?: string;
 }
 
-// Strip everything to digits + optional + sign so we can match on the right
-// trailing 10 digits (JobDiva often stores numbers in inconsistent formats).
 function normalizePhone(raw: string): string {
   const d = (raw ?? '').replace(/[^\d]/g, '');
-  // Use the last 10 digits as the canonical US phone for matching.
   return d.length >= 10 ? d.slice(-10) : d;
 }
 
@@ -116,82 +94,97 @@ export async function lookupContactByPhone(rawPhone: string): Promise<JobDivaCon
   const token = await authenticate();
   if (!token) return null;
 
-  const phone = normalizePhone(rawPhone);
-  if (phone.length < 7) return null;
+  const phone10 = normalizePhone(rawPhone);
+  if (phone10.length < 7) {
+    log('lookup: phone too short:', rawPhone);
+    return null;
+  }
 
   const base = config.jobDivaBaseUrl.replace(/\/+$/, '');
   const auth = `Bearer ${token}`;
 
-  // Endpoint candidates — different JobDiva tenants expose different paths.
-  // We try them in order and stop on the first non-empty match.
-  const candidates = [
-    `/api/jobdiva/searchcandidates?phone=${phone}`,
-    `/api/jobdiva/searchcandidates?keyword=${phone}`,
-    `/api/jobdiva/searchcontacts?phone=${phone}`,
-    `/api/jobdiva/contacts/search?phone=${phone}`,
-    `/api/jobdiva/getcandidates?phone=${phone}`,
+  // quickCandidateProfileSearch supports many filters. We try a few common
+  // phone-style params since JobDiva docs name them differently:
+  //   phone, cellPhone, homePhone, workPhone, searchText
+  const filters: Array<Record<string, string>> = [
+    { phone: phone10 },
+    { cellPhone: phone10 },
+    { homePhone: phone10 },
+    { workPhone: phone10 },
+    { searchText: phone10 },
+    // Also try the +1-prefixed form
+    { phone: `+1${phone10}` },
+    { searchText: `+1${phone10}` },
   ];
 
-  for (const path of candidates) {
+  for (const filter of filters) {
+    const qs = new URLSearchParams(filter).toString();
+    const url = `${base}/apiv2/jobdiva/quickCandidateProfileSearch?${qs}`;
+    log('lookup: GET', url);
     try {
-      const res = await fetch(`${base}${path}`, {
+      const res = await fetch(url, {
         method: 'GET',
         headers: { Authorization: auth, Accept: 'application/json' },
       });
       if (res.status === 401) {
-        // Token expired mid-flight; clear cache and bail. Caller can retry.
+        log('lookup: 401 — token expired, clearing cache');
         tokenCache = null;
         return null;
       }
-      if (!res.ok) continue;
-      const json = (await res.json().catch(() => null)) as unknown;
-      const match = pickFirstMatch(json, phone);
-      if (match) return match;
-    } catch {
-      // try next
+      const text = await res.text();
+      log('lookup: status', res.status, 'len', text.length);
+      if (!res.ok) {
+        log('lookup: body sample', text.slice(0, 200));
+        continue;
+      }
+      let json: unknown = null;
+      try { json = JSON.parse(text); } catch { /* not json */ }
+      const match = pickFirstMatch(json, phone10);
+      if (match) {
+        log('lookup: match found', match.name);
+        return match;
+      }
+      log('lookup: no rows in response (sample)', JSON.stringify(json).slice(0, 300));
+    } catch (e) {
+      log('lookup: network error', e);
     }
   }
 
+  log('lookup: no match across all filter attempts');
   return null;
 }
 
-// JobDiva's response shapes vary — sometimes { candidates: [...] }, sometimes
-// a flat array, sometimes a single object. Walk the response and pick the first
-// row whose phone digits match what we asked for.
-function pickFirstMatch(payload: unknown, phone: string): JobDivaContact | null {
+function pickFirstMatch(payload: unknown, phone10: string): JobDivaContact | null {
   const rows = flattenRows(payload);
   for (const row of rows) {
     if (!row || typeof row !== 'object') continue;
     const r = row as Record<string, unknown>;
     const candidatePhones = [
-      r.phone,
-      r.phoneNumber,
-      r.phone_home,
-      r.phone_work,
-      r.phone_cell,
-      r.mobilePhone,
-      r.cellPhone,
-      r.workPhone,
-      r.homePhone,
+      r.phone, r.phoneNumber, r.phone_home, r.phone_work, r.phone_cell,
+      r.mobilePhone, r.cellPhone, r.workPhone, r.homePhone,
+      r.primaryPhone, r.secondaryPhone, r.otherPhone,
     ]
       .filter((v): v is string | number => typeof v === 'string' || typeof v === 'number')
       .map((v) => normalizePhone(String(v)));
-    if (!candidatePhones.includes(phone)) continue;
 
-    const first = (r.firstName ?? r.first_name ?? r.givenName) as string | undefined;
-    const last = (r.lastName ?? r.last_name ?? r.familyName) as string | undefined;
+    // If phone fields exist, require match; otherwise accept first row (some
+    // tenants return results without exposing the phone field).
+    if (candidatePhones.length > 0 && !candidatePhones.includes(phone10)) continue;
+
+    const first = (r.firstName ?? r.first_name ?? r.givenName ?? r.firstname) as string | undefined;
+    const last = (r.lastName ?? r.last_name ?? r.familyName ?? r.lastname) as string | undefined;
     const fullName =
-      ((r.name ?? r.fullName) as string | undefined) ??
+      ((r.name ?? r.fullName ?? r.candidateName) as string | undefined) ??
       [first, last].filter(Boolean).join(' ');
-    if (!fullName || !fullName.trim()) continue;
+    if (!fullName || !String(fullName).trim()) continue;
 
     return {
-      name: fullName.trim(),
+      name: String(fullName).trim(),
       firstName: first,
       lastName: last,
-      company: (r.company ?? r.companyName ?? r.employer) as string | undefined,
-      jobTitle: (r.jobTitle ?? r.title ?? r.position) as string | undefined,
-      email: (r.email ?? r.emailAddress) as string | undefined,
+      company: (r.company ?? r.companyName ?? r.employer ?? r.currentEmployer) as string | undefined,
+      jobTitle: (r.jobTitle ?? r.title ?? r.position ?? r.currentJobTitle) as string | undefined,
+      email: (r.email ?? r.emailAddress ?? r.primaryEmail) as string | undefined,
       type: 'candidate',
     };
   }
@@ -203,9 +196,8 @@ function flattenRows(payload: unknown): unknown[] {
   if (Array.isArray(payload)) return payload;
   if (typeof payload !== 'object') return [];
   const r = payload as Record<string, unknown>;
-  for (const key of ['candidates', 'contacts', 'data', 'rows', 'results', 'items']) {
+  for (const key of ['candidates', 'contacts', 'data', 'rows', 'results', 'items', 'list']) {
     if (Array.isArray(r[key])) return r[key] as unknown[];
   }
-  // Single object response
   return [payload];
 }
