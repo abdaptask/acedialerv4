@@ -386,9 +386,20 @@ export class SipService {
         console.warn(`[sip] ${name} threw`, e);
       }
     }
+    // Print every function name (own + prototype) so we can wire the right one.
+    const allFns = new Set<string>();
+    let obj: unknown = c;
+    while (obj && obj !== Object.prototype) {
+      for (const k of Object.getOwnPropertyNames(obj)) {
+        try {
+          if (typeof (obj as Record<string, unknown>)[k] === 'function') allFns.add(k);
+        } catch { /* getters can throw */ }
+      }
+      obj = Object.getPrototypeOf(obj);
+    }
     console.warn(
-      '[sip] no transfer method on call object. Available:',
-      Object.keys(c).filter((k) => typeof (c as Record<string, unknown>)[k] === 'function'),
+      '[sip] no transfer method on call object. All functions:',
+      Array.from(allFns).sort().join(', '),
     );
     return false;
   }

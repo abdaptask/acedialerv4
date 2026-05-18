@@ -10,14 +10,12 @@ import {
   Pause,
   Play,
   PhoneForwarded,
-  CircleDot,
   MessageSquare,
   X,
   ArrowLeftRight,
   Merge,
   Check,
 } from 'lucide-react';
-import { startRecording, stopRecording } from '../api';
 import { useSip } from '../contexts/SipContext';
 import { ringtone } from '../services/ringtone';
 import { useJobDivaContact } from '../hooks/useJobDivaContact';
@@ -64,8 +62,6 @@ export default function InCall() {
   const [showTransfer, setShowTransfer] = useState(false);
   const [transferTarget, setTransferTarget] = useState('');
   const [toast, setToast] = useState<string | null>(null);
-  const [recording, setRecording] = useState(false);
-  const [recordingPending, setRecordingPending] = useState(false);
   const [showAudio, setShowAudio] = useState(false);
   const [audioDevices, setAudioDevices] = useState<MediaDeviceInfo[]>([]);
   const [activeAudioId, setActiveAudioId] = useState<string>(() =>
@@ -125,27 +121,6 @@ export default function InCall() {
     showToast('Audio output updated');
   };
 
-  const handleRecord = async () => {
-    if (recordingPending) return;
-    const callId = callState.callId;
-    if (!callId) return;
-    const token = sessionStorage.getItem('ace_token');
-    if (!token) return;
-    setRecordingPending(true);
-    try {
-      const fn = recording ? stopRecording : startRecording;
-      const r = await fn(token, callId);
-      if (r.ok) {
-        setRecording((v) => !v);
-        showToast(recording ? 'Recording stopped' : 'Recording started');
-      } else {
-        showToast(r.hint ?? r.error ?? 'Recording failed');
-      }
-    } finally {
-      setRecordingPending(false);
-    }
-  };
-
   const handleTransfer = () => {
     const t = transferTarget.trim();
     if (!t) return;
@@ -177,11 +152,6 @@ export default function InCall() {
 
   return (
     <div className="in-call">
-      {recording && (
-        <div className="rec-badge" role="status">
-          <span className="rec-dot" /> REC
-        </div>
-      )}
       {hasSecondCall && (
         <button
           type="button"
@@ -254,13 +224,6 @@ export default function InCall() {
             disabled={!isConnected}
           />
           <ControlBtn
-            icon={<CircleDot size={26} />}
-            label={recording ? 'Stop Rec' : 'Record'}
-            active={recording}
-            onClick={handleRecord}
-            disabled={!isConnected || recordingPending}
-          />
-          <ControlBtn
             icon={<MessageSquare size={26} />}
             label="Message"
             onClick={() => {
@@ -272,7 +235,8 @@ export default function InCall() {
               else navigate('/messages');
             }}
           />
-          {/* Empty 9th cell — keeps the 3x3 grid visually symmetric without Meet */}
+          {/* Two empty cells keep the 3x3 grid visually symmetric */}
+          <div className="ic-ctrl-placeholder" aria-hidden="true" />
           <div className="ic-ctrl-placeholder" aria-hidden="true" />
         </div>
       )}

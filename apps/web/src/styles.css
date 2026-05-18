@@ -448,6 +448,61 @@ body {
 .addcall-num { font-size: 0.95rem; font-weight: 500; }
 .addcall-back { font-size: 0.7rem; color: rgba(255, 255, 255, 0.7); }
 
+/* ============ RETURN-TO-CALL BANNER (global, in Layout) ============ */
+.return-to-call-banner {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 0.6rem;
+  width: 100%;
+  padding: 0.5rem 0.85rem;
+  background: #34c759;
+  border: none;
+  color: #fff;
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.18);
+  animation: rtc-pulse 1.6s ease-in-out infinite;
+}
+.return-to-call-banner:hover { filter: brightness(1.05); }
+.rtc-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.22);
+}
+.rtc-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.15;
+}
+.rtc-tag {
+  font-size: 0.6rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  opacity: 0.9;
+}
+.rtc-num {
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+.rtc-back {
+  font-size: 0.7rem;
+  opacity: 0.95;
+  font-weight: 500;
+}
+@keyframes rtc-pulse {
+  0%, 100% { background: #34c759; }
+  50%      { background: #28a745; }
+}
+
 /* ============ KEYBOARD HINT ============ */
 .keyboard-hint {
   text-align: center;
@@ -1161,21 +1216,30 @@ body {
 /* DTMF keypad overlay (shown when user taps Keypad mid-call) */
 .in-call-keypad {
   width: 100%;
-  max-width: 320px;
+  max-width: 260px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
 }
 .ick-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(3, 64px);
   gap: 14px;
+  justify-content: center;
 }
 .ick-btn {
-  height: 56px;
+  width: 64px;
+  height: 64px;
   border-radius: 50%;
   background: #1f2937;
   color: #fff;
   border: none;
   font-size: 22px;
   cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 .ick-btn:active { background: #374151; }
 .ick-close {
