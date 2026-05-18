@@ -315,7 +315,7 @@ function ThreadDetail({ number, onBack }: ThreadDetailProps) {
         </button>
         <input
           className="compose-input"
-          placeholder="iMessage"
+          placeholder="Text message"
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => {
