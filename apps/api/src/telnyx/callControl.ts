@@ -32,6 +32,23 @@ export function encodeClientState(value: Record<string, unknown>): string {
   return Buffer.from(JSON.stringify(value), 'utf8').toString('base64');
 }
 
+// Normalize a user-typed phone number (or SIP URI) into the +E.164 format
+// Telnyx Voice API requires (error code 10016 otherwise).
+//   "9737270611"     → "+19737270611"
+//   "(973) 727-0611" → "+19737270611"
+//   "1-973-727-0611" → "+19737270611"
+//   "+44 20 1234..." → "+44201234..."
+//   "sip:bob@..."    → "sip:bob@..." (untouched)
+export function normalizeToE164(raw: string): string {
+  const s = (raw ?? '').trim();
+  if (s.toLowerCase().startsWith('sip:')) return s;
+  const cleaned = s.replace(/[^\d+]/g, '');
+  if (cleaned.startsWith('+')) return cleaned;
+  if (cleaned.length === 11 && cleaned.startsWith('1')) return `+${cleaned}`;
+  if (cleaned.length === 10) return `+1${cleaned}`;
+  return `+${cleaned}`;
+}
+
 export function decodeClientState<T = Record<string, unknown>>(s: string | undefined | null): T | null {
   if (!s) return null;
   try {

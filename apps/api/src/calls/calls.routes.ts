@@ -4,7 +4,7 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { prisma } from '@ace/db';
 import { config } from '../config.js';
-import { dial, transfer, encodeClientState } from '../telnyx/callControl.js';
+import { dial, transfer, encodeClientState, normalizeToE164 } from '../telnyx/callControl.js';
 
 interface JwtPayload {
   sub: number;
@@ -322,9 +322,11 @@ export async function callsRoutes(app: FastifyInstance) {
       select: { fromNumber: true },
     });
 
+    // Normalize 'to' to E.164 — Telnyx error code 10016 rejects anything else.
+    const toE164 = normalizeToE164(body.to);
     const from = callRow?.fromNumber || config.pilotFromNumber;
-    app.log.info({ callControlId, to: body.to, from }, '[transfer] dispatching');
-    const result = await transfer(callControlId, { to: body.to, from });
+    app.log.info({ callControlId, to: toE164, from, rawTo: body.to }, '[transfer] dispatching');
+    const result = await transfer(callControlId, { to: toE164, from });
     if (!result.ok) {
       // Telnyx error envelope is usually { errors: [{ code, title, detail, ... }] }
       // Surface the first error's detail to the UI so the user sees the real cause.
@@ -370,15 +372,7 @@ export async function callsRoutes(app: FastifyInstance) {
     }
 
     // Normalize destination to E.164 (Telnyx requires + prefix).
-    const cleaned = body.destination.replace(/[^\d+]/g, '');
-    const e164 =
-      cleaned.startsWith('+')
-        ? cleaned
-        : cleaned.length === 11 && cleaned.startsWith('1')
-          ? `+${cleaned}`
-          : cleaned.length === 10
-            ? `+1${cleaned}`
-            : `+${cleaned}`;
+    const e164 = normalizeToE164(body.destination);
 
     const clientState = encodeClientState({
       bridgeTo: body.legAControlId,
