@@ -35,11 +35,12 @@ function formatNumber(raw: string): string {
 
 export default function Dialpad() {
   const [number, setNumber] = useState('');
-  const { sipState, callState, call } = useSip();
+  const { sipState, callState, call, addCall } = useSip();
   const navigate = useNavigate();
   const location = useLocation();
-  // Add-Call feature reverted in current build — always false until UI rebuilt.
-  const isAddCall = false; void location;
+  const isAddCall =
+    !!(location.state as DialpadLocationState | null)?.addCall &&
+    callState.state !== 'idle';
 
   const append = useCallback((d: string) => setNumber((n) => n + d), []);
   const backspace = useCallback(() => setNumber((n) => n.slice(0, -1)), []);
@@ -51,9 +52,13 @@ export default function Dialpad() {
       alert(`Can't call yet — SIP state: ${sipState}. Wait for "Registered" badge above keypad.`);
       return;
     }
-    call(number);
+    if (isAddCall) {
+      addCall(number);
+    } else {
+      call(number);
+    }
     navigate('/in-call');
-  }, [number, sipState, call, navigate]);
+  }, [number, sipState, isAddCall, call, addCall, navigate]);
 
   // Keyboard input — listen at the document level so the dialpad is "always focused".
   useEffect(() => {

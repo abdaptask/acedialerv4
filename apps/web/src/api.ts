@@ -134,6 +134,19 @@ export async function stopRecording(token: string, telnyxCallId: string): Promis
   return { ok: res.ok, ...(body as object) };
 }
 
+// Phase 5.4: bridge two legs into a 3-way conference.
+export async function mergeCalls(token: string, legA: string, legB: string): Promise<void> {
+  const res = await fetch(`${API_URL}/calls/conference`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ legA, legB }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'merge failed' }));
+    throw new Error(err.error || `HTTP ${res.status}`);
+  }
+}
+
 // ---------- Phase 5.6: Voicemail ----------
 export interface VoicemailRecord {
   id: number;

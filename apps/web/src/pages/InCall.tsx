@@ -14,6 +14,8 @@ import {
   Video,
   MessageSquare,
   X,
+  ArrowLeftRight,
+  Merge,
 } from 'lucide-react';
 import { useSip } from '../contexts/SipContext';
 import { ringtone } from '../services/ringtone';
@@ -40,7 +42,18 @@ function formatNumber(n: string | undefined): string {
 const DTMF_KEYS = ['1','2','3','4','5','6','7','8','9','*','0','#'];
 
 export default function InCall() {
-  const { callState, hangup, toggleMute, toggleHold, transferCall, sendDTMF } = useSip();
+  const {
+    callState,
+    hangup,
+    toggleMute,
+    toggleHold,
+    transferCall,
+    sendDTMF,
+    hasSecondCall,
+    secondCallNumber,
+    swapCalls,
+    mergeCalls,
+  } = useSip();
   const [duration, setDuration] = useState(0);
   const [muted, setMuted] = useState(false);
   const [onHold, setOnHold] = useState(false);
@@ -121,6 +134,21 @@ export default function InCall() {
 
   return (
     <div className="in-call">
+      {hasSecondCall && (
+        <button
+          type="button"
+          className="held-line-strip"
+          onClick={() => swapCalls()}
+          title="Tap to switch to held line"
+        >
+          <span className="held-tag">On hold</span>
+          <span className="held-num">{formatNumber(secondCallNumber ?? undefined)}</span>
+          <span className="held-swap">
+            <ArrowLeftRight size={14} /> Swap
+          </span>
+        </button>
+      )}
+
       <div className="in-call-header">
         <div className="in-call-name">{callerLabel}</div>
         <div className="in-call-time">{subtitle}</div>
@@ -146,12 +174,24 @@ export default function InCall() {
             label="Audio"
             onClick={() => navigate('/settings')}
           />
-          <ControlBtn
-            icon={<UserPlus size={26} />}
-            label="Add Call"
-            onClick={() => showToast('Add Call — coming soon')}
-            disabled={!isConnected}
-          />
+          {hasSecondCall ? (
+            <ControlBtn
+              icon={<Merge size={26} />}
+              label="Merge"
+              onClick={async () => {
+                const ok = await mergeCalls();
+                showToast(ok ? 'Conference started' : 'Merge failed');
+              }}
+              disabled={!isConnected}
+            />
+          ) : (
+            <ControlBtn
+              icon={<UserPlus size={26} />}
+              label="Add Call"
+              onClick={() => navigate('/keypad', { state: { addCall: true } })}
+              disabled={!isConnected}
+            />
+          )}
           <ControlBtn
             icon={onHold ? <Play size={26} /> : <Pause size={26} />}
             label={onHold ? 'Resume' : 'Hold'}

@@ -47,6 +47,8 @@ export class SipService {
   private currentCall: any = null;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private incomingCall: any = null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private secondCall: any = null; // Phase 5.4 — second simultaneous call (held)
   private callerNumber: string = '';
   private audioEl: HTMLAudioElement;
   private listeners: Map<string, Set<Listener>> = new Map();
@@ -192,7 +194,19 @@ export class SipService {
             this.incomingCall = null;
           }
           if (this.currentCall && this.currentCall.id === call.id) {
-            this.currentCall = null;
+            // If a held second call exists, promote it to active.
+            if (this.secondCall) {
+              try {
+                if (typeof this.secondCall.unhold === 'function') this.secondCall.unhold();
+              } catch { /* noop */ }
+              this.currentCall = this.secondCall;
+              this.secondCall = null;
+            } else {
+              this.currentCall = null;
+            }
+          }
+          if (this.secondCall && this.secondCall.id === call.id) {
+            this.secondCall = null;
           }
           break;
       }
@@ -225,6 +239,68 @@ export class SipService {
       toNumber: e164,
       direction: 'outbound',
     });
+  }
+
+  // Phase 5.4: add a second simultaneous call. Holds the existing currentCall
+  // (becomes secondCall in held state) and starts a new active call.
+  addCall(rawNumber: string): void {
+    if (!this.client) throw new Error('SIP not connected');
+    if (!this.currentCall) {
+      // No active call → behave like a normal call.
+      this.call(rawNumber);
+      return;
+    }
+    // Move currentCall to secondCall (held) and put it on hold.
+    try {
+      if (typeof this.currentCall.hold === 'function') this.currentCall.hold();
+    } catch (e) {
+      console.warn('[sip] hold for addCall failed', e);
+    }
+    this.secondCall = this.currentCall;
+
+    const e164 = toE164(rawNumber);
+    console.log('[sip] addCall dialing', { e164 });
+    applySpeakerSelection(this.audioEl);
+
+    this.currentCall = this.client.newCall({
+      destinationNumber: e164,
+      callerNumber: this.callerNumber,
+      callerName: 'ACE Dialer',
+      audio: true,
+      video: false,
+      remoteElement: 'ace-remote-audio',
+    });
+    this.emit<CallEvent>('call', {
+      state: 'calling',
+      number: e164,
+      callId: this.currentCall?.id,
+      fromNumber: this.callerNumber,
+      toNumber: e164,
+      direction: 'outbound',
+    });
+  }
+
+  // Swap which call is active. The held one becomes current; the current one
+  // is put on hold and becomes held.
+  swapCalls(): void {
+    if (!this.currentCall || !this.secondCall) return;
+    try {
+      if (typeof this.currentCall.hold === 'function') this.currentCall.hold();
+      if (typeof this.secondCall.unhold === 'function') this.secondCall.unhold();
+    } catch (e) {
+      console.warn('[sip] swap failed', e);
+    }
+    const tmp = this.currentCall;
+    this.currentCall = this.secondCall;
+    this.secondCall = tmp;
+  }
+
+  // Telnyx call IDs for the active + held calls (used by the conference endpoint).
+  getActiveCallId(): string | null {
+    return this.currentCall?.id ?? null;
+  }
+  getHeldCallId(): string | null {
+    return this.secondCall?.id ?? null;
   }
 
   acceptCall(): void {
@@ -302,10 +378,14 @@ export class SipService {
   disconnect(): void {
     this.hangup();
     this.declineCall();
+    if (this.secondCall && typeof this.secondCall.hangup === 'function') {
+      try { this.secondCall.hangup(); } catch { /* noop */ }
+    }
     this.client?.disconnect();
     this.client = null;
     this.currentCall = null;
     this.incomingCall = null;
+    this.secondCall = null;
   }
 }
 

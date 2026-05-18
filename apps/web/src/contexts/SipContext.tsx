@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { sipService, type SipState, type CallEvent } from '../services/sip';
-import { createCall, updateCall } from '../api';
+import { createCall, updateCall, mergeCalls as apiMergeCalls } from '../api';
 
 interface SipContextValue {
   sipState: SipState;
@@ -15,6 +15,12 @@ interface SipContextValue {
   isOnHold: () => boolean;
   transferCall: (destination: string) => boolean;
   sendDTMF: (digit: string) => void;
+  // Phase 5.4 — conference / merge
+  hasSecondCall: boolean;
+  secondCallNumber: string | null;
+  addCall: (number: string) => void;
+  swapCalls: () => void;
+  mergeCalls: () => Promise<boolean>;
 }
 
 const SipContext = createContext<SipContextValue | null>(null);
@@ -31,6 +37,8 @@ export function SipProvider({ children }: { children: React.ReactNode }) {
   const [sipState, setSipState] = useState<SipState>('disconnected');
   const [callState, setCallState] = useState<CallEvent>({ state: 'idle' });
   const [incoming, setIncoming] = useState<CallEvent | null>(null);
+  const [hasSecondCall, setHasSecondCall] = useState(false);
+  const [secondCallNumber, setSecondCallNumber] = useState<string | null>(null);
   const logRef = useRef<Map<string, CallLogState>>(new Map());
   const rejectedRef = useRef<Set<string>>(new Set());
   const currentIncomingRef = useRef<string | null>(null);
@@ -93,6 +101,15 @@ export function SipProvider({ children }: { children: React.ReactNode }) {
         });
       }
       void logCallEvent(e, logRef.current, rejectedRef.current);
+
+      // If a call ended and the SipService no longer has a held leg,
+      // clear the second-call state.
+      if (e.state === 'ended') {
+        if (!sipService.getHeldCallId()) {
+          setHasSecondCall(false);
+          setSecondCallNumber(null);
+        }
+      }
     });
 
     return () => {
@@ -122,6 +139,37 @@ export function SipProvider({ children }: { children: React.ReactNode }) {
     isOnHold: () => sipService.isOnHold(),
     transferCall: (destination) => sipService.transfer(destination),
     sendDTMF: (digit) => sipService.sendDTMF(digit),
+    hasSecondCall,
+    secondCallNumber,
+    addCall: (number) => {
+      // Remember the prior active call's destination so the held strip can display it.
+      const priorTo = callState.toNumber ?? callState.fromNumber ?? callState.number ?? null;
+      setSecondCallNumber(priorTo);
+      setHasSecondCall(true);
+      sipService.addCall(number);
+    },
+    swapCalls: () => {
+      sipService.swapCalls();
+      // After swap, the held number is now the current callState.toNumber.
+      const priorTo = callState.toNumber ?? callState.fromNumber ?? callState.number ?? null;
+      setSecondCallNumber(priorTo);
+    },
+    mergeCalls: async () => {
+      const token = sessionStorage.getItem('ace_token');
+      const legA = sipService.getActiveCallId();
+      const legB = sipService.getHeldCallId();
+      if (!token || !legA || !legB) return false;
+      try {
+        await apiMergeCalls(token, legA, legB);
+        // Once merged, both legs are bridged. Clear the second-call state.
+        setHasSecondCall(false);
+        setSecondCallNumber(null);
+        return true;
+      } catch (e) {
+        console.warn('[merge] failed', e);
+        return false;
+      }
+    },
   };
 
   return <SipContext.Provider value={value}>{children}</SipContext.Provider>;
