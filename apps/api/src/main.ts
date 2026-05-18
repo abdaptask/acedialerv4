@@ -67,4 +67,19 @@ await app.register(messagesRoutes);
 await app.register(voicemailsRoutes);
 await app.register(jobDivaRoutes);
 
-const host = '0.0.0.
+const host = '0.0.0.0';
+try {
+  await app.listen({ port: config.port, host });
+  app.log.info({ port: config.port, host }, `[${SERVICE_NAME}] listening`);
+} catch (err) {
+  app.log.error(err);
+  process.exit(1);
+}
+
+const shutdown = async (signal: string) => {
+  app.log.info({ signal }, `[${SERVICE_NAME}] shutting down`);
+  await app.close();
+  process.exit(0);
+};
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
