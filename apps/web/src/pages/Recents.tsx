@@ -1,10 +1,11 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { PhoneIncoming, PhoneOutgoing, PhoneMissed, Phone, RefreshCcw, Play, Search, X, MessageSquare, ArrowLeft } from 'lucide-react';
+import { PhoneIncoming, PhoneOutgoing, PhoneMissed, Phone, RefreshCcw, Play, Search, X, MessageSquare, ArrowLeft, Star } from 'lucide-react';
 import { getCalls, type CallRecord } from '../api';
 import { useSip } from '../contexts/SipContext';
 import { useJobDivaContact, getCachedJobDivaName } from '../hooks/useJobDivaContact';
-import { formatPhone } from '../lib/phone';
+import { formatPhone, toE164 } from '../lib/phone';
+import { addFavorite, isFavorite, removeFavorite } from '../lib/userPrefs';
 
 function formatDuration(seconds: number): string {
   if (!seconds) return '';
@@ -79,6 +80,20 @@ export default function Recents() {
   const [error, setError] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [search, setSearch] = useState('');
+  // "Add to favorites" modal — pre-filled with the row's phone + (when known)
+  // first/last name parsed from the JobDiva contact. User can edit before
+  // saving so favorites always carry friendly names.
+  const [addFavTarget, setAddFavTarget] = useState<
+    | null
+    | { phone: string; firstName: string; lastName: string }
+  >(null);
+  // Bumped whenever favorites change so star icons re-render their state.
+  const [, setFavTick] = useState(0);
+  useEffect(() => {
+    const refresh = () => setFavTick((t) => t + 1);
+    window.addEventListener('ace:favoritesChanged', refresh);
+    return () => window.removeEventListener('ace:favoritesChanged', refresh);
+  }, []);
   const { sipState, call } = useSip();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -165,6 +180,37 @@ export default function Recents() {
     navigate(`/messages?to=${encodeURIComponent(target)}`);
   }
 
+  // Star toggle. If already a favorite → remove silently. Otherwise → pop
+  // the same Add Favorite modal Favorites uses, pre-filling phone + first/
+  // last name parsed from the JobDiva contact when available.
+  function handleToggleFavorite(c: CallRecord) {
+    const target = c.direction === 'inbound' ? c.fromNumber : c.toNumber;
+    if (!target) return;
+    if (isFavorite(target)) {
+      removeFavorite(target);
+      return;
+    }
+    // Try to seed first/last from cached JobDiva name like "First Last".
+    const cached = getCachedJobDivaName(target) ?? '';
+    const parts = cached.trim().split(/\s+/);
+    const firstName = parts[0] ?? '';
+    const lastName = parts.slice(1).join(' ');
+    setAddFavTarget({
+      phone: toE164(target),
+      firstName,
+      lastName,
+    });
+  }
+
+  function saveAddFav() {
+    if (!addFavTarget) return;
+    addFavorite(addFavTarget.phone, {
+      firstName: addFavTarget.firstName.trim() || null,
+      lastName: addFavTarget.lastName.trim() || null,
+    });
+    setAddFavTarget(null);
+  }
+
   return (
     <div className="recents">
       {contactFilter && (
@@ -233,10 +279,51 @@ export default function Recents() {
             expanded={expandedId === c.id}
             onCallBack={() => handleCallBack(c)}
             onSendSms={() => handleSendSms(c)}
+            onToggleFavorite={() => handleToggleFavorite(c)}
             onToggleRecording={() => setExpandedId(expandedId === c.id ? null : c.id)}
           />
         ))}
       </ul>
+
+      {addFavTarget && (
+        <div className="compose-modal">
+          <div className="compose-box">
+            <h3>Add to favorites</h3>
+            <div className="muted small" style={{ marginBottom: '0.5rem' }}>
+              {formatPhone(addFavTarget.phone) || addFavTarget.phone}
+            </div>
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <input
+                className="ict-input"
+                placeholder="First name (optional)"
+                value={addFavTarget.firstName}
+                onChange={(e) =>
+                  setAddFavTarget({ ...addFavTarget, firstName: e.target.value })
+                }
+                autoFocus
+                style={{ flex: 1 }}
+              />
+              <input
+                className="ict-input"
+                placeholder="Last name (optional)"
+                value={addFavTarget.lastName}
+                onChange={(e) =>
+                  setAddFavTarget({ ...addFavTarget, lastName: e.target.value })
+                }
+                style={{ flex: 1 }}
+              />
+            </div>
+            <div className="ict-actions">
+              <button className="ict-cancel" onClick={() => setAddFavTarget(null)}>
+                Cancel
+              </button>
+              <button className="ict-confirm" onClick={saveAddFav}>
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -246,16 +333,19 @@ function RecentRow({
   expanded,
   onCallBack,
   onSendSms,
+  onToggleFavorite,
   onToggleRecording,
 }: {
   c: CallRecord;
   expanded: boolean;
   onCallBack: () => void;
   onSendSms: () => void;
+  onToggleFavorite: () => void;
   onToggleRecording: () => void;
 }) {
   const number = c.direction === 'inbound' ? c.fromNumber : c.toNumber;
   const missed = isMissed(c);
+  const isFav = !!number && isFavorite(number);
   // Calling this hook here warms the JobDiva cache as the rows render, so
   // the parent's name-based filter starts matching on subsequent keystrokes.
   const jd = useJobDivaContact(number);
@@ -302,6 +392,18 @@ function RecentRow({
             }}
           >
             <MessageSquare size={16} />
+          </button>
+          <button
+            type="button"
+            className={`callback-ico fav-ico${isFav ? ' active' : ''}`}
+            aria-label={isFav ? 'Remove from favorites' : 'Add to favorites'}
+            title={isFav ? 'Remove from favorites' : 'Add to favorites'}
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleFavorite();
+            }}
+          >
+            <Star size={16} fill={isFav ? 'currentColor' : 'none'} />
           </button>
           <Phone size={18} className="callback-ico" aria-hidden="true" />
         </div>

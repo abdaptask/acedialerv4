@@ -1766,6 +1766,11 @@ body {
   cursor: pointer;
 }
 .callback-ico:hover { opacity: 1; }
+/* Star (favorite toggle) on a recent-call row. Outline when unfavorited,
+   filled gold when favorited so the state is immediately obvious. */
+.fav-ico { color: var(--text-muted); }
+.fav-ico:hover { color: #ffd60a; opacity: 1; }
+.fav-ico.active { color: #ffd60a; opacity: 1; }
 .sms-ico {
   color: #34c759;
   border-radius: 50%;
