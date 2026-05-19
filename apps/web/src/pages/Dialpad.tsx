@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Phone, Delete } from 'lucide-react';
-import { AsYouType } from 'libphonenumber-js/min';
+import { AsYouType, parsePhoneNumberFromString } from 'libphonenumber-js/min';
 import { useSip } from '../contexts/SipContext';
 
 interface DialpadLocationState {
@@ -46,7 +46,9 @@ function formatNumber(raw: string): string {
 }
 
 // Smart paste handler — given clipboard text, returns the best-guess E.164
-// representation. Strips formatting, detects country codes, defaults US +1.
+// representation. Detects country code by trying international parsing first
+// (so 12+ digit strings like "918850415617" land as +91 India), then falls
+// back to US national if that doesn't validate.
 function parsePastedNumber(raw: string): string {
   if (!raw) return DEFAULT_PREFIX;
   const trimmed = raw.trim();
@@ -55,17 +57,51 @@ function parsePastedNumber(raw: string): string {
   const subject = sipMatch ? sipMatch[1] : trimmed;
   // Keep digits and the leading + (if any). Drop everything else.
   let digits = subject.replace(/[^\d+]/g, '');
-  // Multiple + signs are not valid — keep only the first if it's at start.
   if (digits.startsWith('+')) {
     digits = '+' + digits.slice(1).replace(/\+/g, '');
   } else {
     digits = digits.replace(/\+/g, '');
   }
-  if (digits.startsWith('+')) return digits;
+
+  // 1. Already has + prefix → trust it and validate.
+  if (digits.startsWith('+')) {
+    try {
+      const parsed = parsePhoneNumberFromString(digits);
+      if (parsed?.isValid()) return parsed.number;
+    } catch {
+      /* fall through */
+    }
+    return digits;
+  }
+
+  // 2. No prefix — try parsing as INTERNATIONAL by prepending "+".
+  // This catches things like "918850415617" (India) or "447911123456" (UK)
+  // where the country code is baked into the digits.
+  if (digits.length >= 11) {
+    try {
+      const intl = parsePhoneNumberFromString('+' + digits);
+      if (intl?.isValid()) return intl.number;
+    } catch {
+      /* fall through */
+    }
+  }
+
+  // 3. Try parsing as US national (10 digits → +1XXXXXXXXXX).
+  if (digits.length === 10) {
+    try {
+      const us = parsePhoneNumberFromString(digits, 'US');
+      if (us?.isValid()) return us.number;
+    } catch {
+      /* fall through */
+    }
+    return '+1' + digits;
+  }
+
+  // 4. 11 digits starting with 1 → US/Canada.
   if (digits.length === 11 && digits.startsWith('1')) return '+' + digits;
-  if (digits.length === 10) return '+1' + digits;
-  // For shorter pasted strings, keep DEFAULT_PREFIX and append.
-  if (digits.length > 0 && digits.length < 10) return DEFAULT_PREFIX + digits;
+
+  // 5. Anything else: keep digits, prepend + so the user can see/edit.
+  if (digits.length > 0) return '+' + digits;
   return DEFAULT_PREFIX;
 }
 
