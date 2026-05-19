@@ -43,12 +43,14 @@ export default function InCall() {
     callState,
     callQuality,
     hangup,
+    hangupCall,
     toggleMute,
     toggleHold,
     transferCall,
     sendDTMF,
     hasSecondCall,
     secondCallNumber,
+    secondCallId,
     swapCalls,
     mergeCalls,
     listAudioOutputs,
@@ -152,18 +154,34 @@ export default function InCall() {
   return (
     <div className="in-call">
       {hasSecondCall && (
-        <button
-          type="button"
-          className="held-line-strip"
-          onClick={() => swapCalls()}
-          title="Tap to switch to held line"
-        >
-          <span className="held-tag">On hold</span>
-          <span className="held-num">{formatNumber(secondCallNumber ?? undefined)}</span>
-          <span className="held-swap">
-            <ArrowLeftRight size={14} /> Swap
-          </span>
-        </button>
+        <div className="held-line-strip">
+          <button
+            type="button"
+            className="held-line-main"
+            onClick={() => swapCalls()}
+            title="Tap to switch to this call"
+          >
+            <span className="held-tag">On hold</span>
+            <span className="held-num">{formatNumber(secondCallNumber ?? undefined)}</span>
+            <span className="held-swap">
+              <ArrowLeftRight size={14} /> Swap
+            </span>
+          </button>
+          <button
+            type="button"
+            className="held-line-hangup"
+            onClick={() => {
+              if (secondCallId) {
+                hangupCall(secondCallId);
+                showToast('Ended held call');
+              }
+            }}
+            title="End the held call"
+            aria-label="End held call"
+          >
+            <PhoneOff size={16} />
+          </button>
+        </div>
       )}
 
       <div className="in-call-header">

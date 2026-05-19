@@ -2746,11 +2746,45 @@ body {
 .compose-box h3 { margin: 0 0 4px; font-size: 16px; }
 
 /* Phase 5.4 — held line strip shown above in-call header when a second call exists */
-.held-line-strip {
+/* Held-call strip becomes a two-button row: a Swap action on the left, a
+   dedicated Hangup on the right. Each is its own button so users see
+   clearly which call ends when they tap which control. */
+.held-line-main {
+  flex: 1;
   display: flex;
   align-items: center;
+  gap: 0.6rem;
+  background: transparent;
+  border: none;
+  color: inherit;
+  padding: 0.45rem 0.85rem;
+  cursor: pointer;
+  font-family: inherit;
+  text-align: left;
+  border-radius: 0;
+  min-width: 0;
+}
+.held-line-main:hover { background: rgba(255, 255, 255, 0.05); }
+.held-line-hangup {
+  background: rgba(255, 59, 48, 0.18);
+  border: none;
+  color: #ff6b6b;
+  padding: 0 0.85rem;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: inherit;
+  transition: background 0.12s;
+  border-left: 0.5px solid rgba(255, 255, 255, 0.1);
+}
+.held-line-hangup:hover { background: rgba(255, 59, 48, 0.32); color: #fff; }
+
+.held-line-strip {
+  display: flex;
+  align-items: stretch;
   justify-content: space-between;
-  gap: 12px;
+  gap: 0;
   background: linear-gradient(90deg, #1f2937 0%, #374151 100%);
   color: #e5e7eb;
   border: none;

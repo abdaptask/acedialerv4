@@ -403,7 +403,11 @@ export class SipService {
   private cleanupCall(callId: string, cause: string): void {
     const entry = this.calls.get(callId);
     if (!entry) return;
-    this.emit<CallEvent>('call', { ...this.buildEvent(entry, 'ended'), hangupCause: cause });
+    // Snapshot the 'ended' event BEFORE we mutate state so the receiver can
+    // compare e.callId against the post-cleanup activeCallId to decide
+    // whether to swap callState to a promoted call.
+    const endedEvent: CallEvent = { ...this.buildEvent(entry, 'ended'), hangupCause: cause };
+
     try {
       if (entry.audioEl) {
         entry.audioEl.srcObject = null;
@@ -417,6 +421,7 @@ export class SipService {
     if (this.incomingCallId === callId) this.incomingCallId = null;
 
     // If a held call remains, promote it to active and unhold.
+    let promotedEvent: CallEvent | null = null;
     if (!this.activeCallId && this.calls.size > 0) {
       const next = Array.from(this.calls.values())[0];
       this.activeCallId = next.id;
@@ -427,13 +432,21 @@ export class SipService {
       if (next.audioEl) {
         this.primaryAudioEl.srcObject = next.audioEl.srcObject;
       }
+      promotedEvent = this.buildEvent(next, 'connected');
+      console.log('[sip] promoted held call to active:', next.id);
+    }
+
+    // Now emit — the 'ended' first (so logs/persistence run), then the
+    // 'connected' for the promoted call (so the UI swaps to it cleanly).
+    this.emit<CallEvent>('call', endedEvent);
+    if (promotedEvent) {
+      this.emit<CallEvent>('call', promotedEvent);
     }
 
     if (this.calls.size === 0) {
       this.stopQualityPolling();
       this.stopConference();
     }
-    // If we drop below 2 calls during a conference, tear it down.
     if (this.calls.size < 2 && this.conferenceCtx) {
       this.stopConference();
     }
@@ -554,6 +567,9 @@ export class SipService {
       }
       this.activeCallId = next.id;
       if (next.audioEl) this.primaryAudioEl.srcObject = next.audioEl.srcObject;
+      // Emit a 'call' event for the now-active session so the UI's callState
+      // reflects the swap (number, direction, etc. all update).
+      this.emit<CallEvent>('call', this.buildEvent(next, 'connected'));
     }
   }
 
@@ -602,28 +618,44 @@ export class SipService {
     this.incomingCallId = null;
   }
 
+  /**
+   * Hang up the ACTIVE call only. Held calls survive and are auto-promoted
+   * to active by cleanupCall() (existing behavior in session.on('ended')).
+   * Use hangupCall(id) to end a specific (e.g., held) call, or hangupAll()
+   * to terminate everything.
+   */
   hangup(): void {
     const active = this.activeCallId ? this.calls.get(this.activeCallId) : null;
-    const tryTerminate = (entry: CallEntry | null | undefined) => {
-      if (!entry) return;
+    if (!active) return;
+    try {
+      active.session.terminate();
+    } catch (e) {
+      console.warn('[sip] hangup threw', e);
+    }
+    // session.on('ended') fires cleanupCall which removes from `this.calls`
+    // and promotes the held call to active if there is one.
+  }
+
+  /** Terminate a specific call (by SIP session id). */
+  hangupCall(callId: string): void {
+    const entry = this.calls.get(callId);
+    if (!entry) return;
+    try {
+      entry.session.terminate();
+    } catch (e) {
+      console.warn('[sip] hangupCall threw', e);
+    }
+  }
+
+  /** Force-end every active call. Use for logout / SIP disconnect. */
+  hangupAll(): void {
+    const all = Array.from(this.calls.values());
+    for (const entry of all) {
       try {
         entry.session.terminate();
       } catch (e) {
-        console.warn('[sip] terminate threw', e);
+        console.warn('[sip] hangupAll: terminate threw for', entry.id, e);
       }
-    };
-    tryTerminate(active);
-    // Also hang up any remaining calls so the user goes to a clean state.
-    for (const entry of Array.from(this.calls.values())) {
-      if (entry.id !== this.activeCallId) tryTerminate(entry);
-    }
-    // Force an 'ended' event so the UI navigates back even if SIP doesn't ack.
-    if (active) {
-      this.emit<CallEvent>('call', {
-        ...this.buildEvent(active, 'ended'),
-        hangupCause: 'user_hangup',
-      });
-      this.cleanupCall(active.id, 'user_hangup');
     }
   }
 

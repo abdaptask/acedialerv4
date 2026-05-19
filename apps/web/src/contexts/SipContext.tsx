@@ -25,7 +25,10 @@ interface SipContextValue {
   /** call_control_id for the held second leg (server-originated via /add-leg). */
   secondCallControlId: string | null;
   call: (number: string) => void;
+  /** End the ACTIVE call only. Any held call promotes to active. */
   hangup: () => void;
+  /** End a specific (e.g., held) call by its SIP session id. */
+  hangupCall: (callId: string) => void;
   acceptCall: () => void;
   declineCall: () => void;
   toggleMute: () => boolean;
@@ -34,9 +37,12 @@ interface SipContextValue {
   /** Server-side transfer via Telnyx Call Control. */
   transferCall: (destination: string) => Promise<ServerActionResult>;
   sendDTMF: (digit: string) => void;
-  // Phase 5.4 — conference / merge (server-side via Call Control)
+  // Phase 6.1 — JsSIP-level multi-call support
   hasSecondCall: boolean;
+  /** Display label of the held call (number / contact). */
   secondCallNumber: string | null;
+  /** SIP session id of the held call — used by per-call hangup. */
+  secondCallId: string | null;
   addCall: (number: string) => Promise<ServerActionResult>;
   swapCalls: () => void;
   mergeCalls: () => Promise<boolean>;
@@ -61,6 +67,7 @@ export function SipProvider({ children }: { children: React.ReactNode }) {
   const [incoming, setIncoming] = useState<CallEvent | null>(null);
   const [hasSecondCall, setHasSecondCall] = useState(false);
   const [secondCallNumber, setSecondCallNumber] = useState<string | null>(null);
+  const [secondCallId, setSecondCallId] = useState<string | null>(null);
   const [activeCallControlId, setActiveCallControlId] = useState<string | null>(null);
   const [secondCallControlId, setSecondCallControlId] = useState<string | null>(null);
   const [callQuality, setCallQuality] = useState<CallQuality>({ level: 'unknown', jitter: 0, loss: 0, rtt: null });
@@ -114,7 +121,17 @@ export function SipProvider({ children }: { children: React.ReactNode }) {
           }
         }
       } else {
-        setCallState(e);
+        // Only update the main callState when this event is for the active
+        // call (or there's no active call at all). Events on a held call —
+        // e.g., the user tapping the held-strip's hangup button — must not
+        // clobber the active call's display.
+        const activeId = sipService.getActiveCallId();
+        const isActiveEvent = !activeId || !e.callId || e.callId === activeId;
+        if (isActiveEvent) {
+          setCallState(e);
+        } else {
+          console.log('[sip-ctx] ignoring event for non-active call', e.callId, 'state:', e.state);
+        }
         setIncoming((prev) => {
           if (!prev) return prev;
           if (prev.callId === e.callId) {
@@ -136,12 +153,17 @@ export function SipProvider({ children }: { children: React.ReactNode }) {
       }
       void logCallEvent(e, logRef.current, rejectedRef.current);
 
-      // If a call ended and the SipService no longer has a held leg,
-      // clear the second-call state.
+      // When ANY call ends, recompute the held-call state from sipService.
+      // After cleanupCall promotes a survivor to active, getHeldCallId()
+      // returns null in the 2-call → 1-call collapse case.
       if (e.state === 'ended') {
-        if (!sipService.getHeldCallId()) {
+        const heldId = sipService.getHeldCallId();
+        if (!heldId) {
           setHasSecondCall(false);
           setSecondCallNumber(null);
+          setSecondCallId(null);
+        } else {
+          setSecondCallId(heldId);
         }
       }
     });
@@ -225,6 +247,7 @@ export function SipProvider({ children }: { children: React.ReactNode }) {
     secondCallControlId,
     call: (number) => sipService.call(number),
     hangup: () => sipService.hangup(),
+    hangupCall: (callId: string) => sipService.hangupCall(callId),
     acceptCall: () => sipService.acceptCall(),
     declineCall: () => {
       if (incoming?.callId) rejectedRef.current.add(incoming.callId);
@@ -259,6 +282,7 @@ export function SipProvider({ children }: { children: React.ReactNode }) {
     sendDTMF: (digit) => sipService.sendDTMF(digit),
     hasSecondCall,
     secondCallNumber,
+    secondCallId,
     // Phase 6.1 — Add Call via JsSIP (multiple concurrent SIP sessions).
     // sipService.addCall puts the active call on SIP hold (RE-INVITE with
     // sendonly direction) and starts a brand new SIP session for the new
@@ -269,19 +293,21 @@ export function SipProvider({ children }: { children: React.ReactNode }) {
         return { ok: false, error: 'no_active_call', hint: 'You need an active connected call before adding another.' };
       }
       try {
-        // Remember the prior active call's destination so the held-strip
-        // UI can show it while the second call rings.
+        // Remember the prior active call so the held-strip UI can display
+        // its number AND we can hang it up via its session id.
         const priorOther =
           current.direction === 'inbound'
             ? current.fromNumber ?? current.number
             : current.toNumber ?? current.number;
         setSecondCallNumber(priorOther ?? null);
+        setSecondCallId(current.callId ?? null);
         setHasSecondCall(true);
         sipService.addCall(number);
         return { ok: true };
       } catch (e) {
         setHasSecondCall(false);
         setSecondCallNumber(null);
+        setSecondCallId(null);
         return {
           ok: false,
           error: 'add_call_failed',
@@ -290,17 +316,17 @@ export function SipProvider({ children }: { children: React.ReactNode }) {
       }
     },
     swapCalls: () => {
-      // Phase 6.1 — JsSIP-level swap: holds the current call, unholds the
-      // other one. After swap, the previously-active call's number becomes
-      // the held strip's content.
       const priorActive = callStateRef.current;
       const priorOther =
         priorActive.direction === 'inbound'
           ? priorActive.fromNumber ?? priorActive.number
           : priorActive.toNumber ?? priorActive.number;
+      const priorActiveId = priorActive.callId ?? null;
       sipService.swapCalls();
-      // Update held-strip to show the now-held call (formerly active).
+      // After swap, prior active becomes the held one; show its info on
+      // the held strip and remember its session id for hangup.
       setSecondCallNumber(priorOther ?? null);
+      setSecondCallId(priorActiveId);
     },
     listAudioOutputs: () => sipService.listAudioOutputs(),
     setAudioOutput: (deviceId) => sipService.setAudioOutput(deviceId),
