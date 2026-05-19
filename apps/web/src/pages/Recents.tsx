@@ -286,41 +286,89 @@ export default function Recents() {
       </ul>
 
       {addFavTarget && (
-        <div className="compose-modal">
-          <div className="compose-box">
-            <h3>Add to favorites</h3>
-            <div className="muted small" style={{ marginBottom: '0.5rem' }}>
+        <div className="compose-modal" onClick={() => setAddFavTarget(null)}>
+          <div
+            className="fav-modal"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-labelledby="fav-modal-title"
+          >
+            <div className="fav-modal-header">
+              <Star size={18} fill="currentColor" className="fav-modal-icon" />
+              <h3 id="fav-modal-title">Add to favorites</h3>
+            </div>
+            <div className="fav-modal-phone">
               {formatPhone(addFavTarget.phone) || addFavTarget.phone}
             </div>
-            <div style={{ display: 'flex', gap: '0.5rem' }}>
+            <form
+              onSubmit={(e) => { e.preventDefault(); saveAddFav(); }}
+              autoComplete="off"
+            >
+              {/* Honeypot — keeps password managers from autofilling the real
+                  fields below. Hidden but present in the DOM, which is enough
+                  for 1Password / LastPass to target it instead. */}
               <input
-                className="ict-input"
-                placeholder="First name (optional)"
-                value={addFavTarget.firstName}
-                onChange={(e) =>
-                  setAddFavTarget({ ...addFavTarget, firstName: e.target.value })
-                }
-                autoFocus
-                style={{ flex: 1 }}
+                type="text"
+                name="username"
+                autoComplete="username"
+                style={{ display: 'none' }}
+                tabIndex={-1}
+                aria-hidden="true"
               />
-              <input
-                className="ict-input"
-                placeholder="Last name (optional)"
-                value={addFavTarget.lastName}
-                onChange={(e) =>
-                  setAddFavTarget({ ...addFavTarget, lastName: e.target.value })
-                }
-                style={{ flex: 1 }}
-              />
-            </div>
-            <div className="ict-actions">
-              <button className="ict-cancel" onClick={() => setAddFavTarget(null)}>
-                Cancel
-              </button>
-              <button className="ict-confirm" onClick={saveAddFav}>
-                Save
-              </button>
-            </div>
+              <div className="fav-modal-row">
+                <label className="fav-modal-field">
+                  <span className="fav-modal-label">First name</span>
+                  <input
+                    type="text"
+                    className="fav-modal-input"
+                    placeholder="Optional"
+                    value={addFavTarget.firstName}
+                    onChange={(e) =>
+                      setAddFavTarget({ ...addFavTarget, firstName: e.target.value })
+                    }
+                    autoFocus
+                    autoComplete="off"
+                    autoCorrect="off"
+                    spellCheck={false}
+                    data-1p-ignore
+                    data-lpignore="true"
+                    data-form-type="other"
+                    name="fav-first"
+                  />
+                </label>
+                <label className="fav-modal-field">
+                  <span className="fav-modal-label">Last name</span>
+                  <input
+                    type="text"
+                    className="fav-modal-input"
+                    placeholder="Optional"
+                    value={addFavTarget.lastName}
+                    onChange={(e) =>
+                      setAddFavTarget({ ...addFavTarget, lastName: e.target.value })
+                    }
+                    autoComplete="off"
+                    autoCorrect="off"
+                    spellCheck={false}
+                    data-1p-ignore
+                    data-lpignore="true"
+                    data-form-type="other"
+                    name="fav-last"
+                  />
+                </label>
+              </div>
+              <div className="fav-modal-actions">
+                <button
+                  type="button"
+                  className="fav-modal-cancel"
+                  onClick={() => setAddFavTarget(null)}
+                >
+                  Cancel
+                </button>
+                <button type="submit" className="fav-modal-save">
+                  Save
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

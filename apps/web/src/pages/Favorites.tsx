@@ -94,52 +94,113 @@ export default function Favorites() {
       )}
 
       {showAdd && (
-        <div className="compose-modal">
-          <div className="compose-box">
-            <h3>Add favorite</h3>
-            <input
-              className="ict-input"
-              placeholder="Phone number"
-              value={draftPhone}
-              onChange={(e) => setDraftPhone(e.target.value)}
-              autoFocus
-            />
-            <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
-              <input
-                className="ict-input"
-                placeholder="First name (optional)"
-                value={draftFirst}
-                onChange={(e) => setDraftFirst(e.target.value)}
-                style={{ flex: 1 }}
-              />
-              <input
-                className="ict-input"
-                placeholder="Last name (optional)"
-                value={draftLast}
-                onChange={(e) => setDraftLast(e.target.value)}
-                style={{ flex: 1 }}
-              />
+        <div
+          className="compose-modal"
+          onClick={() => {
+            setShowAdd(false);
+            setDraftPhone('');
+            setDraftFirst('');
+            setDraftLast('');
+          }}
+        >
+          <div
+            className="fav-modal"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-labelledby="fav-modal-title-2"
+          >
+            <div className="fav-modal-header">
+              <Star size={18} fill="currentColor" className="fav-modal-icon" />
+              <h3 id="fav-modal-title-2">Add favorite</h3>
             </div>
-            <div className="ict-actions">
-              <button
-                className="ict-cancel"
-                onClick={() => {
-                  setShowAdd(false);
-                  setDraftPhone('');
-                  setDraftFirst('');
-                  setDraftLast('');
-                }}
-              >
-                Cancel
-              </button>
-              <button
-                className="ict-confirm"
-                disabled={!draftPhone.trim()}
-                onClick={handleAdd}
-              >
-                Add
-              </button>
-            </div>
+            <form
+              onSubmit={(e) => { e.preventDefault(); if (draftPhone.trim()) handleAdd(); }}
+              autoComplete="off"
+            >
+              {/* Honeypot to absorb password-manager autofill */}
+              <input
+                type="text"
+                name="username"
+                autoComplete="username"
+                style={{ display: 'none' }}
+                tabIndex={-1}
+                aria-hidden="true"
+              />
+              <label className="fav-modal-field" style={{ marginBottom: '0.75rem' }}>
+                <span className="fav-modal-label">Phone number</span>
+                <input
+                  type="tel"
+                  inputMode="tel"
+                  className="fav-modal-input"
+                  placeholder="+1 (555) 123 4567"
+                  value={draftPhone}
+                  onChange={(e) => setDraftPhone(e.target.value)}
+                  autoFocus
+                  autoComplete="off"
+                  data-1p-ignore
+                  data-lpignore="true"
+                  data-form-type="other"
+                  name="fav-phone"
+                />
+              </label>
+              <div className="fav-modal-row">
+                <label className="fav-modal-field">
+                  <span className="fav-modal-label">First name</span>
+                  <input
+                    type="text"
+                    className="fav-modal-input"
+                    placeholder="Optional"
+                    value={draftFirst}
+                    onChange={(e) => setDraftFirst(e.target.value)}
+                    autoComplete="off"
+                    autoCorrect="off"
+                    spellCheck={false}
+                    data-1p-ignore
+                    data-lpignore="true"
+                    data-form-type="other"
+                    name="fav-first"
+                  />
+                </label>
+                <label className="fav-modal-field">
+                  <span className="fav-modal-label">Last name</span>
+                  <input
+                    type="text"
+                    className="fav-modal-input"
+                    placeholder="Optional"
+                    value={draftLast}
+                    onChange={(e) => setDraftLast(e.target.value)}
+                    autoComplete="off"
+                    autoCorrect="off"
+                    spellCheck={false}
+                    data-1p-ignore
+                    data-lpignore="true"
+                    data-form-type="other"
+                    name="fav-last"
+                  />
+                </label>
+              </div>
+              <div className="fav-modal-actions">
+                <button
+                  type="button"
+                  className="fav-modal-cancel"
+                  onClick={() => {
+                    setShowAdd(false);
+                    setDraftPhone('');
+                    setDraftFirst('');
+                    setDraftLast('');
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="fav-modal-save"
+                  disabled={!draftPhone.trim()}
+                >
+                  Save
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
