@@ -1,7 +1,8 @@
 import { useState, useCallback, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Phone, Delete } from 'lucide-react';
-import { AsYouType, parsePhoneNumberFromString } from 'libphonenumber-js/min';
+import { AsYouType, parsePhoneNumberFromString, getCountryCallingCode } from 'libphonenumber-js/min';
+import type { CountryCode } from 'libphonenumber-js/min';
 import { useSip } from '../contexts/SipContext';
 
 interface DialpadLocationState {
@@ -28,6 +29,51 @@ const ALLOWED_KEYS = new Set(['0','1','2','3','4','5','6','7','8','9','*','#','+
 // Default country prefix shown on first load — users typically dial US numbers.
 // Backspace can still erase past this; Esc resets to it.
 const DEFAULT_PREFIX = '+1';
+const DEFAULT_COUNTRY: CountryCode = 'US';
+
+// Convert an ISO 3166-1 alpha-2 country code (e.g., "US", "IN", "GB") to its
+// flag emoji using Unicode regional indicator characters. Works in every
+// modern browser / OS that supports emoji presentation (most do).
+function flagEmoji(iso2: string | undefined | null): string {
+  if (!iso2 || iso2.length !== 2) return '🌐';
+  const upper = iso2.toUpperCase();
+  const A = 0x1f1e6 - 65;
+  return String.fromCodePoint(upper.charCodeAt(0) + A, upper.charCodeAt(1) + A);
+}
+
+// Detect the country (and its calling code) from the current number being
+// entered. Uses AsYouType so it works on partial input — country is
+// determined as soon as enough digits are typed to disambiguate.
+function detectCountry(num: string): { iso: CountryCode; callingCode: string; flag: string } {
+  const fallback = {
+    iso: DEFAULT_COUNTRY,
+    callingCode: getCountryCallingCode(DEFAULT_COUNTRY),
+    flag: flagEmoji(DEFAULT_COUNTRY),
+  };
+  if (!num) return fallback;
+  try {
+    const ayt = new AsYouType(DEFAULT_COUNTRY);
+    ayt.input(num);
+    const iso = ayt.getCountry();
+    if (iso) {
+      return { iso, callingCode: getCountryCallingCode(iso), flag: flagEmoji(iso) };
+    }
+    // AsYouType couldn't determine yet — try full parser as a second pass.
+    if (num.startsWith('+')) {
+      const parsed = parsePhoneNumberFromString(num);
+      if (parsed?.country) {
+        return {
+          iso: parsed.country,
+          callingCode: getCountryCallingCode(parsed.country),
+          flag: flagEmoji(parsed.country),
+        };
+      }
+    }
+  } catch {
+    /* fall through */
+  }
+  return fallback;
+}
 
 // Progressive phone number formatter using libphonenumber-js's AsYouType.
 // Handles "+1 (973) 727-0611", "+44 20 1234 5678", etc. — formats as you type.
@@ -279,9 +325,16 @@ export default function Dialpad() {
         aria-live="polite"
         role="textbox"
       >
+        <span
+          className="number-display-flag"
+          title={detectCountry(number).iso}
+          aria-label={`Country: ${detectCountry(number).iso}`}
+        >
+          {detectCountry(number).flag}
+        </span>
         {number === DEFAULT_PREFIX || !number ? (
           <>
-            <span className="number-display-prefix">+1</span>
+            <span className="number-display-prefix">+{detectCountry(number).callingCode}</span>
             <span className="number-display-cursor" aria-hidden="true">|</span>
             <span className="number-display-placeholder">(000) 000-0000</span>
           </>

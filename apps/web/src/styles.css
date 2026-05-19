@@ -417,6 +417,18 @@ body {
 [data-theme="light"] .number-display-placeholder { color: rgba(60, 60, 67, 0.4); }
 [data-theme="light"] .number-display.empty { color: var(--text-muted); }
 
+/* Flag emoji shown at the start of the number display. */
+.number-display-flag {
+  font-size: 1.6rem;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  margin-right: 0.1rem;
+  /* Some platforms (Windows) render flag emoji as text rather than image;
+     keep the font family so the regional-indicator characters work. */
+  font-family: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", system-ui, sans-serif;
+}
+
 /* Blinking caret that sits between the country prefix and where digits land. */
 .number-display-cursor {
   display: inline-block;
