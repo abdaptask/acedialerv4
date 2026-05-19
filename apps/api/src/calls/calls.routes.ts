@@ -380,74 +380,77 @@ export async function callsRoutes(app: FastifyInstance) {
     }
 
     // Step 1+2: find Leg A's row + its sibling WebRTC leg in the same session.
+    // Conference works only if we have BOTH legs (WC + PSTN). If the webhook
+    // only captured the PSTN side, we'd disconnect the user's audio by moving
+    // PSTN into a conference — so we fall back to legacy bridge in that case.
     const legARow = await prisma.call.findFirst({
       where: { callControlId: body.legAControlId, userId: user.sub },
       select: { id: true, sessionId: true, telnyxCallId: true },
     });
-    if (!legARow?.sessionId) {
-      return reply.code(409).send({
-        error: 'leg_a_session_not_found',
-        hint: 'No sessionId on Leg A row. The webhook may not have populated it yet — retry in a couple seconds.',
-      });
-    }
-    const sessionLegs = await prisma.call.findMany({
-      where: {
-        sessionId: legARow.sessionId,
-        userId: user.sub,
-        callControlId: { not: null },
-      },
-      select: { callControlId: true, direction: true, fromNumber: true, toNumber: true },
-    });
+    const sessionLegs = legARow?.sessionId
+      ? await prisma.call.findMany({
+          where: {
+            sessionId: legARow.sessionId,
+            userId: user.sub,
+            callControlId: { not: null },
+          },
+          select: { callControlId: true, direction: true, fromNumber: true, toNumber: true },
+        })
+      : [];
     const otherLeg = sessionLegs.find((l) => l.callControlId !== body.legAControlId);
 
-    // Step 3: create conference with the user's leg as initial participant.
-    // If we found a WebRTC sibling, use it (preferred — user hears the mix).
-    // Otherwise fall back to the PSTN leg (degraded — user may lose audio
-    // when the conference takes over the bridge).
-    const userLeg = otherLeg?.callControlId ?? body.legAControlId;
-    const confName = `addcall-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    app.log.info(
-      { confName, userLeg, sessionId: legARow.sessionId, foundSibling: !!otherLeg?.callControlId },
-      '[add-leg] creating conference',
-    );
-    const confResult = await conferenceCreate(confName, userLeg, {
-      endConfOnExit: true, // user's leg ending = end conference for all
-      beepEnabled: 'never',
-    });
-    if (!confResult.ok) {
-      app.log.warn({ status: confResult.status, error: confResult.error }, '[add-leg] conference create failed');
-      return reply.code(502).send({
-        error: 'telnyx_conference_create_failed',
-        status: confResult.status,
-        details: confResult.error,
-        hint: 'See server logs for the Telnyx error detail.',
-      });
-    }
-    const confId = confResult.data?.data?.id;
-    if (!confId) {
-      app.log.error({ data: confResult.data }, '[add-leg] missing conference id in telnyx response');
-      return reply.code(502).send({ error: 'telnyx_response_invalid' });
-    }
+    const toE164 = normalizeToE164(body.destination);
+    let confId: string | null = null;
+    let clientState: string;
 
-    // Step 4: join the OTHER existing leg (the PSTN A leg, if we used WC as
-    // initial — or vice versa) to the conference. end_conference_on_exit:
-    // false so this side hanging up doesn't kill everyone.
     if (otherLeg?.callControlId) {
+      // ✅ Have both legs — use proper Conference (true 3-way, independent hangups).
+      const confName = `addcall-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      app.log.info(
+        { confName, userLeg: otherLeg.callControlId, sessionId: legARow?.sessionId },
+        '[add-leg] using Conference flow (both legs captured)',
+      );
+      const confResult = await conferenceCreate(confName, otherLeg.callControlId, {
+        endConfOnExit: true, // user's leg ending = end conference for all
+        beepEnabled: 'never',
+      });
+      if (!confResult.ok) {
+        app.log.warn({ status: confResult.status, error: confResult.error }, '[add-leg] conference create failed');
+        return reply.code(502).send({
+          error: 'telnyx_conference_create_failed',
+          status: confResult.status,
+          details: confResult.error,
+        });
+      }
+      confId = confResult.data?.data?.id ?? null;
+      if (!confId) {
+        return reply.code(502).send({ error: 'telnyx_response_invalid' });
+      }
+      // Join the PSTN A leg too.
       const joinAResult = await conferenceJoin(confId, body.legAControlId, { endConfOnExit: false });
       if (!joinAResult.ok) {
         app.log.warn({ status: joinAResult.status, error: joinAResult.error }, '[add-leg] join legA to conf failed');
-        // Don't fail the whole flow — try originating leg B anyway.
       }
+      clientState = encodeClientState({
+        joinConfId: confId,
+        endConfOnExit: false,
+        originatorUserId: user.sub,
+      });
+    } else {
+      // ⚠️ Only have the PSTN leg — fall back to legacy bridge. When B answers
+      // the webhook will bridge B↔A; the WebRTC client gets unbridged from A
+      // (briefly) but the existing call stays connected until then. Cascading
+      // hangups apply (when one party drops, the bridge tears down).
+      app.log.info(
+        { legA: body.legAControlId, sessionId: legARow?.sessionId },
+        '[add-leg] using LEGACY bridge flow (WebRTC sibling not captured)',
+      );
+      clientState = encodeClientState({
+        bridgeTo: body.legAControlId,
+        autoBridge: true,
+        originatorUserId: user.sub,
+      });
     }
-
-    // Step 5: originate Leg B via Call Control with client_state telling the
-    // webhook to auto-join it to this conference on answer.
-    const toE164 = normalizeToE164(body.destination);
-    const clientState = encodeClientState({
-      joinConfId: confId,
-      endConfOnExit: false, // other party hanging up doesn't end conference
-      originatorUserId: user.sub,
-    });
     const dialResult = await dial({
       to: toE164,
       from: config.pilotFromNumber,
@@ -487,13 +490,13 @@ export async function callsRoutes(app: FastifyInstance) {
     });
 
     app.log.info(
-      { confId, legA: body.legAControlId, userLeg, legB: legBControlId, to: toE164 },
-      '[add-leg] conference setup complete; leg B dialing',
+      { confId, legA: body.legAControlId, legB: legBControlId, to: toE164, mode: confId ? 'conference' : 'bridge' },
+      '[add-leg] setup complete; leg B dialing',
     );
 
     return {
       ok: true,
-      conferenceId: confId,
+      ...(confId ? { conferenceId: confId } : {}),
       legB: {
         telnyxCallId: legBLegId ?? legBControlId,
         callControlId: legBControlId,
