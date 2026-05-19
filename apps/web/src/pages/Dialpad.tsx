@@ -223,13 +223,26 @@ export default function Dialpad() {
 
   // Anything with at least one dialable digit counts as ready to call.
   const hasDialableInput = number.replace(/[^\d]/g, '').length > 0;
+  // Whether there's a last-dialed number stashed for the empty-input recall.
+  const hasLastDialed = (() => {
+    try { return !!localStorage.getItem('ace_last_dialed'); } catch { return false; }
+  })();
 
   const handleCall = useCallback(async () => {
-    if (!hasDialableInput) return;
+    // Empty field + call pressed: recall the last dialed number (classic
+    // phone behavior — like the iOS dialer). User can press call again to
+    // actually dial it.
+    if (!hasDialableInput) {
+      const last = localStorage.getItem('ace_last_dialed');
+      if (last) setNumber(last);
+      return;
+    }
     if (sipState !== 'registered') {
       alert(`Can't call yet — SIP state: ${sipState}. Wait for "Registered" badge above keypad.`);
       return;
     }
+    // Remember this number for next-time recall before we navigate away.
+    try { localStorage.setItem('ace_last_dialed', number); } catch { /* quota */ }
     if (isAddCall) {
       // Server-originated Leg B via Telnyx Call Control. addCall() waits up
       // to 15s for the leg's callControlId to arrive before failing, so we
@@ -447,8 +460,16 @@ export default function Dialpad() {
           type="button"
           className="call-btn"
           onClick={handleCall}
-          disabled={!hasDialableInput || sipState !== 'registered'}
-          aria-label="Call"
+          disabled={
+            sipState !== 'registered' ||
+            (!hasDialableInput && !hasLastDialed)
+          }
+          aria-label={hasDialableInput ? 'Call' : 'Recall last number'}
+          title={
+            !hasDialableInput && hasLastDialed
+              ? 'Press to bring back the last dialed number'
+              : 'Call'
+          }
         >
           <Phone size={32} strokeWidth={2} fill="white" />
         </button>
