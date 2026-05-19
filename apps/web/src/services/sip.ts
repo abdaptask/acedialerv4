@@ -233,19 +233,26 @@ export class SipService {
     };
     this.calls.set(callId, entry);
 
-    // Wire the peer connection's remote stream into our audio element as soon
-    // as the SDP exchange completes.
-    session.on('peerconnection', (data: { peerconnection: RTCPeerConnection }) => {
-      const pc = data.peerconnection;
+    // JsSIP's 'peerconnection' event timing is unreliable across versions.
+    // Instead, poll for session.connection (the underlying RTCPeerConnection)
+    // and wire listeners as soon as it appears. Run a few times in case JsSIP
+    // creates the PC lazily.
+    const wirePcWhenReady = () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const pc: RTCPeerConnection | null = (session as any).connection ?? (session as any)._connection ?? null;
+      if (!pc) return false;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      if ((pc as any).__aceWired) return true;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (pc as any).__aceWired = true;
+      console.log('[sip] PC found, wiring listeners');
+
       pc.addEventListener('track', (ev: RTCTrackEvent) => {
         console.log('[sip] track event — kind:', ev.track.kind, 'streams:', ev.streams.length);
         if (ev.streams && ev.streams[0]) {
           const stream = ev.streams[0];
           audioEl.srcObject = stream;
           void audioEl.play().catch((e) => console.warn('[sip] per-call audioEl.play failed', e));
-          // ALWAYS route to primary audio element too — that's the one
-          // setSinkId targets for speaker selection. The activeCallId check
-          // had a race condition (track fires before 'accepted').
           this.primaryAudioEl.srcObject = stream;
           void this.primaryAudioEl.play().catch((e) =>
             console.warn('[sip] primaryAudioEl.play failed', e),
@@ -257,21 +264,6 @@ export class SipService {
           console.warn('[sip] track event but no streams!', ev);
         }
       });
-      // Wrap setRemoteDescription to surface the underlying Chrome error
-      // (JsSIP catches it and emits a generic "Bad Media Description").
-      const originalSRD = pc.setRemoteDescription.bind(pc);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (pc as any).setRemoteDescription = async (desc: RTCSessionDescriptionInit) => {
-        console.log('[sip] setRemoteDescription called with type:', desc.type);
-        try {
-          await originalSRD(desc);
-          console.log('[sip] setRemoteDescription OK');
-        } catch (e) {
-          console.error('[sip] setRemoteDescription FAILED:', (e as Error).name, (e as Error).message);
-          console.error('[sip] failing SDP was:\n' + desc.sdp);
-          throw e;
-        }
-      };
       pc.addEventListener('iceconnectionstatechange', () => {
         console.log('[sip] iceConnectionState:', pc.iceConnectionState);
       });
@@ -281,7 +273,25 @@ export class SipService {
       pc.addEventListener('signalingstatechange', () => {
         console.log('[sip] signalingState:', pc.signalingState);
       });
-    });
+      // Also check current receivers for any already-attached remote tracks.
+      try {
+        for (const receiver of pc.getReceivers?.() ?? []) {
+          if (receiver.track) {
+            console.log('[sip] existing receiver track:', receiver.track.kind);
+          }
+        }
+      } catch { /* noop */ }
+      return true;
+    };
+
+    // Try immediately, then poll for up to 5 seconds.
+    if (!wirePcWhenReady()) {
+      let tries = 0;
+      const id = setInterval(() => {
+        tries += 1;
+        if (wirePcWhenReady() || tries >= 50) clearInterval(id);
+      }, 100);
+    }
 
     // Outbound call lifecycle
     if (direction === 'outbound') {
