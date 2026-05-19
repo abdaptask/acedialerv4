@@ -377,7 +377,11 @@ export async function uploadMedia(token: string, file: File): Promise<{ url: str
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: 'upload failed' }));
-    throw new Error(err.error || `HTTP ${res.status}`);
+    // Prefer the API's `hint` (human-readable) over the raw error code.
+    // Also include status + details so the developer console shows everything.
+    const msg = err.hint || err.error || `HTTP ${res.status}`;
+    if (err.details) console.error('[mms upload] supabase error:', err.status, err.details);
+    throw new Error(msg);
   }
   return res.json();
 }
