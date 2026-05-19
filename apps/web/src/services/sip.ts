@@ -78,6 +78,36 @@ function applySpeakerSelection(audioEl: HTMLAudioElement): void {
 }
 
 /**
+ * Audio constraints applied to every getUserMedia call we make.
+ *
+ * Why all this matters:
+ *   - echoCancellation: REQUIRED. Without it the remote party hears their
+ *     own voice come back as echo (especially when the user is on speakers
+ *     instead of a headset). Chrome defaults this to true, Safari does NOT.
+ *   - noiseSuppression: filters keyboard taps, AC hum, breathing.
+ *   - autoGainControl: keeps the user's voice at a consistent level so the
+ *     other party doesn't have to crank their volume up and down.
+ *   - sampleRate 48000: matches Opus (the codec Telnyx negotiates) so the
+ *     browser doesn't have to resample mid-call.
+ *   - channelCount 1: voice is mono — saves bandwidth.
+ *   - deviceId: honors the mic the user chose in Settings → Audio.
+ */
+function buildAudioConstraints(): MediaTrackConstraints {
+  const micId = localStorage.getItem('ace_mic');
+  const constraints: MediaTrackConstraints = {
+    echoCancellation: true,
+    noiseSuppression: true,
+    autoGainControl: true,
+    channelCount: 1,
+    sampleRate: 48000,
+  };
+  if (micId && micId !== 'default') {
+    constraints.deviceId = { exact: micId };
+  }
+  return constraints;
+}
+
+/**
  * Per-call book-keeping. We attach this to each JsSIP RTCSession so we can
  * track held state, the destination number we dialed, etc.
  */
@@ -491,7 +521,10 @@ export class SipService {
     // Pre-flight mic permission — getUserMedia errors that happen inside
     // JsSIP can otherwise vanish silently and the call just dies.
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: buildAudioConstraints(),
+        video: false,
+      });
       // Don't keep this stream around — JsSIP will request its own. Just verify access.
       stream.getTracks().forEach((t) => t.stop());
       console.log('[sip] mic permission OK');
@@ -508,7 +541,7 @@ export class SipService {
 
     try {
       const session = this.ua.call(target, {
-        mediaConstraints: { audio: true, video: false },
+        mediaConstraints: { audio: buildAudioConstraints(), video: false },
         pcConfig: {
           iceServers: [
             { urls: 'stun:stun.telnyx.com:3478' },
@@ -623,7 +656,7 @@ export class SipService {
     applySpeakerSelection(this.primaryAudioEl);
     try {
       entry.session.answer({
-        mediaConstraints: { audio: true, video: false },
+        mediaConstraints: { audio: buildAudioConstraints(), video: false },
         pcConfig: {
           iceServers: [
             { urls: 'stun:stun.telnyx.com:3478' },
@@ -785,7 +818,7 @@ export class SipService {
       // Use a fresh getUserMedia so we don't reuse a stream that's still
       // wired to a closed AudioContext from a prior conference.
       return ((): boolean => {
-        void navigator.mediaDevices.getUserMedia({ audio: true }).then(async (micStream) => {
+        void navigator.mediaDevices.getUserMedia({ audio: buildAudioConstraints() }).then(async (micStream) => {
           this.conferenceMic = micStream;
           const micNode = ctx.createMediaStreamSource(micStream);
 
@@ -907,7 +940,7 @@ export class SipService {
       }
       if (pc) {
         // Get a fresh mic and swap it back in.
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: buildAudioConstraints() });
         const micTrack = stream.getAudioTracks()[0];
         const sender = pc.getSenders().find((s) => s.track?.kind === 'audio');
         if (sender && micTrack) {
