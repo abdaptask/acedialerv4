@@ -249,6 +249,30 @@ export class SipService {
           applySpeakerSelection(audioEl);
         }
       });
+      // Wrap setRemoteDescription to surface the underlying Chrome error
+      // (JsSIP catches it and emits a generic "Bad Media Description").
+      const originalSRD = pc.setRemoteDescription.bind(pc);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (pc as any).setRemoteDescription = async (desc: RTCSessionDescriptionInit) => {
+        console.log('[sip] setRemoteDescription called with type:', desc.type);
+        try {
+          await originalSRD(desc);
+          console.log('[sip] setRemoteDescription OK');
+        } catch (e) {
+          console.error('[sip] setRemoteDescription FAILED:', (e as Error).name, (e as Error).message);
+          console.error('[sip] failing SDP was:\n' + desc.sdp);
+          throw e;
+        }
+      };
+      pc.addEventListener('iceconnectionstatechange', () => {
+        console.log('[sip] iceConnectionState:', pc.iceConnectionState);
+      });
+      pc.addEventListener('connectionstatechange', () => {
+        console.log('[sip] connectionState:', pc.connectionState);
+      });
+      pc.addEventListener('signalingstatechange', () => {
+        console.log('[sip] signalingState:', pc.signalingState);
+      });
     });
 
     // Outbound call lifecycle
@@ -322,8 +346,10 @@ export class SipService {
             mutated = true;
           }
           if (!/a=group:BUNDLE/m.test(s)) {
-            // Insert after the s= line (session description line)
-            s = s.replace(/(s=[^\n]*\n)/, '$1a=group:BUNDLE 0\r\n');
+            // Insert just before the first m= line (valid SDP session-level
+            // attribute position; FreeSWITCH outputs SDP with the s= line
+            // followed by c=/t= so we can't insert there).
+            s = s.replace(/(\n)(m=)/, '$1a=group:BUNDLE 0\r\n$2');
             mutated = true;
           }
           if (!/a=rtcp-rsize/m.test(s)) {
