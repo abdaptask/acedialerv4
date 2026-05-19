@@ -405,7 +405,37 @@ export class SipService {
         //   - a=rtcp-rsize       (reduced-size RTCP)
         // Without these, Chrome's setRemoteDescription throws and JsSIP
         // surfaces "Bad Media Description".
+        // Opus tuning runs on BOTH local and remote SDP so both sides know
+        // we want FEC, no DTX, mono, ~24kbps, 20ms ptime. (In Opus the fmtp
+        // describes what the SENDER produces, so we set our own outbound
+        // params in our local offer/answer; the remote-SDP munge tells the
+        // far side what to expect.)
+        const tuneOpus = (sdp: string): { sdp: string; mutated: boolean } => {
+          let s = sdp;
+          let m = false;
+          const opusMatch = s.match(/a=rtpmap:(\d+)\s+opus\//i);
+          if (opusMatch) {
+            const pt = opusMatch[1];
+            const fmtpRe = new RegExp(`a=fmtp:${pt}[^\\r\\n]*`);
+            const opusParams = 'useinbandfec=1;usedtx=0;stereo=0;maxaveragebitrate=32000;maxplaybackrate=48000;minptime=10;ptime=20';
+            if (fmtpRe.test(s)) {
+              s = s.replace(fmtpRe, `a=fmtp:${pt} ${opusParams}`);
+            } else {
+              s = s.replace(opusMatch[0], `${opusMatch[0]}\r\na=fmtp:${pt} ${opusParams}`);
+            }
+            m = true;
+          }
+          return { sdp: s, mutated: m };
+        };
+
         if (data.originator === 'remote') {
+          // For remote SDP, add the WebRTC attributes Chrome requires that
+          // Telnyx's FreeSWITCH backend doesn't emit by default:
+          //   - a=rtcp-mux         (mux RTP+RTCP on same port)
+          //   - a=group:BUNDLE 0   (bundle media streams)
+          //   - a=rtcp-rsize       (reduced-size RTCP)
+          // Without these, Chrome's setRemoteDescription throws and JsSIP
+          // surfaces "Bad Media Description".
           let s = data.sdp;
           let mutated = false;
           if (!/a=rtcp-mux/m.test(s)) {
@@ -413,9 +443,6 @@ export class SipService {
             mutated = true;
           }
           if (!/a=group:BUNDLE/m.test(s)) {
-            // Insert just before the first m= line (valid SDP session-level
-            // attribute position; FreeSWITCH outputs SDP with the s= line
-            // followed by c=/t= so we can't insert there).
             s = s.replace(/(\n)(m=)/, '$1a=group:BUNDLE 0\r\n$2');
             mutated = true;
           }
@@ -423,34 +450,21 @@ export class SipService {
             s = s.replace(/(m=audio[^\n]*\n)/g, '$1a=rtcp-rsize\r\n');
             mutated = true;
           }
-          // Opus tuning for jitter / packet loss / voice quality.
-          // useinbandfec=1: forward error correction — recovers lost packets,
-          //                 huge win for "jittery" / "robotic" complaints.
-          // usedtx=0:       no discontinuous transmission — keeps audio
-          //                 flowing during silence (avoids "comfort noise"
-          //                 weirdness that recipients hear as cutting out).
-          // stereo=0:       voice is mono; saves bandwidth.
-          // maxaveragebitrate=24000: cap at 24kbps — sweet spot for voice
-          //                 over carrier networks. Telnyx's recommended
-          //                 default is 16-24 kbps for PSTN-bridged calls.
-          // minptime=10, ptime=20: 20ms packets — standard, lower jitter
-          //                 than 40ms; matches what PJSIP softphones use.
-          const opusMatch = s.match(/a=rtpmap:(\d+)\s+opus\//i);
-          if (opusMatch) {
-            const pt = opusMatch[1];
-            const fmtpRe = new RegExp(`a=fmtp:${pt}[^\\n]*`);
-            const opusParams = 'useinbandfec=1;usedtx=0;stereo=0;maxaveragebitrate=24000;minptime=10;ptime=20';
-            if (fmtpRe.test(s)) {
-              s = s.replace(fmtpRe, `a=fmtp:${pt} ${opusParams}`);
-            } else {
-              // Insert fmtp line right after the opus rtpmap line.
-              s = s.replace(opusMatch[0], `${opusMatch[0]}\r\na=fmtp:${pt} ${opusParams}`);
-            }
-            mutated = true;
-          }
+          const tuned = tuneOpus(s);
+          s = tuned.sdp;
+          mutated = mutated || tuned.mutated;
           if (mutated) {
             console.log('[sip] munged remote SDP for Chrome compatibility + Opus tuning');
             data.sdp = s;
+          }
+        } else if (data.originator === 'local') {
+          // Apply Opus tuning to our outgoing offer too — this is what
+          // actually controls the quality of OUR voice (FEC, ptime, bitrate).
+          // Without this, Chrome's default Opus params apply.
+          const tuned = tuneOpus(data.sdp);
+          if (tuned.mutated) {
+            console.log('[sip] tuned local SDP Opus params for outbound voice');
+            data.sdp = tuned.sdp;
           }
         }
 
