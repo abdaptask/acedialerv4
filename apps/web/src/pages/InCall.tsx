@@ -210,8 +210,8 @@ export default function InCall() {
             <ControlBtn
               icon={<UserPlus size={26} />}
               label="Add Call"
-              onClick={() => navigate('/keypad', { state: { addCall: true } })}
-              disabled={!isConnected}
+              onClick={() => showToast('3-way calling under rebuild — coming soon')}
+              disabled
             />
           )}
           <ControlBtn
