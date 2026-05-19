@@ -472,9 +472,21 @@ export class SipService {
     if (!this.ua.isRegistered()) {
       console.warn('[sip] call: UA not registered yet (state will fail)');
     }
-    const e164 = toE164(rawNumber);
+    // IVR support: split on ',' or ';' so the user can pre-encode extension
+    // navigation, e.g., "5551234567,,802" dials 5551234567, waits, then
+    // auto-sends DTMF "802" once the call connects. Each comma = ~1s pause.
+    const ivrSplit = rawNumber.split(/[,;]/);
+    const dialPart = ivrSplit[0];
+    const postDialChunks = ivrSplit.slice(1);
+
+    const e164 = toE164(dialPart);
     const target = `sip:${e164}@${this.realm}`;
-    console.log('[sip] dialing', { rawNumber, target, registered: this.ua.isRegistered() });
+    console.log('[sip] dialing', {
+      rawNumber,
+      target,
+      registered: this.ua.isRegistered(),
+      postDialChunks: postDialChunks.length,
+    });
 
     // Pre-flight mic permission — getUserMedia errors that happen inside
     // JsSIP can otherwise vanish silently and the call just dies.
@@ -503,7 +515,6 @@ export class SipService {
             { urls: 'stun:stun.l.google.com:19302' },
             { urls: 'stun:stun1.l.google.com:19302' },
           ],
-          // Prefer ICE connectivity even through restrictive NATs.
           iceTransportPolicy: 'all',
           bundlePolicy: 'max-bundle',
           rtcpMuxPolicy: 'require',
@@ -511,11 +522,31 @@ export class SipService {
         rtcOfferConstraints: { offerToReceiveAudio: true, offerToReceiveVideo: false },
       });
       console.log('[sip] ua.call returned session', !!session, session?.id);
-      // Defensive: attach listeners directly here as well, in case the
-      // newRTCSession event hasn't fired yet (race conditions seen on Chrome).
       if (session && !this.calls.has(session.id)) {
         console.log('[sip] manually attaching session listeners');
         this.attachSessionListeners(session);
+      }
+      // If the user typed an IVR string (digits,DTMF,DTMF...), schedule the
+      // post-dial DTMF tones once the call is confirmed-connected. Each
+      // chunk is preceded by a 1-second pause (per comma in the input).
+      if (session && postDialChunks.length > 0) {
+        const sendPostDial = async () => {
+          for (const chunk of postDialChunks) {
+            await new Promise((r) => setTimeout(r, 1000));
+            const digits = chunk.replace(/[^0-9*#]/g, '');
+            for (const d of digits) {
+              try {
+                session.sendDTMF(d);
+              } catch (err) {
+                console.warn('[sip] post-dial DTMF send failed', err);
+              }
+              await new Promise((r) => setTimeout(r, 200));
+            }
+            console.log('[sip] post-dial sent', digits);
+          }
+        };
+        // Fire once the SIP dialog is established (ACK exchanged).
+        session.on('confirmed', () => { void sendPostDial(); });
       }
     } catch (e) {
       console.error('[sip] ua.call threw', e);

@@ -514,6 +514,103 @@ body {
   color: #fff;
 }
 
+/* Contacts quick-pick button on the dialpad's call row. */
+.contacts-btn {
+  background: none;
+  border: none;
+  color: rgba(255, 255, 255, 0.7);
+  cursor: pointer;
+  width: 75px;
+  height: 75px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.12s;
+}
+.contacts-btn:hover { background: rgba(255, 255, 255, 0.1); color: #fff; }
+.contacts-btn-spacer { display: block; width: 75px; height: 75px; }
+[data-theme="light"] .contacts-btn { color: var(--text-dim); }
+[data-theme="light"] .contacts-btn:hover { background: rgba(0, 0, 0, 0.05); color: var(--text); }
+
+/* Contacts quick-pick modal. */
+.contacts-quickpick {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+.contacts-quickpick-box {
+  background: #1c1c1e;
+  width: 100%;
+  max-width: 480px;
+  max-height: 78vh;
+  border-radius: 18px 18px 0 0;
+  border: 0.5px solid rgba(255, 255, 255, 0.1);
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.55);
+  overflow: hidden;
+}
+@media (min-width: 600px) {
+  .contacts-quickpick { align-items: center; }
+  .contacts-quickpick-box { border-radius: 14px; max-height: 70vh; }
+}
+.contacts-quickpick-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.85rem 1rem 0.6rem;
+  font-size: 1rem;
+  font-weight: 600;
+  color: #fff;
+  border-bottom: 0.5px solid rgba(255, 255, 255, 0.08);
+}
+.contacts-quickpick-section {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.7rem 1rem 0.3rem;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: rgba(235, 235, 245, 0.55);
+}
+.contacts-quickpick-list {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 0.5rem;
+  overflow-y: auto;
+}
+.contacts-quickpick-item {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.6rem;
+  background: transparent;
+  border: none;
+  color: #fff;
+  font-family: inherit;
+  padding: 0.65rem 1rem;
+  cursor: pointer;
+  text-align: left;
+  border-radius: 0;
+}
+.contacts-quickpick-item:hover { background: rgba(255, 255, 255, 0.06); }
+.contacts-quickpick-name { font-size: 0.95rem; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.contacts-quickpick-phone { font-size: 0.78rem; color: rgba(235, 235, 245, 0.6); white-space: nowrap; }
+[data-theme="light"] .contacts-quickpick-box { background: var(--bg-elevated); border-color: var(--border); }
+[data-theme="light"] .contacts-quickpick-header { color: var(--text); border-color: var(--border); }
+[data-theme="light"] .contacts-quickpick-item { color: var(--text); }
+[data-theme="light"] .contacts-quickpick-item:hover { background: rgba(0, 0, 0, 0.05); }
+[data-theme="light"] .contacts-quickpick-phone { color: var(--text-muted); }
+[data-theme="light"] .contacts-quickpick-section { color: var(--text-muted); }
+
 /* ============ TAB BAR ============ */
 .tab-bar {
   display: flex;

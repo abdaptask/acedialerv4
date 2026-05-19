@@ -1,9 +1,13 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Phone, Delete } from 'lucide-react';
+import { Phone, Delete, BookUser, Star, Clock, X } from 'lucide-react';
 import { AsYouType, parsePhoneNumberFromString, getCountryCallingCode } from 'libphonenumber-js/min';
 import type { CountryCode } from 'libphonenumber-js/min';
 import { useSip } from '../contexts/SipContext';
+import { getCalls, type CallRecord } from '../api';
+import { getFavorites, type FavoriteContact } from '../lib/userPrefs';
+import { formatPhone } from '../lib/phone';
+import { getCachedJobDivaName } from '../hooks/useJobDivaContact';
 
 interface DialpadLocationState {
   addCall?: boolean;
@@ -194,6 +198,38 @@ export default function Dialpad() {
     | { state: 'error'; message: string }
   >({ state: 'idle' });
 
+  const [showContacts, setShowContacts] = useState(false);
+  const [recentNumbers, setRecentNumbers] = useState<{ phone: string; label: string; when: string }[]>([]);
+  const [favorites, setFavorites] = useState<FavoriteContact[]>(() => getFavorites());
+
+  // Lazy-load recents the first time the user opens the contacts panel.
+  useEffect(() => {
+    if (!showContacts) return;
+    setFavorites(getFavorites());
+    const token = sessionStorage.getItem('ace_token');
+    if (!token) return;
+    getCalls(token)
+      .then((calls: CallRecord[]) => {
+        // Dedupe by the other party's number, keep latest per contact.
+        const seen = new Map<string, { phone: string; label: string; when: string }>();
+        for (const c of calls) {
+          const other = c.direction === 'inbound' ? c.fromNumber : c.toNumber;
+          if (!other) continue;
+          const key = other.replace(/[^\d]/g, '').slice(-10);
+          if (seen.has(key)) continue;
+          const name = getCachedJobDivaName(other);
+          seen.set(key, {
+            phone: other,
+            label: name ?? formatPhone(other) ?? other,
+            when: c.startedAt,
+          });
+          if (seen.size >= 15) break;
+        }
+        setRecentNumbers(Array.from(seen.values()));
+      })
+      .catch(() => { /* ignore */ });
+  }, [showContacts]);
+
   const append = useCallback((d: string) => setNumber((n) => n + d), []);
   const backspace = useCallback(() => setNumber((n) => n.slice(0, -1)), []);
   // Esc resets to the country-code prefix so users don't have to retype "+1"
@@ -366,7 +402,7 @@ export default function Dialpad() {
               inputMode="tel"
               className="number-display-input"
               value={formatNumber(number)}
-              placeholder="(000) 000-0000"
+              placeholder="Enter phone number"
               spellCheck={false}
               autoComplete="off"
               onChange={(e) => {
@@ -414,7 +450,15 @@ export default function Dialpad() {
       </div>
 
       <div className="call-row">
-        <span />
+        <button
+          type="button"
+          className="contacts-btn"
+          onClick={() => setShowContacts(true)}
+          aria-label="Contacts"
+          title="Recents & Favorites"
+        >
+          <BookUser size={22} />
+        </button>
         <button
           type="button"
           className="call-btn"
@@ -424,7 +468,7 @@ export default function Dialpad() {
         >
           <Phone size={32} strokeWidth={2} fill="white" />
         </button>
-        {hasDialableInput && (
+        {hasDialableInput ? (
           <button
             type="button"
             className="backspace-btn"
@@ -433,8 +477,83 @@ export default function Dialpad() {
           >
             <Delete size={26} />
           </button>
+        ) : (
+          <span className="contacts-btn-spacer" aria-hidden="true" />
         )}
       </div>
+
+      {showContacts && (
+        <div className="contacts-quickpick" role="dialog" aria-label="Contacts">
+          <div className="contacts-quickpick-box">
+            <div className="contacts-quickpick-header">
+              <span>Quick pick</span>
+              <button
+                type="button"
+                className="icon-btn"
+                onClick={() => setShowContacts(false)}
+                aria-label="Close"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            {favorites.length > 0 && (
+              <>
+                <div className="contacts-quickpick-section">
+                  <Star size={12} /> Favorites
+                </div>
+                <ul className="contacts-quickpick-list">
+                  {favorites.map((f) => (
+                    <li key={f.phone}>
+                      <button
+                        type="button"
+                        className="contacts-quickpick-item"
+                        onClick={() => {
+                          setNumber(f.phone);
+                          setShowContacts(false);
+                          setTimeout(() => inputRef.current?.focus(), 0);
+                        }}
+                      >
+                        <span className="contacts-quickpick-name">
+                          {f.label ?? getCachedJobDivaName(f.phone) ?? formatPhone(f.phone)}
+                        </span>
+                        <span className="contacts-quickpick-phone">{formatPhone(f.phone)}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+
+            <div className="contacts-quickpick-section">
+              <Clock size={12} /> Recent
+            </div>
+            <ul className="contacts-quickpick-list">
+              {recentNumbers.length === 0 && (
+                <li className="muted small" style={{ padding: '0.5rem 0.75rem' }}>
+                  No recent calls yet.
+                </li>
+              )}
+              {recentNumbers.map((r) => (
+                <li key={r.phone}>
+                  <button
+                    type="button"
+                    className="contacts-quickpick-item"
+                    onClick={() => {
+                      setNumber(r.phone);
+                      setShowContacts(false);
+                      setTimeout(() => inputRef.current?.focus(), 0);
+                    }}
+                  >
+                    <span className="contacts-quickpick-name">{r.label}</span>
+                    <span className="contacts-quickpick-phone">{formatPhone(r.phone)}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
