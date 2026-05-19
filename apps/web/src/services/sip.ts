@@ -100,9 +100,15 @@ function buildAudioConstraints(): MediaTrackConstraints {
   // a low-quality default that makes the user sound like they're in a pipe.
   // With `ideal`, the browser tries 48kHz/mono first but accepts the device's
   // native format if it can't comply.
+  // Browser audio processing is per-track. For VoIP on a wired headset (boom
+  // mic close to mouth) we keep echo cancellation and AGC on, but DISABLE
+  // noiseSuppression — Chrome's RNNoise filter is aggressive and produces
+  // the "speaking from a tunnel / pipe" sound recipients complain about.
+  // Telnyx-side NS should also be off (one suppression pass at most, ideally
+  // none if the user is in a quiet space).
   const constraints: MediaTrackConstraints = {
     echoCancellation: true,
-    noiseSuppression: true,
+    noiseSuppression: false,
     autoGainControl: true,
     channelCount: { ideal: 1 },
     sampleRate: { ideal: 48000 },
@@ -582,6 +588,24 @@ export class SipService {
         audio: buildAudioConstraints(),
         video: false,
       });
+      // Log what the browser ACTUALLY applied — `getSettings()` reveals the
+      // negotiated values (the browser may downgrade `ideal` to whatever the
+      // device actually supports). Useful for diagnosing "still muffled" cases.
+      try {
+        const track = stream.getAudioTracks()[0];
+        if (track) {
+          const s = track.getSettings();
+          console.log('[sip] mic track settings:', {
+            deviceId: s.deviceId,
+            label: track.label,
+            sampleRate: s.sampleRate,
+            channelCount: s.channelCount,
+            echoCancellation: s.echoCancellation,
+            noiseSuppression: s.noiseSuppression,
+            autoGainControl: s.autoGainControl,
+          });
+        }
+      } catch { /* getSettings unsupported */ }
       // Don't keep this stream around — JsSIP will request its own. Just verify access.
       stream.getTracks().forEach((t) => t.stop());
       console.log('[sip] mic permission OK');
