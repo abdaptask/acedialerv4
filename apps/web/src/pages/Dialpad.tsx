@@ -90,6 +90,31 @@ function formatNumber(raw: string): string {
   }
 }
 
+// As-you-type normalizer: if the raw input looks like a complete international
+// number (e.g., "918850415617" = India), auto-prepend "+" so the display
+// shows proper E.164 ("+91 88504 15617"). US numbers stay in national format.
+function smartNormalize(raw: string): string {
+  if (!raw) return '';
+  if (raw.startsWith('+')) return raw;
+  if (raw.startsWith('*') || raw.startsWith('#')) return raw; // DTMF probe
+  const digits = raw.replace(/[^\d]/g, '');
+  // Leave short / US-style entries alone — they'll resolve to +1 at dial time
+  // but we don't want to surprise users who are typing a US number.
+  if (digits.length <= 10) return raw;
+  if (digits.length === 11 && digits.startsWith('1')) return raw;
+  // 11+ digits not starting with 1: probe as international. Only auto-add +
+  // if libphonenumber agrees it's a valid number with a country code.
+  try {
+    const parsed = parsePhoneNumberFromString('+' + digits);
+    if (parsed?.isValid() && parsed.country) {
+      return '+' + digits;
+    }
+  } catch {
+    /* fall through */
+  }
+  return raw;
+}
+
 // Smart paste handler — given clipboard text, returns the best-guess E.164
 // representation. Detects country code by trying international parsing first
 // (so 12+ digit strings like "918850415617" land as +91 India), then falls
@@ -346,8 +371,10 @@ export default function Dialpad() {
               autoComplete="off"
               onChange={(e) => {
                 // Store raw chars; let formatter re-format on next render.
+                // smartNormalize prepends '+' when a complete international
+                // number is recognized (e.g., 12 digits starting with 91 → India).
                 const raw = e.target.value.replace(/[^\d*#+]/g, '');
-                setNumber(raw || '');
+                setNumber(smartNormalize(raw) || '');
               }}
               onPaste={(e) => {
                 // Intercept paste to do smart country-code detection so things
