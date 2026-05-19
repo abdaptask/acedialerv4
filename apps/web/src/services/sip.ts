@@ -93,7 +93,8 @@ interface CallEntry {
 }
 
 export class SipService {
-  private ua: JsSIP.UA | null = null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private ua: any = null;
   private callerNumber = '';
   private realm = 'sip.telnyx.com';
   /** Default audio element used for the active (non-conference) call. */
