@@ -238,15 +238,23 @@ export class SipService {
     session.on('peerconnection', (data: { peerconnection: RTCPeerConnection }) => {
       const pc = data.peerconnection;
       pc.addEventListener('track', (ev: RTCTrackEvent) => {
+        console.log('[sip] track event — kind:', ev.track.kind, 'streams:', ev.streams.length);
         if (ev.streams && ev.streams[0]) {
-          audioEl.srcObject = ev.streams[0];
-          // Also wire to the primary audio element so the existing speaker-
-          // routing (setSinkId) targets this call.
-          if (entry.id === this.activeCallId) {
-            this.primaryAudioEl.srcObject = ev.streams[0];
-            void this.primaryAudioEl.play().catch(() => {});
-          }
+          const stream = ev.streams[0];
+          audioEl.srcObject = stream;
+          void audioEl.play().catch((e) => console.warn('[sip] per-call audioEl.play failed', e));
+          // ALWAYS route to primary audio element too — that's the one
+          // setSinkId targets for speaker selection. The activeCallId check
+          // had a race condition (track fires before 'accepted').
+          this.primaryAudioEl.srcObject = stream;
+          void this.primaryAudioEl.play().catch((e) =>
+            console.warn('[sip] primaryAudioEl.play failed', e),
+          );
           applySpeakerSelection(audioEl);
+          applySpeakerSelection(this.primaryAudioEl);
+          console.log('[sip] remote stream attached to both audio elements');
+        } else {
+          console.warn('[sip] track event but no streams!', ev);
         }
       });
       // Wrap setRemoteDescription to surface the underlying Chrome error
@@ -459,7 +467,15 @@ export class SipService {
       const session = this.ua.call(target, {
         mediaConstraints: { audio: true, video: false },
         pcConfig: {
-          iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
+          iceServers: [
+            { urls: 'stun:stun.telnyx.com:3478' },
+            { urls: 'stun:stun.l.google.com:19302' },
+            { urls: 'stun:stun1.l.google.com:19302' },
+          ],
+          // Prefer ICE connectivity even through restrictive NATs.
+          iceTransportPolicy: 'all',
+          bundlePolicy: 'max-bundle',
+          rtcpMuxPolicy: 'require',
         },
         rtcOfferConstraints: { offerToReceiveAudio: true, offerToReceiveVideo: false },
       });
@@ -543,7 +559,12 @@ export class SipService {
     try {
       entry.session.answer({
         mediaConstraints: { audio: true, video: false },
-        pcConfig: { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] },
+        pcConfig: {
+          iceServers: [
+            { urls: 'stun:stun.telnyx.com:3478' },
+            { urls: 'stun:stun.l.google.com:19302' },
+          ],
+        },
       });
     } catch (e) {
       console.warn('[sip] answer failed', e);
