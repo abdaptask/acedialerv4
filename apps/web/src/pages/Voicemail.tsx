@@ -1,7 +1,7 @@
 // Phase 5.6 — Voicemail list. Populated by webhook when Telnyx finishes
 // recording an unanswered call.
 import { useCallback, useEffect, useState, useMemo, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Phone,
   Trash2,
@@ -15,6 +15,7 @@ import {
   CheckSquare,
   Square,
   MessageSquare,
+  ArrowLeft,
 } from 'lucide-react';
 import {
   getVoicemails,
@@ -64,6 +65,11 @@ export default function Voicemail() {
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const { sipState, call } = useSip();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  // Contact-filter mode (entered via ?phone=...&from=...)
+  const contactFilter = searchParams.get('phone');
+  const fromUrl = searchParams.get('from');
+  const contactWant = contactFilter ? (contactFilter.replace(/[^\d]/g, '').slice(-10)) : '';
 
   function toggleSelected(id: number) {
     setSelected((prev) => {
@@ -84,13 +90,16 @@ export default function Voicemail() {
     setSelected(new Set());
   }
 
-  // Client-side filter: phone digits, transcription text, and cached
-  // JobDiva contact name.
+  // Client-side filter: contact-filter (if ?phone= present) + search.
   const filtered = useMemo(() => {
+    let base = items;
+    if (contactWant) {
+      base = items.filter((vm) => (vm.fromNumber || '').replace(/[^\d]/g, '').slice(-10) === contactWant);
+    }
     const q = search.trim().toLowerCase();
-    if (!q) return items;
+    if (!q) return base;
     const qDigits = q.replace(/[^\d]/g, '');
-    return items.filter((vm) => {
+    return base.filter((vm) => {
       const digits = (vm.fromNumber || '').replace(/[^\d]/g, '');
       if (qDigits && digits.includes(qDigits)) return true;
       if ((vm.transcription ?? '').toLowerCase().includes(q)) return true;
@@ -98,7 +107,16 @@ export default function Voicemail() {
       if (cachedName && cachedName.toLowerCase().includes(q)) return true;
       return false;
     });
-  }, [items, search]);
+  }, [items, search, contactWant]);
+
+  const contactLabel = contactFilter
+    ? getCachedJobDivaName(contactFilter) ?? formatNumber(contactFilter)
+    : '';
+
+  function goBack() {
+    if (fromUrl) navigate(fromUrl);
+    else navigate('/voicemail');
+  }
 
   const load = useCallback(() => {
     const token = sessionStorage.getItem('ace_token');
@@ -190,8 +208,23 @@ export default function Voicemail() {
 
   return (
     <div className="voicemail">
+      {contactFilter && (
+        <button
+          type="button"
+          className="contact-filter-bar"
+          onClick={goBack}
+          aria-label={`Back to ${contactLabel || 'previous page'}`}
+        >
+          <ArrowLeft size={16} />
+          <span className="contact-filter-text">
+            <span className="contact-filter-tag">Showing voicemails from</span>
+            <span className="contact-filter-name">{contactLabel}</span>
+          </span>
+          <span className="contact-filter-back">← Back</span>
+        </button>
+      )}
       <div className="voicemail-header">
-        <h2>Voicemail</h2>
+        <h2>{contactFilter ? 'Voicemails' : 'Voicemail'}</h2>
         <div style={{ display: 'flex', gap: 8 }}>
           {!selectMode && items.length > 0 && (
             <button

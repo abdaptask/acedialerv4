@@ -37,6 +37,56 @@ export function resetQuickReplies(): void {
   window.dispatchEvent(new CustomEvent('ace:quickRepliesChanged'));
 }
 
+// ---------- Theme preference ----------
+export type ThemePref = 'system' | 'light' | 'dark';
+const THEME_KEY = 'ace_theme';
+
+export function getTheme(): ThemePref {
+  const v = localStorage.getItem(THEME_KEY);
+  return v === 'light' || v === 'dark' ? v : 'system';
+}
+
+export function setTheme(theme: ThemePref): void {
+  if (theme === 'system') localStorage.removeItem(THEME_KEY);
+  else localStorage.setItem(THEME_KEY, theme);
+  applyTheme();
+  window.dispatchEvent(new CustomEvent('ace:themeChanged'));
+}
+
+/** Resolve 'system' to the actual dark/light value the OS reports right now. */
+export function resolvedTheme(): 'light' | 'dark' {
+  const pref = getTheme();
+  if (pref !== 'system') return pref;
+  if (typeof window === 'undefined') return 'dark';
+  return window.matchMedia?.('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+}
+
+/** Apply the current theme to <html data-theme>. Idempotent — safe to call often. */
+export function applyTheme(): void {
+  if (typeof document === 'undefined') return;
+  const value = resolvedTheme();
+  document.documentElement.setAttribute('data-theme', value);
+}
+
+let systemListenerAttached = false;
+/** Re-apply theme whenever the OS theme changes (only relevant when pref is 'system'). */
+export function watchSystemTheme(): () => void {
+  if (systemListenerAttached || typeof window === 'undefined') return () => {};
+  systemListenerAttached = true;
+  const mq = window.matchMedia('(prefers-color-scheme: light)');
+  const handler = () => {
+    if (getTheme() === 'system') applyTheme();
+  };
+  // addEventListener is supported in modern browsers; older Safari needs addListener.
+  if (typeof mq.addEventListener === 'function') mq.addEventListener('change', handler);
+  else if (typeof mq.addListener === 'function') mq.addListener(handler);
+  return () => {
+    systemListenerAttached = false;
+    if (typeof mq.removeEventListener === 'function') mq.removeEventListener('change', handler);
+    else if (typeof mq.removeListener === 'function') mq.removeListener(handler);
+  };
+}
+
 // ---------- Notification preferences ----------
 export interface NotificationPrefs {
   /** Show an in-app toast for incoming calls. */

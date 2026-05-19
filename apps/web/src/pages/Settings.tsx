@@ -16,6 +16,10 @@ import {
   Plus,
   Trash2,
   GripVertical,
+  Sun,
+  Moon,
+  Monitor,
+  Palette,
 } from 'lucide-react';
 import {
   DEFAULT_QUICK_REPLIES,
@@ -25,6 +29,9 @@ import {
   getNotificationPrefs,
   setNotificationPrefs,
   type NotificationPrefs,
+  getTheme,
+  setTheme,
+  type ThemePref,
 } from '../lib/userPrefs';
 
 interface AudioDevice {
@@ -41,6 +48,7 @@ interface SectionDef {
 }
 
 const SECTIONS: SectionDef[] = [
+  { key: 'appearance', label: 'Appearance', icon: Palette, blurb: 'Light / dark / system', Component: AppearanceSection },
   { key: 'telnyx', label: 'Telnyx', icon: Phone, blurb: 'SIP credentials', Component: TelnyxSection },
   { key: 'microphone', label: 'Microphone', icon: Mic, blurb: 'Input device', Component: MicrophoneSection },
   { key: 'speaker', label: 'Speaker', icon: Volume2, blurb: 'Output device', Component: SpeakerSection },
@@ -102,6 +110,53 @@ export default function Settings() {
           <ActiveComponent />
         </div>
       </main>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Appearance (theme picker)
+// ---------------------------------------------------------------------------
+function AppearanceSection() {
+  const [theme, setLocalTheme] = useState<ThemePref>(() => getTheme());
+
+  function pick(t: ThemePref) {
+    setLocalTheme(t);
+    setTheme(t);
+  }
+
+  const options: Array<{ key: ThemePref; label: string; icon: typeof Sun; desc: string }> = [
+    { key: 'system', label: 'System', icon: Monitor, desc: 'Follows your OS appearance setting.' },
+    { key: 'light', label: 'Light', icon: Sun, desc: 'Always light, regardless of OS.' },
+    { key: 'dark', label: 'Dark', icon: Moon, desc: 'Always dark.' },
+  ];
+
+  return (
+    <div className="settings-section">
+      <p className="settings-blurb">
+        Choose how the dialer looks. "System" matches your OS appearance and
+        flips automatically when your OS does.
+      </p>
+
+      <div className="theme-picker" role="radiogroup" aria-label="Theme">
+        {options.map((o) => (
+          <button
+            key={o.key}
+            type="button"
+            role="radio"
+            aria-checked={theme === o.key}
+            className={`theme-picker-btn${theme === o.key ? ' active' : ''}`}
+            onClick={() => pick(o.key)}
+          >
+            <o.icon size={14} />
+            {o.label}
+          </button>
+        ))}
+      </div>
+
+      <p className="settings-blurb" style={{ marginTop: '1rem' }}>
+        {options.find((o) => o.key === theme)?.desc}
+      </p>
     </div>
   );
 }

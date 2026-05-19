@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { PhoneIncoming, PhoneOutgoing, PhoneMissed, Phone, RefreshCcw, Play, Search, X, MessageSquare } from 'lucide-react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { PhoneIncoming, PhoneOutgoing, PhoneMissed, Phone, RefreshCcw, Play, Search, X, MessageSquare, ArrowLeft } from 'lucide-react';
 import { getCalls, type CallRecord } from '../api';
 import { useSip } from '../contexts/SipContext';
 import { useJobDivaContact, getCachedJobDivaName } from '../hooks/useJobDivaContact';
@@ -72,6 +72,11 @@ function statusLabel(c: CallRecord): string {
   return 'Outgoing';
 }
 
+// Last-10-digit normalization for phone matching (matches the API's helper).
+function last10(s: string | undefined | null): string {
+  return (s ?? '').replace(/[^\d]/g, '').slice(-10);
+}
+
 export default function Recents() {
   const [calls, setCalls] = useState<CallRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -80,6 +85,12 @@ export default function Recents() {
   const [search, setSearch] = useState('');
   const { sipState, call } = useSip();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  // Contact-filter mode (entered via ?phone=...&from=...). Filters the
+  // list to just that contact and shows a back bar that returns to `from`.
+  const contactFilter = searchParams.get('phone');
+  const fromUrl = searchParams.get('from');
+  const contactWant = contactFilter ? last10(contactFilter) : '';
 
   const load = useCallback(() => {
     const token = sessionStorage.getItem('ace_token');
@@ -103,10 +114,18 @@ export default function Recents() {
   //   - cached JobDiva contact name (instantly for contacts we've already
   //     looked up; first-time searches need the cache to warm via row render)
   const filtered = useMemo(() => {
+    // First narrow by contact filter (?phone=...) if present.
+    let base = calls;
+    if (contactWant) {
+      base = calls.filter((c) => {
+        const other = c.direction === 'inbound' ? c.fromNumber : c.toNumber;
+        return last10(other) === contactWant;
+      });
+    }
     const q = search.trim().toLowerCase();
-    if (!q) return calls;
+    if (!q) return base;
     const qDigits = q.replace(/[^\d]/g, '');
-    return calls.filter((c) => {
+    return base.filter((c) => {
       const number = c.direction === 'inbound' ? c.fromNumber : c.toNumber;
       const fromDigits = (c.fromNumber || '').replace(/[^\d]/g, '');
       const toDigits = (c.toNumber || '').replace(/[^\d]/g, '');
@@ -117,7 +136,21 @@ export default function Recents() {
       if (cachedName && cachedName.toLowerCase().includes(q)) return true;
       return false;
     });
-  }, [calls, search]);
+  }, [calls, search, contactWant]);
+
+  // Contact label for the back bar — use the cached JobDiva name if available,
+  // otherwise fall back to a formatted phone number.
+  const contactLabel = contactFilter
+    ? getCachedJobDivaName(contactFilter) ?? formatNumber(contactFilter)
+    : '';
+
+  function goBack() {
+    if (fromUrl) {
+      navigate(fromUrl);
+    } else {
+      navigate('/recents');
+    }
+  }
 
   function handleCallBack(c: CallRecord) {
     const target = c.direction === 'inbound' ? c.fromNumber : c.toNumber;
@@ -138,8 +171,23 @@ export default function Recents() {
 
   return (
     <div className="recents">
+      {contactFilter && (
+        <button
+          type="button"
+          className="contact-filter-bar"
+          onClick={goBack}
+          aria-label={`Back to ${contactLabel || 'previous page'}`}
+        >
+          <ArrowLeft size={16} />
+          <span className="contact-filter-text">
+            <span className="contact-filter-tag">Showing calls with</span>
+            <span className="contact-filter-name">{contactLabel}</span>
+          </span>
+          <span className="contact-filter-back">← Back</span>
+        </button>
+      )}
       <div className="recents-header">
-        <h2>Recents</h2>
+        <h2>{contactFilter ? 'Calls' : 'Recents'}</h2>
         <button className="icon-btn" onClick={load} disabled={loading} aria-label="Refresh">
           <RefreshCcw size={18} className={loading ? 'spin' : ''} />
         </button>

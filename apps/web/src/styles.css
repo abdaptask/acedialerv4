@@ -1,12 +1,58 @@
+/* ============ THEME TOKENS ============
+   Defaults are the dark theme. The [data-theme="light"] block at the bottom
+   of this section overrides for light mode. JavaScript flips
+   <html data-theme="light"|"dark"> based on user preference + OS setting. */
+:root {
+  --bg: #000;
+  --bg-elevated: #1c1c1e;
+  --surface: rgba(118, 118, 128, 0.18);
+  --surface-strong: rgba(118, 118, 128, 0.32);
+  --surface-hover: rgba(118, 118, 128, 0.28);
+  --text: #fff;
+  --text-dim: rgba(235, 235, 245, 0.7);
+  --text-muted: rgba(235, 235, 245, 0.55);
+  --border: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.18);
+  --accent: #0a84ff;
+  --accent-blue: #007aff;
+  --green: #34c759;
+  --red: #ff3b30;
+  --red-soft: #ff6b6b;
+  --shadow-strong: 0 6px 24px rgba(0, 0, 0, 0.4);
+  /* Per-tone overlays used in pulses / focus states */
+  --overlay-on-surface: rgba(255, 255, 255, 0.08);
+}
+
+[data-theme="light"] {
+  --bg: #f2f2f7;
+  --bg-elevated: #fff;
+  --surface: rgba(120, 120, 128, 0.12);
+  --surface-strong: rgba(120, 120, 128, 0.24);
+  --surface-hover: rgba(120, 120, 128, 0.2);
+  --text: #1c1c1e;
+  --text-dim: rgba(60, 60, 67, 0.7);
+  --text-muted: rgba(60, 60, 67, 0.55);
+  --border: rgba(60, 60, 67, 0.1);
+  --border-strong: rgba(60, 60, 67, 0.2);
+  --accent: #0a84ff;
+  --accent-blue: #007aff;
+  --green: #34c759;
+  --red: #ff3b30;
+  --red-soft: #d93434;
+  --shadow-strong: 0 6px 24px rgba(0, 0, 0, 0.12);
+  --overlay-on-surface: rgba(0, 0, 0, 0.05);
+}
+
 * { box-sizing: border-box; }
 html, body, #root { height: 100%; margin: 0; }
 body {
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
-  background: #000;
-  color: #fff;
+  background: var(--bg);
+  color: var(--text);
   -webkit-font-smoothing: antialiased;
+  transition: background 0.15s ease, color 0.15s ease;
 }
-.centered { padding: 4rem; text-align: center; color: #6b7280; }
+.centered { padding: 4rem; text-align: center; color: var(--text-muted); }
 
 /* ============ LOGIN ============ */
 .auth-shell {
@@ -1398,7 +1444,288 @@ body {
   margin: 0;
   font-size: 1.3rem;
   font-weight: 600;
+  color: var(--text);
+}
+
+/* =====================================================================
+   LIGHT THEME OVERRIDES
+   Targeted overrides that re-paint the most visible surfaces when the
+   user picks light mode. Keeps existing dark rules intact (most of them
+   reference rgba colors with opacity which read fine on a light bg too).
+   ===================================================================== */
+[data-theme="light"] body { background: var(--bg); color: var(--text); }
+[data-theme="light"] .auth-shell { background: var(--bg); }
+[data-theme="light"] .auth-card {
+  background: var(--bg-elevated);
+  border-color: var(--border);
+  color: var(--text);
+}
+[data-theme="light"] .auth-card h1 { color: var(--text); }
+[data-theme="light"] .auth-card label { color: var(--text-dim); }
+[data-theme="light"] .auth-card input {
+  background: rgba(0, 0, 0, 0.04);
+  border-color: var(--border);
+  color: var(--text);
+}
+[data-theme="light"] .auth-card input:focus { background: rgba(0, 0, 0, 0.06); }
+[data-theme="light"] .hint { color: var(--text-muted); }
+[data-theme="light"] .subtitle { color: var(--text-muted); }
+
+/* App shell */
+[data-theme="light"] .app-shell,
+[data-theme="light"] .app-content { background: var(--bg); color: var(--text); }
+[data-theme="light"] .app-header,
+[data-theme="light"] .tab-bar {
+  background: var(--bg-elevated);
+  border-color: var(--border);
+  color: var(--text);
+}
+[data-theme="light"] .tab { color: var(--text-muted); }
+[data-theme="light"] .tab.active { color: var(--accent); }
+[data-theme="light"] .brand,
+[data-theme="light"] .who { color: var(--text); }
+[data-theme="light"] .version { color: var(--text-muted); }
+[data-theme="light"] .icon-btn { color: var(--text-dim); }
+[data-theme="light"] .icon-btn:hover { color: var(--text); background: var(--surface-hover); }
+
+/* Headers and titles */
+[data-theme="light"] .recents-header h2,
+[data-theme="light"] .voicemail-header h2,
+[data-theme="light"] .msg-header h2,
+[data-theme="light"] .settings-nav-header h1 { color: var(--text); }
+
+/* List rows (Recents, Voicemail, Messages threads) */
+[data-theme="light"] .call-row,
+[data-theme="light"] .vm-row,
+[data-theme="light"] .thread-row { border-bottom-color: var(--border); }
+[data-theme="light"] .call-row:hover,
+[data-theme="light"] .vm-row:hover,
+[data-theme="light"] .thread-row:hover { background: rgba(0, 0, 0, 0.03); }
+[data-theme="light"] .call-number,
+[data-theme="light"] .vm-number,
+[data-theme="light"] .thread-name { color: var(--text); }
+[data-theme="light"] .call-meta,
+[data-theme="light"] .vm-meta,
+[data-theme="light"] .thread-preview,
+[data-theme="light"] .call-time,
+[data-theme="light"] .thread-time { color: var(--text-muted); }
+[data-theme="light"] .muted { color: var(--text-muted); }
+[data-theme="light"] .empty-state { color: var(--text-muted); }
+[data-theme="light"] .empty-state p { color: var(--text-dim); }
+
+/* Search bar */
+[data-theme="light"] .search-bar { background: var(--surface); }
+[data-theme="light"] .search-icon { color: var(--text-muted); }
+[data-theme="light"] .search-input::placeholder { color: var(--text-muted); }
+[data-theme="light"] .search-clear { background: rgba(0, 0, 0, 0.18); color: #fff; }
+
+/* Thread detail */
+[data-theme="light"] .thread-header,
+[data-theme="light"] .compose-row {
+  background: var(--bg-elevated);
+  border-color: var(--border);
+}
+[data-theme="light"] .thread-header-name { color: var(--text); }
+[data-theme="light"] .thread-header-sub { color: var(--text-muted); }
+[data-theme="light"] .bubble.in { background: var(--surface-strong); color: var(--text); }
+[data-theme="light"] .bubble-meta { color: var(--text-muted); }
+[data-theme="light"] .compose-input {
+  background: rgba(0, 0, 0, 0.04);
+  border-color: var(--border);
+  color: var(--text);
+}
+[data-theme="light"] .compose-input::placeholder { color: var(--text-muted); }
+[data-theme="light"] .thread-history-bar {
+  background: rgba(0, 0, 0, 0.04);
+  border-color: var(--border);
+  color: var(--text-dim);
+}
+[data-theme="light"] .thread-history-bar:hover { background: rgba(0, 0, 0, 0.08); }
+[data-theme="light"] .thread-history-counts strong { color: var(--text); }
+
+/* Modals (history, audio picker, compose new) */
+[data-theme="light"] .history-box,
+[data-theme="light"] .compose-box,
+[data-theme="light"] .audio-picker-box,
+[data-theme="light"] .quick-reply-popover {
+  background: var(--bg-elevated);
+  color: var(--text);
+  border-color: var(--border);
+}
+[data-theme="light"] .history-header,
+[data-theme="light"] .history-summary,
+[data-theme="light"] .timeline-row { border-color: var(--border); }
+[data-theme="light"] .history-title,
+[data-theme="light"] .timeline-type { color: var(--text); }
+[data-theme="light"] .history-subtitle,
+[data-theme="light"] .timeline-time { color: var(--text-muted); }
+[data-theme="light"] .timeline-detail { color: var(--text-dim); }
+[data-theme="light"] .history-summary-item strong { color: var(--text); }
+[data-theme="light"] .history-summary-item span { color: var(--text-muted); }
+[data-theme="light"] .timeline-icon { background: var(--surface-strong); color: var(--text-dim); }
+[data-theme="light"] .quick-reply-pop-item { color: var(--text); }
+[data-theme="light"] .quick-reply-pop-item:hover { background: rgba(0, 0, 0, 0.06); }
+
+/* Dialpad keypad */
+[data-theme="light"] .keypad-btn {
+  background: rgba(0, 0, 0, 0.05);
+  color: var(--text);
+}
+[data-theme="light"] .keypad-btn:active { background: rgba(0, 0, 0, 0.1); }
+[data-theme="light"] .digit { color: var(--text); }
+[data-theme="light"] .letters { color: var(--text-muted); }
+[data-theme="light"] .number-display { color: var(--text); }
+[data-theme="light"] .keyboard-hint { color: var(--text-muted); }
+
+/* InCall surfaces */
+[data-theme="light"] .in-call { background: var(--bg); color: var(--text); }
+[data-theme="light"] .in-call-name { color: var(--text); }
+[data-theme="light"] .in-call-time { color: var(--text-dim); }
+[data-theme="light"] .ic-ctrl { background: var(--surface); color: var(--text); }
+[data-theme="light"] .ic-ctrl:hover { background: var(--surface-hover); }
+[data-theme="light"] .ic-ctrl-label { color: var(--text-dim); }
+[data-theme="light"] .ick-btn { background: rgba(0, 0, 0, 0.06); color: var(--text); }
+[data-theme="light"] .ick-btn:active { background: rgba(0, 0, 0, 0.12); }
+
+/* Settings */
+[data-theme="light"] .settings-nav,
+[data-theme="light"] .settings-pane { background: var(--bg-elevated); color: var(--text); }
+[data-theme="light"] .settings-nav { border-color: var(--border); }
+[data-theme="light"] .settings-nav-item { color: var(--text-dim); }
+[data-theme="light"] .settings-nav-item:hover,
+[data-theme="light"] .settings-nav-item.active {
+  background: var(--surface);
+  color: var(--text);
+}
+[data-theme="light"] .settings-nav-title { color: var(--text); }
+[data-theme="light"] .settings-nav-blurb { color: var(--text-muted); }
+[data-theme="light"] .settings-nav-chev { color: var(--text-muted); }
+[data-theme="light"] .settings-blurb { color: var(--text-dim); }
+[data-theme="light"] .device-row {
+  background: var(--surface);
+  color: var(--text);
+}
+[data-theme="light"] .device-row.selected { background: rgba(10, 132, 255, 0.12); }
+[data-theme="light"] .cred-field input,
+[data-theme="light"] .cred-field .cred-password input {
+  background: rgba(0, 0, 0, 0.04);
+  color: var(--text);
+  border-color: var(--border);
+}
+[data-theme="light"] .pref-row,
+[data-theme="light"] .quick-reply-item { background: var(--surface); }
+[data-theme="light"] .pref-label { color: var(--text); }
+[data-theme="light"] .pref-desc { color: var(--text-muted); }
+[data-theme="light"] .quick-reply-text { color: var(--text); }
+[data-theme="light"] .quick-reply-input {
+  background: rgba(0, 0, 0, 0.04);
+  color: var(--text);
+  border-color: var(--border);
+}
+[data-theme="light"] .quick-reply-action {
+  background: rgba(0, 0, 0, 0.06);
+  color: var(--text);
+}
+[data-theme="light"] .quick-reply-action:hover { background: rgba(0, 0, 0, 0.12); }
+
+/* Theme picker (defined below) */
+[data-theme="light"] .theme-picker {
+  background: var(--surface);
+}
+[data-theme="light"] .theme-picker-btn { color: var(--text-dim); }
+[data-theme="light"] .theme-picker-btn.active { background: var(--bg-elevated); color: var(--text); box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+
+/* Audio picker dialog */
+[data-theme="light"] .audio-picker { background: rgba(0,0,0,0.4); }
+[data-theme="light"] .audio-picker-title { color: var(--text); }
+[data-theme="light"] .audio-picker-item { color: var(--text); }
+[data-theme="light"] .audio-picker-item:hover { background: var(--surface-hover); }
+
+/* ============ CONTACT FILTER BAR (Recents / Voicemail scoped views) ============ */
+.contact-filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  width: 100%;
+  padding: 0.55rem 0.9rem;
+  background: rgba(10, 132, 255, 0.16);
+  border: none;
+  border-bottom: 0.5px solid rgba(10, 132, 255, 0.32);
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+  font-size: 0.82rem;
+}
+.contact-filter-bar:hover { background: rgba(10, 132, 255, 0.24); }
+.contact-filter-text {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+}
+.contact-filter-tag {
+  font-size: 0.66rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  opacity: 0.7;
+}
+.contact-filter-name {
+  font-weight: 600;
+  font-size: 0.92rem;
+}
+.contact-filter-back {
+  color: #5ac8fa;
+  font-weight: 500;
+  flex-shrink: 0;
+  font-size: 0.78rem;
+}
+
+/* Clickable history summary items */
+.history-summary-item {
+  background: transparent;
+  border: none;
+  color: inherit;
+  font-family: inherit;
+  cursor: default;
+  padding: 0.3rem 0.5rem;
+  border-radius: 8px;
+}
+.history-summary-item.clickable { cursor: pointer; }
+.history-summary-item.clickable:hover {
+  background: var(--overlay-on-surface);
+}
+.history-summary-item.clickable:hover strong { color: var(--accent); }
+.history-summary-item:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ============ THEME PICKER (segmented control) ============ */
+.theme-picker {
+  display: inline-flex;
+  padding: 2px;
+  background: rgba(118, 118, 128, 0.22);
+  border-radius: 9px;
+  gap: 2px;
+}
+.theme-picker-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-dim);
+  padding: 0.4rem 0.85rem;
+  border-radius: 7px;
+  font-family: inherit;
+  font-size: 0.82rem;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+.theme-picker-btn.active {
+  background: #2a2a2c;
   color: #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
 }
 .vm-list {
   list-style: none;

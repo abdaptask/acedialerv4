@@ -510,6 +510,7 @@ function ThreadDetail({ number, onBack }: ThreadDetailProps) {
         <HistoryModal
           history={history}
           contactLabel={jd?.name ?? formatNumber(number)}
+          contactPhone={number}
           onClose={() => setShowHistory(false)}
         />
       )}
@@ -520,12 +521,25 @@ function ThreadDetail({ number, onBack }: ThreadDetailProps) {
 function HistoryModal({
   history,
   contactLabel,
+  contactPhone,
   onClose,
 }: {
   history: ContactHistory;
   contactLabel: string;
+  contactPhone: string;
   onClose: () => void;
 }) {
+  const navigate = useNavigate();
+  // The `from` location these filtered views will navigate back to.
+  const fromUrl = `/messages?to=${encodeURIComponent(contactPhone)}`;
+
+  // Navigate to a filtered Recents / Voicemail view scoped to this contact.
+  // The destination page reads ?phone= to filter and ?from= for its back button.
+  function jumpToFilteredList(target: 'recents' | 'voicemail') {
+    onClose();
+    navigate(`/${target}?phone=${encodeURIComponent(contactPhone)}&from=${encodeURIComponent(fromUrl)}`);
+  }
+
   return (
     <div className="history-modal" role="dialog" aria-label="Contact history">
       <div className="history-box">
@@ -539,18 +553,44 @@ function HistoryModal({
           </button>
         </div>
         <div className="history-summary">
-          <div className="history-summary-item">
+          <button
+            type="button"
+            className="history-summary-item"
+            onClick={onClose}
+            disabled={history.summary.messageCount === 0}
+            title="You're already viewing this conversation"
+          >
             <strong>{history.summary.messageCount}</strong>
             <span>Messages</span>
-          </div>
-          <div className="history-summary-item">
+          </button>
+          <button
+            type="button"
+            className="history-summary-item clickable"
+            onClick={() => jumpToFilteredList('recents')}
+            disabled={history.summary.callCount === 0}
+            title={
+              history.summary.callCount > 0
+                ? `View ${history.summary.callCount} call${history.summary.callCount === 1 ? '' : 's'} with this contact`
+                : 'No calls with this contact'
+            }
+          >
             <strong>{history.summary.callCount}</strong>
             <span>Calls</span>
-          </div>
-          <div className="history-summary-item">
+          </button>
+          <button
+            type="button"
+            className="history-summary-item clickable"
+            onClick={() => jumpToFilteredList('voicemail')}
+            disabled={history.summary.voicemailCount === 0}
+            title={
+              history.summary.voicemailCount > 0
+                ? `View ${history.summary.voicemailCount} voicemail${history.summary.voicemailCount === 1 ? '' : 's'} from this contact`
+                : 'No voicemails from this contact'
+            }
+          >
             <strong>{history.summary.voicemailCount}</strong>
             <span>Voicemails</span>
-          </div>
+          </button>
         </div>
         <ul className="history-timeline">
           {history.timeline.length === 0 && (
