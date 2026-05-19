@@ -398,6 +398,21 @@ export async function callsRoutes(app: FastifyInstance) {
         })
       : [];
     const otherLeg = sessionLegs.find((l) => l.callControlId !== body.legAControlId);
+    app.log.info(
+      {
+        legAControlId: body.legAControlId,
+        legASessionId: legARow?.sessionId,
+        sessionLegsFound: sessionLegs.length,
+        sessionLegsDetail: sessionLegs.map((l) => ({
+          cc: l.callControlId,
+          dir: l.direction,
+          from: l.fromNumber,
+          to: l.toNumber,
+        })),
+        otherLeg: otherLeg ? { cc: otherLeg.callControlId, dir: otherLeg.direction } : null,
+      },
+      '[add-leg] inspected session',
+    );
 
     const toE164 = normalizeToE164(body.destination);
     let confId: string | null = null;
