@@ -106,14 +106,16 @@ function buildAudioConstraints(): MediaTrackConstraints {
     autoGainControl: true,
     channelCount: { ideal: 1 },
     sampleRate: { ideal: 48000 },
-    // Aim for ~20ms latency. Lower = more real-time, more CPU.
-    latency: { ideal: 0.02 },
   };
   if (micId && micId !== 'default') {
     // `ideal` here too — if the saved device was unplugged, fall back to
     // the default mic instead of refusing to acquire audio.
     constraints.deviceId = { ideal: micId };
   }
+  // `latency` isn't in TS's MediaTrackConstraints type but is honored by
+  // Chrome — ~20ms is the sweet spot for real-time voice. Cast through any.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (constraints as any).latency = { ideal: 0.02 };
   return constraints;
 }
 
