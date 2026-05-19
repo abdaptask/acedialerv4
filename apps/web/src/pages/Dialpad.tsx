@@ -40,31 +40,38 @@ function flagImageUrl(iso2: string | undefined | null): string {
 }
 
 // Detect the country (and its calling code) from the current number being
-// entered. Uses AsYouType so it works on partial input — country is
-// determined as soon as enough digits are typed to disambiguate.
-function detectCountry(num: string): { iso: CountryCode; callingCode: string } {
-  const fallback = {
-    iso: DEFAULT_COUNTRY,
-    callingCode: getCountryCallingCode(DEFAULT_COUNTRY),
-  };
-  if (!num) return fallback;
+// entered. Returns null when the input is empty or just the default prefix
+// (so the UI can hide the flag entirely until the user starts dialing).
+function detectCountry(num: string): { iso: CountryCode; callingCode: string } | null {
+  // No flag for empty / default-prefix / bare "+" input.
+  if (!num || num === DEFAULT_PREFIX || num === '+') return null;
   try {
+    // Numbers without a + prefix that look international (12+ digits with
+    // a known country calling code) need a + prepended for libphonenumber
+    // to recognize them. e.g., "918850415617" → "+918850415617" (India).
+    const probe = num.startsWith('+') ? num : '+' + num.replace(/[^\d]/g, '');
+    const parsed = parsePhoneNumberFromString(probe);
+    if (parsed?.country) {
+      return { iso: parsed.country, callingCode: getCountryCallingCode(parsed.country) };
+    }
+    // Otherwise let AsYouType have a shot — it handles partial input.
     const ayt = new AsYouType(DEFAULT_COUNTRY);
     ayt.input(num);
     const iso = ayt.getCountry();
     if (iso) {
       return { iso, callingCode: getCountryCallingCode(iso) };
     }
-    if (num.startsWith('+')) {
-      const parsed = parsePhoneNumberFromString(num);
-      if (parsed?.country) {
-        return { iso: parsed.country, callingCode: getCountryCallingCode(parsed.country) };
-      }
-    }
   } catch {
     /* fall through */
   }
-  return fallback;
+  // Last-ditch fallback for sub-10-digit US-style input.
+  if (/^\d{1,10}$/.test(num)) {
+    return {
+      iso: DEFAULT_COUNTRY,
+      callingCode: getCountryCallingCode(DEFAULT_COUNTRY),
+    };
+  }
+  return null;
 }
 
 // Progressive phone number formatter using libphonenumber-js's AsYouType.
@@ -313,34 +320,57 @@ export default function Dialpad() {
         </div>
       </div>
 
-      <div className="number-display" aria-live="polite">
-        <img
-          className="number-display-flag-img"
-          src={flagImageUrl(detectCountry(number).iso)}
-          alt={detectCountry(number).iso}
-          title={detectCountry(number).iso}
-          onError={(e) => {
-            // If the flag CDN is unreachable, hide the broken image gracefully.
-            (e.currentTarget as HTMLImageElement).style.visibility = 'hidden';
-          }}
-        />
-        <input
-          ref={inputRef}
-          type="tel"
-          inputMode="tel"
-          className="number-display-input"
-          value={formatNumber(number)}
-          placeholder="(000) 000-0000"
-          spellCheck={false}
-          autoComplete="off"
-          onChange={(e) => {
-            // Store the raw chars (digits + + * #) and let the formatter
-            // re-format on next render. Keeps cursor reasonably stable.
-            const raw = e.target.value.replace(/[^\d*#+]/g, '');
-            setNumber(raw || '');
-          }}
-        />
-      </div>
+      {(() => {
+        const country = detectCountry(number);
+        return (
+          <div className="number-display" aria-live="polite">
+            {country && (
+              <img
+                className="number-display-flag-img"
+                src={flagImageUrl(country.iso)}
+                alt={country.iso}
+                title={country.iso}
+                onError={(e) => {
+                  (e.currentTarget as HTMLImageElement).style.visibility = 'hidden';
+                }}
+              />
+            )}
+            <input
+              ref={inputRef}
+              type="tel"
+              inputMode="tel"
+              className="number-display-input"
+              value={formatNumber(number)}
+              placeholder="(000) 000-0000"
+              spellCheck={false}
+              autoComplete="off"
+              onChange={(e) => {
+                // Store raw chars; let formatter re-format on next render.
+                const raw = e.target.value.replace(/[^\d*#+]/g, '');
+                setNumber(raw || '');
+              }}
+              onPaste={(e) => {
+                // Intercept paste to do smart country-code detection so things
+                // like "918850415617" become "+918850415617" with the 🇮🇳 flag.
+                const text = e.clipboardData?.getData('text');
+                if (text) {
+                  e.preventDefault();
+                  setNumber(parsePastedNumber(text));
+                }
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  void handleCall();
+                } else if (e.key === 'Escape') {
+                  e.preventDefault();
+                  clear();
+                }
+              }}
+            />
+          </div>
+        );
+      })()}
 
       <div className="keypad">
         {KEYS.map(({ digit, letters }) => (
