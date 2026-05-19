@@ -14,6 +14,7 @@
 // events, same method names.
 
 import JsSIP from 'jssip';
+import { getHoldMusicEnabled, getHoldMusicDataUrl } from '../lib/userPrefs';
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type RTCSession = any; // jssip's RTCSession type is JSDoc-only
 
@@ -626,14 +627,96 @@ export class SipService {
       if (active.heldLocal) {
         active.session.unhold();
         active.heldLocal = false;
+        // Swap hold music back to mic.
+        if (getHoldMusicEnabled()) void this.stopHoldMusic(active);
       } else {
         active.session.hold();
         active.heldLocal = true;
+        // Replace outgoing mic track with hold music so the held party
+        // hears music instead of silence.
+        if (getHoldMusicEnabled() && getHoldMusicDataUrl()) {
+          void this.startHoldMusic(active);
+        }
       }
     } catch (e) {
       console.warn('[sip] hold/unhold failed', e);
     }
     return active.heldLocal;
+  }
+
+  // ---------- Hold music (Web Audio API + replaceTrack) ----------
+  // Each call entry gets a tiny audio routing graph when hold music is
+  // requested: <audio> element -> MediaElementSource -> MediaStreamDestination.
+  // The resulting MediaStreamTrack replaces the outgoing mic track via
+  // sender.replaceTrack(). When unhold fires, we swap back to a fresh mic.
+  private async startHoldMusic(entry: CallEntry): Promise<void> {
+    const dataUrl = getHoldMusicDataUrl();
+    if (!dataUrl) return;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const pc: RTCPeerConnection | null = (entry.session as any).connection ?? null;
+    if (!pc) {
+      console.warn('[sip] hold music: no peer connection');
+      return;
+    }
+    try {
+      const audioEl = new Audio(dataUrl);
+      audioEl.loop = true;
+      audioEl.autoplay = true;
+      // crossOrigin only matters for remote URLs; for data: URLs it's a no-op.
+      audioEl.crossOrigin = 'anonymous';
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const ctor = (window.AudioContext || (window as any).webkitAudioContext) as typeof AudioContext;
+      const ctx = new ctor();
+      if (ctx.state === 'suspended') await ctx.resume();
+      const source = ctx.createMediaElementSource(audioEl);
+      const dest = ctx.createMediaStreamDestination();
+      source.connect(dest);
+      const musicTrack = dest.stream.getAudioTracks()[0];
+      if (!musicTrack) {
+        console.warn('[sip] hold music: dest stream has no audio track');
+        return;
+      }
+      const sender = pc.getSenders().find((s) => s.track?.kind === 'audio');
+      if (!sender) {
+        console.warn('[sip] hold music: no audio sender on peer connection');
+        return;
+      }
+      await sender.replaceTrack(musicTrack);
+      await audioEl.play();
+      // Stash refs on the entry so we can clean up on unhold.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (entry as any).__holdMusic = { audioEl, ctx };
+      console.log('[sip] hold music started for', entry.id);
+    } catch (e) {
+      console.warn('[sip] startHoldMusic failed', e);
+    }
+  }
+
+  private async stopHoldMusic(entry: CallEntry): Promise<void> {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const stash = (entry as any).__holdMusic as { audioEl: HTMLAudioElement; ctx: AudioContext } | undefined;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const pc: RTCPeerConnection | null = (entry.session as any).connection ?? null;
+    try {
+      if (stash) {
+        try { stash.audioEl.pause(); } catch { /* noop */ }
+        try { await stash.ctx.close(); } catch { /* noop */ }
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        delete (entry as any).__holdMusic;
+      }
+      if (pc) {
+        // Get a fresh mic and swap it back in.
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const micTrack = stream.getAudioTracks()[0];
+        const sender = pc.getSenders().find((s) => s.track?.kind === 'audio');
+        if (sender && micTrack) {
+          await sender.replaceTrack(micTrack);
+          console.log('[sip] hold music stopped, mic restored for', entry.id);
+        }
+      }
+    } catch (e) {
+      console.warn('[sip] stopHoldMusic failed', e);
+    }
   }
 
   isOnHold(): boolean {

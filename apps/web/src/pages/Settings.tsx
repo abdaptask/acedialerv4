@@ -24,6 +24,9 @@ import {
   Download,
   Upload,
   Database,
+  Music,
+  PauseCircle,
+  PlayCircle,
 } from 'lucide-react';
 import { getMe, updateMe } from '../api';
 import {
@@ -37,6 +40,13 @@ import {
   getTheme,
   setTheme,
   type ThemePref,
+  getHoldMusicEnabled,
+  setHoldMusicEnabled,
+  getHoldMusicDataUrl,
+  getHoldMusicFilename,
+  setHoldMusicDataUrl,
+  clearHoldMusic,
+  HOLD_MUSIC_MAX_BYTES,
 } from '../lib/userPrefs';
 
 interface AudioDevice {
@@ -60,6 +70,7 @@ const SECTIONS: SectionDef[] = [
   { key: 'speaker', label: 'Speaker', icon: Volume2, blurb: 'Output device', Component: SpeakerSection },
   { key: 'notifications', label: 'Notifications', icon: Bell, blurb: 'Calls + SMS alerts', Component: NotificationsSection },
   { key: 'quick-replies', label: 'Quick replies', icon: MessageSquare, blurb: 'SMS templates', Component: QuickRepliesSection },
+  { key: 'hold-music', label: 'Hold music', icon: Music, blurb: 'Play music when on hold', Component: HoldMusicSection },
   { key: 'data', label: 'Data', icon: Database, blurb: 'Backup & restore', Component: DataSection },
 ];
 
@@ -535,6 +546,146 @@ function SpeakerSection() {
           <RotateCcw size={14} /> Use system default
         </button>
       </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Hold music — upload an audio file to play when a caller is on hold.
+// Stored locally as a data URL (base64). The actual track-swap happens in
+// sipService.startHoldMusic() / stopHoldMusic() — they replace the outgoing
+// mic track with this audio so the held party hears it (not silence).
+// ---------------------------------------------------------------------------
+function HoldMusicSection() {
+  const [enabled, setEnabled] = useState<boolean>(() => getHoldMusicEnabled());
+  const [dataUrl, setDataUrl] = useState<string | null>(() => getHoldMusicDataUrl());
+  const [filename, setFilename] = useState<string | null>(() => getHoldMusicFilename());
+  const [previewing, setPreviewing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  function pickFile() { fileRef.current?.click(); }
+
+  function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    if (!/^audio\//.test(file.type) && !/\.(mp3|wav|ogg|m4a|aac)$/i.test(file.name)) {
+      setError('That doesn’t look like an audio file.');
+      return;
+    }
+    if (file.size > HOLD_MUSIC_MAX_BYTES) {
+      setError(`Too big — please use a file under ${Math.round(HOLD_MUSIC_MAX_BYTES / 1024 / 1024)} MB.`);
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const url = reader.result as string;
+        setHoldMusicDataUrl(url, file.name);
+        setDataUrl(url);
+        setFilename(file.name);
+        setError(null);
+      } catch (err) {
+        setError((err as Error).message);
+      }
+    };
+    reader.onerror = () => setError('Failed to read file.');
+    reader.readAsDataURL(file);
+  }
+
+  function clear() {
+    if (!confirm('Remove the saved hold music?')) return;
+    clearHoldMusic();
+    setDataUrl(null);
+    setFilename(null);
+    if (audioRef.current) {
+      try { audioRef.current.pause(); } catch { /* noop */ }
+    }
+    setPreviewing(false);
+  }
+
+  function togglePreview() {
+    if (!dataUrl) return;
+    if (previewing) {
+      try { audioRef.current?.pause(); } catch { /* noop */ }
+      setPreviewing(false);
+    } else {
+      const el = audioRef.current ?? new Audio();
+      el.src = dataUrl;
+      el.loop = true;
+      el.volume = 0.6;
+      void el.play().then(() => setPreviewing(true)).catch((err) => setError((err as Error).message));
+      audioRef.current = el;
+    }
+  }
+
+  function toggleEnabled() {
+    const v = !enabled;
+    setEnabled(v);
+    setHoldMusicEnabled(v);
+  }
+
+  return (
+    <div className="settings-section">
+      <p className="settings-blurb">
+        Play music to the other party when you put a call on hold. Without
+        this, they hear silence (which usually makes them assume the call
+        dropped). Pick any MP3, WAV, or M4A file under 2 MB — it will loop
+        while the call is held. Stored on this device only.
+      </p>
+
+      <div className="pref-list">
+        <div className="pref-row">
+          <div className="pref-text">
+            <div className="pref-label">Enable hold music</div>
+            <div className="pref-desc">
+              {dataUrl ? `Using: ${filename ?? 'uploaded file'}` : 'No file uploaded yet.'}
+            </div>
+          </div>
+          <label className="pref-switch">
+            <input
+              type="checkbox"
+              checked={enabled}
+              disabled={!dataUrl}
+              onChange={toggleEnabled}
+            />
+            <span className="pref-slider" />
+          </label>
+        </div>
+      </div>
+
+      <input
+        ref={fileRef}
+        type="file"
+        accept="audio/*,.mp3,.wav,.ogg,.m4a,.aac"
+        onChange={handleFile}
+        style={{ display: 'none' }}
+      />
+
+      <div className="device-actions" style={{ marginTop: '0.8rem' }}>
+        <button type="button" className="device-action primary" onClick={pickFile}>
+          <Upload size={14} /> {dataUrl ? 'Replace file' : 'Upload audio file'}
+        </button>
+        {dataUrl && (
+          <>
+            <button type="button" className="device-action" onClick={togglePreview}>
+              {previewing ? <><PauseCircle size={14} /> Stop preview</> : <><PlayCircle size={14} /> Preview</>}
+            </button>
+            <button type="button" className="device-action danger" onClick={clear}>
+              Remove file
+            </button>
+          </>
+        )}
+      </div>
+
+      {error && <div className="error" style={{ marginTop: '0.6rem' }}>{error}</div>}
+
+      <p className="muted small" style={{ marginTop: '1rem' }}>
+        Note: hold music plays only while *you* are holding the other party.
+        When *they* hold *you*, what you hear is up to their phone system.
+      </p>
     </div>
   );
 }

@@ -45,6 +45,30 @@ function formatNumber(raw: string): string {
   }
 }
 
+// Smart paste handler — given clipboard text, returns the best-guess E.164
+// representation. Strips formatting, detects country codes, defaults US +1.
+function parsePastedNumber(raw: string): string {
+  if (!raw) return DEFAULT_PREFIX;
+  const trimmed = raw.trim();
+  // If it looks like a SIP URI, extract the user part.
+  const sipMatch = /sip:([^@]+)@/i.exec(trimmed);
+  const subject = sipMatch ? sipMatch[1] : trimmed;
+  // Keep digits and the leading + (if any). Drop everything else.
+  let digits = subject.replace(/[^\d+]/g, '');
+  // Multiple + signs are not valid — keep only the first if it's at start.
+  if (digits.startsWith('+')) {
+    digits = '+' + digits.slice(1).replace(/\+/g, '');
+  } else {
+    digits = digits.replace(/\+/g, '');
+  }
+  if (digits.startsWith('+')) return digits;
+  if (digits.length === 11 && digits.startsWith('1')) return '+' + digits;
+  if (digits.length === 10) return '+1' + digits;
+  // For shorter pasted strings, keep DEFAULT_PREFIX and append.
+  if (digits.length > 0 && digits.length < 10) return DEFAULT_PREFIX + digits;
+  return DEFAULT_PREFIX;
+}
+
 export default function Dialpad() {
   const [number, setNumber] = useState(DEFAULT_PREFIX);
   const { sipState, callState, call, addCall } = useSip();
@@ -124,8 +148,24 @@ export default function Dialpad() {
         clear();
       }
     }
+    // Paste: clipboard → smart-parse → set as number. Handles things like
+    // "+1 (973) 727-0611", "973.727.0611", "tel:+15555550100", SIP URIs.
+    function onPaste(e: ClipboardEvent) {
+      const target = e.target as HTMLElement | null;
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+        return; // let the form field handle it
+      }
+      const text = e.clipboardData?.getData('text');
+      if (!text) return;
+      e.preventDefault();
+      setNumber(parsePastedNumber(text));
+    }
     document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
+    document.addEventListener('paste', onPaste);
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.removeEventListener('paste', onPaste);
+    };
   }, [append, backspace, clear, handleCall]);
 
   const statusLabel =
@@ -194,21 +234,26 @@ export default function Dialpad() {
       <div className="dialpad-top">
         <div className={statusClass}>{statusLabel}</div>
         <div className="keyboard-hint top">
-          Type digits with your keyboard · Enter to call · Backspace to delete · Esc to clear
+          Type · Paste · Enter to call · Backspace to delete · Esc to clear
         </div>
       </div>
 
       <div
         className={`number-display ${number === DEFAULT_PREFIX || !number ? 'empty' : ''}`}
         aria-live="polite"
+        role="textbox"
       >
         {number === DEFAULT_PREFIX || !number ? (
           <>
             <span className="number-display-prefix">+1</span>
+            <span className="number-display-cursor" aria-hidden="true">|</span>
             <span className="number-display-placeholder">(000) 000-0000</span>
           </>
         ) : (
-          formatNumber(number)
+          <>
+            {formatNumber(number)}
+            <span className="number-display-cursor" aria-hidden="true">|</span>
+          </>
         )}
       </div>
 

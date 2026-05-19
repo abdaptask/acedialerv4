@@ -95,6 +95,40 @@ export function toggleFavorite(phone: string, label?: string | null): boolean {
   addFavorite(phone, label); return true;
 }
 
+// ---------- Hold music ----------
+// Stored as a data URL (base64) in localStorage. Cap the file size at 2 MB so
+// we don't blow past the localStorage quota. For larger files we'd switch to
+// IndexedDB but most hold-music loops are short MP3s well under this size.
+const HOLD_MUSIC_KEY = 'ace_hold_music_data_url';
+const HOLD_MUSIC_NAME_KEY = 'ace_hold_music_filename';
+const HOLD_MUSIC_ENABLED_KEY = 'ace_hold_music_enabled';
+export const HOLD_MUSIC_MAX_BYTES = 2 * 1024 * 1024;
+
+export function getHoldMusicEnabled(): boolean {
+  return localStorage.getItem(HOLD_MUSIC_ENABLED_KEY) === '1';
+}
+export function setHoldMusicEnabled(enabled: boolean): void {
+  if (enabled) localStorage.setItem(HOLD_MUSIC_ENABLED_KEY, '1');
+  else localStorage.removeItem(HOLD_MUSIC_ENABLED_KEY);
+  window.dispatchEvent(new CustomEvent('ace:holdMusicChanged'));
+}
+export function getHoldMusicDataUrl(): string | null {
+  return localStorage.getItem(HOLD_MUSIC_KEY);
+}
+export function getHoldMusicFilename(): string | null {
+  return localStorage.getItem(HOLD_MUSIC_NAME_KEY);
+}
+export function setHoldMusicDataUrl(dataUrl: string, filename: string): void {
+  localStorage.setItem(HOLD_MUSIC_KEY, dataUrl);
+  localStorage.setItem(HOLD_MUSIC_NAME_KEY, filename);
+  window.dispatchEvent(new CustomEvent('ace:holdMusicChanged'));
+}
+export function clearHoldMusic(): void {
+  localStorage.removeItem(HOLD_MUSIC_KEY);
+  localStorage.removeItem(HOLD_MUSIC_NAME_KEY);
+  window.dispatchEvent(new CustomEvent('ace:holdMusicChanged'));
+}
+
 // ---------- Theme preference ----------
 export type ThemePref = 'system' | 'light' | 'dark';
 const THEME_KEY = 'ace_theme';
