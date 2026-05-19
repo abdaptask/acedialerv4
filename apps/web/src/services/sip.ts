@@ -153,8 +153,11 @@ export class SipService {
       // Re-register every 5 minutes to keep the SIP registration warm.
       register: true,
       register_expires: 300,
-      // session_timers prevents zombie calls if media drops silently.
-      session_timers: true,
+      // IMPORTANT: session_timers MUST be false for Telnyx. With it on,
+      // JsSIP sends re-INVITE/UPDATE every ~90s and Telnyx 481s the call
+      // (no matching dialog) which then teardown the call. Off = the call
+      // stays alive as long as RTP flows.
+      session_timers: false,
       // Use the user's selected mic via global getUserMedia constraints.
       user_agent: 'ACE-Dialer/1.0',
     });
@@ -257,16 +260,15 @@ export class SipService {
       this.emit<CallEvent>('call', this.buildEvent(entry, 'incoming'));
     }
 
-    session.on('progress', () => {
-      // 180 Ringing
+    session.on('progress', (data: { response?: { status_code?: number; reason_phrase?: string } }) => {
+      console.log('[sip] progress', callId, data?.response?.status_code, data?.response?.reason_phrase);
       if (direction === 'outbound') {
         this.emit<CallEvent>('call', this.buildEvent(entry, 'ringing'));
       }
     });
 
     session.on('accepted', () => {
-      // 200 OK received (outbound) or sent (inbound)
-      // For inbound, this is the user answering.
+      console.log('[sip] accepted', callId);
       if (this.incomingCallId === callId) this.incomingCallId = null;
       this.activeCallId = callId;
       this.emit<CallEvent>('call', this.buildEvent(entry, 'connected'));
@@ -274,17 +276,38 @@ export class SipService {
     });
 
     session.on('confirmed', () => {
-      // ACK received — call is fully established.
+      console.log('[sip] confirmed (ACK sent/received)', callId);
       this.activeCallId = callId;
       this.emit<CallEvent>('call', this.buildEvent(entry, 'connected'));
     });
 
-    session.on('ended', (data: { cause?: string }) => {
+    session.on('ended', (data: { cause?: string; originator?: string; message?: { status_code?: number; reason_phrase?: string } }) => {
+      console.log('[sip] ended', callId, {
+        cause: data?.cause,
+        originator: data?.originator,
+        status: data?.message?.status_code,
+        reason: data?.message?.reason_phrase,
+      });
       this.cleanupCall(callId, data?.cause ?? 'normal_clearing');
     });
-    session.on('failed', (data: { cause?: string }) => {
+    session.on('failed', (data: { cause?: string; originator?: string; message?: { status_code?: number; reason_phrase?: string } }) => {
+      console.warn('[sip] failed', callId, {
+        cause: data?.cause,
+        originator: data?.originator,
+        status: data?.message?.status_code,
+        reason: data?.message?.reason_phrase,
+      });
       this.cleanupCall(callId, data?.cause ?? 'failed');
     });
+
+    // ICE / peerconnection diagnostics
+    session.on('icecandidate', (data: { candidate?: { candidate?: string } }) => {
+      console.debug('[sip] icecandidate', data?.candidate?.candidate?.slice(0, 60));
+    });
+    session.on('sdp', (data: { type?: string; sdp?: string; originator?: string }) => {
+      console.debug('[sip] SDP', data?.originator, data?.type);
+    });
+    session.on('reinvite', () => console.log('[sip] reinvite', callId));
   }
 
   private cleanupCall(callId: string, cause: string): void {
