@@ -129,6 +129,86 @@ async function joinConference(
 // users.did_number → the resolveUserId() helper above routes events.
 const PILOT_NUMBER = process.env.PILOT_TELNYX_NUMBER ?? '+17322001305';
 
+// SIP realm to dial when bridging an inbound call to the WebRTC user.
+// Default: sip.telnyx.com. For credential-based connections this is correct.
+const SIP_REALM = process.env.SIP_REALM ?? 'sip.telnyx.com';
+
+// ---------- Telnyx Call Control helpers (voicemail flow) ----------
+// Programmatic answer + dial-out + speak + record. Used by the Voicemail
+// Option B flow: PSTN call → answer → dial sip:USERNAME → on no-answer/decline,
+// speak greeting + record on the parent leg.
+
+async function tcc(path: string, body: unknown): Promise<{ ok: boolean; status: number; data: unknown }> {
+  if (!TELNYX_API_KEY) {
+    return { ok: false, status: 0, data: 'TELNYX_API_KEY not set' };
+  }
+  const res = await fetch(`https://api.telnyx.com/v2${path}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${TELNYX_API_KEY}`,
+    },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  return { ok: res.ok, status: res.status, data };
+}
+
+// Encode arbitrary state as base64 so Telnyx echoes it back on subsequent
+// events for this leg. Lets us track multi-step flows across webhooks.
+function encodeClientState(value: Record<string, unknown>): string {
+  return Buffer.from(JSON.stringify(value)).toString('base64');
+}
+
+async function answerCall(callControlId: string, clientState?: string): Promise<{ ok: boolean; data: unknown }> {
+  return tcc(`/calls/${encodeURIComponent(callControlId)}/actions/answer`, {
+    ...(clientState ? { client_state: clientState } : {}),
+  });
+}
+
+async function speakOnCall(callControlId: string, text: string, opts: { clientState?: string } = {}): Promise<{ ok: boolean; data: unknown }> {
+  return tcc(`/calls/${encodeURIComponent(callControlId)}/actions/speak`, {
+    payload: text,
+    voice: 'female',
+    language: 'en-US',
+    ...(opts.clientState ? { client_state: opts.clientState } : {}),
+  });
+}
+
+async function recordStartOnCall(callControlId: string, clientState?: string): Promise<{ ok: boolean; data: unknown }> {
+  return tcc(`/calls/${encodeURIComponent(callControlId)}/actions/record_start`, {
+    format: 'mp3',
+    channels: 'single',
+    ...(clientState ? { client_state: clientState } : {}),
+  });
+}
+
+async function hangupCall(callControlId: string): Promise<{ ok: boolean; data: unknown }> {
+  return tcc(`/calls/${encodeURIComponent(callControlId)}/actions/hangup`, {});
+}
+
+// Originate a new outbound leg via Call Control. Returns the new
+// call_control_id immediately (no need to wait for webhook).
+async function dialOutbound(opts: {
+  to: string;
+  from: string;
+  connectionId: string;
+  clientState: string;
+  timeoutSecs?: number;
+}): Promise<{ ok: boolean; callControlId?: string; data: unknown }> {
+  const r = await tcc('/calls', {
+    to: opts.to,
+    from: opts.from,
+    connection_id: opts.connectionId,
+    client_state: opts.clientState,
+    timeout_secs: opts.timeoutSecs ?? 25,
+    ...(opts.timeoutSecs ? { time_limit_secs: opts.timeoutSecs + 10 } : {}),
+  });
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const ccid = (r.data as any)?.data?.call_control_id;
+  return { ok: r.ok, callControlId: ccid, data: r.data };
+}
+
 const app = Fastify({
   logger: { level: process.env.LOG_LEVEL ?? 'info' },
   ignoreTrailingSlash: true,
@@ -220,6 +300,68 @@ app.post('/webhooks/telnyx/calls', async (request) => {
             startedAt: payload.start_time ? new Date(payload.start_time) : new Date(),
           },
         });
+
+        // Voicemail flow (Option B). When an inbound PSTN call arrives at
+        // this connection AND there's no client_state (so it's a fresh
+        // inbound, not a server-originated leg from Add Call), we take over
+        // the call: answer it, dial out to the SIP user with a 25-second
+        // timeout, and on no-answer fall through to greeting + record.
+        const incomingClientState = decodeClientState(payload.client_state);
+        const isFreshInbound =
+          direction === 'inbound' &&
+          callControlId &&
+          !incomingClientState?.bridgeTo &&
+          !incomingClientState?.joinConfId &&
+          !(incomingClientState as { vmFlow?: string } | null)?.vmFlow;
+        if (isFreshInbound) {
+          // Find the SIP user that owns this DID.
+          const owner = await prisma.user.findUnique({
+            where: { id: ownerUserId },
+            select: { sipUsername: true },
+          });
+          const sipUser = owner?.sipUsername ?? process.env.PILOT_SIP_USERNAME;
+          const connectionIdEnv = process.env.PILOT_SIP_CONNECTION_ID;
+          if (!sipUser || !connectionIdEnv) {
+            app.log.warn(
+              { sipUser: Boolean(sipUser), connectionIdEnv: Boolean(connectionIdEnv) },
+              '[vm] missing PILOT_SIP_USERNAME or PILOT_SIP_CONNECTION_ID — cannot start voicemail flow',
+            );
+          } else {
+            // Step 1: answer the parent leg so we can control it. State
+            // tells later events "this leg is mid-vm-flow".
+            const parentState = encodeClientState({
+              vmFlow: 'parent',
+              parentLeg: callControlId,
+              fromNumber,
+              toNumber,
+              ownerUserId,
+            });
+            const ans = await answerCall(callControlId, parentState);
+            app.log.info({ ok: ans.ok }, '[vm] answered parent leg');
+
+            // Step 2: dial out to the SIP user with a 25s ring timeout.
+            // We tag the dialed leg's client_state so its events identify
+            // back to the parent.
+            const dialState = encodeClientState({
+              vmFlow: 'dial',
+              parentLeg: callControlId,
+              fromNumber,
+              toNumber,
+              ownerUserId,
+            });
+            const dial = await dialOutbound({
+              to: `sip:${sipUser}@${SIP_REALM}`,
+              from: fromNumber || PILOT_NUMBER,
+              connectionId: connectionIdEnv,
+              clientState: dialState,
+              timeoutSecs: 25,
+            });
+            app.log.info(
+              { ok: dial.ok, dialedCcId: dial.callControlId, to: sipUser },
+              '[vm] dialed SIP user',
+            );
+          }
+        }
         break;
       }
 
@@ -233,6 +375,19 @@ app.post('/webhooks/telnyx/calls', async (request) => {
             ...(callControlId ? { callControlId } : {}),
           },
         });
+
+        // Voicemail flow — Step 3: the dialed leg answered (dialer picked
+        // up). Bridge it to the parent inbound call so caller and dialer
+        // can talk. No voicemail needed.
+        if (event.event_type === 'call.answered' && callControlId) {
+          const state = decodeClientState(payload.client_state) as
+            | { vmFlow?: string; parentLeg?: string }
+            | null;
+          if (state?.vmFlow === 'dial' && state.parentLeg) {
+            const r = await bridgeLegs(state.parentLeg, callControlId);
+            app.log.info({ ok: r.ok }, '[vm] bridged dialed leg → parent');
+          }
+        }
 
         // Phase 5.4 (rebuild): server-originated Leg B carries a client_state
         // telling us either to auto-bridge (legacy) or to join a Conference
@@ -311,12 +466,84 @@ app.post('/webhooks/telnyx/calls', async (request) => {
             },
           });
         }
+
+        // Voicemail flow — Step 4: the dialed leg ended without ever being
+        // answered (no-answer, declined, busy). The parent leg is still
+        // alive (we answered it). Speak the greeting + start recording on
+        // the parent. The Record action fires call.recording.saved when
+        // done, which we handle below.
+        {
+          const hangupState = decodeClientState(payload.client_state) as
+            | { vmFlow?: string; parentLeg?: string; fromNumber?: string; toNumber?: string; ownerUserId?: number }
+            | null;
+          const wasDialAttempt = hangupState?.vmFlow === 'dial' && hangupState.parentLeg;
+          const dialerNeverAnswered =
+            hangupCause === 'no_answer' ||
+            hangupCause === 'call_rejected' ||
+            hangupCause === 'normal_clearing' ||
+            hangupCause === 'timeout' ||
+            hangupCause === 'user_busy';
+          if (wasDialAttempt && dialerNeverAnswered && hangupState.parentLeg) {
+            app.log.info(
+              { parentLeg: hangupState.parentLeg, cause: hangupCause },
+              '[vm] dialed leg ended without bridge → starting voicemail on parent',
+            );
+            const greeting =
+              process.env.PILOT_VOICEMAIL_GREETING ??
+              "You've reached ACE Dialer. Please leave a message after the tone, then hang up.";
+            // Tag the parent with vmFlow='recording' so call.recording.saved
+            // knows to save a Voicemail row (not just a call recording).
+            const recState = encodeClientState({
+              vmFlow: 'recording',
+              parentLeg: hangupState.parentLeg,
+              fromNumber: hangupState.fromNumber ?? fromNumber,
+              toNumber: hangupState.toNumber ?? toNumber,
+              ownerUserId: hangupState.ownerUserId,
+            });
+            const sp = await speakOnCall(hangupState.parentLeg, greeting, { clientState: recState });
+            app.log.info({ ok: sp.ok }, '[vm] spoke greeting on parent');
+            const rec = await recordStartOnCall(hangupState.parentLeg, recState);
+            app.log.info({ ok: rec.ok }, '[vm] record_start on parent');
+          }
+        }
         break;
       }
 
       case 'call.recording.saved': {
         const recordingUrls: string[] = payload.recording_urls?.mp3 ?? payload.recording_urls ?? [];
-        if (recordingUrls.length > 0) {
+        const recState = decodeClientState(payload.client_state) as
+          | { vmFlow?: string; fromNumber?: string; toNumber?: string; ownerUserId?: number }
+          | null;
+        if (recState?.vmFlow === 'recording' && recordingUrls.length > 0) {
+          // Voicemail flow — Step 5: caller finished speaking, save the
+          // voicemail row + hang up the parent leg so we don't keep it open.
+          try {
+            const ownerUserId =
+              recState.ownerUserId ??
+              (await resolveUserId({
+                fromNumber: recState.fromNumber ?? null,
+                toNumber: recState.toNumber ?? null,
+              }));
+            const durSec = Number(payload.recording_duration_millis ?? 0) / 1000;
+            await prisma.voicemail.create({
+              data: {
+                userId: ownerUserId,
+                telnyxCallId: callId,
+                fromNumber: recState.fromNumber ?? fromNumber ?? '',
+                toNumber: recState.toNumber ?? toNumber ?? '',
+                recordingUrl: recordingUrls[0],
+                durationSeconds: Math.max(1, Math.round(durSec)),
+                transcription: payload.transcription_text ?? null,
+              },
+            });
+            app.log.info({ recording: recordingUrls[0] }, '[vm] voicemail row created');
+          } catch (e) {
+            app.log.error({ err: e }, '[vm] failed to write Voicemail row');
+          }
+          // Hang up the parent leg so we don't keep the line open.
+          if (callControlId) await hangupCall(callControlId).catch(() => undefined);
+        } else if (recordingUrls.length > 0) {
+          // Generic call recording — attach to call row (existing behavior).
           await prisma.call.updateMany({
             where: { telnyxCallId: callId },
             data: { recordingUrl: recordingUrls[0] },
