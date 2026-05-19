@@ -46,6 +46,15 @@ interface SipContextValue {
   addCall: (number: string) => Promise<ServerActionResult>;
   swapCalls: () => void;
   mergeCalls: () => Promise<boolean>;
+  /** True after a successful merge — both calls are now bridged in a 3-way
+   * conference. The UI keeps showing both numbers with per-call hangup so
+   * the user can drop either party. */
+  conferenceActive: boolean;
+  /** Label of the call that was previously "active" before merge — used as
+   * the second participant's display name during conference. */
+  conferenceOtherNumber: string | null;
+  /** Session id of the second participant during conference. */
+  conferenceOtherId: string | null;
   // Audio device selection
   listAudioOutputs: () => Promise<MediaDeviceInfo[]>;
   setAudioOutput: (deviceId: string) => Promise<void>;
@@ -68,6 +77,9 @@ export function SipProvider({ children }: { children: React.ReactNode }) {
   const [hasSecondCall, setHasSecondCall] = useState(false);
   const [secondCallNumber, setSecondCallNumber] = useState<string | null>(null);
   const [secondCallId, setSecondCallId] = useState<string | null>(null);
+  const [conferenceActive, setConferenceActive] = useState(false);
+  const [conferenceOtherNumber, setConferenceOtherNumber] = useState<string | null>(null);
+  const [conferenceOtherId, setConferenceOtherId] = useState<string | null>(null);
   const [activeCallControlId, setActiveCallControlId] = useState<string | null>(null);
   const [secondCallControlId, setSecondCallControlId] = useState<string | null>(null);
   const [callQuality, setCallQuality] = useState<CallQuality>({ level: 'unknown', jitter: 0, loss: 0, rtt: null });
@@ -162,6 +174,11 @@ export function SipProvider({ children }: { children: React.ReactNode }) {
           setHasSecondCall(false);
           setSecondCallNumber(null);
           setSecondCallId(null);
+          // If we were in conference and a participant dropped, we're now
+          // a normal single call — clear the conference state too.
+          setConferenceActive(false);
+          setConferenceOtherNumber(null);
+          setConferenceOtherId(null);
         } else {
           setSecondCallId(heldId);
         }
@@ -335,13 +352,23 @@ export function SipProvider({ children }: { children: React.ReactNode }) {
       // sipService.startConference() (added below) wires mic + both calls'
       // remote streams together so all three parties hear each other.
       try {
+        // Capture both numbers + ids BEFORE merge so we can render two
+        // matching conference pills with per-call hangup. The "active"
+        // call drives `callState`; the "second" call's info we already
+        // tracked via hasSecondCall.
+        const otherNumber = secondCallNumber;
+        const otherId = secondCallId;
         const ok = sipService.startConference();
         if (ok) {
-          // Both calls stay alive; the "held" state goes away because
-          // audio now flows in both directions for both calls.
+          // Switch from "active + held" to "two-party conference". Both
+          // calls remain alive, but neither is on hold and both should be
+          // displayed identically.
           setHasSecondCall(false);
           setSecondCallNumber(null);
           setSecondCallControlId(null);
+          setConferenceActive(true);
+          setConferenceOtherNumber(otherNumber);
+          setConferenceOtherId(otherId);
         }
         return ok;
       } catch (e) {
@@ -349,6 +376,9 @@ export function SipProvider({ children }: { children: React.ReactNode }) {
         return false;
       }
     },
+    conferenceActive,
+    conferenceOtherNumber,
+    conferenceOtherId,
   };
 
   return <SipContext.Provider value={value}>{children}</SipContext.Provider>;

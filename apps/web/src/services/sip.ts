@@ -94,15 +94,25 @@ function applySpeakerSelection(audioEl: HTMLAudioElement): void {
  */
 function buildAudioConstraints(): MediaTrackConstraints {
   const micId = localStorage.getItem('ace_mic');
+  // IMPORTANT: use `ideal` (not exact/hard) for sampleRate and channelCount.
+  // Hard constraints fail silently on Bluetooth headsets, USB phones, and
+  // older mics — the browser then either returns no audio or falls back to
+  // a low-quality default that makes the user sound like they're in a pipe.
+  // With `ideal`, the browser tries 48kHz/mono first but accepts the device's
+  // native format if it can't comply.
   const constraints: MediaTrackConstraints = {
     echoCancellation: true,
     noiseSuppression: true,
     autoGainControl: true,
-    channelCount: 1,
-    sampleRate: 48000,
+    channelCount: { ideal: 1 },
+    sampleRate: { ideal: 48000 },
+    // Aim for ~20ms latency. Lower = more real-time, more CPU.
+    latency: { ideal: 0.02 },
   };
   if (micId && micId !== 'default') {
-    constraints.deviceId = { exact: micId };
+    // `ideal` here too — if the saved device was unplugged, fall back to
+    // the default mic instead of refusing to acquire audio.
+    constraints.deviceId = { ideal: micId };
   }
   return constraints;
 }
@@ -411,8 +421,33 @@ export class SipService {
             s = s.replace(/(m=audio[^\n]*\n)/g, '$1a=rtcp-rsize\r\n');
             mutated = true;
           }
+          // Opus tuning for jitter / packet loss / voice quality.
+          // useinbandfec=1: forward error correction — recovers lost packets,
+          //                 huge win for "jittery" / "robotic" complaints.
+          // usedtx=0:       no discontinuous transmission — keeps audio
+          //                 flowing during silence (avoids "comfort noise"
+          //                 weirdness that recipients hear as cutting out).
+          // stereo=0:       voice is mono; saves bandwidth.
+          // maxaveragebitrate=24000: cap at 24kbps — sweet spot for voice
+          //                 over carrier networks. Telnyx's recommended
+          //                 default is 16-24 kbps for PSTN-bridged calls.
+          // minptime=10, ptime=20: 20ms packets — standard, lower jitter
+          //                 than 40ms; matches what PJSIP softphones use.
+          const opusMatch = s.match(/a=rtpmap:(\d+)\s+opus\//i);
+          if (opusMatch) {
+            const pt = opusMatch[1];
+            const fmtpRe = new RegExp(`a=fmtp:${pt}[^\\n]*`);
+            const opusParams = 'useinbandfec=1;usedtx=0;stereo=0;maxaveragebitrate=24000;minptime=10;ptime=20';
+            if (fmtpRe.test(s)) {
+              s = s.replace(fmtpRe, `a=fmtp:${pt} ${opusParams}`);
+            } else {
+              // Insert fmtp line right after the opus rtpmap line.
+              s = s.replace(opusMatch[0], `${opusMatch[0]}\r\na=fmtp:${pt} ${opusParams}`);
+            }
+            mutated = true;
+          }
           if (mutated) {
-            console.log('[sip] munged remote SDP for Chrome compatibility');
+            console.log('[sip] munged remote SDP for Chrome compatibility + Opus tuning');
             data.sdp = s;
           }
         }
@@ -885,8 +920,12 @@ export class SipService {
     }
   }
 
-  /** Tear down the conference audio graph (called on hangup of any leg). */
+  /** Tear down the conference audio graph (called on hangup of any leg).
+   *  Any remaining call has its outgoing sender pointed at the (now dead)
+   *  MediaStreamDestination — we must replace that with a fresh mic track
+   *  so the surviving call still hears the user. */
   private stopConference(): void {
+    const hadConference = !!this.conferenceCtx;
     if (this.conferenceMic) {
       try { this.conferenceMic.getTracks().forEach((t) => t.stop()); } catch { /* noop */ }
       this.conferenceMic = null;
@@ -894,6 +933,37 @@ export class SipService {
     if (this.conferenceCtx) {
       try { void this.conferenceCtx.close(); } catch { /* noop */ }
       this.conferenceCtx = null;
+    }
+    if (hadConference && this.calls.size > 0) {
+      // Fire-and-forget: restore mic on every remaining call's sender.
+      void (async () => {
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({
+            audio: buildAudioConstraints(),
+          });
+          const micTrack = stream.getAudioTracks()[0];
+          if (!micTrack) return;
+          for (const entry of this.calls.values()) {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const pc: RTCPeerConnection | null = (entry.session as any).connection ?? null;
+            if (!pc) continue;
+            const sender = pc.getSenders().find((s) => s.track?.kind === 'audio');
+            if (sender) {
+              try {
+                // Clone for each sender so each has its own track instance.
+                await sender.replaceTrack(micTrack.clone());
+                console.log('[sip] post-conference mic restored for', entry.id);
+              } catch (e) {
+                console.warn('[sip] post-conference replaceTrack failed', entry.id, e);
+              }
+            }
+          }
+          // We've cloned the track for each sender; stop the original.
+          micTrack.stop();
+        } catch (e) {
+          console.error('[sip] post-conference mic restore failed', e);
+        }
+      })();
     }
   }
 

@@ -2908,6 +2908,20 @@ button.call-pill:active { transform: scale(0.98); }
   border-color: rgba(52, 199, 89, 0.45);
   box-shadow: 0 0 0 1px rgba(52, 199, 89, 0.25);
 }
+.call-pill.conference {
+  border-color: rgba(0, 122, 255, 0.45);
+  box-shadow: 0 0 0 1px rgba(0, 122, 255, 0.2);
+}
+.call-pill.conference .call-pill-tag { color: #5e9eff; }
+.conf-banner {
+  text-align: center;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: #5e9eff;
+  padding: 4px 0 6px;
+}
 .call-pill-info {
   flex: 1;
   display: flex;

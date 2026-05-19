@@ -53,6 +53,9 @@ export default function InCall() {
     secondCallId,
     swapCalls,
     mergeCalls,
+    conferenceActive,
+    conferenceOtherNumber,
+    conferenceOtherId,
     listAudioOutputs,
     setAudioOutput,
   } = useSip();
@@ -153,7 +156,58 @@ export default function InCall() {
 
   return (
     <div className="in-call">
-      {hasSecondCall ? (
+      {conferenceActive ? (
+        // Conference mode: both calls bridged via Web Audio mixing. Show
+        // both participants identically with their own end buttons — user
+        // can drop either party without ending the whole conference.
+        <div className="calls-strip">
+          <div className="conf-banner">Conference · {formatDuration(duration)}</div>
+          <div className="call-pill conference">
+            <div className="call-pill-info">
+              <span className="call-pill-tag">Participant 1</span>
+              <span className="call-pill-num">{callerLabel}</span>
+              <span className="call-pill-status">
+                {isConnected && callQuality.level !== 'unknown' && (
+                  <QualityIndicator quality={callQuality} />
+                )}
+                In conference
+              </span>
+            </div>
+            <button
+              type="button"
+              className="call-pill-end"
+              onClick={hangup}
+              title="Drop this participant from the conference"
+              aria-label="Drop participant 1"
+            >
+              <PhoneOff size={16} />
+            </button>
+          </div>
+          <div className="call-pill conference">
+            <div className="call-pill-info">
+              <span className="call-pill-tag">Participant 2</span>
+              <span className="call-pill-num">
+                {formatNumber(conferenceOtherNumber ?? undefined)}
+              </span>
+              <span className="call-pill-status">In conference</span>
+            </div>
+            <button
+              type="button"
+              className="call-pill-end"
+              onClick={() => {
+                if (conferenceOtherId) {
+                  hangupCall(conferenceOtherId);
+                  showToast('Dropped from conference');
+                }
+              }}
+              title="Drop this participant from the conference"
+              aria-label="Drop participant 2"
+            >
+              <PhoneOff size={16} />
+            </button>
+          </div>
+        </div>
+      ) : hasSecondCall ? (
         // Two-call mode: show BOTH calls as matching pill cards so the user
         // sees each number, knows which is active vs held, and can end either
         // independently. Tap the held card to swap.
