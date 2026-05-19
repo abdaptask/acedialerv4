@@ -686,6 +686,183 @@ body {
   font-weight: 600;
 }
 
+/* ============ THREAD HEADER CALL BUTTON + HISTORY ============ */
+.thread-header-name {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1.15;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.thread-header-sub {
+  font-size: 0.7rem;
+  color: rgba(235, 235, 245, 0.55);
+  font-weight: 400;
+  margin-top: 1px;
+}
+.thread-call-btn {
+  color: #34c759;
+}
+.thread-call-btn:disabled {
+  color: rgba(235, 235, 245, 0.3);
+  cursor: not-allowed;
+}
+
+.thread-history-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.5rem 0.9rem;
+  background: rgba(118, 118, 128, 0.12);
+  border: none;
+  border-bottom: 0.5px solid rgba(255, 255, 255, 0.08);
+  color: rgba(235, 235, 245, 0.85);
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+  font-size: 0.78rem;
+}
+.thread-history-bar:hover { background: rgba(118, 118, 128, 0.2); }
+.thread-history-counts {
+  flex: 1;
+  display: flex;
+  gap: 0.65rem;
+  flex-wrap: wrap;
+}
+.thread-history-counts strong { color: #fff; font-weight: 600; }
+.thread-history-action {
+  color: #0a84ff;
+  font-weight: 500;
+  flex-shrink: 0;
+}
+
+/* ============ HISTORY MODAL (per-contact timeline) ============ */
+.history-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+.history-box {
+  background: #1c1c1e;
+  color: #fff;
+  width: 100%;
+  max-width: 560px;
+  max-height: 85vh;
+  border-radius: 18px 18px 0 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 -8px 30px rgba(0, 0, 0, 0.55);
+}
+@media (min-width: 600px) {
+  .history-modal { align-items: center; }
+  .history-box { border-radius: 14px; max-height: 80vh; }
+}
+.history-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem 1.1rem 0.6rem;
+  border-bottom: 0.5px solid rgba(255, 255, 255, 0.08);
+}
+.history-title { font-size: 1.05rem; font-weight: 600; }
+.history-subtitle {
+  font-size: 0.8rem;
+  color: rgba(235, 235, 245, 0.6);
+  margin-top: 2px;
+}
+.history-summary {
+  display: flex;
+  justify-content: space-around;
+  gap: 0.5rem;
+  padding: 0.9rem 1rem;
+  border-bottom: 0.5px solid rgba(255, 255, 255, 0.08);
+}
+.history-summary-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex: 1;
+}
+.history-summary-item strong {
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: #fff;
+}
+.history-summary-item span {
+  font-size: 0.7rem;
+  color: rgba(235, 235, 245, 0.55);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-top: 2px;
+}
+.history-timeline {
+  list-style: none;
+  margin: 0;
+  padding: 0.5rem 0;
+  overflow-y: auto;
+  flex: 1;
+}
+.timeline-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.7rem;
+  padding: 0.65rem 1rem;
+  border-bottom: 0.5px solid rgba(255, 255, 255, 0.04);
+}
+.timeline-row:last-child { border-bottom: none; }
+.timeline-row.missed { background: rgba(255, 59, 48, 0.06); }
+.timeline-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: rgba(118, 118, 128, 0.22);
+  color: rgba(235, 235, 245, 0.85);
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.timeline-row.out .timeline-icon { background: rgba(10, 132, 255, 0.22); color: #5ac8fa; }
+.timeline-row.in .timeline-icon { background: rgba(52, 199, 89, 0.22); color: #34c759; }
+.timeline-row.missed .timeline-icon { background: rgba(255, 59, 48, 0.22); color: #ff6b6b; }
+.timeline-body {
+  flex: 1;
+  min-width: 0;
+}
+.timeline-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+.timeline-type {
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: #fff;
+}
+.timeline-time {
+  font-size: 0.7rem;
+  color: rgba(235, 235, 245, 0.55);
+  flex-shrink: 0;
+}
+.timeline-detail {
+  font-size: 0.82rem;
+  color: rgba(235, 235, 245, 0.75);
+  margin-top: 2px;
+  word-break: break-word;
+  line-height: 1.35;
+}
+
 /* ============ QUICK REPLY POPOVER (Messages compose row) ============ */
 .quick-reply-popover {
   position: absolute;

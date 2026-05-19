@@ -359,6 +359,46 @@ export async function uploadMedia(token: string, file: File): Promise<{ url: str
   return res.json();
 }
 
+// ---------- Phase 5.x: Unified contact history ----------
+export interface ContactHistorySummary {
+  messageCount: number;
+  callCount: number;
+  voicemailCount: number;
+  lastInteraction: string | null;
+}
+export interface ContactTimelineEntry {
+  type: 'message' | 'call' | 'voicemail';
+  id: number;
+  timestamp: string;
+  direction?: string;
+  message?: { body: string | null; mediaUrls: string[]; status: string };
+  call?: {
+    status: string;
+    durationSeconds: number;
+    hangupCause: string | null;
+    recordingUrl: string | null;
+  };
+  voicemail?: {
+    recordingUrl: string;
+    durationSeconds: number;
+    transcription: string | null;
+  };
+}
+export interface ContactHistory {
+  phone: string;
+  summary: ContactHistorySummary;
+  timeline: ContactTimelineEntry[];
+}
+
+export async function getContactHistory(token: string, phone: string): Promise<ContactHistory | null> {
+  const res = await fetch(
+    `${API_URL}/contacts/history?phone=${encodeURIComponent(phone)}`,
+    { headers: { Authorization: `Bearer ${token}` } },
+  );
+  if (!res.ok) return null;
+  return (await res.json()) as ContactHistory;
+}
+
 // ---------- Phase 5.5: JobDiva contact lookup ----------
 export interface JobDivaContact {
   name: string;

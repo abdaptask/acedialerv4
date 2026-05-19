@@ -2,16 +2,20 @@
 // thread list on the left (or full screen on narrow), thread detail on the right.
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Send, ArrowLeft, RefreshCcw, MessageSquarePlus, Image as ImageIcon, Search, X, Zap } from 'lucide-react';
+import { Send, ArrowLeft, RefreshCcw, MessageSquarePlus, Image as ImageIcon, Search, X, Zap, Phone, History } from 'lucide-react';
 import {
   getThreads,
   getThread,
   sendMessage,
   uploadMedia,
+  getContactHistory,
   type ThreadSummary,
   type MessageRecord,
+  type ContactHistory,
+  type ContactTimelineEntry,
 } from '../api';
 import { useJobDivaContact, getCachedJobDivaName } from '../hooks/useJobDivaContact';
+import { useSip } from '../contexts/SipContext';
 import { getQuickReplies } from '../lib/userPrefs';
 
 function formatNumber(raw: string): string {
@@ -171,7 +175,6 @@ export default function Messages() {
             setActive(null);
             loadThreads();
           }}
-          onCallClick={() => navigate('/keypad')}
         />
       )}
 
@@ -212,11 +215,12 @@ export default function Messages() {
 interface ThreadDetailProps {
   number: string;
   onBack: () => void;
-  onCallClick: () => void;
 }
 
 function ThreadDetail({ number, onBack }: ThreadDetailProps) {
   const jd = useJobDivaContact(number);
+  const navigate = useNavigate();
+  const { sipState, call } = useSip();
   const [messages, setMessages] = useState<MessageRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -233,6 +237,29 @@ function ThreadDetail({ number, onBack }: ThreadDetailProps) {
     window.addEventListener('ace:quickRepliesChanged', refresh);
     return () => window.removeEventListener('ace:quickRepliesChanged', refresh);
   }, []);
+
+  // Unified per-contact history (messages + calls + voicemails).
+  const [history, setHistory] = useState<ContactHistory | null>(null);
+  const [showHistory, setShowHistory] = useState(false);
+  useEffect(() => {
+    const token = sessionStorage.getItem('ace_token');
+    if (!token || !number) return;
+    let cancelled = false;
+    getContactHistory(token, number)
+      .then((h) => { if (!cancelled) setHistory(h); })
+      .catch(() => { /* ignore */ });
+    return () => { cancelled = true; };
+  }, [number]);
+
+  function handleCall() {
+    if (!number) return;
+    if (sipState !== 'registered') {
+      alert(`SIP not ready (${sipState}). Try again in a moment.`);
+      return;
+    }
+    call(number);
+    navigate('/in-call');
+  }
 
   const load = useCallback(() => {
     const token = sessionStorage.getItem('ace_token');
@@ -310,9 +337,51 @@ function ThreadDetail({ number, onBack }: ThreadDetailProps) {
         <button className="icon-btn" onClick={onBack} aria-label="Back">
           <ArrowLeft size={18} />
         </button>
-        <div className="thread-header-name">{jd?.name ?? formatNumber(number)}</div>
-        <div style={{ width: 28 }} />
+        <div className="thread-header-name">
+          {jd?.name ?? formatNumber(number)}
+          {jd?.name && (
+            <span className="thread-header-sub">{formatNumber(number)}</span>
+          )}
+        </div>
+        <button
+          className="icon-btn thread-call-btn"
+          onClick={handleCall}
+          aria-label="Call this number"
+          title="Call"
+          disabled={sipState !== 'registered'}
+        >
+          <Phone size={18} />
+        </button>
       </div>
+
+      {history && (history.summary.callCount > 0 || history.summary.voicemailCount > 0 || history.summary.messageCount > 0) && (
+        <button
+          type="button"
+          className="thread-history-bar"
+          onClick={() => setShowHistory(true)}
+          title="See full interaction history"
+        >
+          <History size={14} />
+          <span className="thread-history-counts">
+            {history.summary.messageCount > 0 && (
+              <span><strong>{history.summary.messageCount}</strong>{' '}
+                {history.summary.messageCount === 1 ? 'message' : 'messages'}
+              </span>
+            )}
+            {history.summary.callCount > 0 && (
+              <span><strong>{history.summary.callCount}</strong>{' '}
+                {history.summary.callCount === 1 ? 'call' : 'calls'}
+              </span>
+            )}
+            {history.summary.voicemailCount > 0 && (
+              <span><strong>{history.summary.voicemailCount}</strong>{' '}
+                {history.summary.voicemailCount === 1 ? 'voicemail' : 'voicemails'}
+              </span>
+            )}
+          </span>
+          <span className="thread-history-action">View timeline</span>
+        </button>
+      )}
 
       {error && <div className="error" style={{ margin: '0 1rem' }}>{error}</div>}
 
@@ -436,7 +505,133 @@ function ThreadDetail({ number, onBack }: ThreadDetailProps) {
           <Send size={18} />
         </button>
       </div>
+
+      {showHistory && history && (
+        <HistoryModal
+          history={history}
+          contactLabel={jd?.name ?? formatNumber(number)}
+          onClose={() => setShowHistory(false)}
+        />
+      )}
     </div>
+  );
+}
+
+function HistoryModal({
+  history,
+  contactLabel,
+  onClose,
+}: {
+  history: ContactHistory;
+  contactLabel: string;
+  onClose: () => void;
+}) {
+  return (
+    <div className="history-modal" role="dialog" aria-label="Contact history">
+      <div className="history-box">
+        <div className="history-header">
+          <div>
+            <div className="history-title">Interaction history</div>
+            <div className="history-subtitle">{contactLabel}</div>
+          </div>
+          <button type="button" className="icon-btn" onClick={onClose} aria-label="Close">
+            <X size={18} />
+          </button>
+        </div>
+        <div className="history-summary">
+          <div className="history-summary-item">
+            <strong>{history.summary.messageCount}</strong>
+            <span>Messages</span>
+          </div>
+          <div className="history-summary-item">
+            <strong>{history.summary.callCount}</strong>
+            <span>Calls</span>
+          </div>
+          <div className="history-summary-item">
+            <strong>{history.summary.voicemailCount}</strong>
+            <span>Voicemails</span>
+          </div>
+        </div>
+        <ul className="history-timeline">
+          {history.timeline.length === 0 && (
+            <li className="muted" style={{ padding: '1rem', textAlign: 'center' }}>
+              No interactions yet.
+            </li>
+          )}
+          {history.timeline.map((entry) => (
+            <TimelineRow key={`${entry.type}-${entry.id}`} entry={entry} />
+          ))}
+        </ul>
+      </div>
+    </div>
+  );
+}
+
+function TimelineRow({ entry }: { entry: ContactTimelineEntry }) {
+  const when = formatRelative(entry.timestamp);
+  if (entry.type === 'message') {
+    const m = entry.message!;
+    const label = entry.direction === 'outbound' ? 'Sent' : 'Received';
+    const preview = m.body
+      ? m.body.length > 140 ? m.body.slice(0, 140) + '…' : m.body
+      : m.mediaUrls.length > 0 ? `📎 ${m.mediaUrls.length} attachment${m.mediaUrls.length === 1 ? '' : 's'}` : '(empty)';
+    return (
+      <li className={`timeline-row ${entry.direction === 'outbound' ? 'out' : 'in'}`}>
+        <span className="timeline-icon" aria-hidden="true">
+          <MessageSquarePlus size={14} />
+        </span>
+        <div className="timeline-body">
+          <div className="timeline-meta">
+            <span className="timeline-type">{label} message</span>
+            <span className="timeline-time">{when}</span>
+          </div>
+          <div className="timeline-detail">{preview}</div>
+        </div>
+      </li>
+    );
+  }
+  if (entry.type === 'call') {
+    const c = entry.call!;
+    const verb = entry.direction === 'inbound'
+      ? c.status === 'missed' || c.status === 'no_answer' ? 'Missed call' : 'Incoming call'
+      : 'Outgoing call';
+    const detail = c.durationSeconds > 0
+      ? `${Math.floor(c.durationSeconds / 60)}:${String(c.durationSeconds % 60).padStart(2, '0')}`
+      : c.hangupCause || c.status;
+    return (
+      <li className={`timeline-row ${entry.direction === 'outbound' ? 'out' : 'in'} ${c.status === 'missed' ? 'missed' : ''}`}>
+        <span className="timeline-icon" aria-hidden="true">
+          <Phone size={14} />
+        </span>
+        <div className="timeline-body">
+          <div className="timeline-meta">
+            <span className="timeline-type">{verb}</span>
+            <span className="timeline-time">{when}</span>
+          </div>
+          <div className="timeline-detail">{detail}</div>
+        </div>
+      </li>
+    );
+  }
+  // voicemail
+  const v = entry.voicemail!;
+  return (
+    <li className="timeline-row in">
+      <span className="timeline-icon" aria-hidden="true">
+        <Send size={14} />
+      </span>
+      <div className="timeline-body">
+        <div className="timeline-meta">
+          <span className="timeline-type">Voicemail</span>
+          <span className="timeline-time">{when}</span>
+        </div>
+        <div className="timeline-detail">
+          {v.transcription
+            ? (v.transcription.length > 140 ? v.transcription.slice(0, 140) + '…' : v.transcription)
+            : `${v.durationSeconds}s recording`}
+        </div>
+      </div>
+    </li>
   );
 }
 

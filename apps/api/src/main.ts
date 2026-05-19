@@ -10,6 +10,7 @@ import { callsRoutes } from './calls/calls.routes.js';
 import { messagesRoutes } from './messages/messages.routes.js';
 import { voicemailsRoutes } from './voicemails/voicemails.routes.js';
 import { jobDivaRoutes } from './jobdiva/jobdiva.routes.js';
+import { contactsRoutes } from './contacts/contacts.routes.js';
 
 const SERVICE_NAME = 'ace-dialer-api';
 const START_TIME = new Date().toISOString();
@@ -67,6 +68,7 @@ await app.register(callsRoutes);
 await app.register(messagesRoutes);
 await app.register(voicemailsRoutes);
 await app.register(jobDivaRoutes);
+await app.register(contactsRoutes);
 
 const host = '0.0.0.0';
 try {
