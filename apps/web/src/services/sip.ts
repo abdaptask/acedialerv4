@@ -305,7 +305,22 @@ export class SipService {
       console.debug('[sip] icecandidate', data?.candidate?.candidate?.slice(0, 60));
     });
     session.on('sdp', (data: { type?: string; sdp?: string; originator?: string }) => {
-      console.debug('[sip] SDP', data?.originator, data?.type);
+      console.log('[sip] SDP', data?.originator, data?.type);
+      // Print the full SDP so we can diagnose codec / DTLS / SRTP issues
+      // (e.g. "Bad Media Description" errors from the WebRTC stack).
+      if (data?.sdp) {
+        console.log('[sip] SDP content:\n' + data.sdp);
+        // Quick highlights
+        const hasFingerprint = /a=fingerprint:/i.test(data.sdp);
+        const hasSetup = /a=setup:/i.test(data.sdp);
+        const profile = (data.sdp.match(/m=audio \d+ ([A-Z/]+)/i) || [])[1];
+        console.log('[sip] SDP summary', {
+          origin: data.originator,
+          profile,
+          hasDtlsFingerprint: hasFingerprint,
+          hasDtlsSetup: hasSetup,
+        });
+      }
     });
     session.on('reinvite', () => console.log('[sip] reinvite', callId));
   }
@@ -354,23 +369,58 @@ export class SipService {
   }
 
   // ---------- Outbound / inbound API ----------
-  call(rawNumber: string): void {
-    if (!this.ua) throw new Error('SIP not connected');
+  async call(rawNumber: string): Promise<void> {
+    if (!this.ua) {
+      console.error('[sip] call: UA not connected');
+      throw new Error('SIP not connected');
+    }
+    if (!this.ua.isRegistered()) {
+      console.warn('[sip] call: UA not registered yet (state will fail)');
+    }
     const e164 = toE164(rawNumber);
     const target = `sip:${e164}@${this.realm}`;
-    console.log('[sip] dialing', { rawNumber, target });
+    console.log('[sip] dialing', { rawNumber, target, registered: this.ua.isRegistered() });
+
+    // Pre-flight mic permission — getUserMedia errors that happen inside
+    // JsSIP can otherwise vanish silently and the call just dies.
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      // Don't keep this stream around — JsSIP will request its own. Just verify access.
+      stream.getTracks().forEach((t) => t.stop());
+      console.log('[sip] mic permission OK');
+    } catch (e) {
+      console.error('[sip] mic permission denied / unavailable', e);
+      this.emit<CallEvent>('call', {
+        state: 'ended',
+        hangupCause: 'mic_permission_denied',
+      });
+      return;
+    }
+
     applySpeakerSelection(this.primaryAudioEl);
 
-    this.ua.call(target, {
-      mediaConstraints: { audio: true, video: false },
-      pcConfig: {
-        iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
-      },
-      rtcOfferConstraints: { offerToReceiveAudio: true, offerToReceiveVideo: false },
-      // Tell Telnyx our caller ID via the From URI.
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      extraHeaders: this.callerNumber ? [`X-Caller-Number: ${this.callerNumber}`] : ([] as any),
-    });
+    try {
+      const session = this.ua.call(target, {
+        mediaConstraints: { audio: true, video: false },
+        pcConfig: {
+          iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
+        },
+        rtcOfferConstraints: { offerToReceiveAudio: true, offerToReceiveVideo: false },
+      });
+      console.log('[sip] ua.call returned session', !!session, session?.id);
+      // Defensive: attach listeners directly here as well, in case the
+      // newRTCSession event hasn't fired yet (race conditions seen on Chrome).
+      if (session && !this.calls.has(session.id)) {
+        console.log('[sip] manually attaching session listeners');
+        this.attachSessionListeners(session);
+      }
+    } catch (e) {
+      console.error('[sip] ua.call threw', e);
+      this.emit<CallEvent>('call', {
+        state: 'ended',
+        hangupCause: e instanceof Error ? e.message : 'call_failed',
+      });
+    }
   }
 
   /** Start a second concurrent call — used by Add Call. */
