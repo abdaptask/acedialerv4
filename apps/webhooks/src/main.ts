@@ -349,15 +349,19 @@ app.post('/webhooks/telnyx/calls', async (request) => {
               toNumber,
               ownerUserId,
             });
+            // From MUST be a number Telnyx owns on our account — typically
+            // the DID being called (toNumber). Using the CALLER's number
+            // here would 400-out because we don't own that.
+            const dialFrom = toNumber || PILOT_NUMBER;
             const dial = await dialOutbound({
               to: `sip:${sipUser}@${SIP_REALM}`,
-              from: fromNumber || PILOT_NUMBER,
+              from: dialFrom,
               connectionId: connectionIdEnv,
               clientState: dialState,
               timeoutSecs: 25,
             });
             app.log.info(
-              { ok: dial.ok, dialedCcId: dial.callControlId, to: sipUser },
+              { ok: dial.ok, dialedCcId: dial.callControlId, to: sipUser, from: dialFrom, telnyxResponse: dial.data },
               '[vm] dialed SIP user',
             );
           }
