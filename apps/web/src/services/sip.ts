@@ -554,35 +554,20 @@ export class SipService {
     if (this.activeCallId === callId) this.activeCallId = null;
     if (this.incomingCallId === callId) this.incomingCallId = null;
 
-    // If a HELD call remains, promote it to active and unhold.
-    //
-    // Bug fix: previously this took the first call in the map regardless of
-    // its state, which falsely promoted still-ringing incoming calls to
-    // 'connected' when the active call ended. That emitted a phantom
-    // 'connected' event for a call the user hadn't answered yet — the UI
-    // would jump to /in-call with a stranger as the active party.
-    //
-    // The only call we should promote is one that was EXPLICITLY placed on
-    // hold (heldLocal === true). Calls in 'incoming' state (incomingCallId
-    // matches) or that never reached confirmed are NOT held — they keep
-    // their independent lifecycles.
+    // If a held call remains, promote it to active and unhold.
     let promotedEvent: CallEvent | null = null;
     if (!this.activeCallId && this.calls.size > 0) {
-      const next = Array.from(this.calls.values()).find(
-        (c) => c.heldLocal && c.id !== this.incomingCallId,
-      );
-      if (next) {
-        this.activeCallId = next.id;
-        try {
-          next.session.unhold();
-        } catch { /* noop */ }
-        next.heldLocal = false;
-        if (next.audioEl) {
-          this.primaryAudioEl.srcObject = next.audioEl.srcObject;
-        }
-        promotedEvent = this.buildEvent(next, 'connected');
-        console.log('[sip] promoted held call to active:', next.id);
+      const next = Array.from(this.calls.values())[0];
+      this.activeCallId = next.id;
+      try {
+        next.session.unhold();
+      } catch { /* noop */ }
+      next.heldLocal = false;
+      if (next.audioEl) {
+        this.primaryAudioEl.srcObject = next.audioEl.srcObject;
       }
+      promotedEvent = this.buildEvent(next, 'connected');
+      console.log('[sip] promoted held call to active:', next.id);
     }
 
     // Now emit — the 'ended' first (so logs/persistence run), then the
@@ -1473,39 +1458,6 @@ export class SipService {
       if (user.startsWith('+')) return user;
       if (user.length === 11 && user.startsWith('1')) return `+${user}`;
       if (user.length === 10) return `+1${user}`;
-      return user;
-    }
-    const str = uri.toString();
-    const match = /sip:(\+?\d+)@/.exec(str);
-    return match ? match[1] : str;
-  }
-
-  disconnect(): void {
-    this.hangup();
-    for (const entry of this.calls.values()) {
-      try {
-        entry.session.terminate();
-      } catch {
-        /* noop */
-      }
-      if (entry.audioEl) {
-        try { entry.audioEl.remove(); } catch { /* noop */ }
-      }
-    }
-    this.calls.clear();
-    this.activeCallId = null;
-    this.incomingCallId = null;
-    this.stopQualityPolling();
-    this.stopConference();
-    if (this.ua) {
-      try { this.ua.stop(); } catch { /* noop */ }
-      this.ua = null;
-    }
-  }
-}
-
-export const sipService = new SipService();
- (user.length === 10) return `+1${user}`;
       return user;
     }
     const str = uri.toString();
