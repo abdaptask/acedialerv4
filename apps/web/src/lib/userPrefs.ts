@@ -224,6 +224,21 @@ export function watchSystemTheme(): () => void {
   };
 }
 
+// ---------- Last-visit timestamps (bottom-nav unread badges) ----------
+// Track when the user last opened each tab so the API can count items
+// newer than that point. Cheaper than per-item read flags.
+export type TabKey = 'messages' | 'recents' | 'voicemail';
+function visitKey(tab: TabKey): string {
+  return `ace_last_visit_${tab}`;
+}
+export function getLastVisit(tab: TabKey): string {
+  return localStorage.getItem(visitKey(tab)) || new Date(0).toISOString();
+}
+export function markTabVisited(tab: TabKey): void {
+  localStorage.setItem(visitKey(tab), new Date().toISOString());
+  window.dispatchEvent(new CustomEvent('ace:tabVisited', { detail: { tab } }));
+}
+
 // ---------- Notification preferences ----------
 export interface NotificationPrefs {
   /** Show an in-app toast for incoming calls. */

@@ -30,6 +30,29 @@ interface UpdateCallBody {
 }
 
 export async function callsRoutes(app: FastifyInstance) {
+  // --- Missed-call count for bottom-nav badge ---
+  // Counts inbound calls that didn't connect (missed/no_answer/rejected/failed)
+  // since `?since=<ISO>`. The web client tracks last-visit-to-recents in
+  // localStorage and passes it here, so we don't need a per-call viewed flag.
+  app.get(
+    '/calls/missed/count',
+    { onRequest: [app.authenticate] },
+    async (request: FastifyRequest) => {
+      const user = request.user as JwtPayload;
+      const sinceRaw = (request.query as { since?: string }).since;
+      const since = sinceRaw ? new Date(sinceRaw) : new Date(0);
+      const count = await prisma.call.count({
+        where: {
+          userId: user.sub,
+          direction: 'inbound',
+          status: { in: ['missed', 'no_answer', 'rejected', 'failed'] },
+          startedAt: { gt: since },
+        },
+      });
+      return { count };
+    },
+  );
+
   app.get('/calls', { onRequest: [app.authenticate] }, async (request: FastifyRequest) => {
     const user = request.user as JwtPayload;
     const calls = await prisma.call.findMany({

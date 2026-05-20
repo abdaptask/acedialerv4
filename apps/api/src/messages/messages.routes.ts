@@ -28,6 +28,28 @@ function toE164(raw: string): string {
 }
 
 export async function messagesRoutes(app: FastifyInstance) {
+  // --- Unread count for bottom-nav badge ---
+  // Counts inbound messages received since `?since=<ISO>`. Web client tracks
+  // the last-visit timestamp in localStorage and passes it here so we don't
+  // need a per-message read flag in the schema.
+  app.get(
+    '/messages/unread/count',
+    { onRequest: [app.authenticate] },
+    async (request: FastifyRequest) => {
+      const user = request.user as JwtPayload;
+      const sinceRaw = (request.query as { since?: string }).since;
+      const since = sinceRaw ? new Date(sinceRaw) : new Date(0);
+      const count = await prisma.message.count({
+        where: {
+          userId: user.sub,
+          direction: 'inbound',
+          createdAt: { gt: since },
+        },
+      });
+      return { count };
+    },
+  );
+
   // --- List threads (last message per other party) ---
   app.get(
     '/messages/threads',
@@ -207,8 +229,27 @@ export async function messagesRoutes(app: FastifyInstance) {
 
       if (!res.ok) {
         const errText = await res.text().catch(() => '');
-        app.log.warn({ status: res.status, errText }, '[upload] supabase store failed');
-        return reply.code(502).send({ error: 'storage_upload_failed', details: errText });
+        app.log.warn({ status: res.status, errText, bucket: config.supabaseMediaBucket }, '[upload] supabase store failed');
+        // Surface a more useful hint to the browser so pilot users can
+        // diagnose without API log access. Map common Supabase responses
+        // to a human-readable cause.
+        let hint = 'Supabase Storage rejected the upload.';
+        const lower = errText.toLowerCase();
+        if (res.status === 404 || lower.includes('bucket not found')) {
+          hint = `Bucket "${config.supabaseMediaBucket}" not found. Create it in Supabase → Storage and mark it Public.`;
+        } else if (res.status === 401 || lower.includes('invalid api key') || lower.includes('jwt')) {
+          hint = 'API server has a bad SUPABASE_SERVICE_ROLE_KEY. Re-copy the service_role key from Supabase → Settings → API.';
+        } else if (lower.includes('row-level security') || lower.includes('not authorized')) {
+          hint = 'RLS rejected the upload — the env var is probably the anon key. Use the service_role key.';
+        } else if (lower.includes('mime') || lower.includes('content type')) {
+          hint = 'Bucket has a MIME-type allowlist that rejected this file. Remove the restriction in the bucket settings.';
+        }
+        return reply.code(502).send({
+          error: 'storage_upload_failed',
+          status: res.status,
+          hint,
+          details: errText,
+        });
       }
 
       const publicUrl = `${config.supabaseUrl}/storage/v1/object/public/${config.supabaseMediaBucket}/${objectPath}`;

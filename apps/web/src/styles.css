@@ -1768,6 +1768,33 @@ body {
 .callback-ico:hover { opacity: 1; }
 /* Star (favorite toggle) on a recent-call row. Outline when unfavorited,
    filled gold when favorited so the state is immediately obvious. */
+/* Bottom-nav unread/missed badge. Sits in the top-right corner of the
+   tab icon. Red dot with a numeric count (or "99+" when very high). */
+.tab-icon-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.tab-badge {
+  position: absolute;
+  top: -6px;
+  right: -10px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: #ff3b30;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 18px;
+  text-align: center;
+  box-shadow: 0 0 0 2px #1c1c1e;
+  pointer-events: none;
+}
+[data-theme="light"] .tab-badge { box-shadow: 0 0 0 2px var(--bg-elevated, #fff); }
+
 .fav-ico { color: var(--text-muted); }
 .fav-ico:hover { color: #ffd60a; opacity: 1; }
 .fav-ico.active { color: #ffd60a; opacity: 1; }

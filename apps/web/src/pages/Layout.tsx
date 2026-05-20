@@ -14,11 +14,21 @@ import {
   Star,
 } from 'lucide-react';
 import type { User } from '../api';
+import {
+  getMessagesUnreadCount,
+  getMissedCallsCount,
+  getVoicemailsUnreadCount,
+} from '../api';
 import IncomingCall from '../components/IncomingCall';
 import SmsNotifier from '../components/SmsNotifier';
 import { useSip } from '../contexts/SipContext';
 import { ensureNotificationPermission } from '../lib/notify';
-import { getNotificationPrefs } from '../lib/userPrefs';
+import {
+  getNotificationPrefs,
+  getLastVisit,
+  markTabVisited,
+  type TabKey,
+} from '../lib/userPrefs';
 import { formatPhone } from '../lib/phone';
 
 function userInitials(user: User): string {
@@ -55,6 +65,45 @@ export default function Layout({ user, onLogout }: Props) {
   const navigate = useNavigate();
   const location = useLocation();
   const { callState, sipState } = useSip();
+
+  // Bottom-nav unread/missed counts. Polled every 15s while the app is open.
+  // When the user clicks a tab, mark that tab visited (resets its count).
+  const [unread, setUnread] = useState<{ messages: number; missed: number; voicemail: number }>({
+    messages: 0, missed: 0, voicemail: 0,
+  });
+  useEffect(() => {
+    let cancelled = false;
+    const refresh = async () => {
+      const token = sessionStorage.getItem('ace_token');
+      if (!token) return;
+      try {
+        const [m, c, v] = await Promise.all([
+          getMessagesUnreadCount(token, getLastVisit('messages')),
+          getMissedCallsCount(token, getLastVisit('recents')),
+          getVoicemailsUnreadCount(token),
+        ]);
+        if (!cancelled) setUnread({ messages: m, missed: c, voicemail: v });
+      } catch { /* silent */ }
+    };
+    void refresh();
+    const id = window.setInterval(refresh, 15000);
+    // Also refresh when any tab visit event fires (clears the badge instantly).
+    const onTabVisit = () => { void refresh(); };
+    window.addEventListener('ace:tabVisited', onTabVisit);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+      window.removeEventListener('ace:tabVisited', onTabVisit);
+    };
+  }, []);
+
+  // Stamp last-visit when route changes to one of the badged tabs.
+  useEffect(() => {
+    const path = location.pathname;
+    if (path.startsWith('/messages')) markTabVisited('messages' as TabKey);
+    else if (path.startsWith('/recents')) markTabVisited('recents' as TabKey);
+    else if (path.startsWith('/voicemail')) markTabVisited('voicemail' as TabKey);
+  }, [location.pathname]);
   const isElectron =
     typeof navigator !== 'undefined' &&
     /electron/i.test(navigator.userAgent);
@@ -239,16 +288,40 @@ export default function Layout({ user, onLogout }: Props) {
           <Star size={22} /><span>Favorites</span>
         </NavLink>
         <NavLink to="/messages" className={({ isActive }) => (isActive ? 'tab active' : 'tab')}>
-          <MessageSquare size={22} /><span>Messages</span>
+          <span className="tab-icon-wrap">
+            <MessageSquare size={22} />
+            {unread.messages > 0 && (
+              <span className="tab-badge" aria-label={`${unread.messages} unread messages`}>
+                {unread.messages > 99 ? '99+' : unread.messages}
+              </span>
+            )}
+          </span>
+          <span>Messages</span>
         </NavLink>
         <NavLink to="/recents" className={({ isActive }) => (isActive ? 'tab active' : 'tab')}>
-          <Clock size={22} /><span>Recents</span>
+          <span className="tab-icon-wrap">
+            <Clock size={22} />
+            {unread.missed > 0 && (
+              <span className="tab-badge" aria-label={`${unread.missed} missed calls`}>
+                {unread.missed > 99 ? '99+' : unread.missed}
+              </span>
+            )}
+          </span>
+          <span>Recents</span>
         </NavLink>
         <NavLink to="/keypad" className={({ isActive }) => (isActive ? 'tab active' : 'tab')}>
           <Grid3x3 size={22} /><span>Keypad</span>
         </NavLink>
         <NavLink to="/voicemail" className={({ isActive }) => (isActive ? 'tab active' : 'tab')}>
-          <Voicemail size={22} /><span>Voicemail</span>
+          <span className="tab-icon-wrap">
+            <Voicemail size={22} />
+            {unread.voicemail > 0 && (
+              <span className="tab-badge" aria-label={`${unread.voicemail} unread voicemails`}>
+                {unread.voicemail > 99 ? '99+' : unread.voicemail}
+              </span>
+            )}
+          </span>
+          <span>Voicemail</span>
         </NavLink>
       </nav>
     </div>

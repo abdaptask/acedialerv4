@@ -11,6 +11,9 @@ export interface User {
   isAdmin: boolean;
   // Phase 5.7 — multi-user. Optional because older API responses don't include them.
   sipUsername?: string | null;
+  /** Sensitive — only present on /auth/login + /auth/me. The SipContext uses
+   *  this to register against Telnyx as the logged-in user. */
+  sipPassword?: string | null;
   didNumber?: string | null;
 }
 
@@ -18,6 +21,7 @@ export interface UpdateMeInput {
   firstName?: string | null;
   lastName?: string | null;
   sipUsername?: string | null;
+  sipPassword?: string | null;
   didNumber?: string | null;
 }
 
@@ -73,6 +77,37 @@ export async function getMe(token: string): Promise<User> {
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
+}
+
+// Bottom-nav unread/missed badge counts.
+// Each endpoint takes a `since` ISO timestamp; the client passes its
+// last-visit time so we only count items the user hasn't seen yet.
+export async function getMessagesUnreadCount(token: string, since: string): Promise<number> {
+  const res = await fetch(
+    `${API_URL}/messages/unread/count?since=${encodeURIComponent(since)}`,
+    { headers: { Authorization: `Bearer ${token}` } },
+  );
+  if (!res.ok) return 0;
+  const j = await res.json();
+  return Number(j?.count ?? 0);
+}
+export async function getMissedCallsCount(token: string, since: string): Promise<number> {
+  const res = await fetch(
+    `${API_URL}/calls/missed/count?since=${encodeURIComponent(since)}`,
+    { headers: { Authorization: `Bearer ${token}` } },
+  );
+  if (!res.ok) return 0;
+  const j = await res.json();
+  return Number(j?.count ?? 0);
+}
+export async function getVoicemailsUnreadCount(token: string): Promise<number> {
+  const res = await fetch(
+    `${API_URL}/voicemails/unread/count`,
+    { headers: { Authorization: `Bearer ${token}` } },
+  );
+  if (!res.ok) return 0;
+  const j = await res.json();
+  return Number(j?.count ?? 0);
 }
 
 export async function getCalls(token: string): Promise<CallRecord[]> {
