@@ -338,6 +338,57 @@ export async function saveCallForwarding(
   return res.json();
 }
 
+// Custom voicemail greeting — replaces Telnyx's default robot greeting
+// with the user's own audio file. Stored in Supabase Storage; URL passed
+// to Telnyx via PATCH /v2/phone_numbers/{id}/voicemail.
+export interface VoicemailGreeting {
+  url: string | null;
+  filename: string | null;
+}
+export async function getVoicemailGreeting(token: string): Promise<VoicemailGreeting> {
+  const res = await fetch(`${API_URL}/voicemail-greeting`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) return { url: null, filename: null };
+  return res.json();
+}
+export async function uploadVoicemailGreeting(
+  token: string,
+  file: File,
+): Promise<VoicemailGreeting> {
+  // Read as base64 to match the JSON-body upload pattern the API expects.
+  const dataBase64 = await new Promise<string>((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => {
+      const result = r.result as string;
+      const idx = result.indexOf(',');
+      resolve(idx >= 0 ? result.slice(idx + 1) : result);
+    };
+    r.onerror = () => reject(r.error);
+    r.readAsDataURL(file);
+  });
+  const res = await fetch(`${API_URL}/voicemail-greeting`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({
+      filename: file.name,
+      mimeType: file.type || 'audio/mpeg',
+      dataBase64,
+    }),
+  });
+  if (!res.ok) {
+    const err = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(err.error || `HTTP ${res.status}`);
+  }
+  return res.json();
+}
+export async function deleteVoicemailGreeting(token: string): Promise<void> {
+  await fetch(`${API_URL}/voicemail-greeting`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` },
+  });
+}
+
 // How many days a voicemail is retained before auto-delete. Server-controlled
 // so changing the retention period doesn't require a frontend deploy.
 export async function getVoicemailRetentionDays(token: string): Promise<number> {

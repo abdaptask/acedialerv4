@@ -35,6 +35,10 @@ import {
   getCallForwarding,
   saveCallForwarding,
   type CallForwardingSettings,
+  getVoicemailGreeting,
+  uploadVoicemailGreeting,
+  deleteVoicemailGreeting,
+  type VoicemailGreeting,
 } from '../api';
 import {
   DEFAULT_QUICK_REPLIES,
@@ -78,6 +82,7 @@ const SECTIONS: SectionDef[] = [
   { key: 'notifications', label: 'Notifications', icon: Bell, blurb: 'Calls + SMS alerts', Component: NotificationsSection },
   { key: 'quick-replies', label: 'Quick replies', icon: MessageSquare, blurb: 'SMS templates', Component: QuickRepliesSection },
   { key: 'hold-music', label: 'Hold music', icon: Music, blurb: 'Play music when on hold', Component: HoldMusicSection },
+  { key: 'voicemail-greeting', label: 'Voicemail greeting', icon: Mic, blurb: 'Your custom greeting callers hear', Component: VoicemailGreetingSection },
   { key: 'call-forwarding', label: 'Call forwarding', icon: PhoneForwarded, blurb: 'Forward calls to another number', Component: CallForwardingSection },
   { key: 'data', label: 'Data', icon: Database, blurb: 'Backup & restore', Component: DataSection },
 ];
@@ -693,6 +698,147 @@ function HoldMusicSection() {
       <p className="muted small" style={{ marginTop: '1rem' }}>
         Note: hold music plays only while *you* are holding the other party.
         When *they* hold *you*, what you hear is up to their phone system.
+      </p>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Voicemail greeting — per-user custom audio that replaces Telnyx's default
+// "please leave a message" robot voice. Uploaded file goes to Supabase
+// Storage, URL is set on Telnyx via PATCH /v2/phone_numbers/{id}/voicemail.
+// ---------------------------------------------------------------------------
+function VoicemailGreetingSection() {
+  const [current, setCurrent] = useState<VoicemailGreeting>({ url: null, filename: null });
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [okMsg, setOkMsg] = useState<string | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const token = sessionStorage.getItem('ace_token');
+    if (!token) return;
+    let cancelled = false;
+    getVoicemailGreeting(token)
+      .then((g) => { if (!cancelled) setCurrent(g); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, []);
+
+  async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0];
+    e.target.value = '';
+    if (!f) return;
+    const token = sessionStorage.getItem('ace_token');
+    if (!token) return;
+    setError(null);
+    setOkMsg(null);
+    if (f.size > 2 * 1024 * 1024) {
+      setError('File too large (max 2 MB).');
+      return;
+    }
+    setBusy(true);
+    try {
+      const saved = await uploadVoicemailGreeting(token, f);
+      setCurrent(saved);
+      setOkMsg('Greeting uploaded and live on Telnyx.');
+      setTimeout(() => setOkMsg(null), 3000);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleRemove() {
+    const token = sessionStorage.getItem('ace_token');
+    if (!token) return;
+    if (!confirm('Remove custom greeting and revert to Telnyx default?')) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await deleteVoicemailGreeting(token);
+      setCurrent({ url: null, filename: null });
+      setOkMsg('Reverted to default greeting.');
+      setTimeout(() => setOkMsg(null), 3000);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (loading) {
+    return <div className="settings-section"><p className="muted">Loading…</p></div>;
+  }
+
+  return (
+    <div className="settings-section">
+      <h2 className="settings-title">Voicemail greeting</h2>
+      <p className="settings-blurb">
+        Upload an audio file (MP3, WAV, M4A, AAC, or OGG; up to 2 MB) that
+        callers will hear before leaving a voicemail. Without this, Telnyx's
+        default robot voice is used.
+      </p>
+
+      {current.url ? (
+        <div style={{ background: 'rgba(52,199,89,0.08)', border: '1px solid rgba(52,199,89,0.25)', borderRadius: 10, padding: '0.75rem 1rem', marginBottom: '1rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontWeight: 600, fontSize: 14 }}>Current greeting</div>
+              <div className="muted small" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {current.filename ?? 'greeting'}
+              </div>
+            </div>
+          </div>
+          <audio
+            controls
+            src={current.url}
+            style={{ width: '100%', marginTop: '0.5rem' }}
+            preload="metadata"
+          />
+        </div>
+      ) : (
+        <p className="muted small" style={{ marginBottom: '1rem' }}>
+          No custom greeting set. Callers hear Telnyx's default.
+        </p>
+      )}
+
+      <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+        <button
+          type="button"
+          className="device-action primary"
+          onClick={() => fileRef.current?.click()}
+          disabled={busy}
+        >
+          {busy ? 'Working…' : current.url ? 'Replace greeting' : 'Upload greeting'}
+        </button>
+        {current.url && (
+          <button
+            type="button"
+            className="device-action"
+            onClick={handleRemove}
+            disabled={busy}
+          >
+            Remove (use default)
+          </button>
+        )}
+        <input
+          ref={fileRef}
+          type="file"
+          accept="audio/mpeg,audio/mp3,audio/wav,audio/x-wav,audio/wave,audio/m4a,audio/mp4,audio/x-m4a,audio/aac,audio/ogg"
+          style={{ display: 'none' }}
+          onChange={handleFile}
+        />
+      </div>
+
+      {error && <p className="error" style={{ marginTop: '0.75rem' }}>{error}</p>}
+      {okMsg && <p className="muted small" style={{ marginTop: '0.75rem', color: '#34c759' }}>{okMsg}</p>}
+
+      <p className="muted small" style={{ marginTop: '1rem' }}>
+        Tip: record a short greeting in any voice recorder app, export as MP3,
+        and upload. ~10–20 seconds is the sweet spot.
       </p>
     </div>
   );
