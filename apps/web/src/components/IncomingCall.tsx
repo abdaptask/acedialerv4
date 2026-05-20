@@ -73,10 +73,15 @@ export default function IncomingCall() {
   if (!incoming) return null;
 
   // Electron: always go full-screen. Web: full-screen on idle, banner elsewhere.
+  // Additionally, when a second call rings during an active call (the Hold &
+  // Accept scenario), force full-screen REGARDLESS of current path — the
+  // user needs to make a 3-way decision fast and the banner is too cramped
+  // to show three labeled buttons clearly.
   const isElectron =
     typeof navigator !== 'undefined' && /electron/i.test(navigator.userAgent);
   const fullScreen =
     isElectron ||
+    canHoldAndAccept ||
     location.pathname === '/keypad' ||
     location.pathname === '/' ||
     location.pathname === '/login';
