@@ -6,6 +6,7 @@ import cors from '@fastify/cors';
 import jwt from '@fastify/jwt';
 import { config } from './config.js';
 import { authRoutes } from './auth/auth.routes.js';
+import { callForwardingRoutes } from './callForwarding/callForwarding.routes.js';
 import { callsRoutes } from './calls/calls.routes.js';
 import { messagesRoutes } from './messages/messages.routes.js';
 import { voicemailsRoutes } from './voicemails/voicemails.routes.js';
@@ -64,6 +65,7 @@ app.get('/health', async () => ({
 }));
 
 await app.register(authRoutes);
+await app.register(callForwardingRoutes);
 await app.register(callsRoutes);
 await app.register(messagesRoutes);
 await app.register(voicemailsRoutes);

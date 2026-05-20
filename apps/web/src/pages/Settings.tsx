@@ -27,8 +27,15 @@ import {
   Music,
   PauseCircle,
   PlayCircle,
+  PhoneForwarded,
 } from 'lucide-react';
-import { getMe, updateMe } from '../api';
+import {
+  getMe,
+  updateMe,
+  getCallForwarding,
+  saveCallForwarding,
+  type CallForwardingSettings,
+} from '../api';
 import {
   DEFAULT_QUICK_REPLIES,
   getQuickReplies,
@@ -71,6 +78,7 @@ const SECTIONS: SectionDef[] = [
   { key: 'notifications', label: 'Notifications', icon: Bell, blurb: 'Calls + SMS alerts', Component: NotificationsSection },
   { key: 'quick-replies', label: 'Quick replies', icon: MessageSquare, blurb: 'SMS templates', Component: QuickRepliesSection },
   { key: 'hold-music', label: 'Hold music', icon: Music, blurb: 'Play music when on hold', Component: HoldMusicSection },
+  { key: 'call-forwarding', label: 'Call forwarding', icon: PhoneForwarded, blurb: 'Forward calls to another number', Component: CallForwardingSection },
   { key: 'data', label: 'Data', icon: Database, blurb: 'Backup & restore', Component: DataSection },
 ];
 
@@ -686,6 +694,152 @@ function HoldMusicSection() {
         Note: hold music plays only while *you* are holding the other party.
         When *they* hold *you*, what you hear is up to their phone system.
       </p>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Call Forwarding — per-user, Pulse-pattern feature.
+// Forwards inbound calls to a backup number (e.g. your cell) either always
+// or only on no-answer. The Save button hits our API which provisions Telnyx
+// (PATCH /v2/phone_numbers/{id}/voice → call_forwarding block).
+// ---------------------------------------------------------------------------
+function CallForwardingSection() {
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [enabled, setEnabled] = useState(false);
+  const [number, setNumber] = useState('');
+  const [mode, setMode] = useState<'always' | 'on_failure'>('on_failure');
+  const [savedStatus, setSavedStatus] = useState<string | null>(null);
+
+  // Load current settings.
+  useEffect(() => {
+    const token = sessionStorage.getItem('ace_token');
+    if (!token) return;
+    let cancelled = false;
+    getCallForwarding(token)
+      .then((s: CallForwardingSettings) => {
+        if (cancelled) return;
+        setEnabled(s.enabled);
+        setNumber(s.number ?? '');
+        setMode((s.mode as 'always' | 'on_failure') ?? 'on_failure');
+      })
+      .catch((e) => { if (!cancelled) setError((e as Error).message); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, []);
+
+  async function handleSave() {
+    const token = sessionStorage.getItem('ace_token');
+    if (!token) return;
+    setError(null);
+    setSaving(true);
+    setSavedStatus(null);
+    try {
+      const trimmed = number.replace(/[^\d+]/g, '');
+      if (enabled && trimmed.length < 10) {
+        setError('Enter a valid phone number (10+ digits or E.164).');
+        setSaving(false);
+        return;
+      }
+      const saved = await saveCallForwarding(token, {
+        enabled,
+        number: enabled ? trimmed : null,
+        mode: enabled ? mode : undefined,
+      });
+      setEnabled(saved.enabled);
+      setNumber(saved.number ?? '');
+      setMode((saved.mode as 'always' | 'on_failure') ?? 'on_failure');
+      setSavedStatus('Saved. Telnyx is now configured.');
+      setTimeout(() => setSavedStatus(null), 3000);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (loading) {
+    return <div className="settings-section"><p className="muted">Loading…</p></div>;
+  }
+
+  return (
+    <div className="settings-section">
+      <h2 className="settings-title">Call forwarding</h2>
+      <p className="settings-blurb">
+        Forward inbound calls to a backup number when you're offline or always.
+        Useful for routing to your cell when you're away from the dialer.
+      </p>
+
+      <div className="settings-row" style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1rem' }}>
+        <label className="toggle-switch" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+          <input
+            type="checkbox"
+            checked={enabled}
+            onChange={(e) => setEnabled(e.target.checked)}
+            style={{ width: 18, height: 18 }}
+          />
+          <span>Enable call forwarding</span>
+        </label>
+      </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', maxWidth: 420, opacity: enabled ? 1 : 0.5 }}>
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <span className="muted small">Forward to (E.164, e.g. +13125550199)</span>
+          <input
+            type="tel"
+            className="cred-input"
+            value={number}
+            onChange={(e) => setNumber(e.target.value)}
+            placeholder="+1 312 555 0199"
+            disabled={!enabled}
+            autoComplete="off"
+            data-1p-ignore
+            data-lpignore="true"
+          />
+        </label>
+
+        <fieldset style={{ border: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+          <span className="muted small">When to forward</span>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+            <input
+              type="radio"
+              name="cf-mode"
+              value="on_failure"
+              checked={mode === 'on_failure'}
+              onChange={() => setMode('on_failure')}
+              disabled={!enabled}
+            />
+            <span>Only when I don't answer <span className="muted small">(recommended — voicemail still works)</span></span>
+          </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+            <input
+              type="radio"
+              name="cf-mode"
+              value="always"
+              checked={mode === 'always'}
+              onChange={() => setMode('always')}
+              disabled={!enabled}
+            />
+            <span>Always — every call goes to the forward number</span>
+          </label>
+        </fieldset>
+      </div>
+
+      {error && <p className="error" style={{ marginTop: '0.75rem' }}>{error}</p>}
+      {savedStatus && <p className="muted small" style={{ marginTop: '0.75rem', color: '#34c759' }}>{savedStatus}</p>}
+
+      <div style={{ marginTop: '1rem' }}>
+        <button
+          type="button"
+          className="device-action primary"
+          onClick={handleSave}
+          disabled={saving}
+        >
+          {saving ? 'Saving…' : 'Save'}
+        </button>
+      </div>
     </div>
   );
 }

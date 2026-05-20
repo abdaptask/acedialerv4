@@ -31,6 +31,18 @@ model User {
   /// user. Used by the webhook handler to route inbound SMS/calls to the
   /// right user (matching on the called number).
   didNumber       String?   @unique @map("did_number")
+  /// Telnyx-side internal id for the DID. Avoids re-looking it up on every
+  /// call-forwarding save. Populated lazily by the API the first time the
+  /// user opens Settings → Call Forwarding (or via the create-user script).
+  telnyxNumberId  String?   @map("telnyx_number_id")
+  /// Call Forwarding (Pulse-pattern feature).
+  /// - forwardingEnabled: toggle in Settings.
+  /// - forwardingNumber: destination E.164.
+  /// - forwardingMode: "always" (every call) or "on_failure" (only when
+  ///   the dialer doesn't answer; falls through to voicemail if also unset).
+  forwardingEnabled Boolean   @default(false) @map("forwarding_enabled")
+  forwardingNumber  String?   @map("forwarding_number")
+  forwardingMode    String?   @map("forwarding_mode")
   isAdmin         Boolean   @default(false) @map("is_admin")
   isActive        Boolean   @default(true)  @map("is_active")
   lastLoginAt     DateTime? @map("last_login_at")

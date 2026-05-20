@@ -9,7 +9,7 @@
   ],
   "scripts": {
     "build": "npm run build -w packages/db && npm run build --workspaces --if-present",
-    "build:api": "npm run db:generate && npm run db:push && npm run build -w packages/db && npm run build -w apps/api",
+    "build:api": "npm run db:generate && npm run db:push:ci -w packages/db && npm run build -w packages/db && npm run build -w apps/api",
     "build:socket": "npm run build -w apps/socket",
     "build:webhooks": "npm run db:generate && npm run build -w packages/db && npm run build -w apps/webhooks",
     "build:web": "npm run build -w apps/web",
@@ -29,5 +29,8 @@
   },
   "engines": {
     "node": ">=20"
+  },
+  "dependencies": {
+    "app-builder-bin": "^5.0.0-alpha.10"
   }
 }

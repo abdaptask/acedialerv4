@@ -304,6 +304,40 @@ export async function getUnreadVoicemailCount(token: string): Promise<number> {
   return j.count ?? 0;
 }
 
+// Call Forwarding settings (per-user). When enabled, inbound calls to the
+// user's DID forward to the chosen number — either always or only on
+// no-answer (depends on `mode`). Save provisions Telnyx automatically.
+export interface CallForwardingSettings {
+  enabled: boolean;
+  number: string | null;
+  mode: 'always' | 'on_failure' | null;
+}
+export async function getCallForwarding(token: string): Promise<CallForwardingSettings> {
+  const res = await fetch(`${API_URL}/auth/call-forwarding`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+export async function saveCallForwarding(
+  token: string,
+  input: { enabled: boolean; number?: string | null; mode?: 'always' | 'on_failure' },
+): Promise<CallForwardingSettings> {
+  const res = await fetch(`${API_URL}/auth/call-forwarding`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) {
+    const err = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(err.error || `HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
 // Bulk mark voicemails as listened/unlistened — used by the select-mode toolbar.
 export async function bulkMarkVoicemails(
   token: string,
