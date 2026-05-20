@@ -30,6 +30,10 @@ interface SipContextValue {
   /** End a specific (e.g., held) call by its SIP session id. */
   hangupCall: (callId: string) => void;
   acceptCall: () => void;
+  /** Put the currently active call on hold and answer the incoming call.
+   *  No-op if there's no incoming. Falls back to plain accept if there's
+   *  no active call to hold. */
+  holdAndAcceptCall: () => void;
   declineCall: () => void;
   toggleMute: () => boolean;
   toggleHold: () => Promise<boolean>;
@@ -289,6 +293,31 @@ export function SipProvider({ children }: { children: React.ReactNode }) {
     hangup: () => sipService.hangup(),
     hangupCall: (callId: string) => sipService.hangupCall(callId),
     acceptCall: () => sipService.acceptCall(),
+    holdAndAcceptCall: () => {
+      // Capture the current active call's display info BEFORE the swap so
+      // we can show it in the held-strip after the incoming becomes active.
+      const current = callStateRef.current;
+      const priorOther =
+        current.direction === 'inbound'
+          ? current.fromNumber ?? current.number
+          : current.toNumber ?? current.number;
+      const heldId = sipService.holdActiveAndAccept();
+      // If holdActiveAndAccept returned an id, the prior active is now held —
+      // populate the second-call state so InCall's held-strip renders.
+      if (heldId) {
+        setSecondCallNumber(priorOther ?? null);
+        setSecondCallId(heldId);
+        setHasSecondCall(true);
+      }
+      // Clear the incoming banner so the IncomingCall component unmounts;
+      // SipContext's onCall handler also does this on the 'accepted' event,
+      // but doing it eagerly avoids a flash of the third button after tap.
+      setIncoming(null);
+      currentIncomingRef.current = null;
+      if (window.ace?.notifyCallEnded) {
+        try { window.ace.notifyCallEnded(); } catch { /* noop */ }
+      }
+    },
     declineCall: () => {
       if (incoming?.callId) rejectedRef.current.add(incoming.callId);
       sipService.declineCall();

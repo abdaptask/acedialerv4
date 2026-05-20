@@ -2,9 +2,14 @@
 // In Electron, the floating ringer popup (managed by main process) ALSO
 // appears with Accept/Decline buttons, so the user never misses a call
 // even when the main window is minimized.
+//
+// Phase 6.3 — Hold & Accept (Pulse-style): when there's already a connected
+// call, we show a third button between Decline and Accept. Tapping it holds
+// the current call and answers the new one; the held call shows up in the
+// InCall held-strip (same plumbing as Add Call).
 import { useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Phone, PhoneOff } from 'lucide-react';
+import { Phone, PhoneOff, PhoneForwarded } from 'lucide-react';
 import { useSip } from '../contexts/SipContext';
 import { ringtone } from '../services/ringtone';
 import { useJobDivaContact } from '../hooks/useJobDivaContact';
@@ -16,12 +21,24 @@ function formatNumber(n: string | undefined): string {
 }
 
 export default function IncomingCall() {
-  const { incoming, acceptCall, declineCall } = useSip();
+  const { incoming, acceptCall, declineCall, holdAndAcceptCall, callState, hasSecondCall } = useSip();
   const location = useLocation();
   const navigate = useNavigate();
 
+  // Show "Hold & Accept" only when there's an active connected call AND we
+  // don't already have 2 calls in play. With 2 calls already, the user
+  // should hang one up before adding a third — JsSIP supports it but the UI
+  // can only show two pills cleanly.
+  const hasActiveCall = callState.state === 'connected';
+  const canHoldAndAccept = hasActiveCall && !hasSecondCall;
+
   const handleAccept = () => {
     acceptCall();
+    navigate('/in-call');
+  };
+
+  const handleHoldAndAccept = () => {
+    holdAndAcceptCall();
     navigate('/in-call');
   };
 
@@ -71,11 +88,24 @@ export default function IncomingCall() {
       <div className="incoming-fs-inner">
         <div className="incoming-tag">Incoming call</div>
         <div className="incoming-caller">{callerLabel}</div>
-        <div className="incoming-subtle">…</div>
+        <div className="incoming-subtle">
+          {canHoldAndAccept ? 'You’re already on a call' : '…'}
+        </div>
         <div className="incoming-actions">
           <button className="incoming-btn decline" onClick={declineCall} aria-label="Decline">
             <PhoneOff size={28} />
           </button>
+          {canHoldAndAccept && (
+            <button
+              className="incoming-btn hold-accept"
+              onClick={handleHoldAndAccept}
+              aria-label="Hold current call and accept"
+              title="Hold current call and accept"
+            >
+              <PhoneForwarded size={26} />
+              <span className="incoming-btn-sublabel">Hold &amp; Accept</span>
+            </button>
+          )}
           <button className="incoming-btn accept" onClick={handleAccept} aria-label="Accept">
             <Phone size={28} />
           </button>
@@ -85,13 +115,25 @@ export default function IncomingCall() {
   ) : (
     <div className="incoming-banner" role="alert">
       <div className="incoming-banner-text">
-        <div className="incoming-banner-tag">Incoming call</div>
+        <div className="incoming-banner-tag">
+          Incoming call{canHoldAndAccept ? ' · in-call' : ''}
+        </div>
         <div className="incoming-banner-caller">{callerLabel}</div>
       </div>
       <div className="incoming-banner-actions">
         <button className="incoming-btn decline small" onClick={declineCall} aria-label="Decline">
           <PhoneOff size={20} />
         </button>
+        {canHoldAndAccept && (
+          <button
+            className="incoming-btn hold-accept small"
+            onClick={handleHoldAndAccept}
+            aria-label="Hold current call and accept"
+            title="Hold current call and accept"
+          >
+            <PhoneForwarded size={18} />
+          </button>
+        )}
         <button className="incoming-btn accept small" onClick={handleAccept} aria-label="Accept">
           <Phone size={20} />
         </button>

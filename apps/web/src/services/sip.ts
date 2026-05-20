@@ -804,6 +804,80 @@ export class SipService {
     }
   }
 
+  /**
+   * Phase 6.3 — Hold & Accept (Pulse-style).
+   *
+   * Used when a second call rings while the user is already in an active
+   * call. Puts the current call on SIP hold (sendonly RE-INVITE), mutes its
+   * audio element so its voice/silence doesn't bleed into the new call's
+   * audio, then answers the incoming. After the incoming session reaches
+   * 'accepted' it auto-becomes activeCallId (handled in attachSessionListeners
+   * via session.on('accepted')). The previously-active call survives as the
+   * held leg — exactly the same shape as Add Call, so the existing held-strip
+   * UI in InCall picks it up via SipContext.hasSecondCall.
+   *
+   * Returns the held call's id (so SipContext can populate secondCallId)
+   * or null if there's no active call to hold or no incoming to answer.
+   *
+   * Why explicit SIP hold here (instead of music-hold like toggleHold does):
+   *   - This is a quick context switch, not a "park & make them wait" hold.
+   *   - The user can swap back via swapCalls anytime — no need to play music
+   *     to the held party for ~3 seconds while the user picks up.
+   *   - Keeps the audio path simple: no MediaStreamDestination to tear down.
+   */
+  holdActiveAndAccept(): string | null {
+    const incomingId = this.incomingCallId;
+    if (!incomingId) return null;
+    const incoming = this.calls.get(incomingId);
+    if (!incoming) return null;
+
+    const activeId = this.activeCallId;
+    const active = activeId ? this.calls.get(activeId) : null;
+    if (!active) {
+      // No active call — fall through to a plain accept.
+      this.acceptCall();
+      return null;
+    }
+
+    // 1. Hold the currently active call.
+    try {
+      active.session.hold();
+      active.heldLocal = true;
+    } catch (e) {
+      console.warn('[sip] hold-and-accept: hold threw', e);
+    }
+    if (active.audioEl) active.audioEl.muted = true;
+    // Clear primary so the held leg's old stream doesn't keep playing
+    // underneath the new call's audio.
+    this.primaryAudioEl.srcObject = null;
+
+    // 2. Answer the incoming. session.on('accepted') will promote it to
+    // activeCallId and emit the 'connected' event the UI listens for.
+    applySpeakerSelection(this.primaryAudioEl);
+    try {
+      incoming.session.answer({
+        mediaConstraints: { audio: buildAudioConstraints(), video: false },
+        pcConfig: {
+          iceServers: [
+            { urls: 'stun:stun.telnyx.com:3478' },
+            { urls: 'stun:stun.l.google.com:19302' },
+          ],
+        },
+      });
+    } catch (e) {
+      console.warn('[sip] hold-and-accept: answer threw', e);
+      // Best-effort: unhold the original so the user isn't stuck with both
+      // calls in a broken state.
+      try { active.session.unhold(); active.heldLocal = false; } catch { /* noop */ }
+      if (active.audioEl) active.audioEl.muted = false;
+      return null;
+    }
+
+    // Return the now-held call's id so SipContext can track it as the
+    // "second" call (drives the held-strip in InCall).
+    return activeId;
+  }
+
   declineCall(): void {
     const id = this.incomingCallId;
     if (!id) return;

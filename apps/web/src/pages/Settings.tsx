@@ -35,10 +35,6 @@ import {
   getCallForwarding,
   saveCallForwarding,
   type CallForwardingSettings,
-  getVoicemailGreeting,
-  uploadVoicemailGreeting,
-  deleteVoicemailGreeting,
-  type VoicemailGreeting,
 } from '../api';
 import {
   DEFAULT_QUICK_REPLIES,
@@ -82,7 +78,7 @@ const SECTIONS: SectionDef[] = [
   { key: 'notifications', label: 'Notifications', icon: Bell, blurb: 'Calls + SMS alerts', Component: NotificationsSection },
   { key: 'quick-replies', label: 'Quick replies', icon: MessageSquare, blurb: 'SMS templates', Component: QuickRepliesSection },
   { key: 'hold-music', label: 'Hold music', icon: Music, blurb: 'Play music when on hold', Component: HoldMusicSection },
-  { key: 'voicemail-greeting', label: 'Voicemail greeting', icon: Mic, blurb: 'Your custom greeting callers hear', Component: VoicemailGreetingSection },
+  { key: 'voicemail-greeting', label: 'Voicemail greeting', icon: Mic, blurb: 'Personal greeting (coming soon)', Component: VoicemailGreetingSection },
   { key: 'call-forwarding', label: 'Call forwarding', icon: PhoneForwarded, blurb: 'Forward calls to another number', Component: CallForwardingSection },
   { key: 'data', label: 'Data', icon: Database, blurb: 'Backup & restore', Component: DataSection },
 ];
@@ -704,429 +700,64 @@ function HoldMusicSection() {
 }
 
 // ---------------------------------------------------------------------------
-// In-browser audio converter: decode any format the browser can play
-// (WebM/Opus, MP4/AAC, etc.) → re-encode as 16-bit mono WAV. Used because
-// Telnyx's voicemail greeting accepts only MP3/WAV, not WebM. WAV is the
-// simplest portable output — no encoder library needed; we just lay down
-// the RIFF header and the PCM samples.
-// ---------------------------------------------------------------------------
-async function convertToWav(blob: Blob): Promise<Blob> {
-  const arrayBuffer = await blob.arrayBuffer();
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const AC = (window.AudioContext || (window as any).webkitAudioContext) as typeof AudioContext;
-  const ctx = new AC();
-  try {
-    const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
-    const wavBuf = audioBufferToWavBuffer(audioBuffer);
-    return new Blob([wavBuf], { type: 'audio/wav' });
-  } finally {
-    void ctx.close();
-  }
-}
-
-function audioBufferToWavBuffer(buffer: AudioBuffer): ArrayBuffer {
-  const sampleRate = buffer.sampleRate;
-  // Mix down to mono — voice greetings don't need stereo + saves bandwidth.
-  const mono = mixDownToMono(buffer);
-  const numSamples = mono.length;
-  const bytesPerSample = 2; // 16-bit PCM
-  const dataSize = numSamples * bytesPerSample;
-  const totalSize = 44 + dataSize;
-
-  const ab = new ArrayBuffer(totalSize);
-  const view = new DataView(ab);
-
-  // RIFF header.
-  writeAscii(view, 0, 'RIFF');
-  view.setUint32(4, totalSize - 8, true);
-  writeAscii(view, 8, 'WAVE');
-  // fmt chunk (16 bytes for PCM).
-  writeAscii(view, 12, 'fmt ');
-  view.setUint32(16, 16, true);          // sub-chunk size
-  view.setUint16(20, 1, true);           // PCM = 1
-  view.setUint16(22, 1, true);           // numChannels = 1
-  view.setUint32(24, sampleRate, true);
-  view.setUint32(28, sampleRate * bytesPerSample, true); // byteRate
-  view.setUint16(32, bytesPerSample, true);              // blockAlign
-  view.setUint16(34, 16, true);          // bitsPerSample
-  // data chunk.
-  writeAscii(view, 36, 'data');
-  view.setUint32(40, dataSize, true);
-
-  // Float32 [-1, 1] → Int16 samples.
-  let offset = 44;
-  for (let i = 0; i < numSamples; i += 1) {
-    const sample = Math.max(-1, Math.min(1, mono[i]));
-    view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
-    offset += 2;
-  }
-  return ab;
-}
-
-function mixDownToMono(buffer: AudioBuffer): Float32Array {
-  if (buffer.numberOfChannels === 1) return buffer.getChannelData(0);
-  const ch0 = buffer.getChannelData(0);
-  const ch1 = buffer.getChannelData(1);
-  const out = new Float32Array(buffer.length);
-  for (let i = 0; i < buffer.length; i += 1) {
-    out[i] = (ch0[i] + ch1[i]) * 0.5;
-  }
-  return out;
-}
-
-function writeAscii(view: DataView, offset: number, s: string): void {
-  for (let i = 0; i < s.length; i += 1) {
-    view.setUint8(offset + i, s.charCodeAt(i));
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Voicemail greeting — per-user custom audio that replaces Telnyx's default
-// "please leave a message" robot voice. Uploaded file goes to Supabase
-// Storage, URL is set on Telnyx via PATCH /v2/phone_numbers/{id}/voicemail.
+// Voicemail greeting — parked. Telnyx Hosted Voicemail (the per-DID
+// /v2/phone_numbers/{id}/voicemail endpoint) does not expose a
+// `greeting_audio_url` field. PATCH calls silently drop it and the carrier
+// continues using the default robot voice. Confirmed via Portal: the
+// Voicemail section for our DIDs only has Enable / PIN / Noise toggles.
+//
+// Real options if we want this later:
+//   (a) Switch this DID to Telnyx Programmable Voice (TexML), route
+//       inbound to a TexML doc with <Play>{greeting}</Play><Record/>, and
+//       ingest the recording via webhook (this is what the old Pulse
+//       system did). ~half a day of careful work; risks breaking the
+//       working inbound ring flow if mis-configured.
+//   (b) Front Telnyx with a small Call Control app that intercepts
+//       call.no_answer, plays the user's audio file, then transfers
+//       back to the voicemail dialplan. Similar complexity.
+//
+// For now: show a Coming Soon panel so users see the feature is planned
+// without exposing the broken upload UX. API endpoint + DB columns are
+// kept; they're harmless and ready for whichever path we pick.
 // ---------------------------------------------------------------------------
 function VoicemailGreetingSection() {
-  const [current, setCurrent] = useState<VoicemailGreeting>({ url: null, filename: null });
-  const [loading, setLoading] = useState(true);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [okMsg, setOkMsg] = useState<string | null>(null);
-  const fileRef = useRef<HTMLInputElement>(null);
-  // In-browser recorder state.
-  const [recording, setRecording] = useState(false);
-  const [recordSecs, setRecordSecs] = useState(0);
-  const [preview, setPreview] = useState<{ blob: Blob; url: string } | null>(null);
-  const recRef = useRef<MediaRecorder | null>(null);
-  const chunksRef = useRef<Blob[]>([]);
-  const tickRef = useRef<number | null>(null);
-  const streamRef = useRef<MediaStream | null>(null);
-
-  // Tear down any active recording or preview blob on unmount so we don't
-  // leak a getUserMedia stream or an object URL.
-  useEffect(() => {
-    return () => {
-      try { recRef.current?.stop(); } catch { /* noop */ }
-      try { streamRef.current?.getTracks().forEach((t) => t.stop()); } catch { /* noop */ }
-      if (tickRef.current) clearInterval(tickRef.current);
-      if (preview?.url) URL.revokeObjectURL(preview.url);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  async function startRecording() {
-    setError(null);
-    setOkMsg(null);
-    if (preview) {
-      URL.revokeObjectURL(preview.url);
-      setPreview(null);
-    }
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        },
-      });
-      streamRef.current = stream;
-      // Prefer audio/webm for broadest browser support; fall back to default.
-      const mimeOptions = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4'];
-      const mimeType = mimeOptions.find((m) => MediaRecorder.isTypeSupported(m));
-      const rec = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
-      chunksRef.current = [];
-      rec.ondataavailable = (e) => {
-        if (e.data && e.data.size > 0) chunksRef.current.push(e.data);
-      };
-      rec.onstop = () => {
-        const blobType = rec.mimeType || 'audio/webm';
-        const blob = new Blob(chunksRef.current, { type: blobType });
-        const url = URL.createObjectURL(blob);
-        setPreview({ blob, url });
-        // Release the mic immediately so the browser indicator clears.
-        streamRef.current?.getTracks().forEach((t) => t.stop());
-        streamRef.current = null;
-        if (tickRef.current) {
-          clearInterval(tickRef.current);
-          tickRef.current = null;
-        }
-      };
-      recRef.current = rec;
-      rec.start();
-      setRecording(true);
-      setRecordSecs(0);
-      tickRef.current = window.setInterval(() => {
-        setRecordSecs((s) => {
-          // Auto-stop after 60 seconds — Telnyx + most carriers prefer
-          // short greetings.
-          if (s + 1 >= 60) {
-            stopRecording();
-            return 60;
-          }
-          return s + 1;
-        });
-      }, 1000);
-    } catch (e) {
-      setError(`Microphone access denied or unavailable: ${(e as Error).message}`);
-    }
-  }
-
-  function stopRecording() {
-    setRecording(false);
-    try { recRef.current?.stop(); } catch { /* noop */ }
-  }
-
-  function discardPreview() {
-    if (preview?.url) URL.revokeObjectURL(preview.url);
-    setPreview(null);
-  }
-
-  async function saveRecording() {
-    if (!preview) return;
-    const token = sessionStorage.getItem('ace_token');
-    if (!token) return;
-    setBusy(true);
-    setError(null);
-    try {
-      // Telnyx's voicemail greeting only accepts MP3/WAV (the recorded
-      // browser format is WebM/Opus, which Telnyx rejects). Decode +
-      // re-encode to WAV here so the upload always works.
-      const wavBlob = await convertToWav(preview.blob);
-      const file = new File([wavBlob], 'recorded-greeting.wav', {
-        type: 'audio/wav',
-      });
-      const saved = await uploadVoicemailGreeting(token, file);
-      setCurrent(saved);
-      discardPreview();
-      setOkMsg('Recorded greeting is live on Telnyx.');
-      setTimeout(() => setOkMsg(null), 3000);
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  function formatSecs(n: number): string {
-    const m = Math.floor(n / 60);
-    const s = n % 60;
-    return `${m}:${s.toString().padStart(2, '0')}`;
-  }
-
-  useEffect(() => {
-    const token = sessionStorage.getItem('ace_token');
-    if (!token) return;
-    let cancelled = false;
-    getVoicemailGreeting(token)
-      .then((g) => { if (!cancelled) setCurrent(g); })
-      .finally(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
-  }, []);
-
-  async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
-    const f = e.target.files?.[0];
-    e.target.value = '';
-    if (!f) return;
-    const token = sessionStorage.getItem('ace_token');
-    if (!token) return;
-    setError(null);
-    setOkMsg(null);
-    if (f.size > 2 * 1024 * 1024) {
-      setError('File too large (max 2 MB).');
-      return;
-    }
-    setBusy(true);
-    try {
-      const saved = await uploadVoicemailGreeting(token, f);
-      setCurrent(saved);
-      setOkMsg('Greeting uploaded and live on Telnyx.');
-      setTimeout(() => setOkMsg(null), 3000);
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function handleRemove() {
-    const token = sessionStorage.getItem('ace_token');
-    if (!token) return;
-    if (!confirm('Remove custom greeting and revert to Telnyx default?')) return;
-    setBusy(true);
-    setError(null);
-    try {
-      await deleteVoicemailGreeting(token);
-      setCurrent({ url: null, filename: null });
-      setOkMsg('Reverted to default greeting.');
-      setTimeout(() => setOkMsg(null), 3000);
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  if (loading) {
-    return <div className="settings-section"><p className="muted">Loading…</p></div>;
-  }
-
   return (
     <div className="settings-section">
       <h2 className="settings-title">Voicemail greeting</h2>
       <p className="settings-blurb">
-        Upload an audio file (MP3, WAV, M4A, AAC, or OGG; up to 2 MB) that
-        callers will hear before leaving a voicemail. Without this, Telnyx's
-        default robot voice is used.
+        Record or upload a personal voicemail greeting that callers hear
+        before leaving a message.
       </p>
-
-      {current.url ? (
-        <div style={{ background: 'rgba(52,199,89,0.08)', border: '1px solid rgba(52,199,89,0.25)', borderRadius: 10, padding: '0.75rem 1rem', marginBottom: '1rem' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-            <div style={{ minWidth: 0 }}>
-              <div style={{ fontWeight: 600, fontSize: 14 }}>Current greeting</div>
-              <div className="muted small" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                {current.filename ?? 'greeting'}
-              </div>
-            </div>
-          </div>
-          <audio
-            controls
-            src={current.url}
-            style={{ width: '100%', marginTop: '0.5rem' }}
-            preload="metadata"
-          />
-        </div>
-      ) : (
-        <p className="muted small" style={{ marginBottom: '1rem' }}>
-          No custom greeting set. Callers hear Telnyx's default.
-        </p>
-      )}
-
-      {/* Action buttons — three states:
-            1. Idle: Record + Upload buttons
-            2. Recording: Stop button + live timer
-            3. Preview ready: Play (browser audio), Save, Discard            */}
-      {!recording && !preview && (
-        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-          <button
-            type="button"
-            className="device-action primary"
-            onClick={startRecording}
-            disabled={busy}
-            title="Record a new greeting right now"
-          >
-            🎙️ Record greeting
-          </button>
-          <button
-            type="button"
-            className="device-action"
-            onClick={() => fileRef.current?.click()}
-            disabled={busy}
-          >
-            {busy ? 'Working…' : current.url ? 'Upload to replace' : 'Upload file'}
-          </button>
-          {current.url && (
-            <button
-              type="button"
-              className="device-action danger"
-              onClick={handleRemove}
-              disabled={busy}
-            >
-              Remove (use default)
-            </button>
-          )}
-        </div>
-      )}
-
-      {recording && (
-        <div style={{
+      <div
+        style={{
+          background: 'rgba(245, 158, 11, 0.08)',
+          border: '1px solid rgba(245, 158, 11, 0.3)',
+          borderRadius: 12,
+          padding: '1rem 1.25rem',
           display: 'flex',
-          alignItems: 'center',
-          gap: '0.75rem',
-          padding: '0.75rem 1rem',
-          background: 'rgba(255, 59, 48, 0.08)',
-          border: '1px solid rgba(255, 59, 48, 0.3)',
-          borderRadius: 10,
-        }}>
-          <span
-            aria-hidden="true"
-            style={{
-              width: 10,
-              height: 10,
-              borderRadius: '50%',
-              background: '#ff3b30',
-              animation: 'pulseRec 1s ease-in-out infinite',
-            }}
-          />
-          <span style={{ flex: 1, fontWeight: 600 }}>
-            Recording… {formatSecs(recordSecs)}
-            <span className="muted small" style={{ marginLeft: 8 }}>(auto-stops at 1:00)</span>
-          </span>
-          <button
-            type="button"
-            className="device-action danger"
-            onClick={stopRecording}
-          >
-            ⏹ Stop
-          </button>
+          flexDirection: 'column',
+          gap: '0.5rem',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <Mic size={18} style={{ color: '#f59e0b' }} />
+          <strong>Coming soon</strong>
         </div>
-      )}
-
-      {preview && !recording && (
-        <div style={{
-          padding: '0.75rem 1rem',
-          background: 'rgba(0, 122, 255, 0.07)',
-          border: '1px solid rgba(0, 122, 255, 0.25)',
-          borderRadius: 10,
-        }}>
-          <div style={{ fontWeight: 600, marginBottom: '0.5rem' }}>Preview your recording</div>
-          <audio controls src={preview.url} style={{ width: '100%' }} />
-          <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.75rem', flexWrap: 'wrap' }}>
-            <button
-              type="button"
-              className="device-action primary"
-              onClick={saveRecording}
-              disabled={busy}
-            >
-              {busy ? 'Saving…' : 'Save as my greeting'}
-            </button>
-            <button
-              type="button"
-              className="device-action"
-              onClick={startRecording}
-              disabled={busy}
-            >
-              Re-record
-            </button>
-            <button
-              type="button"
-              className="device-action danger"
-              onClick={discardPreview}
-              disabled={busy}
-            >
-              Discard
-            </button>
-          </div>
-        </div>
-      )}
-
-      <input
-        ref={fileRef}
-        type="file"
-        accept="audio/mpeg,audio/mp3,audio/wav,audio/x-wav,audio/wave,audio/m4a,audio/mp4,audio/x-m4a,audio/aac,audio/ogg"
-        style={{ display: 'none' }}
-        onChange={handleFile}
-      />
-
-      {error && <p className="error" style={{ marginTop: '0.75rem' }}>{error}</p>}
-      {okMsg && <p className="muted small" style={{ marginTop: '0.75rem', color: '#34c759' }}>{okMsg}</p>}
-
-      <p className="muted small" style={{ marginTop: '1rem' }}>
-        Tip: ~10–20 seconds is the sweet spot. Speak clearly, leave a beat of
-        silence at the end so callers know to start talking.
-      </p>
+        <p className="muted small" style={{ margin: 0 }}>
+          Telnyx&apos;s Hosted Voicemail service uses the default greeting
+          for now. We&apos;re working on a per-user greeting flow that won&apos;t
+          interfere with the live inbound-call path.
+        </p>
+        <p className="muted small" style={{ margin: 0 }}>
+          In the meantime, callers reach a generic &quot;please leave a
+          message&quot; prompt and the recording shows up in your Voicemail
+          tab as usual.
+        </p>
+      </div>
     </div>
   );
 }
+
 
 // ---------------------------------------------------------------------------
 // Call Forwarding — per-user, Pulse-pattern feature.
