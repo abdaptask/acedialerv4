@@ -602,7 +602,7 @@ const texmlHandler = (request: any): string => {
   // SIP Connection name as a subdomain so Telnyx can locate the registered
   // Credentials Connection endpoint. Just `sip.telnyx.com` returns busy.
   // Example: sip:userabdulla74993@ace-dialer.sip.telnyx.com
-  const sipConnectionName = process.env.PILOT_SIP_CONNECTION_NAME ?? 'ace-dialer';
+  const sipConnectionId = process.env.PILOT_SIP_CONNECTION_ID ?? '2960617014202206103';
   if (!sipUser) {
     app.log.warn('[texml] PILOT_SIP_USERNAME not set; returning hangup-only flow');
   }
@@ -629,7 +629,7 @@ const texmlHandler = (request: any): string => {
     ? `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Dial timeout="45" action="${xmlEscape(dialStatusAction)}" method="POST">
-    <Sip>sip:${xmlEscape(sipUser)}@${xmlEscape(sipConnectionName)}.sip.telnyx.com</Sip>
+    <Sip>sip:${xmlEscape(sipConnectionId)}@sip.telnyx.com</Sip>
   </Dial>
 </Response>`
     : `<?xml version="1.0" encoding="UTF-8"?>
