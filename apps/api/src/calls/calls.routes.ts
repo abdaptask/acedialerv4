@@ -55,8 +55,23 @@ export async function callsRoutes(app: FastifyInstance) {
 
   app.get('/calls', { onRequest: [app.authenticate] }, async (request: FastifyRequest) => {
     const user = request.user as JwtPayload;
+    // Filter out server-internal call rows the user shouldn't see:
+    //   - SIP URI targets (e.g. sip:userabdulla74993@sip.telnyx.com) from
+    //     legacy Call Control flows where the webhook itself originated a
+    //     leg to bridge to the WebRTC user. Those are infrastructure, not
+    //     phone calls the user made.
+    //   - Empty/placeholder phone numbers.
+    // Result: Recents shows only real PSTN/external calls, like an iPhone.
     const calls = await prisma.call.findMany({
-      where: { userId: user.sub },
+      where: {
+        userId: user.sub,
+        AND: [
+          { NOT: { toNumber: { startsWith: 'sip:' } } },
+          { NOT: { fromNumber: { startsWith: 'sip:' } } },
+          { NOT: { toNumber: '' } },
+          { NOT: { fromNumber: '' } },
+        ],
+      },
       orderBy: { startedAt: 'desc' },
       take: 100,
     });

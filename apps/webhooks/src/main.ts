@@ -278,12 +278,41 @@ app.post('/webhooks/telnyx/calls', async (request) => {
           duration = Math.max(0, Math.floor((endedAt.getTime() - startedAt.getTime()) / 1000));
         }
         const hangupCause: string = payload.hangup_cause ?? 'unknown';
-        const status =
-          hangupCause === 'normal_clearing' || hangupCause === 'normal_termination'
-            ? 'completed'
-            : hangupCause === 'no_answer'
-              ? 'no_answer'
-              : 'failed';
+        const hangupSource: string = payload.hangup_source ?? '';
+        // Classify the call's final status. The previous logic defaulted
+        // anything unfamiliar to "failed", which mis-labelled forwarded
+        // calls (Telnyx uses cause codes like "redirected" / "transferred"
+        // for those). The new mapping is generous: only explicit failure
+        // signals count as failed. Everything else is "completed" — the
+        // call happened, even if it took a non-default path.
+        const lc = hangupCause.toLowerCase();
+        const status: string = (() => {
+          if (lc === 'no_answer' || lc === 'no_user_response') return 'no_answer';
+          if (lc === 'call_rejected' || lc === 'rejected') return 'rejected';
+          if (lc === 'user_busy' || lc === 'busy') return 'rejected';
+          // Forwarded / transferred — call DID route, just not to the dialer.
+          if (lc.includes('forward') || lc.includes('transfer') || lc.includes('redirect')) {
+            return 'forwarded';
+          }
+          // Known healthy terminations.
+          if (
+            lc === 'normal_clearing' ||
+            lc === 'normal_termination' ||
+            lc === 'originator_cancel'
+          ) {
+            return 'completed';
+          }
+          // Default to completed rather than failed for unknown causes —
+          // the carrier accepted and routed the call; whatever happened
+          // downstream isn't necessarily a failure from the user's POV.
+          // The actual cause string is preserved on the row so we can
+          // distinguish later if needed.
+          app.log.info(
+            { hangupCause, hangupSource },
+            '[call] unrecognised hangup_cause; treating as completed',
+          );
+          return 'completed';
+        })();
 
         // Try update first; if no record (we missed call.initiated), insert.
         const updated = await prisma.call.updateMany({
