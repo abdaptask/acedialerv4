@@ -347,20 +347,38 @@ app.post('/webhooks/telnyx/calls', async (request) => {
         //   POST https://api.telnyx.com/v2/phone_numbers/{id}/voicemail
         //   { "enabled": true, "pin": "..." }
         // Telnyx rings the DID's SIP Connection; on no-answer it captures
-        // the recording and posts THIS event to us. Payload shape (from
-        // Pulse's reference handler):
-        //   payload.from, payload.to            (E.164, with leading +)
-        //   payload.recording_url               (mp3, single string URL)
-        //   payload.recording_duration          (seconds)
-        //   payload.call_session_id             (groups with the original call)
+        // the recording and posts THIS event to us.
         const vmFrom: string = payload.from ?? '';
         const vmTo: string = payload.to ?? '';
         const recordingUrl: string | null = payload.recording_url ?? null;
-        const durSec = Number(payload.recording_duration ?? 0);
+        // Telnyx may use any of these field names for duration depending on
+        // event flavor — try them in order. `recording_duration_millis`
+        // is ms, others are seconds. Log the raw payload so we can pin
+        // down the actual field shipped for hosted voicemail.
+        const durRaw =
+          payload.recording_duration ??
+          payload.duration ??
+          (payload.recording_duration_millis != null
+            ? Number(payload.recording_duration_millis) / 1000
+            : null) ??
+          (payload.recording?.duration ?? null);
+        const durSec = Number(durRaw ?? 0);
         if (!recordingUrl) {
           app.log.warn({ payload }, '[vm] calls.voicemail.completed missing recording_url');
           break;
         }
+        // Diagnostic — log all the duration-shaped fields we tried so we
+        // can confirm which one actually carries the value going forward.
+        app.log.info(
+          {
+            recording_duration: payload.recording_duration,
+            duration: payload.duration,
+            recording_duration_millis: payload.recording_duration_millis,
+            recordingObjDuration: payload.recording?.duration,
+            chosen: durSec,
+          },
+          '[vm] duration field probe',
+        );
         try {
           const ownerUserId = await resolveUserId({
             fromNumber: vmFrom,
