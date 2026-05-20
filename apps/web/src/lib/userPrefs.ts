@@ -239,6 +239,21 @@ export function markTabVisited(tab: TabKey): void {
   window.dispatchEvent(new CustomEvent('ace:tabVisited', { detail: { tab } }));
 }
 
+// ---------- Per-thread last-visit (for unread highlight per message thread)
+// Key = E.164 of the other party. Stored as ISO timestamp.
+function threadVisitKey(threadKey: string): string {
+  return `ace_last_visit_thread_${threadKey.replace(/[^\d+]/g, '')}`;
+}
+export function getThreadLastVisit(threadKey: string): string {
+  return localStorage.getItem(threadVisitKey(threadKey)) || new Date(0).toISOString();
+}
+export function markThreadVisited(threadKey: string): void {
+  localStorage.setItem(threadVisitKey(threadKey), new Date().toISOString());
+  window.dispatchEvent(
+    new CustomEvent('ace:threadVisited', { detail: { threadKey } }),
+  );
+}
+
 // ---------- Notification preferences ----------
 export interface NotificationPrefs {
   /** Show an in-app toast for incoming calls. */

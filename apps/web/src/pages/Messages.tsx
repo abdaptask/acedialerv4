@@ -16,7 +16,14 @@ import {
 } from '../api';
 import { useJobDivaContact, getCachedJobDivaName } from '../hooks/useJobDivaContact';
 import { useSip } from '../contexts/SipContext';
-import { getQuickReplies, isFavorite, addFavorite, removeFavorite } from '../lib/userPrefs';
+import {
+  getQuickReplies,
+  isFavorite,
+  addFavorite,
+  removeFavorite,
+  getThreadLastVisit,
+  markThreadVisited,
+} from '../lib/userPrefs';
 import { formatPhone } from '../lib/phone';
 
 function formatNumber(raw: string): string {
@@ -219,6 +226,13 @@ function ThreadDetail({ number, onBack }: ThreadDetailProps) {
   const navigate = useNavigate();
   const { sipState, call } = useSip();
   const [messages, setMessages] = useState<MessageRecord[]>([]);
+
+  // Mark this thread as visited so the unread dot disappears from the
+  // threads list. Fires on mount and on every poll (so if a new inbound
+  // arrives while the thread is open, it's instantly "read").
+  useEffect(() => {
+    if (number) markThreadVisited(number);
+  }, [number, messages.length]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
@@ -310,11 +324,27 @@ function ThreadDetail({ number, onBack }: ThreadDetailProps) {
     return () => clearInterval(id);
   }, [load]);
 
+  // Auto-scroll to the bottom whenever the message list changes. We jump
+  // immediately (so text-only threads land at the bottom on open), then
+  // schedule a second jump on the next frame and again after 300ms to
+  // catch images that haven't measured yet. ResizeObserver gives us a final
+  // safety net for any late layout shifts (e.g. async MMS thumbnail loads).
   useEffect(() => {
-    // Auto-scroll to the bottom on new messages.
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
+    const el = scrollRef.current;
+    if (!el) return;
+    const stickToBottom = () => {
+      el.scrollTop = el.scrollHeight;
+    };
+    stickToBottom();
+    const raf = requestAnimationFrame(stickToBottom);
+    const t = window.setTimeout(stickToBottom, 300);
+    const ro = new ResizeObserver(stickToBottom);
+    ro.observe(el);
+    return () => {
+      cancelAnimationFrame(raf);
+      clearTimeout(t);
+      ro.disconnect();
+    };
   }, [messages.length]);
 
   const handleSend = async () => {
@@ -808,8 +838,18 @@ function ThreadRow({
 }) {
   const jd = useJobDivaContact(thread.threadKey);
   const label = jd?.name ?? formatNumber(thread.threadKey);
+  // A thread is "unread" if the most recent message was inbound AND arrived
+  // after the user last opened this specific thread. Outbound messages
+  // (sent by the user) never count as unread.
+  const unread =
+    thread.direction === 'inbound' &&
+    new Date(thread.createdAt) > new Date(getThreadLastVisit(thread.threadKey));
   return (
-    <li className="thread-row" onClick={onOpen}>
+    <li
+      className={`thread-row${unread ? ' unread' : ''}`}
+      onClick={onOpen}
+    >
+      {unread && <span className="thread-unread-dot" aria-label="Unread message" />}
       <div className="thread-text">
         <div className="thread-name">{label}</div>
         <div className="thread-preview">

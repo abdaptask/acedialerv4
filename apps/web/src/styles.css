@@ -2916,6 +2916,24 @@ body {
 }
 .thread-time { font-size: 12px; opacity: 0.5; }
 
+/* Per-thread unread state — when the latest inbound message arrived
+   after the user's last visit to this specific thread. Renders a small
+   blue dot on the left and bolds the name + preview so it stands out.
+   Goes away as soon as the user opens the thread. */
+.thread-row.unread .thread-name { font-weight: 700; color: #fff; }
+.thread-row.unread .thread-preview { opacity: 0.95; color: rgba(255, 255, 255, 0.85); }
+.thread-row.unread .thread-time { color: #4ea1ff; opacity: 1; font-weight: 600; }
+.thread-unread-dot {
+  flex: 0 0 auto;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #4ea1ff;
+  display: inline-block;
+}
+[data-theme="light"] .thread-row.unread .thread-name { color: var(--text); }
+[data-theme="light"] .thread-row.unread .thread-preview { color: var(--text); }
+
 .thread-detail {
   display: flex;
   flex-direction: column;
