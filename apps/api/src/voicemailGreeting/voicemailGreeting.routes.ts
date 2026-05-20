@@ -90,9 +90,11 @@ async function setTelnyxGreeting(
         'Content-Type': 'application/json',
         Authorization: `Bearer ${config.telnyxApiKey}`,
       },
-      // Telnyx accepts greeting_audio_url. Passing empty string / null
-      // reverts to the default greeting.
+      // Telnyx 422s the PATCH unless `enabled` is also present, even
+      // though we're only changing the greeting URL. Hosted voicemail
+      // stays enabled — we just slap the URL change on top.
       body: JSON.stringify({
+        enabled: true,
         greeting_audio_url: greetingUrl ?? '',
       }),
     },
