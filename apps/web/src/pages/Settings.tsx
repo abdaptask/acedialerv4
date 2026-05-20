@@ -704,6 +704,83 @@ function HoldMusicSection() {
 }
 
 // ---------------------------------------------------------------------------
+// In-browser audio converter: decode any format the browser can play
+// (WebM/Opus, MP4/AAC, etc.) → re-encode as 16-bit mono WAV. Used because
+// Telnyx's voicemail greeting accepts only MP3/WAV, not WebM. WAV is the
+// simplest portable output — no encoder library needed; we just lay down
+// the RIFF header and the PCM samples.
+// ---------------------------------------------------------------------------
+async function convertToWav(blob: Blob): Promise<Blob> {
+  const arrayBuffer = await blob.arrayBuffer();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const AC = (window.AudioContext || (window as any).webkitAudioContext) as typeof AudioContext;
+  const ctx = new AC();
+  try {
+    const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
+    const wavBuf = audioBufferToWavBuffer(audioBuffer);
+    return new Blob([wavBuf], { type: 'audio/wav' });
+  } finally {
+    void ctx.close();
+  }
+}
+
+function audioBufferToWavBuffer(buffer: AudioBuffer): ArrayBuffer {
+  const sampleRate = buffer.sampleRate;
+  // Mix down to mono — voice greetings don't need stereo + saves bandwidth.
+  const mono = mixDownToMono(buffer);
+  const numSamples = mono.length;
+  const bytesPerSample = 2; // 16-bit PCM
+  const dataSize = numSamples * bytesPerSample;
+  const totalSize = 44 + dataSize;
+
+  const ab = new ArrayBuffer(totalSize);
+  const view = new DataView(ab);
+
+  // RIFF header.
+  writeAscii(view, 0, 'RIFF');
+  view.setUint32(4, totalSize - 8, true);
+  writeAscii(view, 8, 'WAVE');
+  // fmt chunk (16 bytes for PCM).
+  writeAscii(view, 12, 'fmt ');
+  view.setUint32(16, 16, true);          // sub-chunk size
+  view.setUint16(20, 1, true);           // PCM = 1
+  view.setUint16(22, 1, true);           // numChannels = 1
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * bytesPerSample, true); // byteRate
+  view.setUint16(32, bytesPerSample, true);              // blockAlign
+  view.setUint16(34, 16, true);          // bitsPerSample
+  // data chunk.
+  writeAscii(view, 36, 'data');
+  view.setUint32(40, dataSize, true);
+
+  // Float32 [-1, 1] → Int16 samples.
+  let offset = 44;
+  for (let i = 0; i < numSamples; i += 1) {
+    const sample = Math.max(-1, Math.min(1, mono[i]));
+    view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
+    offset += 2;
+  }
+  return ab;
+}
+
+function mixDownToMono(buffer: AudioBuffer): Float32Array {
+  if (buffer.numberOfChannels === 1) return buffer.getChannelData(0);
+  const ch0 = buffer.getChannelData(0);
+  const ch1 = buffer.getChannelData(1);
+  const out = new Float32Array(buffer.length);
+  for (let i = 0; i < buffer.length; i += 1) {
+    out[i] = (ch0[i] + ch1[i]) * 0.5;
+  }
+  return out;
+}
+
+function writeAscii(view: DataView, offset: number, s: string): void {
+  for (let i = 0; i < s.length; i += 1) {
+    view.setUint8(offset + i, s.charCodeAt(i));
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Voicemail greeting — per-user custom audio that replaces Telnyx's default
 // "please leave a message" robot voice. Uploaded file goes to Supabase
 // Storage, URL is set on Telnyx via PATCH /v2/phone_numbers/{id}/voicemail.
@@ -810,14 +887,12 @@ function VoicemailGreetingSection() {
     setBusy(true);
     setError(null);
     try {
-      // Pick an extension that matches the recorded mime type.
-      const ext = preview.blob.type.includes('mp4')
-        ? 'm4a'
-        : preview.blob.type.includes('webm')
-          ? 'webm'
-          : 'audio';
-      const file = new File([preview.blob], `recorded-greeting.${ext}`, {
-        type: preview.blob.type,
+      // Telnyx's voicemail greeting only accepts MP3/WAV (the recorded
+      // browser format is WebM/Opus, which Telnyx rejects). Decode +
+      // re-encode to WAV here so the upload always works.
+      const wavBlob = await convertToWav(preview.blob);
+      const file = new File([wavBlob], 'recorded-greeting.wav', {
+        type: 'audio/wav',
       });
       const saved = await uploadVoicemailGreeting(token, file);
       setCurrent(saved);
