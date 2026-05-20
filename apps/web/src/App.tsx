@@ -12,6 +12,11 @@ import Messages from './pages/Messages';
 import Settings from './pages/Settings';
 import type { User } from './api';
 import { getMe } from './api';
+import { installSessionGuard, onSessionExpired } from './lib/sessionGuard';
+
+// Install the fetch interceptor once, at module load — before any
+// component issues an API call. Subsequent calls are no-ops.
+installSessionGuard();
 
 // Stash the user's per-account SIP creds into sessionStorage so SipContext
 // can register Telnyx as THIS user instead of using build-time env vars.
@@ -61,6 +66,24 @@ export default function App() {
     setUser(null);
     navigate('/login');
   }
+
+  // Listen for session-expired events from the fetch interceptor (401 from
+  // any API call) or the SIP watchdog (SipContext stayed 'failed' too long).
+  // Both routes converge here so the user can't end up on a stale screen
+  // staring at empty data or a dead status indicator.
+  useEffect(() => {
+    return onSessionExpired((reason) => {
+      // If we're already on /login there's nothing to do — also covers the
+      // "401 from the login call itself" case so we don't bounce-loop.
+      if (window.location.pathname === '/login') return;
+      console.warn('[session] expired —', reason, '→ /login');
+      // Best-effort: leave a hint for the Login page so it can show a
+      // toast like "Your session expired — please log in again."
+      try { sessionStorage.setItem('ace_logout_reason', reason); } catch { /* noop */ }
+      handleLogout();
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   if (loading) return <div className="centered">Loading…</div>;
 

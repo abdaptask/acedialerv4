@@ -1,10 +1,20 @@
 // Electron main process — owns the application lifecycle, creates the window,
-// and (Phase 5.2) handles the floating-ringer popup for inbound calls.
-import { app, BrowserWindow, shell, Menu, ipcMain, screen } from 'electron';
+// handles the floating-ringer popup for inbound calls, and (Phase 6.4) hides
+// the window to the system tray on close so active calls keep running.
+import { app, BrowserWindow, shell, Menu, ipcMain, screen, Tray, nativeImage } from 'electron';
 import * as path from 'node:path';
 
 let mainWindow: BrowserWindow | null = null;
 let ringerWindow: BrowserWindow | null = null;
+let tray: Tray | null = null;
+/**
+ * When true, the close-button handler bypasses the hide-to-tray behavior
+ * and actually lets the window destroy itself. We flip this to true from
+ * the Tray "Quit" menu item and from the app menu's Quit role so users
+ * have an explicit way to exit. Without this guard, app.quit() would just
+ * trigger another close-event that we'd intercept and hide.
+ */
+let isQuittingForReal = false;
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -20,6 +30,15 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false,
+      // CRITICAL: don't throttle the page when the window is hidden.
+      // When the user X's out, the window is hidden (not destroyed) so
+      // any active call keeps running. With background throttling on
+      // (the default), setInterval/setTimeout get clamped to 1Hz and
+      // the JsSIP register-refresh timer misses its 60s window — Telnyx
+      // drops the registration and the next inbound call goes to
+      // voicemail. Off = the renderer stays as responsive when hidden
+      // as when visible.
+      backgroundThrottling: false,
     },
   });
 
@@ -50,6 +69,91 @@ function createWindow() {
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
+
+  // Phase 6.4 — hide-to-tray on close.
+  // Without this, clicking the window X on Windows quits the whole app
+  // (and any active call audio dies with it). With this, the window
+  // hides and the renderer keeps running — the user can keep talking,
+  // and the tray icon (created on app ready) lets them bring the window
+  // back. The `isQuittingForReal` guard lets the tray Quit menu item
+  // and the OS-level shutdown actually exit.
+  mainWindow.on('close', (event) => {
+    if (isQuittingForReal) return;
+    event.preventDefault();
+    mainWindow?.hide();
+    // First-time UX hint — a balloon popup on Windows so users discover
+    // that the app is still running in the tray instead of assuming it
+    // closed. macOS hides apps to the menu bar natively, no balloon needed.
+    if (process.platform === 'win32' && tray && !tray.isDestroyed()) {
+      try {
+        tray.displayBalloon({
+          title: 'ACE Dialer is still running',
+          content: 'Calls keep working in the background. Right-click the tray icon to quit.',
+        });
+      } catch { /* noop */ }
+    }
+  });
+}
+
+// ---------- System tray ----------
+function createTray(): void {
+  if (tray) return;
+  // 16x16 PNG looks crisp on Windows tray and macOS menu bar at @1x; on
+  // HiDPI displays Electron asks for the @2x image automatically (which
+  // we don't ship — Electron upscales the 16x16). Bundled at build time
+  // via the extraResources in package.json.
+  const iconCandidates = [
+    path.join(process.resourcesPath, 'assets', 'tray-icon-16.png'),
+    path.join(__dirname, '..', 'assets', 'tray-icon-16.png'),
+    path.join(__dirname, '..', '..', 'assets', 'tray-icon-16.png'),
+  ];
+  let img = nativeImage.createEmpty();
+  for (const candidate of iconCandidates) {
+    const loaded = nativeImage.createFromPath(candidate);
+    if (!loaded.isEmpty()) {
+      img = loaded;
+      break;
+    }
+  }
+  // On macOS, marking as a template image makes the icon adapt to the
+  // menu bar's light/dark mode automatically.
+  if (process.platform === 'darwin') {
+    try { img.setTemplateImage(true); } catch { /* noop */ }
+  }
+  try {
+    tray = new Tray(img);
+  } catch (e) {
+    console.warn('[tray] failed to create tray icon', e);
+    return;
+  }
+  tray.setToolTip('ACE Dialer');
+
+  const showWindow = () => {
+    if (!mainWindow) {
+      createWindow();
+      return;
+    }
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+  };
+
+  const contextMenu = Menu.buildFromTemplate([
+    { label: 'Open ACE Dialer', click: showWindow },
+    { type: 'separator' },
+    {
+      label: 'Quit (end any active call)',
+      click: () => {
+        isQuittingForReal = true;
+        app.quit();
+      },
+    },
+  ]);
+  tray.setContextMenu(contextMenu);
+  // Single-click on the tray icon restores the window — the most
+  // discoverable shortcut. Right-click still opens the context menu.
+  tray.on('click', showWindow);
+  tray.on('double-click', showWindow);
 }
 
 // ---------- Floating ringer window ----------
@@ -280,12 +384,41 @@ function buildMenu() {
 
 app.whenReady().then(() => {
   buildMenu();
+  createTray();
   createWindow();
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    // macOS: dock click. If we have no windows, build one — but if the
+    // window exists and is hidden (close-to-tray), surface it instead.
+    if (BrowserWindow.getAllWindows().length === 0) {
+      createWindow();
+    } else if (mainWindow && !mainWindow.isVisible()) {
+      mainWindow.show();
+      mainWindow.focus();
+    }
   });
 });
 
+// Phase 6.4 — do NOT quit when the last window closes.
+// The tray icon is the canonical "still running" signal; users quit
+// explicitly via Tray → Quit, the app menu, or Cmd+Q. This means a
+// call in progress survives the user X-ing out the main window.
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit();
+  // Intentionally empty. Quit only on `app.quit()` from the Tray menu
+  // or the OS shutdown signal (which sets isQuittingForReal first).
+});
+
+// Flip the guard on real quit signals so the close-handler doesn't
+// fight them. Triggered by Cmd+Q on Mac, Alt+F4 → File→Quit, OS shutdown,
+// and our Tray Quit menu item.
+app.on('before-quit', () => {
+  isQuittingForReal = true;
+});
+
+// Tear down the tray icon on actual quit so the Windows tray doesn't
+// keep a stale icon around.
+app.on('quit', () => {
+  if (tray && !tray.isDestroyed()) {
+    try { tray.destroy(); } catch { /* noop */ }
+    tray = null;
+  }
 });

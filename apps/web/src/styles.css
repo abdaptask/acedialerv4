@@ -1733,9 +1733,20 @@ body {
 [data-theme="light"] .in-call { background: var(--bg, #f7f8fa); color: var(--text); }
 [data-theme="light"] .in-call-name { color: var(--text); }
 [data-theme="light"] .in-call-time { color: var(--text-muted); }
-[data-theme="light"] .ic-ctrl { background: rgba(0, 0, 0, 0.05); color: var(--text); }
-[data-theme="light"] .ic-ctrl:hover { background: rgba(0, 0, 0, 0.1); }
-[data-theme="light"] .ic-ctrl.active { background: rgba(0, 122, 255, 0.15); color: #007aff; }
+/* In-call control buttons in light mode — DO NOT put a background on the
+   outer .ic-ctrl button or it shows as a square box around the round icon.
+   Keep the outer button transparent (matches dark mode) and tint only the
+   round .ic-ctrl-icon. */
+[data-theme="light"] .ic-ctrl { background: transparent; color: var(--text); }
+[data-theme="light"] .ic-ctrl-icon {
+  background: rgba(0, 0, 0, 0.06);
+  color: var(--text);
+}
+[data-theme="light"] .ic-ctrl:hover .ic-ctrl-icon { background: rgba(0, 0, 0, 0.11); }
+[data-theme="light"] .ic-ctrl.active .ic-ctrl-icon {
+  background: #007aff;
+  color: #fff;
+}
 [data-theme="light"] .ic-ctrl-label { color: var(--text-muted); }
 
 /* Dialpad screen — number display + status text. */
@@ -2319,8 +2330,9 @@ body {
 [data-theme="light"] .in-call { background: var(--bg); color: var(--text); }
 [data-theme="light"] .in-call-name { color: var(--text); }
 [data-theme="light"] .in-call-time { color: var(--text-dim); }
-[data-theme="light"] .ic-ctrl { background: var(--surface); color: var(--text); }
-[data-theme="light"] .ic-ctrl:hover { background: var(--surface-hover); }
+/* (Second-pass override — keep .ic-ctrl transparent; the upstream block
+   styles the round .ic-ctrl-icon for light mode.) */
+[data-theme="light"] .ic-ctrl { background: transparent; color: var(--text); }
 [data-theme="light"] .ic-ctrl-label { color: var(--text-dim); }
 [data-theme="light"] .ick-btn { background: rgba(0, 0, 0, 0.06); color: var(--text); }
 [data-theme="light"] .ick-btn:active { background: rgba(0, 0, 0, 0.12); }

@@ -8,6 +8,7 @@ import {
   transferCallApi,
   addLegApi,
 } from '../api';
+import { createSipWatchdog } from '../lib/sessionGuard';
 
 export interface ServerActionResult {
   ok: boolean;
@@ -146,7 +147,15 @@ export function SipProvider({ children }: { children: React.ReactNode }) {
       setIncoming(null);
     });
 
-    const offState = sipService.on<SipState>('state', (s) => setSipState(s));
+    // SIP-failed watchdog: if the SIP UA stays in 'failed' for 30s the
+    // user has effectively been disconnected (creds rotated, network died,
+    // Telnyx outage, etc.). Feed every state change in; the watchdog only
+    // fires session-expired after the grace window elapses.
+    const sipWatchdog = createSipWatchdog();
+    const offState = sipService.on<SipState>('state', (s) => {
+      setSipState(s);
+      sipWatchdog.report(s);
+    });
     const offQuality = sipService.on<CallQuality>('quality', (q) => setCallQuality(q));
     const offCall = sipService.on<CallEvent>('call', (e) => {
       if (e.state === 'incoming') {
@@ -213,6 +222,7 @@ export function SipProvider({ children }: { children: React.ReactNode }) {
     });
 
     return () => {
+      sipWatchdog.stop();
       offState();
       offCall();
       offQuality();
@@ -529,6 +539,28 @@ async function logCallEvent(
         });
       } catch (e) {
         console.warn('[call-log] updateCall(ended) failed', e);
+      }
+    }
+  }
+}
+
+function stateToStatus(state: CallEvent['state'], hangupCause?: string): string {
+  switch (state) {
+    case 'calling':
+      return 'initiated';
+    case 'ringing':
+      return 'ringing';
+    case 'incoming':
+      return 'ringing';
+    case 'connected':
+      return 'answered';
+    case 'ended':
+      return hangupCause ? 'completed' : 'failed';
+    default:
+      return 'initiated';
+  }
+}
+l-log] updateCall(ended) failed', e);
       }
     }
   }

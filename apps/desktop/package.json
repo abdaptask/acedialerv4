@@ -31,6 +31,11 @@
         "from": "../web/dist",
         "to": "web",
         "filter": ["**/*"]
+      },
+      {
+        "from": "assets",
+        "to": "assets",
+        "filter": ["tray-icon*.png"]
       }
     ],
     "win": {
