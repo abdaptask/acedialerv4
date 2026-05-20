@@ -338,6 +338,17 @@ export async function saveCallForwarding(
   return res.json();
 }
 
+// How many days a voicemail is retained before auto-delete. Server-controlled
+// so changing the retention period doesn't require a frontend deploy.
+export async function getVoicemailRetentionDays(token: string): Promise<number> {
+  const res = await fetch(`${API_URL}/voicemails/retention`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) return 30;
+  const j = (await res.json()) as { days?: number };
+  return Number(j.days ?? 30);
+}
+
 // Bulk mark voicemails as listened/unlistened — used by the select-mode toolbar.
 export async function bulkMarkVoicemails(
   token: string,

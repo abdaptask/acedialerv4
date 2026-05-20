@@ -22,6 +22,7 @@ import {
   markVoicemailListened,
   bulkMarkVoicemails,
   deleteVoicemail,
+  getVoicemailRetentionDays,
   type VoicemailRecord,
 } from '../api';
 import { useSip } from '../contexts/SipContext';
@@ -60,6 +61,14 @@ export default function Voicemail() {
   const [search, setSearch] = useState('');
   const [selectMode, setSelectMode] = useState(false);
   const [selected, setSelected] = useState<Set<number>>(new Set());
+  // Server tells us how many days voicemails are retained. Cached once
+  // per session. Used to render the "Auto-deletes in X days" countdown.
+  const [retentionDays, setRetentionDays] = useState(30);
+  useEffect(() => {
+    const token = sessionStorage.getItem('ace_token');
+    if (!token) return;
+    getVoicemailRetentionDays(token).then(setRetentionDays).catch(() => undefined);
+  }, []);
   const { sipState, call } = useSip();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -361,6 +370,7 @@ export default function Voicemail() {
           <VoicemailRow
             key={vm.id}
             vm={vm}
+            retentionDays={retentionDays}
             expanded={expandedId === vm.id}
             selectMode={selectMode}
             checked={selected.has(vm.id)}
@@ -379,6 +389,7 @@ export default function Voicemail() {
 
 function VoicemailRow({
   vm,
+  retentionDays,
   expanded,
   selectMode,
   checked,
@@ -390,6 +401,7 @@ function VoicemailRow({
   onToggleUnread,
 }: {
   vm: VoicemailRecord;
+  retentionDays: number;
   expanded: boolean;
   selectMode: boolean;
   checked: boolean;
@@ -476,6 +488,27 @@ function VoicemailRow({
               {formatTime(vm.receivedAt)}
               {displaySeconds > 0 && ` · ${formatDuration(Math.round(displaySeconds))}`}
             </div>
+            {(() => {
+              // Days remaining until server auto-deletes this voicemail.
+              // Color-coded: gray > 7 days, amber 2–7, red 0–1.
+              const expiresAt =
+                new Date(vm.receivedAt).getTime() +
+                retentionDays * 24 * 60 * 60 * 1000;
+              const msLeft = expiresAt - Date.now();
+              const daysLeft = Math.ceil(msLeft / (24 * 60 * 60 * 1000));
+              if (daysLeft <= 0) return null;
+              const cls =
+                daysLeft <= 1
+                  ? 'vm-expires danger'
+                  : daysLeft <= 7
+                    ? 'vm-expires warn'
+                    : 'vm-expires';
+              const text =
+                daysLeft === 1
+                  ? 'Auto-deletes tomorrow'
+                  : `Auto-deletes in ${daysLeft} days`;
+              return <div className={cls}>{text}</div>;
+            })()}
           </div>
         </div>
         {!selectMode && (
