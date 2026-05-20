@@ -715,6 +715,127 @@ function VoicemailGreetingSection() {
   const [error, setError] = useState<string | null>(null);
   const [okMsg, setOkMsg] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  // In-browser recorder state.
+  const [recording, setRecording] = useState(false);
+  const [recordSecs, setRecordSecs] = useState(0);
+  const [preview, setPreview] = useState<{ blob: Blob; url: string } | null>(null);
+  const recRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+  const tickRef = useRef<number | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+
+  // Tear down any active recording or preview blob on unmount so we don't
+  // leak a getUserMedia stream or an object URL.
+  useEffect(() => {
+    return () => {
+      try { recRef.current?.stop(); } catch { /* noop */ }
+      try { streamRef.current?.getTracks().forEach((t) => t.stop()); } catch { /* noop */ }
+      if (tickRef.current) clearInterval(tickRef.current);
+      if (preview?.url) URL.revokeObjectURL(preview.url);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function startRecording() {
+    setError(null);
+    setOkMsg(null);
+    if (preview) {
+      URL.revokeObjectURL(preview.url);
+      setPreview(null);
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      });
+      streamRef.current = stream;
+      // Prefer audio/webm for broadest browser support; fall back to default.
+      const mimeOptions = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4'];
+      const mimeType = mimeOptions.find((m) => MediaRecorder.isTypeSupported(m));
+      const rec = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+      chunksRef.current = [];
+      rec.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) chunksRef.current.push(e.data);
+      };
+      rec.onstop = () => {
+        const blobType = rec.mimeType || 'audio/webm';
+        const blob = new Blob(chunksRef.current, { type: blobType });
+        const url = URL.createObjectURL(blob);
+        setPreview({ blob, url });
+        // Release the mic immediately so the browser indicator clears.
+        streamRef.current?.getTracks().forEach((t) => t.stop());
+        streamRef.current = null;
+        if (tickRef.current) {
+          clearInterval(tickRef.current);
+          tickRef.current = null;
+        }
+      };
+      recRef.current = rec;
+      rec.start();
+      setRecording(true);
+      setRecordSecs(0);
+      tickRef.current = window.setInterval(() => {
+        setRecordSecs((s) => {
+          // Auto-stop after 60 seconds — Telnyx + most carriers prefer
+          // short greetings.
+          if (s + 1 >= 60) {
+            stopRecording();
+            return 60;
+          }
+          return s + 1;
+        });
+      }, 1000);
+    } catch (e) {
+      setError(`Microphone access denied or unavailable: ${(e as Error).message}`);
+    }
+  }
+
+  function stopRecording() {
+    setRecording(false);
+    try { recRef.current?.stop(); } catch { /* noop */ }
+  }
+
+  function discardPreview() {
+    if (preview?.url) URL.revokeObjectURL(preview.url);
+    setPreview(null);
+  }
+
+  async function saveRecording() {
+    if (!preview) return;
+    const token = sessionStorage.getItem('ace_token');
+    if (!token) return;
+    setBusy(true);
+    setError(null);
+    try {
+      // Pick an extension that matches the recorded mime type.
+      const ext = preview.blob.type.includes('mp4')
+        ? 'm4a'
+        : preview.blob.type.includes('webm')
+          ? 'webm'
+          : 'audio';
+      const file = new File([preview.blob], `recorded-greeting.${ext}`, {
+        type: preview.blob.type,
+      });
+      const saved = await uploadVoicemailGreeting(token, file);
+      setCurrent(saved);
+      discardPreview();
+      setOkMsg('Recorded greeting is live on Telnyx.');
+      setTimeout(() => setOkMsg(null), 3000);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function formatSecs(n: number): string {
+    const m = Math.floor(n / 60);
+    const s = n % 60;
+    return `${m}:${s.toString().padStart(2, '0')}`;
+  }
 
   useEffect(() => {
     const token = sessionStorage.getItem('ace_token');
@@ -805,40 +926,128 @@ function VoicemailGreetingSection() {
         </p>
       )}
 
-      <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-        <button
-          type="button"
-          className="device-action primary"
-          onClick={() => fileRef.current?.click()}
-          disabled={busy}
-        >
-          {busy ? 'Working…' : current.url ? 'Replace greeting' : 'Upload greeting'}
-        </button>
-        {current.url && (
+      {/* Action buttons — three states:
+            1. Idle: Record + Upload buttons
+            2. Recording: Stop button + live timer
+            3. Preview ready: Play (browser audio), Save, Discard            */}
+      {!recording && !preview && (
+        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+          <button
+            type="button"
+            className="device-action primary"
+            onClick={startRecording}
+            disabled={busy}
+            title="Record a new greeting right now"
+          >
+            🎙️ Record greeting
+          </button>
           <button
             type="button"
             className="device-action"
-            onClick={handleRemove}
+            onClick={() => fileRef.current?.click()}
             disabled={busy}
           >
-            Remove (use default)
+            {busy ? 'Working…' : current.url ? 'Upload to replace' : 'Upload file'}
           </button>
-        )}
-        <input
-          ref={fileRef}
-          type="file"
-          accept="audio/mpeg,audio/mp3,audio/wav,audio/x-wav,audio/wave,audio/m4a,audio/mp4,audio/x-m4a,audio/aac,audio/ogg"
-          style={{ display: 'none' }}
-          onChange={handleFile}
-        />
-      </div>
+          {current.url && (
+            <button
+              type="button"
+              className="device-action danger"
+              onClick={handleRemove}
+              disabled={busy}
+            >
+              Remove (use default)
+            </button>
+          )}
+        </div>
+      )}
+
+      {recording && (
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '0.75rem',
+          padding: '0.75rem 1rem',
+          background: 'rgba(255, 59, 48, 0.08)',
+          border: '1px solid rgba(255, 59, 48, 0.3)',
+          borderRadius: 10,
+        }}>
+          <span
+            aria-hidden="true"
+            style={{
+              width: 10,
+              height: 10,
+              borderRadius: '50%',
+              background: '#ff3b30',
+              animation: 'pulseRec 1s ease-in-out infinite',
+            }}
+          />
+          <span style={{ flex: 1, fontWeight: 600 }}>
+            Recording… {formatSecs(recordSecs)}
+            <span className="muted small" style={{ marginLeft: 8 }}>(auto-stops at 1:00)</span>
+          </span>
+          <button
+            type="button"
+            className="device-action danger"
+            onClick={stopRecording}
+          >
+            ⏹ Stop
+          </button>
+        </div>
+      )}
+
+      {preview && !recording && (
+        <div style={{
+          padding: '0.75rem 1rem',
+          background: 'rgba(0, 122, 255, 0.07)',
+          border: '1px solid rgba(0, 122, 255, 0.25)',
+          borderRadius: 10,
+        }}>
+          <div style={{ fontWeight: 600, marginBottom: '0.5rem' }}>Preview your recording</div>
+          <audio controls src={preview.url} style={{ width: '100%' }} />
+          <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.75rem', flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              className="device-action primary"
+              onClick={saveRecording}
+              disabled={busy}
+            >
+              {busy ? 'Saving…' : 'Save as my greeting'}
+            </button>
+            <button
+              type="button"
+              className="device-action"
+              onClick={startRecording}
+              disabled={busy}
+            >
+              Re-record
+            </button>
+            <button
+              type="button"
+              className="device-action danger"
+              onClick={discardPreview}
+              disabled={busy}
+            >
+              Discard
+            </button>
+          </div>
+        </div>
+      )}
+
+      <input
+        ref={fileRef}
+        type="file"
+        accept="audio/mpeg,audio/mp3,audio/wav,audio/x-wav,audio/wave,audio/m4a,audio/mp4,audio/x-m4a,audio/aac,audio/ogg"
+        style={{ display: 'none' }}
+        onChange={handleFile}
+      />
 
       {error && <p className="error" style={{ marginTop: '0.75rem' }}>{error}</p>}
       {okMsg && <p className="muted small" style={{ marginTop: '0.75rem', color: '#34c759' }}>{okMsg}</p>}
 
       <p className="muted small" style={{ marginTop: '1rem' }}>
-        Tip: record a short greeting in any voice recorder app, export as MP3,
-        and upload. ~10–20 seconds is the sweet spot.
+        Tip: ~10–20 seconds is the sweet spot. Speak clearly, leave a beat of
+        silence at the end so callers know to start talking.
       </p>
     </div>
   );

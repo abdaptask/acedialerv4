@@ -1663,6 +1663,191 @@ body {
 }
 .device-action:hover { background: rgba(255, 255, 255, 0.14); }
 .device-action:disabled { opacity: 0.45; cursor: not-allowed; }
+/* Primary action — make it obvious which button is the main CTA in a group. */
+.device-action.primary {
+  background: #007aff;
+  color: #fff;
+  font-weight: 600;
+}
+.device-action.primary:hover { background: #006fe6; }
+.device-action.primary:disabled { background: rgba(0, 122, 255, 0.45); }
+/* Light-theme — the previous styles were invisible on white. */
+[data-theme="light"] .device-action {
+  background: rgba(0, 0, 0, 0.06);
+  color: var(--text, #111);
+}
+[data-theme="light"] .device-action:hover { background: rgba(0, 0, 0, 0.1); }
+[data-theme="light"] .device-action.primary {
+  background: #007aff;
+  color: #fff;
+}
+[data-theme="light"] .device-action.primary:hover { background: #006fe6; }
+[data-theme="light"] .device-action.danger {
+  background: rgba(255, 59, 48, 0.1);
+  color: #c5180c;
+}
+[data-theme="light"] .device-action.danger:hover { background: rgba(255, 59, 48, 0.2); }
+
+/* ---------------------------------------------------------------------------
+   Light-mode global sweep — anywhere we wrote "color: #fff" or
+   "background: rgba(255,255,255,...)" without a paired light override,
+   the element becomes invisible on white. These rules fix every spot
+   the dialer touched as of the late-May overhaul.
+   --------------------------------------------------------------------------- */
+
+[data-theme="light"] {
+  /* Page-level: keep the app body legible. */
+  background: var(--bg, #f7f8fa);
+  color: var(--text, #1a1a1a);
+}
+
+/* Pulse animation for the active recording indicator. */
+@keyframes pulseRec {
+  0%   { opacity: 1; transform: scale(1); }
+  50%  { opacity: 0.55; transform: scale(1.3); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+/* Cred-style inputs (Settings, login, telnyx fields). */
+[data-theme="light"] .cred-field { color: var(--text-muted, rgba(0, 0, 0, 0.55)); }
+[data-theme="light"] .cred-field input {
+  background: #fff;
+  border-color: rgba(0, 0, 0, 0.15);
+  color: var(--text, #1a1a1a);
+}
+[data-theme="light"] .cred-field input:focus { border-color: #007aff; }
+[data-theme="light"] .cred-input {
+  background: #fff;
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  color: var(--text, #1a1a1a);
+}
+
+/* Settings layout. */
+[data-theme="light"] .settings-title { color: var(--text, #1a1a1a); }
+[data-theme="light"] .settings-blurb { color: var(--text-muted, rgba(0, 0, 0, 0.55)); }
+[data-theme="light"] .settings-section { color: var(--text, #1a1a1a); }
+[data-theme="light"] .settings-blurb,
+[data-theme="light"] .muted { color: var(--text-muted, rgba(0, 0, 0, 0.55)); }
+
+/* In-call screen. */
+[data-theme="light"] .in-call { background: var(--bg, #f7f8fa); color: var(--text); }
+[data-theme="light"] .in-call-name { color: var(--text); }
+[data-theme="light"] .in-call-time { color: var(--text-muted); }
+[data-theme="light"] .ic-ctrl { background: rgba(0, 0, 0, 0.05); color: var(--text); }
+[data-theme="light"] .ic-ctrl:hover { background: rgba(0, 0, 0, 0.1); }
+[data-theme="light"] .ic-ctrl.active { background: rgba(0, 122, 255, 0.15); color: #007aff; }
+[data-theme="light"] .ic-ctrl-label { color: var(--text-muted); }
+
+/* Dialpad screen — number display + status text. */
+[data-theme="light"] .sip-status.ok { color: #2db04a; }
+[data-theme="light"] .sip-status.warn { color: #b58200; }
+[data-theme="light"] .sip-status.err { color: #c5180c; }
+[data-theme="light"] .keyboard-hint { color: var(--text-muted); }
+
+/* Audio picker / device picker modals. */
+[data-theme="light"] .audio-picker-box { background: #fff; color: var(--text); border-color: rgba(0,0,0,0.1); }
+[data-theme="light"] .audio-picker-title { color: var(--text); }
+[data-theme="light"] .audio-picker-item { color: var(--text); }
+[data-theme="light"] .audio-picker-item:hover { background: rgba(0, 0, 0, 0.05); }
+[data-theme="light"] .audio-picker-item.active { background: rgba(0, 122, 255, 0.1); }
+[data-theme="light"] .audio-picker-close {
+  background: rgba(0, 0, 0, 0.05);
+  color: var(--text);
+}
+
+/* In-call keypad + transfer panel. */
+[data-theme="light"] .in-call-keypad { background: var(--bg-elevated, #fff); }
+[data-theme="light"] .ick-btn { background: rgba(0, 0, 0, 0.05); color: var(--text); }
+[data-theme="light"] .ick-btn:hover { background: rgba(0, 0, 0, 0.1); }
+[data-theme="light"] .ick-close { color: var(--text-muted); }
+[data-theme="light"] .in-call-transfer { background: var(--bg-elevated, #fff); color: var(--text); }
+[data-theme="light"] .ict-label { color: var(--text-muted); }
+[data-theme="light"] .ict-input {
+  background: #fff;
+  border-color: rgba(0,0,0,0.15);
+  color: var(--text);
+}
+[data-theme="light"] .ict-cancel { color: var(--text-muted); }
+
+/* Call pills (Add Call + Conference). */
+[data-theme="light"] .call-pill {
+  background: var(--bg-elevated, #fff);
+  border-color: rgba(0, 0, 0, 0.1);
+  color: var(--text);
+}
+[data-theme="light"] button.call-pill:hover { background: rgba(0, 0, 0, 0.04); }
+[data-theme="light"] .call-pill-num { color: var(--text); }
+[data-theme="light"] .call-pill-status { color: var(--text-muted); }
+[data-theme="light"] .call-pill-tag { color: var(--text-muted); }
+[data-theme="light"] .call-pill-mute { color: var(--text); background: rgba(0, 0, 0, 0.05); }
+[data-theme="light"] .call-pill-mute:hover { background: rgba(0, 0, 0, 0.1); }
+[data-theme="light"] button.call-pill-info:hover { background: rgba(0, 0, 0, 0.04); }
+
+/* Incoming call full screen + ringer window. */
+[data-theme="light"] .incoming-call { background: var(--bg, #f7f8fa); color: var(--text); }
+[data-theme="light"] .incoming-call-name { color: var(--text); }
+[data-theme="light"] .incoming-call-sub { color: var(--text-muted); }
+
+/* Bubbles in the thread. */
+[data-theme="light"] .bubble.in { background: #e7e7ea; color: var(--text); }
+[data-theme="light"] .bubble.out { background: #2563eb; color: #fff; }
+[data-theme="light"] .bubble-meta { color: var(--text-muted); }
+[data-theme="light"] .bubble.out .bubble-meta { color: rgba(255, 255, 255, 0.85); }
+[data-theme="light"] .compose-input {
+  background: #fff;
+  border-color: rgba(0, 0, 0, 0.15);
+  color: var(--text);
+}
+[data-theme="light"] .compose-input::placeholder { color: var(--text-muted); }
+[data-theme="light"] .thread-header { border-color: rgba(0, 0, 0, 0.08); }
+[data-theme="light"] .thread-header-name { color: var(--text); }
+[data-theme="light"] .compose-row { border-color: rgba(0, 0, 0, 0.08); }
+
+/* Search bars (Recents/Messages/Voicemail). */
+[data-theme="light"] .search-bar { background: var(--bg-elevated, #fff); border-color: rgba(0, 0, 0, 0.1); }
+[data-theme="light"] .search-input { background: transparent; color: var(--text); }
+[data-theme="light"] .search-input::placeholder { color: var(--text-muted); }
+
+/* Voicemail rows. */
+[data-theme="light"] .vm-row { border-color: rgba(0, 0, 0, 0.06); }
+[data-theme="light"] .vm-row:hover { background: rgba(0, 0, 0, 0.03); }
+[data-theme="light"] .vm-row.unread .vm-number,
+[data-theme="light"] .vm-number { color: var(--text); }
+[data-theme="light"] .vm-meta { color: var(--text-muted); }
+[data-theme="light"] .vm-expires { color: var(--text-muted); }
+[data-theme="light"] .vm-action { color: var(--text-muted); }
+[data-theme="light"] .vm-action:hover { color: var(--text); background: rgba(0, 0, 0, 0.05); }
+[data-theme="light"] .vm-select-bar {
+  background: var(--bg-elevated, #fff);
+  border-color: rgba(0, 0, 0, 0.1);
+  color: var(--text);
+}
+
+/* Held line / Add-call banner (Dialpad). */
+[data-theme="light"] .addcall-banner {
+  background: rgba(0, 122, 255, 0.06);
+  border-color: rgba(0, 122, 255, 0.2);
+  color: var(--text);
+}
+[data-theme="light"] .addcall-tag { color: #007aff; }
+[data-theme="light"] .addcall-status { background: rgba(0, 0, 0, 0.04); color: var(--text); }
+
+/* In-call top label tweaks. */
+[data-theme="light"] .conf-banner { color: #007aff; }
+
+/* IncomingCall buttons keep their bright greens/reds since those work in both themes. */
+
+/* Settings sidebar items. */
+[data-theme="light"] .settings-sidebar-item { color: var(--text); }
+[data-theme="light"] .settings-sidebar-item:hover { background: rgba(0, 0, 0, 0.04); }
+[data-theme="light"] .settings-sidebar-item.active {
+  background: rgba(0, 122, 255, 0.1);
+  color: #007aff;
+}
+[data-theme="light"] .settings-sidebar-item .blurb { color: var(--text-muted); }
+
+/* Generic error text. */
+[data-theme="light"] .error { color: #c5180c; }
 .cred-grid { display: flex; flex-direction: column; gap: 0.7rem; }
 .cred-field { display: flex; flex-direction: column; gap: 0.3rem; font-size: 0.78rem; color: rgba(255, 255, 255, 0.65); }
 .cred-field input {
