@@ -3619,3 +3619,7 @@ button.call-pill-info:hover { background: rgba(255, 255, 255, 0.05); }
   cursor: pointer;
 }
 .audio-picker-close:hover { background: rgba(255, 255, 255, 0.05); }
+
+/* Phase 6.11 - blocked-call indicator in Recents rows. */
+.ico.blocked { color: #ef4444; }
+.call-row.missed .call-meta { color: #ef4444; }

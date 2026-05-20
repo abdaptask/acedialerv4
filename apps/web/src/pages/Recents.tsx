@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { PhoneIncoming, PhoneOutgoing, PhoneMissed, Phone, RefreshCcw, Play, Search, X, MessageSquare, ArrowLeft, Star } from 'lucide-react';
+import { PhoneIncoming, PhoneOutgoing, PhoneMissed, Phone, RefreshCcw, Play, Search, X, MessageSquare, ArrowLeft, Star, Ban } from 'lucide-react';
 import { getCalls, type CallRecord } from '../api';
 import { useSip } from '../contexts/SipContext';
 import { useJobDivaContact, getCachedJobDivaName } from '../hooks/useJobDivaContact';
@@ -49,17 +49,20 @@ function isMissed(c: CallRecord): boolean {
     c.status === 'missed' ||
     c.status === 'no_answer' ||
     c.status === 'rejected' ||
-    c.status === 'failed'
+    c.status === 'failed' ||
+    c.status === 'blocked'
   );
 }
 
 function callIcon(c: CallRecord) {
+  if (c.status === 'blocked') return <Ban size={18} className="ico blocked" />;
   if (isMissed(c)) return <PhoneMissed size={18} className="ico missed" />;
   if (c.direction === 'inbound') return <PhoneIncoming size={18} className="ico in" />;
   return <PhoneOutgoing size={18} className="ico out" />;
 }
 
 function statusLabel(c: CallRecord): string {
+  if (c.status === 'blocked') return 'Blocked';
   if (c.direction === 'inbound') {
     if (c.status === 'rejected') return 'Declined';
     if (c.status === 'missed' || c.status === 'no_answer') return 'Missed';

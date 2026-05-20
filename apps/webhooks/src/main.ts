@@ -81,24 +81,27 @@ function decodeClientState(s: string | undefined | null): ClientState | null {
 
 // Bridge two Telnyx legs together via the Voice API (legacy fallback for
 // the old Add Call flow — used only when client_state lacks joinConfId).
-// Phase 6.8 - number blocking: hang up an inbound call that the recipient
-// has blacklisted. Uses Telnyx Call Control hangup API. Fail-open: if the
-// API key isn't set or the request fails, we just log and let the call
-// continue to the SIP endpoint - better to ring a legit call than to
-// silently drop one due to a server-side hiccup.
-async function hangupCallByControlId(
+// Phase 6.11 - number blocking: REJECT inbound call via Telnyx Call
+// Control with cause USER_BUSY. Previously we used /actions/hangup,
+// but Telnyx treated that as "no answer" and routed to Hosted Voicemail.
+// With reject+USER_BUSY, Telnyx returns SIP 486 to the caller and
+// SKIPS voicemail fallthrough - caller hears a busy signal.
+//
+// Fail-open: if the API key isn't set or the request fails, log and
+// let the call through.
+async function rejectCallByControlId(
   callControlId: string,
 ): Promise<{ ok: boolean; status?: number; error?: unknown }> {
   if (!TELNYX_API_KEY) return { ok: false, error: 'TELNYX_API_KEY not set on webhooks service' };
   const res = await fetch(
-    `https://api.telnyx.com/v2/calls/${encodeURIComponent(callControlId)}/actions/hangup`,
+    `https://api.telnyx.com/v2/calls/${encodeURIComponent(callControlId)}/actions/reject`,
     {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${TELNYX_API_KEY}`,
       },
-      body: JSON.stringify({}),
+      body: JSON.stringify({ cause: 'USER_BUSY' }),
     },
   );
   const body = await res.json().catch(() => ({}));
@@ -272,11 +275,11 @@ app.post('/webhooks/telnyx/calls', async (request) => {
         if (blocked) {
           app.log.info(
             { ownerUserId, fromNumber, callControlId },
-            '[blocked] inbound call from blocked number - hanging up',
+            '[blocked] inbound call from blocked number - rejecting with USER_BUSY',
           );
           if (callControlId) {
-            void hangupCallByControlId(callControlId).catch((e) =>
-              app.log.warn({ err: e }, '[blocked] hangup API failed'),
+            void rejectCallByControlId(callControlId).catch((e) =>
+              app.log.warn({ err: e }, '[blocked] reject API failed'),
             );
           }
         }
