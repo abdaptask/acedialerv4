@@ -3671,3 +3671,79 @@ button.call-pill-info:hover { background: rgba(255, 255, 255, 0.05); }
   background: rgba(59, 130, 246, 0.14);
   color: #0a66c2;
 }
+
+/* ============ SSO LOGIN ============ */
+/* Microsoft "Sign in with" button — follows Microsoft's brand guidance:
+   white background, 4-color logo on the left, label "Sign in with Microsoft". */
+.ms-signin-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  padding: 12px 16px;
+  background: #2f2f2f;
+  border: 1px solid #8c8c8c;
+  border-radius: 6px;
+  color: #ffffff;
+  font-size: 15px;
+  font-weight: 600;
+  font-family: 'Segoe UI', system-ui, sans-serif;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.ms-signin-btn:hover:not(:disabled) { background: #3a3a3a; }
+.ms-signin-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+[data-theme="light"] .ms-signin-btn {
+  background: #ffffff;
+  border-color: #8c8c8c;
+  color: #1a1a1a;
+}
+[data-theme="light"] .ms-signin-btn:hover:not(:disabled) { background: #f3f3f3; }
+
+/* Inline status banner used on the Login page for logout reasons + SSO errors. */
+.auth-banner {
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 13px;
+  margin-bottom: 12px;
+  line-height: 1.4;
+}
+.auth-banner-warn {
+  background: rgba(245, 158, 11, 0.10);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  color: #b45309;
+}
+.auth-banner-error {
+  background: rgba(239, 68, 68, 0.10);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  color: #b91c1c;
+}
+
+/* Small secondary 'Sign in with password' disclosure button under the
+   main Microsoft CTA. Looks like a link, behaves like a button. */
+.auth-disclosure-btn {
+  display: block;
+  margin: 16px auto 0;
+  background: transparent;
+  border: none;
+  color: var(--text-secondary, rgba(255,255,255,0.6));
+  font-size: 12px;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.auth-disclosure-btn:hover { color: var(--text-primary, #fff); }
+
+/* The local-password form shown after disclosure click. Smaller, denser
+   than the main button so it visually de-emphasises break-glass usage. */
+.auth-pwd-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px dashed rgba(255, 255, 255, 0.1);
+}
+[data-theme="light"] .auth-pwd-form {
+  border-top-color: rgba(0, 0, 0, 0.1);
+}

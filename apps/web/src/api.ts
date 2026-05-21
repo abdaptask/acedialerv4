@@ -769,3 +769,43 @@ export async function getInternalChatUnreadCount(token: string): Promise<number>
   const json = await res.json().catch(() => ({ count: 0 }));
   return Number(json?.count ?? 0);
 }
+
+// ---------------------------------------------------------------
+// Microsoft Entra ID SSO helpers (Phase 7).
+// ---------------------------------------------------------------
+
+export interface MicrosoftConfig {
+  clientId: string | null;
+  tenantId: string | null;
+  enabled: boolean;
+}
+
+export async function getMicrosoftConfig(): Promise<MicrosoftConfig> {
+  try {
+    const res = await fetch(`${API_URL}/auth/microsoft/config`);
+    if (!res.ok) return { clientId: null, tenantId: null, enabled: false };
+    return res.json();
+  } catch {
+    return { clientId: null, tenantId: null, enabled: false };
+  }
+}
+
+export async function exchangeMicrosoftCode(
+  code: string,
+  redirectUri: string,
+  codeVerifier: string,
+): Promise<{ token: string; user: User }> {
+  const res = await fetch(`${API_URL}/auth/microsoft/exchange`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ code, redirectUri, codeVerifier }),
+  });
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { error?: string; message?: string };
+    const msg = body.message || body.error || `Sign-in failed (HTTP ${res.status})`;
+    const err = new Error(msg) as Error & { code?: string };
+    err.code = body.error;
+    throw err;
+  }
+  return res.json();
+}

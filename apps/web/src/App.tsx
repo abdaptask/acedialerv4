@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import Login from './pages/Login';
+import MicrosoftCallback from './pages/MicrosoftCallback';
 import Layout from './pages/Layout';
 import Dialpad from './pages/Dialpad';
 import InCall from './pages/InCall';
@@ -90,6 +91,10 @@ export default function App() {
 
   return (
     <Routes>
+      <Route
+        path="/auth/microsoft/callback"
+        element={<MicrosoftCallback onSuccess={handleLoginSuccess} />}
+      />
       <Route
         path="/login"
         element={user ? <Navigate to="/keypad" /> : <Login onSuccess={handleLoginSuccess} />}
