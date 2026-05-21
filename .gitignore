@@ -31,3 +31,5 @@ coverage/
 .tsbuildinfo
 
 .env
+
+apps/desktop/release/

@@ -19,6 +19,11 @@ interface AceElectronBridge {
   openExternal: (url: string) => Promise<boolean>;
   onSsoCallback: (cb: (url: string) => void) => () => void;
   notifyReadyForSso: () => void;
+  // Phase 7.1 — silent auto-update bridge
+  onUpdateAvailable?: (cb: (info: { version: string | null }) => void) => () => void;
+  onUpdateProgress?: (cb: (info: { percent: number }) => void) => () => void;
+  onUpdateDownloaded?: (cb: (info: { version: string | null }) => void) => () => void;
+  installUpdate?: () => Promise<boolean>;
 }
 interface Window {
   ace?: AceElectronBridge;

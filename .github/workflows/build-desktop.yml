@@ -52,7 +52,12 @@ jobs:
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           CSC_IDENTITY_AUTO_DISCOVERY: ${{ secrets.APPLE_CSC_LINK == '' && 'false' || 'true' }}
-        run: npm run package:mac
+          # electron-builder needs this to create the GH Release and upload
+          # the .dmg + latest-mac.yml + blockmap so installed apps can
+          # auto-update via electron-updater. GITHUB_TOKEN is provided by
+          # the workflow context (we set contents: write at the top).
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npm run package:mac:publish
       - name: Upload .dmg artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -62,23 +67,7 @@ jobs:
             apps/desktop/release/*.zip
           if-no-files-found: error
           retention-days: 30
-      - name: Read package version (mac)
-        id: pkg_mac
-        working-directory: apps/desktop
-        run: |
-          echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
-      - name: Publish .dmg to GitHub Release
-        if: github.ref == 'refs/heads/main'
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: v${{ steps.pkg_mac.outputs.version }}
-          name: ACE Dialer v${{ steps.pkg_mac.outputs.version }}
-          files: |
-            apps/desktop/release/*.dmg
-          fail_on_unmatched_files: false
-          generate_release_notes: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
 
   windows:
     name: Build Windows .exe
@@ -101,7 +90,10 @@ jobs:
         working-directory: apps/desktop
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
-        run: npm run package:win
+          # electron-builder needs this to create the GH Release and upload
+          # the .exe + latest.yml + blockmap for auto-update.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npm run package:win:publish
       - name: Upload .exe artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -111,21 +103,4 @@ jobs:
             apps/desktop/release/*.msi
           if-no-files-found: error
           retention-days: 30
-      - name: Read package version (windows)
-        id: pkg_win
-        working-directory: apps/desktop
-        shell: bash
-        run: |
-          echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
-      - name: Publish .exe to GitHub Release
-        if: github.ref == 'refs/heads/main'
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: v${{ steps.pkg_win.outputs.version }}
-          name: ACE Dialer v${{ steps.pkg_win.outputs.version }}
-          files: |
-            apps/desktop/release/*.exe
-          fail_on_unmatched_files: false
-          generate_release_notes: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+

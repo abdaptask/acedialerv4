@@ -67,4 +67,27 @@ contextBridge.exposeInMainWorld('ace', {
   // cold-start protocol URLs (used to flush a buffered URL from the
   // first launch's argv).
   notifyReadyForSso: () => ipcRenderer.send('ace:sso-ready'),
+
+  // ── Silent auto-update bridge (Phase 7.1) ──
+  // Renderer subscribes so UpdateBanner can show a "Restart to install"
+  // button once electron-updater has downloaded the new version in the
+  // background. Returns an unsubscribe fn for the React useEffect pattern.
+  onUpdateAvailable: (cb: (info: { version: string | null }) => void) => {
+    const handler = (_e: unknown, info: { version: string | null }) => cb(info);
+    ipcRenderer.on('ace:update-available', handler);
+    return () => ipcRenderer.removeListener('ace:update-available', handler);
+  },
+  onUpdateProgress: (cb: (info: { percent: number }) => void) => {
+    const handler = (_e: unknown, info: { percent: number }) => cb(info);
+    ipcRenderer.on('ace:update-progress', handler);
+    return () => ipcRenderer.removeListener('ace:update-progress', handler);
+  },
+  onUpdateDownloaded: (cb: (info: { version: string | null }) => void) => {
+    const handler = (_e: unknown, info: { version: string | null }) => cb(info);
+    ipcRenderer.on('ace:update-downloaded', handler);
+    return () => ipcRenderer.removeListener('ace:update-downloaded', handler);
+  },
+  // Trigger install-now. Main process quits, runs the installer, and
+  // relaunches the new build.
+  installUpdate: (): Promise<boolean> => ipcRenderer.invoke('ace:install-update'),
 });

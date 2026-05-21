@@ -3,6 +3,12 @@
 // the window to the system tray on close so active calls keep running.
 import { app, BrowserWindow, shell, Menu, ipcMain, screen, Tray, nativeImage } from 'electron';
 import * as path from 'node:path';
+// electron-updater handles the entire silent-update lifecycle: poll GitHub
+// Releases, download the new installer in the background, and offer to restart.
+// Mac auto-update REQUIRES the app be signed + notarized (we have both). On
+// Windows it works regardless of signing. Configured via the `publish` block
+// in package.json which points at our GH repo.
+import { autoUpdater } from 'electron-updater';
 
 let mainWindow: BrowserWindow | null = null;
 let ringerWindow: BrowserWindow | null = null;
@@ -489,10 +495,86 @@ ipcMain.handle('ace:open-external', async (_event, url: string) => {
   return true;
 });
 
+
+// ────────────────────────────────────────────────────────────────────────
+// Silent auto-update (electron-updater)
+//
+// Flow:
+//   1. On app launch + every 60 minutes after, check GH Releases for a
+//      higher version than the installed one.
+//   2. If found, download the new installer in the background (no UI).
+//   3. When the download finishes, send 'ace:update-downloaded' to the
+//      renderer so UpdateBanner can show a "Restart to install" button.
+//   4. Renderer calls 'ace:install-update' → autoUpdater.quitAndInstall()
+//      quits the app, runs the installer, relaunches the new build.
+//
+// We intentionally DON'T call autoUpdater.checkForUpdatesAndNotify() —
+// that uses native OS notifications which most users dismiss and forget.
+// Surfacing inside the app gives a much more reliable nudge.
+// ────────────────────────────────────────────────────────────────────────
+let autoUpdateInitialized = false;
+function initAutoUpdater() {
+  if (autoUpdateInitialized) return;
+  autoUpdateInitialized = true;
+
+  // In dev (no DEV_SERVER_URL hint means we're packaged, but extra safety:)
+  // electron-updater fails politely when run from an unpackaged dev build,
+  // so we don't need to guard against that explicitly.
+
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = true;
+
+  autoUpdater.on('checking-for-update', () => {
+    // Quiet — only log; no UI.
+    console.log('[auto-update] checking for update');
+  });
+  autoUpdater.on('update-available', (info) => {
+    console.log('[auto-update] update available', info?.version);
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('ace:update-available', { version: info?.version ?? null });
+    }
+  });
+  autoUpdater.on('update-not-available', () => {
+    console.log('[auto-update] up to date');
+  });
+  autoUpdater.on('download-progress', (progress) => {
+    const pct = Math.round(progress?.percent ?? 0);
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('ace:update-progress', { percent: pct });
+    }
+  });
+  autoUpdater.on('update-downloaded', (info) => {
+    console.log('[auto-update] update downloaded', info?.version);
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('ace:update-downloaded', { version: info?.version ?? null });
+    }
+  });
+  autoUpdater.on('error', (err) => {
+    console.warn('[auto-update] error', err?.message ?? err);
+  });
+
+  // First check shortly after launch (give the renderer a moment to mount
+  // the UpdateBanner subscription), then poll hourly.
+  setTimeout(() => { void autoUpdater.checkForUpdates().catch(() => {}); }, 15_000);
+  setInterval(() => { void autoUpdater.checkForUpdates().catch(() => {}); }, 60 * 60 * 1000);
+}
+
+// Renderer asks main to install the downloaded update. quitAndInstall closes
+// every window, runs the installer, and relaunches the new build. The
+// `isQuittingForReal` flag lets the window-close handler skip its
+// hide-to-tray behavior so we actually exit instead of just hiding.
+ipcMain.handle('ace:install-update', async () => {
+  isQuittingForReal = true;
+  setImmediate(() => autoUpdater.quitAndInstall(false, true));
+  return true;
+});
+
 app.whenReady().then(() => {
   buildMenu();
   createTray();
   createWindow();
+  // Kick the silent-update lifecycle. Polls GH Releases on a 60-min loop.
+  initAutoUpdater();
   app.on('activate', () => {
     // macOS: dock click. If we have no windows, build one — but if the
     // window exists and is hidden (close-to-tray), surface it instead.

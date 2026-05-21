@@ -1,43 +1,41 @@
 // In-app banner that surfaces when a newer version of ACE Dialer is live.
 //
-// How it works:
-//   1. On mount (and every 15 minutes after), poll the API's `/` endpoint
-//      which returns the SERVER's published version.
-//   2. Compare that to the bundled `__APP_VERSION__` (Vite-injected from
-//      apps/web/package.json at build time).
-//   3. If the server is newer AND the user hasn't dismissed this update yet,
-//      show a non-blocking pill at the top of every page with:
-//        - "v0.7.0 is available" (or whatever the new version is)
-//        - "Download update" button → opens the GitHub Releases page in the
-//           user's default browser (Electron uses shell.openExternal; web
-//           opens a new tab). On web, also offer "Refresh now" since a fresh
-//           page load is enough to pick up the new Vercel bundle.
-//        - "✕" dismiss → sessionStorage flag so we don't nag for the rest
-//          of this session.
+// Two paths, depending on what the runtime supports:
 //
-// This is a stop-gap until we wire full electron-updater for silent
-// download + restart-to-install. For the pilot it's enough to make sure
-// nobody runs an outdated build for weeks without realizing it.
+//  A) ELECTRON with electron-updater (the new normal — Phase 7.1):
+//     - Main process polls GitHub Releases every 60 min, downloads the new
+//       installer SILENTLY in the background, and emits IPC events.
+//     - We subscribe via window.ace.onUpdateAvailable / onUpdateDownloaded.
+//     - When download finishes, show "Update ready — Restart to install"
+//       with a single button that calls window.ace.installUpdate(). The
+//       main process runs `autoUpdater.quitAndInstall()`, the new installer
+//       runs, the app relaunches. Zero clicks beyond the restart button.
+//
+//  B) WEB BROWSER, or older Electron without the updater bridge (legacy):
+//     - We fall back to polling the API's `/` endpoint every 15 min and
+//       comparing the server version against the bundled __APP_VERSION__.
+//     - When ahead, show a banner with:
+//         - "Refresh now" (web) → reload the page so the new Vercel bundle
+//           gets picked up.
+//         - "Download installer" → opens GitHub Releases in the system
+//           browser so the user can grab the new .dmg or .exe.
+//
+// Dismissal is keyed by candidate version so the banner reappears on the
+// NEXT release even if the user dismissed the previous one.
 import { useEffect, useState } from 'react';
 import { Download, X, RefreshCcw } from 'lucide-react';
 import { getApiVersion } from '../api';
 
-// User's GitHub releases page. Updated to publish actual installer assets
-// via the build-desktop workflow.
 const RELEASES_URL = 'https://github.com/abdaptask/acedialerv4/releases/latest';
 const DISMISS_KEY_PREFIX = 'ace_update_dismissed_';
-const POLL_INTERVAL_MS = 15 * 60 * 1000; // every 15 minutes
+const POLL_INTERVAL_MS = 15 * 60 * 1000; // every 15 minutes (web/fallback path)
 
-// Parse "1.2.3" → [1, 2, 3]. Ignores anything non-numeric so "1.2.3-beta"
-// still works (yields [1, 2, 3]).
 function parseSemver(v: string): number[] {
   return v.split(/[.\-+]/).map((p) => {
     const n = parseInt(p, 10);
     return Number.isFinite(n) ? n : 0;
   });
 }
-
-// Returns positive if a > b, 0 if equal, negative if a < b.
 function compareSemver(a: string, b: string): number {
   const aP = parseSemver(a);
   const bP = parseSemver(b);
@@ -51,20 +49,62 @@ function compareSemver(a: string, b: string): number {
 
 declare const __APP_VERSION__: string | undefined;
 
+type UpdateState =
+  | { phase: 'idle' }
+  | { phase: 'available'; version: string | null }
+  | { phase: 'downloading'; version: string | null; percent: number }
+  | { phase: 'downloaded'; version: string | null }
+  | { phase: 'server-ahead'; version: string }; // fallback path (web or legacy electron)
+
 export default function UpdateBanner() {
-  const [serverVersion, setServerVersion] = useState<string | null>(null);
+  const [state, setState] = useState<UpdateState>({ phase: 'idle' });
   const [dismissed, setDismissed] = useState<boolean>(false);
+  const [installing, setInstalling] = useState<boolean>(false);
 
   const localVersion =
     typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.0.0';
 
-  // Poll on mount, then every POLL_INTERVAL_MS. Single source of truth is
-  // the API's `/` endpoint which returns { version: "0.6.0", ... }.
+  const ace = window.ace;
+  const isElectron = !!ace?.isElectron;
+  const hasAutoUpdater =
+    isElectron &&
+    typeof ace?.onUpdateAvailable === 'function' &&
+    typeof ace?.onUpdateDownloaded === 'function' &&
+    typeof ace?.installUpdate === 'function';
+
+  // Path A — silent auto-update events from the Electron main process.
   useEffect(() => {
+    if (!hasAutoUpdater) return;
+    const unsubAvail = ace!.onUpdateAvailable!((info) => {
+      setState({ phase: 'available', version: info.version });
+    });
+    const unsubProg = ace!.onUpdateProgress?.((info) => {
+      setState((prev) => {
+        const version = ('version' in prev) ? prev.version ?? null : null;
+        return { phase: 'downloading', version, percent: info.percent };
+      });
+    });
+    const unsubDone = ace!.onUpdateDownloaded!((info) => {
+      setState({ phase: 'downloaded', version: info.version });
+    });
+    return () => {
+      unsubAvail?.();
+      unsubProg?.();
+      unsubDone?.();
+    };
+  }, [hasAutoUpdater, ace]);
+
+  // Path B — fallback poll of API version (web browser, or old Electron
+  // installs that don't have the auto-updater bridge yet).
+  useEffect(() => {
+    if (hasAutoUpdater) return;
     let cancelled = false;
     async function check() {
       const v = await getApiVersion();
-      if (!cancelled && v) setServerVersion(v);
+      if (cancelled || !v) return;
+      if (compareSemver(v, localVersion) > 0) {
+        setState({ phase: 'server-ahead', version: v });
+      }
     }
     void check();
     const id = window.setInterval(check, POLL_INTERVAL_MS);
@@ -72,26 +112,35 @@ export default function UpdateBanner() {
       cancelled = true;
       window.clearInterval(id);
     };
-  }, []);
+  }, [hasAutoUpdater, localVersion]);
 
-  // Re-check dismissal whenever the candidate version changes — we key the
-  // sessionStorage flag by version, so the banner re-appears on the NEXT
-  // release even if the user dismissed the previous one.
+  // Reset dismissal when the candidate version changes — a new release
+  // surfaces fresh even if the previous one was dismissed.
   useEffect(() => {
-    if (!serverVersion) return;
-    const key = DISMISS_KEY_PREFIX + serverVersion;
+    const v =
+      state.phase === 'idle' ? null
+      : state.phase === 'available' || state.phase === 'downloading' || state.phase === 'downloaded' ? state.version
+      : state.version;
+    if (!v) return;
+    const key = DISMISS_KEY_PREFIX + v;
     setDismissed(sessionStorage.getItem(key) === '1');
-  }, [serverVersion]);
+  }, [state]);
 
-  if (!serverVersion) return null;
-  if (compareSemver(serverVersion, localVersion) <= 0) return null;
+  if (state.phase === 'idle') return null;
   if (dismissed) return null;
 
-  const isElectron = !!window.ace?.isElectron;
+  function handleInstallNow() {
+    if (!ace?.installUpdate) return;
+    setInstalling(true);
+    // Fire-and-forget — main quits the app and runs the installer; React
+    // never gets a chance to re-render so we just show the "installing" UI
+    // until the OS swaps us out.
+    void ace.installUpdate().catch(() => setInstalling(false));
+  }
 
-  function handleDownload() {
-    if (isElectron && window.ace?.openExternal) {
-      window.ace.openExternal(RELEASES_URL);
+  function handleOpenReleases() {
+    if (isElectron && ace?.openExternal) {
+      void ace.openExternal(RELEASES_URL);
     } else {
       window.open(RELEASES_URL, '_blank', 'noopener,noreferrer');
     }
@@ -102,28 +151,69 @@ export default function UpdateBanner() {
   }
 
   function handleDismiss() {
-    const key = DISMISS_KEY_PREFIX + serverVersion;
-    sessionStorage.setItem(key, '1');
+    const v =
+      state.phase === 'available' || state.phase === 'downloading' || state.phase === 'downloaded' ? state.version
+      : state.phase === 'server-ahead' ? state.version
+      : null;
+    if (!v) return;
+    sessionStorage.setItem(DISMISS_KEY_PREFIX + v, '1');
     setDismissed(true);
   }
 
-  return (
-    <div className="update-banner" role="status" aria-live="polite">
-      <span className="update-banner-icon" aria-hidden="true">
-        <Download size={16} />
+  // ------- Render -------
+  const candidate =
+    state.phase === 'server-ahead' ? state.version
+    : (state.phase === 'available' || state.phase === 'downloading' || state.phase === 'downloaded') ? (state.version ?? '')
+    : '';
+
+  let title = 'Update available';
+  let actions: React.ReactNode = null;
+
+  if (state.phase === 'available') {
+    title = 'Update available — downloading…';
+    actions = (
+      <span className="update-banner-versions">
+        v{localVersion} → v{candidate || '?'}
       </span>
-      <span className="update-banner-text">
-        <strong>Update available</strong>
+    );
+  } else if (state.phase === 'downloading') {
+    title = `Downloading update — ${Math.round(state.percent)}%`;
+    actions = (
+      <span className="update-banner-versions">
+        v{localVersion} → v{candidate || '?'}
+      </span>
+    );
+  } else if (state.phase === 'downloaded') {
+    title = 'Update ready';
+    actions = (
+      <>
         <span className="update-banner-versions">
-          v{localVersion} → v{serverVersion}
+          v{localVersion} → v{candidate || '?'}
         </span>
-      </span>
-      <div className="update-banner-actions">
+        <button
+          type="button"
+          className="update-banner-cta"
+          onClick={handleInstallNow}
+          disabled={installing}
+          title="Restart the app to install"
+        >
+          <Download size={14} />
+          {installing ? 'Restarting…' : 'Restart to install'}
+        </button>
+      </>
+    );
+  } else if (state.phase === 'server-ahead') {
+    title = 'Update available';
+    actions = (
+      <>
+        <span className="update-banner-versions">
+          v{localVersion} → v{candidate}
+        </span>
         {isElectron ? (
           <button
             type="button"
             className="update-banner-cta"
-            onClick={handleDownload}
+            onClick={handleOpenReleases}
             title={`Open ${RELEASES_URL}`}
           >
             <Download size={14} />
@@ -143,13 +233,27 @@ export default function UpdateBanner() {
             <button
               type="button"
               className="update-banner-cta-secondary"
-              onClick={handleDownload}
+              onClick={handleOpenReleases}
               title={`Open ${RELEASES_URL}`}
             >
               Desktop installers
             </button>
           </>
         )}
+      </>
+    );
+  }
+
+  return (
+    <div className="update-banner" role="status" aria-live="polite">
+      <span className="update-banner-icon" aria-hidden="true">
+        <Download size={16} />
+      </span>
+      <span className="update-banner-text">
+        <strong>{title}</strong>
+      </span>
+      <div className="update-banner-actions">
+        {actions}
         <button
           type="button"
           className="update-banner-dismiss"

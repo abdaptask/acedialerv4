@@ -1,6 +1,6 @@
 {
   "name": "@ace/desktop",
-  "version": "0.6.1",
+  "version": "0.7.0",
   "private": true,
   "description": "ACE Dialer desktop app (Electron)",
   "author": "ApTask",
@@ -11,7 +11,9 @@
     "dev": "cross-env VITE_DEV_SERVER_URL=http://localhost:5173 electron .",
     "package": "electron-builder",
     "package:win": "electron-builder --win",
-    "package:mac": "electron-builder --mac"
+    "package:mac": "electron-builder --mac",
+    "package:win:publish": "electron-builder --win --publish always",
+    "package:mac:publish": "electron-builder --mac --publish always"
   },
   "build": {
     "appId": "com.aptask.acedialer",
@@ -104,7 +106,14 @@
       }
     ],
     "npmRebuild": false,
-    "buildDependenciesFromSource": false
+    "buildDependenciesFromSource": false,
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "abdaptask",
+        "repo": "acedialerv4"
+      }
+    ]
   },
   "devDependencies": {
     "@types/node": "^20.11.0",
@@ -116,5 +125,8 @@
   },
   "optionalDependencies": {
     "dmg-license": "^1.0.11"
+  },
+  "dependencies": {
+    "electron-updater": "^6.3.9"
   }
 }
