@@ -96,13 +96,16 @@
           "ace-dialer"
         ]
       }
-    ]
+    ],
+    "npmRebuild": false,
+    "buildDependenciesFromSource": false
   },
   "devDependencies": {
     "@types/node": "^20.11.0",
     "cross-env": "^7.0.3",
+    "dmg-builder": "^25.1.8",
     "electron": "31.7.7",
-    "electron-builder": "^25.0.0",
+    "electron-builder": "^25.1.8",
     "typescript": "^5.4.5"
   }
 }
