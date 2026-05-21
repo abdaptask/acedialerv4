@@ -81,7 +81,9 @@
               "ace-dialer"
             ]
           }
-        ]
+        ],
+        "NSMicrophoneUsageDescription": "ACE Dialer needs access to your microphone to make and receive phone calls.",
+        "NSCameraUsageDescription": "ACE Dialer does not currently use the camera but the runtime may probe it."
       }
     },
     "linux": {
