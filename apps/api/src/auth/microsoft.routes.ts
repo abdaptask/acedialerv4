@@ -21,27 +21,50 @@
 // "ask your admin" message — they are NOT silently auto-created.
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { ConfidentialClientApplication } from '@azure/msal-node';
+import { ConfidentialClientApplication, PublicClientApplication } from '@azure/msal-node';
 import { prisma } from '@ace/db';
 import { config } from '../config.js';
 
 const ExchangeSchema = z.object({
   code: z.string().min(1),
-  redirectUri: z.string().url(),
+  // Allow https:// (web) AND custom schemes like ace-dialer:// (Electron).
+  redirectUri: z.string().min(1).refine(
+    (v) => /^(https?|[a-z][a-z0-9+.-]*):\/\//i.test(v),
+    { message: 'redirectUri must be an absolute URL with a scheme' },
+  ),
   // PKCE verifier. Strongly recommended (web app must send it); MSAL allows
   // omission for backward-compat but we'll require it once the web side is
   // wired. For now mark optional so the route doesn't reject early.
   codeVerifier: z.string().optional(),
 });
 
-function getMsalClient(): ConfidentialClientApplication | null {
-  if (!config.msClientId || !config.msTenantId || !config.msClientSecret) {
-    return null;
+type AnyMsalClient = ConfidentialClientApplication | PublicClientApplication;
+
+/** Picks the right MSAL client based on the redirect URI.
+ *
+ * Azure registers redirect URIs under platforms:
+ *   - "Web" platform (https URLs) → confidential client, sends client_secret
+ *   - "Mobile and desktop" platform (custom schemes like ace-dialer://) →
+ *     public client, PKCE-only, NO client_secret allowed
+ *
+ * Sending a client_secret for a custom-scheme redirect URI registered as
+ * public causes Microsoft to return AADSTS9002326 / AADSTS7000218 errors.
+ * Branch here so each flow uses the right client class. */
+function getMsalClient(redirectUri: string): AnyMsalClient | null {
+  if (!config.msClientId || !config.msTenantId) return null;
+  const authority = `https://login.microsoftonline.com/${config.msTenantId}`;
+  // Custom URL schemes (ace-dialer://) → public client.
+  if (!/^https?:\/\//i.test(redirectUri)) {
+    return new PublicClientApplication({
+      auth: { clientId: config.msClientId, authority },
+    });
   }
+  // https:// redirect → confidential client. Requires the secret.
+  if (!config.msClientSecret) return null;
   return new ConfidentialClientApplication({
     auth: {
       clientId: config.msClientId,
-      authority: `https://login.microsoftonline.com/${config.msTenantId}`,
+      authority,
       clientSecret: config.msClientSecret,
     },
   });
@@ -63,19 +86,21 @@ interface IdTokenClaims {
 export async function microsoftAuthRoutes(app: FastifyInstance) {
   // POST /auth/microsoft/exchange — trade the OAuth auth code for our JWT.
   app.post('/auth/microsoft/exchange', async (request, reply) => {
-    const msal = getMsalClient();
+    const parsed = ExchangeSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: 'invalid_request', details: parsed.error.flatten() });
+    }
+    const { code, redirectUri, codeVerifier } = parsed.data;
+
+    // Pick the right MSAL client class based on whether this is a web
+    // (https) redirect or an Electron custom-scheme (ace-dialer://) redirect.
+    const msal = getMsalClient(redirectUri);
     if (!msal) {
       return reply.code(501).send({
         error: 'sso_not_configured',
         message: 'Microsoft SSO is not configured on this server. Contact admin.',
       });
     }
-
-    const parsed = ExchangeSchema.safeParse(request.body);
-    if (!parsed.success) {
-      return reply.code(400).send({ error: 'invalid_request', details: parsed.error.flatten() });
-    }
-    const { code, redirectUri, codeVerifier } = parsed.data;
 
     let tokenResp;
     try {
