@@ -74,8 +74,8 @@
       "category": "public.app-category.business",
       "hardenedRuntime": true,
       "gatekeeperAssess": false,
-      "entitlements": "build/entitlements.mac.plist",
-      "entitlementsInherit": "build/entitlements.mac.plist",
+      "entitlements": "entitlements.mac.plist",
+      "entitlementsInherit": "entitlements.mac.plist",
       "notarize": true,
       "extendInfo": {
         "CFBundleURLTypes": [
