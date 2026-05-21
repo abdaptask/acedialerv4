@@ -3600,7 +3600,8 @@ button.call-pill-info:hover { background: rgba(255, 255, 255, 0.05); }
   flex: 1;
   white-space: nowrap;
   overflow: hidden;
-  text-overflow: e
+  text-overflow: ellipsis;
+}
 
 /* ============ CHAT TAB (avatars + 6-tab spacing) ============ */
 /* Round colored gradient avatars used in the Chat thread list, user picker,
