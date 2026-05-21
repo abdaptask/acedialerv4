@@ -27,10 +27,24 @@ const app = Fastify({
 });
 
 await app.register(cors, {
-  origin:
-    config.allowedOrigins.length === 1 && config.allowedOrigins[0] === '*'
-      ? true
-      : config.allowedOrigins,
+  // Reflect the request's Origin header instead of using wildcard `true`.
+  // Required because: (a) CORS spec forbids combining `*` with credentials,
+  // and (b) Electron pages load from file:// which sends Origin: null —
+  // those would be rejected by a strict allowlist. We reflect any origin
+  // because JWT auth means we don't need a cross-origin allowlist for
+  // session-cookie protection. When ALLOWED_ORIGINS is set (e.g. in prod
+  // hardening) we restrict to that allowlist.
+  origin: (origin, cb) => {
+    if (config.allowedOrigins.length === 1 && config.allowedOrigins[0] === '*') {
+      cb(null, true);
+      return;
+    }
+    if (!origin || config.allowedOrigins.includes(origin)) {
+      cb(null, true);
+      return;
+    }
+    cb(null, false);
+  },
   credentials: true,
 });
 
