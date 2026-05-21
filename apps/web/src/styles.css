@@ -4466,3 +4466,217 @@ button.call-pill-info:hover { background: rgba(255, 255, 255, 0.05); }
   opacity: 0.4;
   cursor: not-allowed;
 }
+
+/* ============ INCOMING CALL: REPLY BUTTON + POST-DECLINE SHEET (#201 rebuild) ============ */
+/* Amber third button in the IncomingCall action row. Colour distinct from
+   red Decline and green Accept so it reads as "warm reply / soft decline". */
+.incoming-btn.reply {
+  background: linear-gradient(180deg, #ff9500, #d97706);
+  color: #ffffff;
+  border: none;
+}
+.incoming-btn.reply:hover { filter: brightness(1.07); }
+.incoming-btn.reply:active { transform: translateY(1px); }
+.incoming-btn.reply.small {
+  background: linear-gradient(180deg, #ff9500, #d97706);
+}
+
+/* The post-decline sheet — separate component, mounted in Layout. Slides up
+   from the bottom; the user can pick a quick reply, type a custom message,
+   or skip. Auto-closes 1.4s after a successful send. */
+.post-decline-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1300;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  animation: post-decline-fade 0.15s ease-out;
+}
+@keyframes post-decline-fade {
+  from { background: rgba(0, 0, 0, 0); }
+  to { background: rgba(0, 0, 0, 0.55); }
+}
+.post-decline-sheet {
+  width: 100%;
+  max-width: 480px;
+  margin: 0 auto;
+  background: var(--bg-card, #1c1c1e);
+  border-top-left-radius: 16px;
+  border-top-right-radius: 16px;
+  padding: 18px 18px 24px;
+  box-shadow: 0 -12px 32px rgba(0, 0, 0, 0.45);
+  animation: post-decline-slide 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes post-decline-slide {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+@media (min-width: 640px) {
+  .post-decline-overlay { align-items: center; }
+  .post-decline-sheet {
+    border-radius: 16px;
+    box-shadow: 0 24px 64px rgba(0, 0, 0, 0.55);
+  }
+}
+[data-theme="light"] .post-decline-sheet {
+  background: #ffffff;
+  box-shadow: 0 -12px 32px rgba(0, 0, 0, 0.15);
+}
+
+.post-decline-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.post-decline-tag {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #ff9500;
+  font-weight: 600;
+}
+.post-decline-title {
+  margin: 4px 0 0;
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--text);
+}
+.post-decline-close {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-muted);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.post-decline-close:hover { background: rgba(255, 255, 255, 0.12); color: var(--text); }
+[data-theme="light"] .post-decline-close { background: rgba(0, 0, 0, 0.05); }
+[data-theme="light"] .post-decline-close:hover { background: rgba(0, 0, 0, 0.10); }
+
+.post-decline-replies {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 12px;
+}
+.post-decline-reply-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 12px 14px;
+  margin-bottom: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+  border-radius: 10px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+.post-decline-reply-item:hover:not(:disabled) {
+  background: rgba(10, 132, 255, 0.18);
+  border-color: rgba(10, 132, 255, 0.4);
+}
+.post-decline-reply-item:disabled { opacity: 0.4; cursor: not-allowed; }
+[data-theme="light"] .post-decline-reply-item {
+  background: rgba(0, 0, 0, 0.025);
+  border-color: rgba(0, 0, 0, 0.08);
+}
+[data-theme="light"] .post-decline-reply-item:hover:not(:disabled) {
+  background: rgba(10, 132, 255, 0.10);
+  border-color: rgba(10, 132, 255, 0.30);
+}
+
+.post-decline-empty {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+  margin-bottom: 12px;
+  font-size: 13px;
+}
+[data-theme="light"] .post-decline-empty { background: rgba(0, 0, 0, 0.03); }
+
+.post-decline-custom {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+.post-decline-custom input {
+  flex: 1;
+  padding: 11px 14px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text);
+  font-size: 14px;
+}
+.post-decline-custom input:focus {
+  outline: none;
+  border-color: #0a84ff;
+  background: rgba(255, 255, 255, 0.08);
+}
+[data-theme="light"] .post-decline-custom input {
+  background: #ffffff;
+  border-color: rgba(0, 0, 0, 0.14);
+}
+.post-decline-send {
+  padding: 11px 16px;
+  border: none;
+  border-radius: 10px;
+  background: #0a84ff;
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.post-decline-send:hover:not(:disabled) { background: #0973e0; }
+.post-decline-send:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.post-decline-success {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px;
+  border-radius: 12px;
+  background: rgba(52, 199, 89, 0.14);
+  border: 1px solid rgba(52, 199, 89, 0.30);
+}
+.post-decline-success-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: #34c759;
+  color: #ffffff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.post-decline-skip {
+  margin-top: 14px;
+  text-align: center;
+}
+.post-decline-skip-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 6px 10px;
+  border-radius: 6px;
+}
+.post-decline-skip-btn:hover { color: var(--text); background: rgba(255, 255, 255, 0.05); }
+[data-theme="light"] .post-decline-skip-btn:hover { background: rgba(0, 0, 0, 0.04); }

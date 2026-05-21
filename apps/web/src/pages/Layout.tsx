@@ -22,6 +22,7 @@ import {
   getInternalChatUnreadCount,
 } from '../api';
 import IncomingCall from '../components/IncomingCall';
+import PostDeclineReply from '../components/PostDeclineReply';
 import SmsNotifier from '../components/SmsNotifier';
 import UpdateBanner from '../components/UpdateBanner';
 import { useSip } from '../contexts/SipContext';
@@ -179,6 +180,10 @@ export default function Layout({ user, onLogout }: Props) {
   return (
     <div className="app-shell">
       <IncomingCall />
+      {/* Mounted OUTSIDE IncomingCall so the quick-reply sheet survives the
+          call's UI unmounting on decline. Listens for the
+          ace:reply-after-decline window event. (#201 rebuild) */}
+      <PostDeclineReply />
       <SmsNotifier />
       {/* Polls the API every 15 min — when the server reports a higher
           version than the bundled __APP_VERSION__, surfaces a pill at the

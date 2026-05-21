@@ -1,7 +1,7 @@
 # ACE Dialer — Working Checklist
 
 **Last updated:** 2026-05-21 (late evening)
-**Current version (working tree):** v0.7.0
+**Current version (working tree):** v0.7.2
 **Owner:** Abdulla (abdulla@aptask.com)
 **Pilot target:** 150 total users, ~30–40 concurrent peak
 
@@ -9,131 +9,195 @@
 
 ## Decisions made
 
-- [ ] **Postgres provider** — Neon ($19/mo Scale) or Render Postgres ($19/mo)? *User sourcing cheaper elsewhere.*
-- [x] **Auto-provision on first SSO** — **invite-only**
-- [x] **Break-glass local-password accounts** — yes, abdulla@aptask.com keeps password fallback
+- [ ] **Postgres provider** — Neon or Render Postgres? *User sourcing cheaper elsewhere.*
+- [x] **Auto-provision on first SSO** — invite-only
+- [x] **Break-glass local-password accounts** — yes
 - [x] **Installer code-signing** — Mac done. Windows deferred to GA.
+- [x] **Admin panel surface** — keep visible on web AND desktop (security is server-side anyway)
 
 ---
 
 ## Phases 1–4 ✅ DONE
-Entra ID setup · Schema + SSO backend · Login UI · Polished Login + Electron deep-link + Signed-and-notarized .dmg + Windows .exe in CI
+Entra ID setup · Schema + SSO backend · Login UI · Polished Login + Electron deep-link + Signed-notarized .dmg + Windows .exe in CI
 
-## Phase 4.5 — Daily polish (#159, #161, #195, #196) ✅ DONE
-Block buttons on Recents + Messages · Favorite name in Recents/IncomingCall/InCall/Messages/Voicemail/Dialpad-quickpick · **Favorites synced server-side via /favorites API** · Version bump 0.4.0 → 0.6.0 → 0.6.1
+## Phase 4.5 — Daily polish ✅ DONE
+Block buttons · Favorite name everywhere (incl. Dialpad quick-pick) · Universal server-side favorite sync · Version bump 0.4.0 → 0.6.0 → 0.6.1
 
-## Phase 5 (postponed per user — pull when ready)
+## Phase 5 (postponed)
 - [ ] **#189** CSV bulk-import existing 150 Telnyx-assigned users
-- [ ] Telnyx Portal: export Credentials tab + join with Entra emails
 
 ## Phase 6 — Admin Users panel ✅ DONE
-- [x] **#168 + #178 + #179** GET/POST/PATCH /admin/users + frontend table + safeguards (last-admin guard, no self-toggle, no self-deactivate)
-- [x] **#180** GET /admin/audit-logs + read-only viewer in Settings
-- [x] **#200** Invite-user modal with optional Advanced (paste Telnyx creds + local password)
+- [x] **#168 / #178 / #179** GET/POST/PATCH /admin/users + frontend table + safeguards
+- [x] **#180** GET /admin/audit-logs + viewer in Settings
+- [x] **#200** Invite modal with optional Advanced (paste Telnyx creds + local password)
 - [ ] **#166** Telnyx API investigation (sub-credential create, DID purchase, voicemail config)
-- [ ] **#167** Add Telnyx orchestration to POST /admin/users with rollback (blocked on #166)
-- [ ] **#169** CLI fallback `scripts/provision-user.mjs` (defer)
-- [ ] **#171** New-user onboarding one-pager PDF (defer)
+- [ ] **#167** Telnyx orchestration inside POST /admin/users with rollback (blocked on #166)
+- [ ] **#169** CLI fallback `scripts/provision-user.mjs`
+- [ ] **#171** New-user onboarding one-pager PDF
 
-## Phase 7 — Update infrastructure (#197, #198, #199) ✅ DONE
-- [x] **#197** In-app "Update available" banner (polls API every 15 min)
-- [x] **#198** GitHub Actions publishes versioned releases (electron-builder + softprops)
-- [x] **#199** `electron-updater` wired for silent download + restart-to-install
-- [x] CI uses `electron-builder --publish always` → uploads latest.yml + blockmap + installers to GH Release
-- [x] Bump 0.6.1 → 0.7.0
+## Phase 7 — Update infrastructure ✅ DONE
+- [x] **#197** In-app "Update available" banner (polls every 15 min)
+- [x] **#198** GitHub Actions publishes versioned releases (electron-builder + GH Release)
+- [x] **#199** `electron-updater` silent download + restart-to-install
+- [x] CI uses `electron-builder --publish always` → uploads latest.yml + blockmap + installers
 
-## Phase 7.5 — User-requested QoL ← TODAY
-- [x] **#201** **Reject incoming call with quick-reply SMS** — popover on inbound shows saved quick replies + custom-text input; declines AND sends SMS in one action
-- [ ] **#202** **Local presence (pick "calling from" DID)** — new UserDid table + caller-id dropdown on Dialpad. Defer until #166 lands.
-- [ ] **#203** **Voicemail transcription** — code already in webhook; flip "Transcription" on in Telnyx Portal under the Hosted Voicemail Profile. ~$0.05/min cost.
+## Phase 7.5 — User-requested QoL ✅ DONE (this push)
+- [x] **#201** Decline incoming call with quick-reply SMS — **rebuilt as proper 3rd button + post-decline sheet**, with cleaner UI and proper decoupling (decline + send happen reliably, sheet survives IncomingCall unmount)
+- [ ] **#202** Local presence (pick "calling from" DID) — schema change + UI dropdown. Defer until #166 lands.
+- [ ] **#203** Voicemail transcription — code already in webhook; flip "Transcription" on in Telnyx Portal under Hosted Voicemail Profile. ~$0.05/min cost.
 
 ---
 
-## Smoke-test checklist for v0.7.0 (after CI builds + you reinstall)
+## Phase 8 — Admin reporting (new — pulled from user brainstorm)
+
+Comprehensive analytics + visibility for admins running the dialer. Designed to roll out in priority slices so we ship value quickly:
+
+### P0 — Live ops dashboard (#204) ← ship first
+At-a-glance cards on the Settings → Reports → Live page (admin-only). Auto-refresh every 15s. Powered by a single `GET /admin/reports/live` endpoint that does the aggregations.
+- **Currently online** (count of users with `sipState=registered` right now)
+- **Active calls right now** (concurrent count from open Call rows)
+- **Today's calls** (in / out / missed breakdown)
+- **Today's SMS** (sent / received)
+- **Top 5 callers today** by call count
+- **Recent missed calls** feed (last 10, with caller + when + how-long-ago)
+- **SIP registration heartbeat** — alert if >5% of users haven't registered in the last hour
+
+### P1 — Usage & volume reports (#205)
+Historical leaderboards + drill-down. Powered by `GET /admin/reports/usage?range=7d|30d|90d&groupBy=user|day|hour`.
+- **Calls per user per day/week/month** — sortable table
+- **Volume line chart** — daily call count over 30/60/90 days (Chart.js)
+- **Inbound vs outbound donut** — split by direction
+- **Average call duration** per user
+- **Total talk time** per user
+- **Voicemails received vs returned** — response rate (% replied via callback within 24h)
+- **Per-user drill-down page**: full call history + SMS volume + voicemail stats + last sign-in + install/device info
+
+### P1 — Quality & health (#206)
+Signals that surface problems before users complain.
+- **Missed/abandoned call rate** per user
+- **Calls under 10s** (likely dropped or wrong number) — per-user count + rate
+- **Failed call attempts** (registration fails, network errors from `hangupCause`)
+- **Hangup-cause breakdown pie** — see what's failing
+- **Average call quality score** per user (persist the in-call quality indicator to a new `Call.qualityScore` column)
+- **Peak-hours heatmap** (day-of-week × hour) — when are most calls happening?
+
+### P1 — Telnyx cost reporting (#207)
+Money visibility — who's burning the budget.
+- **Per-DID minutes used** — surface unused / underused numbers
+- **Per-user minute spend** (call_duration × rate from env config)
+- **SMS segments sent** per user (each segment ≈ $0.0085)
+- **Estimated monthly cost projection** based on rolling 7-day average
+- **Recording storage usage** in GB
+
+### P2 — Recruiter metrics (ApTask-specific, #208)
+Metrics that map to recruiter workflow specifically.
+- **Candidate reach** — unique outbound numbers dialed per user per day
+- **Conversation rate** — % of calls that connected > 30s
+- **JobDiva contact coverage** — % of recent calls that matched to a JobDiva contact (shows the gap where reps are calling un-tracked leads)
+- **Comparison to team average** for each metric
+- **Weekly recruiter scorecard** digest (plugs into #209)
+
+### P2 — Export + scheduled digests (#209)
+- **CSV / Excel export** of any report (SheetJS or plain CSV download)
+- **Scheduled weekly email digest** to admins (Render cron + email provider — Resend / Postmark / SES)
+- **Daily Slack / Teams webhook** for the team that wants real-time updates
+- **Subscribe per-report** checkbox on each report card
+
+### P3 — Health alerts (proactive, #210)
+Server-side cron that checks for anomalies + nudges admins.
+- **"User has 0 calls in 7 days"** — idle account candidate
+- **"User offline > 2h during business hours"** — likely a problem
+- **"Spike in missed calls today vs 7-day avg"** — potential carrier issue
+- **"DID with no recent calls"** — reassignment candidate
+- Surfaces in Audit log + optional email/Slack alert
+
+### Suggested build order
+1. Ship **P0 Live dashboard** (1 day) — gives admins something useful immediately
+2. **P1 Quality & health** (1.5 days) — most actionable; finds problems
+3. **P1 Usage & volume** (2 days) — leaderboards and per-user drill-down
+4. **P1 Cost reporting** (1 day) — needs Telnyx pricing config first
+5. **P2 Recruiter metrics** (1 day) — ApTask differentiator
+6. **P2 Export + digests** (2 days) — needs email provider decision
+7. **P3 Health alerts** (1.5 days) — needs cron infrastructure
+
+---
+
+## Smoke-test checklist for v0.7.2 (after CI builds + reinstall)
 
 ### Header + version
-- [ ] Header chip shows **v0.7.0 · Desktop** (Mac) and **v0.7.0 · Desktop** (Windows)
-- [ ] Web version (hard-refresh Vercel URL): **v0.7.0 · Web**
+- [ ] Header shows **v0.7.2 · Desktop** (Mac, Win) and **v0.7.2 · Web**
 
-### Auto-update
-- [ ] Push a no-op v0.7.1 (just bump versions) → wait ~10 min for CI → installed app shows "Update available — downloading…" pill within ~15 min of GH Release being live
-- [ ] When download finishes, banner switches to "Update ready — Restart to install"
-- [ ] Click Restart → app quits, installer runs, relaunches with v0.7.1 in header
+### Auto-update (#199)
+- [ ] Push a no-op v0.7.3 → wait ~10 min → installed v0.7.2 shows "Update available — downloading…" pill within ~15 min
+- [ ] "Update ready — Restart to install" appears when download completes
+- [ ] Click Restart → installer runs → app relaunches as v0.7.3
 
 ### Favorites sync (#195)
-- [ ] Sign in on Mac. Star a contact (e.g. the test 2nd user's number) → enter first/last name.
-- [ ] Sign out on Mac. Sign in on Windows. Open Favorites tab. **Star should be there with the same name.**
-- [ ] On Windows: rename the favorite. Switch to Mac, refresh Favorites. Name updated.
-- [ ] On Mac: tap the star to unfavorite. Switch to Windows, refresh. Star gone.
-- [ ] **Verify in DB:** Prisma Studio → Favorite table → row was created/updated/deleted.
+- [ ] Star a contact on Mac → sign in on Windows → starred there with the same name
+- [ ] Rename on Windows → reflects on Mac after refresh
+- [ ] Unstar on Mac → gone on Windows
 
-### Block button (#159 follow-up)
-- [ ] Recents → tap the Ban icon on any row → confirm prompt → "blocked" toast → Block button disappears from that row + every other row for the same number this session.
-- [ ] Messages → open a thread → tap the Ban icon in the header → confirm → header shows red "Blocked" badge + Block button is hidden.
-- [ ] Settings → Blocked numbers section → the number appears in the list.
-- [ ] Have a 2nd phone call that blocked number's DID → call should drop instantly + show "Blocked" in your Recents (status_rank wins).
+### Block buttons (#159 follow-up)
+- [ ] Ban icon on Recents row → confirm → blocked toast → row's Block button hides for the session
+- [ ] Ban icon on Messages thread header → confirm → red "Blocked" badge replaces button
+- [ ] Settings → Blocked numbers shows the entry
 
 ### Favorite name everywhere (#161)
-- [ ] Favorite a contact named "Adam Test".
-- [ ] Make/receive a call with that number → IncomingCall + InCall both show **Adam Test**, not the digits.
-- [ ] Send/receive an SMS → Messages thread list + thread detail header both show **Adam Test**.
-- [ ] Get a voicemail → Voicemail row + filter banner show **Adam Test**.
-- [ ] Open Dialpad → tap the Contacts/recents button → quick-pick shows **Adam Test** on the row, formatted phone underneath.
+- [ ] Recents, IncomingCall, InCall, Messages list+detail, Voicemail row+filter banner, **Dialpad contacts quick-pick** — all show favorite name when set
 
 ### Admin Users panel (#168, #178, #179, #180, #200)
-- [ ] Settings → **Users** appears in the nav.
-- [ ] Table loads with at least your account; shows Role=Admin, Status=Active, DID, Last sign-in.
-- [ ] Click "Invite user" → email-only invite works → new row appears at top with Role=User, Status=Active, no DID.
-- [ ] Kebab menu on the new row: Promote to admin → confirm → role pill flips to "Admin" → row stays.
-- [ ] Try to demote yourself → tooltip on disabled button explains why ("can't change your own role").
-- [ ] Try to demote the new admin (now there are 2 admins). It works.
-- [ ] Try to demote BOTH admins → second demote should fail with the last-admin error.
-- [ ] Try to deactivate yourself → disabled.
-- [ ] Reset/set local password on the test user → prompt accepts a new password → user can now sign in via the break-glass form too.
-- [ ] Settings → **Audit log** → see all the actions you just took, with actor + target + before/after diff in the expanded JSON.
+- [ ] Settings → Users loads the table (after Prisma Studio promoted you to admin)
+- [ ] Invite new user → row appears
+- [ ] Kebab → Promote to admin → role flips
+- [ ] Try to demote yourself → disabled with explanation
+- [ ] Try to demote the last remaining admin → server error message shown
+- [ ] Reset local password works
+- [ ] Settings → Audit log shows every action with before/after diff
 
-### Decline-with-message (#201)
-- [ ] Have a phone call your DID → full-screen IncomingCall appears.
-- [ ] Tap **"Reply with message"** pill above the Accept/Decline row → popover appears with your saved quick replies.
-- [ ] Tap a quick reply → call hangs up immediately → caller receives an SMS from your DID with that text.
-- [ ] Repeat with custom text in the input box → same behavior.
-- [ ] Try with an internal SIP-URI call → "Reply" pill should NOT appear (only real phone numbers).
+### Decline-with-message (#201 rebuild) ← test this carefully on v0.7.2
+- [ ] Have someone call your DID
+- [ ] Full-screen IncomingCall shows 3 buttons: red Decline · amber **Reply** · green Accept
+- [ ] Tap **Reply** → call hangs up immediately (caller stops ringing) → bottom sheet slides up with quick replies + custom text input
+- [ ] Tap a quick reply → "Message sent" success card → sheet auto-closes after ~1.4s → caller gets SMS from your DID
+- [ ] Or type custom text + Send → same flow
+- [ ] Or tap "Skip — don't send anything" → sheet closes, call stays declined
+- [ ] When you're already on a call and a 2nd one rings → Reply button is hidden (3 buttons already showing: Decline / Hold & Accept / Accept)
+- [ ] Internal SIP-URI inbound (e.g. user-to-user) → Reply button is hidden (no SMS target)
 
 ### Voicemail transcription (#203) — after Telnyx Portal flip
-- [ ] Telnyx Portal → Voice → Programmable Voice → Hosted Voicemail Profile → enable Transcription.
-- [ ] Have someone leave you a voicemail.
-- [ ] Voicemail tab → expand the row → transcript appears under the audio player.
-- [ ] No transcript = either Telnyx didn't transcribe it (short/silent) or webhook didn't deliver — check webhook logs.
+- [ ] Telnyx Portal → Voice → Programmable Voice → Hosted Voicemail Profile → enable Transcription
+- [ ] Get a voicemail → expand row in Voicemail tab → transcript appears under audio player
 
 ---
 
 ## Pre-scale infrastructure (when we cross ~30 concurrent or get a compliance ask)
 
-- [ ] **#181** Bump Render: Hobby → Pro workspace + Standard compute for socket service
-- [ ] **#183** Provision Render Key Value (Redis) + Socket.IO Redis adapter
-- [ ] **#184** Telnyx webhook hardening: HMAC verify + BullMQ queue + idempotency
-- [ ] **#186** Upgrade Vercel Hobby → Pro
-- [ ] **#187** Verify Telnyx WebRTC vs SIP pricing
+- [ ] **#181** Render: Hobby → Pro workspace + Standard compute
+- [ ] **#183** Render Key Value (Redis) + Socket.IO Redis adapter
+- [ ] **#184** Telnyx webhook hardening (HMAC verify + BullMQ + idempotency)
+- [ ] **#186** Vercel Hobby → Pro
+- [ ] **#187** Verify Telnyx WebRTC vs SIP pricing model
 - [ ] **#185** Replace 15s polling with real-time push
 - [ ] **#140** socket.io for instant chat push
-- [ ] **#194** Windows code-signing (EV/OV cert, ~$200/yr)
+- [ ] **#194** Windows code-signing (EV/OV cert ~$200/yr)
 
 ---
 
 ## Open follow-ups (no specific timeline)
 
 - [ ] **#158** Custom busy greeting (blocked on Telnyx engineering)
-- [ ] **#151** DATABASE_URL on Render webhooks (after Postgres provider switch)
+- [ ] **#151** DATABASE_URL on Render webhooks service
 - [ ] Migrate voicemail/MMS storage from Supabase Storage to Cloudflare R2
 - [ ] Settings → Profile picture upload
 - [ ] Per-user call recording opt-in (consent)
+- [ ] Floating ringer window (Electron): add Reply button too — currently it only has Accept/Decline
 
 ---
 
 ## Versioning convention
 
-- **PATCH** (0.6.0 → 0.6.1): bug fixes, small additive UI
-- **MINOR** (0.6.x → 0.7.0): new user-facing features
+- **PATCH** (0.7.0 → 0.7.1): bug fixes, small additive UI
+- **MINOR** (0.7.x → 0.8.0): new user-facing features
 - **MAJOR** (0.x → 1.0): GA launch
 - Bump in `apps/web/package.json`, `apps/desktop/package.json`, root `package.json`, AND `apps/api/src/main.ts` on every push.
 

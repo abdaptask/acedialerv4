@@ -7,16 +7,21 @@
 // call, we show a third button between Decline and Accept. Tapping it holds
 // the current call and answers the new one; the held call shows up in the
 // InCall held-strip (same plumbing as Add Call).
-import { useEffect, useState } from 'react';
+//
+// Phase 7.2 — Reply with message (iOS-style): a 3rd action button on the
+// ringing screen. Tapping it IMMEDIATELY declines the call AND dispatches
+// a window event that PostDeclineReply (mounted in Layout, OUTSIDE this
+// component) picks up to surface a clean quick-reply sheet. Decoupling
+// keeps the reply UI alive after this component unmounts on decline.
+import { useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Phone, PhoneOff, PhoneForwarded, MessageSquare, X } from 'lucide-react';
+import { Phone, PhoneOff, PhoneForwarded, MessageSquare } from 'lucide-react';
 import { useSip } from '../contexts/SipContext';
 import { ringtone } from '../services/ringtone';
 import { useJobDivaContact } from '../hooks/useJobDivaContact';
 import { notify } from '../lib/notify';
 import { formatPhone } from '../lib/phone';
-import { getFavoriteName, getQuickReplies } from '../lib/userPrefs';
-import { sendMessage } from '../api';
+import { getFavoriteName } from '../lib/userPrefs';
 
 function formatNumber(n: string | undefined): string {
   return formatPhone(n) || 'Unknown';
@@ -27,10 +32,6 @@ export default function IncomingCall() {
   const location = useLocation();
   const navigate = useNavigate();
 
-  // Show "Hold & Accept" only when there's an active connected call AND we
-  // don't already have 2 calls in play. With 2 calls already, the user
-  // should hang one up before adding a third — JsSIP supports it but the UI
-  // can only show two pills cleanly.
   const hasActiveCall = callState.state === 'connected';
   const canHoldAndAccept = hasActiveCall && !hasSecondCall;
 
@@ -44,47 +45,6 @@ export default function IncomingCall() {
     navigate('/in-call');
   };
 
-  // Phase 7.2 — "Decline with message" (iOS-style quick-reply on inbound).
-  // When the user taps Reply, we show a popover of quick replies. Picking
-  // one (or sending a custom text) declines the call AND sends the chosen
-  // text to the caller via SMS. Caller sees a normal text from your DID.
-  const [showReply, setShowReply] = useState(false);
-  const [customReply, setCustomReply] = useState('');
-  const [sendingReply, setSendingReply] = useState(false);
-  const [replyError, setReplyError] = useState<string | null>(null);
-  const [quickReplies, setQuickRepliesState] = useState<string[]>(() => getQuickReplies());
-  useEffect(() => {
-    const refresh = () => setQuickRepliesState(getQuickReplies());
-    window.addEventListener('ace:quickRepliesChanged', refresh);
-    return () => window.removeEventListener('ace:quickRepliesChanged', refresh);
-  }, []);
-
-  async function handleSendReply(body: string) {
-    const text = body.trim();
-    if (!text) return;
-    const to = incoming?.fromNumber ?? incoming?.number;
-    if (!to) return;
-    const token = sessionStorage.getItem('ace_token');
-    if (!token) {
-      setReplyError('Not signed in.');
-      return;
-    }
-    setSendingReply(true);
-    setReplyError(null);
-    // Decline first so the caller stops ringing immediately. Even if the SMS
-    // send fails afterwards, the call still got handled cleanly.
-    try { declineCall(); } catch { /* noop */ }
-    try {
-      await sendMessage(token, { to, body: text });
-      setShowReply(false);
-      setCustomReply('');
-    } catch (err) {
-      setReplyError((err as Error).message);
-    } finally {
-      setSendingReply(false);
-    }
-  }
-
   useEffect(() => {
     if (incoming) {
       ringtone.start();
@@ -93,12 +53,9 @@ export default function IncomingCall() {
     return undefined;
   }, [incoming]);
 
-  // Call the hook unconditionally (rules of hooks). It's safe with undefined.
   const callerNumber = incoming?.fromNumber ?? incoming?.number;
   const jd = useJobDivaContact(callerNumber);
 
-  // Fire an OS desktop notification when the tab is hidden so users don't miss
-  // calls while the window is in the background. Respects notification prefs.
   useEffect(() => {
     if (!incoming) return;
     const label = jd?.name ?? formatNumber(callerNumber);
@@ -115,11 +72,6 @@ export default function IncomingCall() {
 
   if (!incoming) return null;
 
-  // Electron: always go full-screen. Web: full-screen on idle, banner elsewhere.
-  // Additionally, when a second call rings during an active call (the Hold &
-  // Accept scenario), force full-screen REGARDLESS of current path — the
-  // user needs to make a 3-way decision fast and the banner is too cramped
-  // to show three labeled buttons clearly.
   const isElectron =
     typeof navigator !== 'undefined' && /electron/i.test(navigator.userAgent);
   const fullScreen =
@@ -131,11 +83,24 @@ export default function IncomingCall() {
 
   const callerLabel = getFavoriteName(callerNumber) ?? jd?.name ?? formatNumber(callerNumber);
 
-  // Only offer "Reply with message" when the caller is a real phone number
-  // we can SMS back. Internal/SIP-URI calls won't have a deliverable to-number.
-  const replyableNumber =
-    (incoming?.fromNumber || incoming?.number) ?? '';
-  const canReply = /^\+?\d/.test(replyableNumber.replace(/[\s()-]/g, ''));
+  // Reply button: only for real phone numbers (not SIP-URI internal calls),
+  // and hidden during Hold & Accept (3 buttons already shown).
+  const replyableNumber = (callerNumber || '').replace(/[\s()-]/g, '');
+  const canReply = !canHoldAndAccept && /^\+?\d/.test(replyableNumber);
+
+  function handleReplyWithMessage() {
+    const to = callerNumber;
+    if (!to) return;
+    // Dispatch the open-the-modal event BEFORE we decline. Layout's
+    // PostDeclineReply listens for this and stays mounted regardless of
+    // our own state. Order matters slightly: dispatch first so the
+    // listener captures the payload synchronously, then declineCall
+    // unmounts this component.
+    window.dispatchEvent(new CustomEvent('ace:reply-after-decline', {
+      detail: { number: to, label: callerLabel },
+    }));
+    declineCall();
+  }
 
   return fullScreen ? (
     <div className="incoming-fullscreen">
@@ -143,76 +108,8 @@ export default function IncomingCall() {
         <div className="incoming-tag">Incoming call</div>
         <div className="incoming-caller">{callerLabel}</div>
         <div className="incoming-subtle">
-          {canHoldAndAccept ? 'You’re already on a call' : '…'}
+          {canHoldAndAccept ? 'You\u2019re already on a call' : '\u2026'}
         </div>
-
-        {canReply && (
-          <div className="incoming-reply-row">
-            <button
-              type="button"
-              className="incoming-reply-btn"
-              onClick={() => setShowReply((v) => !v)}
-              aria-label="Reply with a message"
-              title="Reply with a message"
-            >
-              <MessageSquare size={16} />
-              <span>Reply with message</span>
-            </button>
-          </div>
-        )}
-
-        {showReply && canReply && (
-          <div className="incoming-reply-panel" role="dialog" aria-label="Quick replies">
-            <div className="incoming-reply-header">
-              <span>Send a quick reply &amp; decline</span>
-              <button type="button" className="icon-btn" onClick={() => setShowReply(false)} aria-label="Close">
-                <X size={14} />
-              </button>
-            </div>
-            <ul className="incoming-reply-list">
-              {quickReplies.length === 0 && (
-                <li className="muted small" style={{ padding: '0.5rem 0.75rem' }}>
-                  No quick replies set. Add some in Settings &rarr; Quick replies.
-                </li>
-              )}
-              {quickReplies.map((r, i) => (
-                <li key={i}>
-                  <button
-                    type="button"
-                    className="incoming-reply-item"
-                    disabled={sendingReply}
-                    onClick={() => void handleSendReply(r)}
-                  >
-                    {r}
-                  </button>
-                </li>
-              ))}
-            </ul>
-            <div className="incoming-reply-custom">
-              <input
-                type="text"
-                placeholder="Or type a custom reply..."
-                value={customReply}
-                onChange={(e) => setCustomReply(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && customReply.trim()) {
-                    void handleSendReply(customReply);
-                  }
-                }}
-                disabled={sendingReply}
-              />
-              <button
-                type="button"
-                disabled={!customReply.trim() || sendingReply}
-                onClick={() => void handleSendReply(customReply)}
-              >
-                {sendingReply ? 'Sending…' : 'Send'}
-              </button>
-            </div>
-            {replyError && <div className="error" style={{ marginTop: 8 }}>{replyError}</div>}
-          </div>
-        )}
-
         <div className="incoming-actions">
           <div className="incoming-action-stack">
             <button className="incoming-btn decline" onClick={declineCall} aria-label="Decline">
@@ -233,6 +130,19 @@ export default function IncomingCall() {
               <div className="incoming-action-label">Hold &amp; Accept</div>
             </div>
           )}
+          {canReply && (
+            <div className="incoming-action-stack">
+              <button
+                className="incoming-btn reply"
+                onClick={handleReplyWithMessage}
+                aria-label="Reply with message"
+                title="Reply with a text message and decline the call"
+              >
+                <MessageSquare size={28} />
+              </button>
+              <div className="incoming-action-label">Reply</div>
+            </div>
+          )}
           <div className="incoming-action-stack">
             <button className="incoming-btn accept" onClick={handleAccept} aria-label="Accept">
               <Phone size={32} />
@@ -246,7 +156,7 @@ export default function IncomingCall() {
     <div className="incoming-banner" role="alert">
       <div className="incoming-banner-text">
         <div className="incoming-banner-tag">
-          Incoming call{canHoldAndAccept ? ' · in-call' : ''}
+          Incoming call{canHoldAndAccept ? ' \u00b7 in-call' : ''}
         </div>
         <div className="incoming-banner-caller">{callerLabel}</div>
       </div>
@@ -262,6 +172,16 @@ export default function IncomingCall() {
             title="Hold current call and accept"
           >
             <PhoneForwarded size={18} />
+          </button>
+        )}
+        {canReply && (
+          <button
+            className="incoming-btn reply small"
+            onClick={handleReplyWithMessage}
+            aria-label="Reply with message"
+            title="Reply with a text message and decline the call"
+          >
+            <MessageSquare size={18} />
           </button>
         )}
         <button className="incoming-btn accept small" onClick={handleAccept} aria-label="Accept">
