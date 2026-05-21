@@ -10,6 +10,7 @@ import { microsoftAuthRoutes } from './auth/microsoft.routes.js';
 import { blockedRoutes } from './blocked/blocked.routes.js';
 import { callForwardingRoutes } from './callForwarding/callForwarding.routes.js';
 import { callsRoutes } from './calls/calls.routes.js';
+import { favoritesRoutes } from './favorites/favorites.routes.js';
 import { internalChatRoutes } from './internalChat/internalChat.routes.js';
 import { messagesRoutes } from './messages/messages.routes.js';
 import { voicemailsRoutes } from './voicemails/voicemails.routes.js';
@@ -64,7 +65,7 @@ app.decorate('authenticate', async function (request: FastifyRequest, reply: Fas
 app.get('/', async () => ({
   service: SERVICE_NAME,
   status: 'ok',
-  version: '0.4.0',
+  version: '0.6.0',
   // Feature flags — boolean only, no values leaked. Lets a developer verify
   // env vars are loaded without exposing secrets.
   features: {
@@ -87,6 +88,7 @@ await app.register(microsoftAuthRoutes);
 await app.register(blockedRoutes);
 await app.register(callForwardingRoutes);
 await app.register(callsRoutes);
+await app.register(favoritesRoutes);
 await app.register(internalChatRoutes);
 await app.register(messagesRoutes);
 await app.register(voicemailsRoutes);

@@ -38,7 +38,32 @@ export function resetQuickReplies(): void {
 }
 
 // ---------- Favorites (starred contacts) ----------
+//
+// Phase 6.11 — favorites are now SERVER-SIDE so they sync across every device
+// (browser, Windows .exe, Mac .dmg, mobile web) the user logs into. The
+// localStorage store still exists as a one-shot migration source: the first
+// time a logged-in client boots, anything in localStorage that isn't on the
+// server gets uploaded, after which we stop reading from localStorage.
+//
+// The public API stays SYNCHRONOUS (`getFavoriteName`, `isFavorite`, etc.)
+// because dozens of render-time call sites depend on cheap lookups. We back
+// it with an in-memory Map that gets hydrated at app boot from the API. Each
+// mutate (`addFavorite`, `removeFavorite`, `updateFavoriteName`) updates the
+// Map optimistically for instant UI feedback, then fires the matching API
+// call in the background. The `ace:favoritesChanged` event is dispatched on
+// every change so React surfaces re-render.
+import {
+  listFavorites as apiListFavorites,
+  addFavoriteApi,
+  patchFavorite as apiPatchFavorite,
+  deleteFavoriteApi,
+  type FavoriteRow,
+} from '../api';
+
 export interface FavoriteContact {
+  /** Server-side row id. Populated once the POST returns; undefined for
+   *  optimistically-added entries that haven't synced yet. */
+  id?: number;
   /** E.164 number (or whatever the user typed). Stored as-is. */
   phone: string;
   /** Optional display label. Computed from firstName+lastName when those are
@@ -51,57 +76,192 @@ export interface FavoriteContact {
   /** Timestamp it was starred (used for default sort). */
   addedAt: string;
 }
+
 const FAVORITES_KEY = 'ace_favorites';
+const MIGRATION_FLAG_KEY = 'ace_favorites_migrated_v1';
+
+// In-memory cache. Key = last-10 digits of the phone, so lookups are tolerant
+// of "+15551234567" vs "(555) 123-4567" vs "5551234567" formatting drift.
+const favoritesByKey = new Map<string, FavoriteContact>();
+
+// In-flight POSTs keyed by last-10. Lets removeFavorite() wait for a pending
+// add to settle (so we have the server-assigned id) before issuing DELETE.
+const pendingAdds = new Map<string, Promise<FavoriteRow | null>>();
 
 function normalizeFavoritePhone(phone: string): string {
   return phone.replace(/[^\d+]/g, '');
 }
 
-export function getFavorites(): FavoriteContact[] {
-  try {
-    const raw = localStorage.getItem(FAVORITES_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return parsed.filter((v): v is FavoriteContact => typeof v?.phone === 'string');
-  } catch {
-    return [];
-  }
+function favKey(phone: string | null | undefined): string {
+  if (!phone) return '';
+  return phone.replace(/[^\d]/g, '').slice(-10);
 }
-function saveFavorites(list: FavoriteContact[]): void {
-  localStorage.setItem(FAVORITES_KEY, JSON.stringify(list));
+
+function rowToContact(row: FavoriteRow): FavoriteContact {
+  return {
+    id: row.id,
+    phone: row.phone,
+    firstName: row.firstName,
+    lastName: row.lastName,
+    label: row.label,
+    addedAt: row.addedAt,
+  };
+}
+
+function emit(): void {
   window.dispatchEvent(new CustomEvent('ace:favoritesChanged'));
 }
 
-export function isFavorite(phone: string): boolean {
-  if (!phone) return false;
-  const target = normalizeFavoritePhone(phone);
-  if (!target) return false;
-  return getFavorites().some((f) => normalizeFavoritePhone(f.phone) === target);
+/**
+ * Hydrate the in-memory favorites cache from the server. Call this once at
+ * app boot (after login) -- it triggers the legacy-localStorage migration on
+ * first run, then dispatches `ace:favoritesChanged` so every mounted page
+ * picks up the synced favorites.
+ *
+ * Safe to call multiple times; subsequent calls just refresh the cache.
+ */
+export async function loadFavoritesFromServer(token?: string): Promise<void> {
+  const t = token ?? sessionStorage.getItem('ace_token') ?? '';
+  if (!t) return;
+  try {
+    const rows = await apiListFavorites(t);
+    favoritesByKey.clear();
+    for (const row of rows) {
+      const key = favKey(row.phone);
+      if (key) favoritesByKey.set(key, rowToContact(row));
+    }
+    // One-shot migration: push any localStorage-only entries up to the server,
+    // then mark migration done so we never look at localStorage again.
+    await migrateLocalFavoritesIfNeeded(t);
+    emit();
+  } catch (err) {
+    // Network down / API unreachable: fall back to localStorage for read-only
+    // until next boot. This keeps the dialer usable offline.
+    console.warn('[favorites] could not hydrate from server, using local cache', err);
+    seedCacheFromLocalStorage();
+    emit();
+  }
+}
+
+function seedCacheFromLocalStorage(): void {
+  try {
+    const raw = localStorage.getItem(FAVORITES_KEY);
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return;
+    for (const v of parsed) {
+      if (!v || typeof v.phone !== 'string') continue;
+      const key = favKey(v.phone);
+      if (key && !favoritesByKey.has(key)) {
+        favoritesByKey.set(key, {
+          phone: v.phone,
+          firstName: v.firstName ?? null,
+          lastName: v.lastName ?? null,
+          label: v.label ?? null,
+          addedAt: v.addedAt ?? new Date().toISOString(),
+        });
+      }
+    }
+  } catch {
+    /* swallow -- localStorage is best-effort */
+  }
+}
+
+async function migrateLocalFavoritesIfNeeded(token: string): Promise<void> {
+  if (localStorage.getItem(MIGRATION_FLAG_KEY)) return;
+  try {
+    const raw = localStorage.getItem(FAVORITES_KEY);
+    if (!raw) {
+      localStorage.setItem(MIGRATION_FLAG_KEY, '1');
+      return;
+    }
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) {
+      localStorage.setItem(MIGRATION_FLAG_KEY, '1');
+      return;
+    }
+    let uploaded = 0;
+    for (const v of parsed) {
+      if (!v || typeof v.phone !== 'string') continue;
+      const key = favKey(v.phone);
+      if (!key) continue;
+      if (favoritesByKey.has(key)) continue; // server already has it
+      try {
+        const row = await addFavoriteApi(token, {
+          phone: v.phone,
+          firstName: v.firstName ?? null,
+          lastName: v.lastName ?? null,
+          label: v.label ?? null,
+        });
+        favoritesByKey.set(favKey(row.phone), rowToContact(row));
+        uploaded += 1;
+      } catch (err) {
+        console.warn('[favorites] migration: could not upload', v.phone, err);
+      }
+    }
+    if (uploaded > 0) console.info(`[favorites] migrated ${uploaded} local favorites to server`);
+  } catch (err) {
+    console.warn('[favorites] migration failed', err);
+  } finally {
+    // Mark done either way so we don't loop on broken localStorage.
+    localStorage.setItem(MIGRATION_FLAG_KEY, '1');
+  }
+}
+
+/** Clear the cache on logout so a different user doesn't inherit them. */
+export function clearFavoritesCache(): void {
+  favoritesByKey.clear();
+  pendingAdds.clear();
+  emit();
+}
+
+export function getFavorites(): FavoriteContact[] {
+  return Array.from(favoritesByKey.values()).sort(
+    (a, b) => new Date(b.addedAt).getTime() - new Date(a.addedAt).getTime(),
+  );
+}
+
+export function isFavorite(phone: string | null | undefined): boolean {
+  const key = favKey(phone);
+  return !!key && favoritesByKey.has(key);
 }
 
 /**
- * Phase 6.10 — return the friendly name saved for a phone number in
+ * Phase 6.10 / 6.11 -- return the friendly name saved for a phone number in
  * Favorites, or null if the number isn't favorited. Used in Recents,
- * IncomingCall, and InCall to show "Adam Smith" instead of the raw
- * number when the caller is in the user's favorites list.
+ * IncomingCall, InCall, Messages, Voicemail to show "Adam Smith" instead of
+ * the raw number when the caller is in the user's favorites list.
  *
  * Lookup order inside a favorite:
- *   1. firstName + lastName  (most common — what the Add Favorite modal saves)
+ *   1. firstName + lastName  (most common -- what the Add Favorite modal saves)
  *   2. label                 (legacy back-compat)
  *   3. null                  (favorite exists but no name attached)
  */
 export function getFavoriteName(phone: string | null | undefined): string | null {
-  if (!phone) return null;
-  const target = normalizeFavoritePhone(phone);
-  if (!target) return null;
-  const match = getFavorites().find((f) => normalizeFavoritePhone(f.phone) === target);
-  if (!match) return null;
+  const key = favKey(phone);
+  if (!key) return null;
+  const match = favoritesByKey.get(key);
+  if (!match) {
+    // Fall back to local-form lookup (handles short codes, intl numbers
+    // whose last 10 don't normalize cleanly).
+    if (phone) {
+      const stripped = normalizeFavoritePhone(phone);
+      for (const f of favoritesByKey.values()) {
+        if (normalizeFavoritePhone(f.phone) === stripped) {
+          const full = [f.firstName, f.lastName].filter(Boolean).join(' ').trim();
+          if (full) return full;
+          if (f.label) return f.label;
+        }
+      }
+    }
+    return null;
+  }
   const full = [match.firstName, match.lastName].filter(Boolean).join(' ').trim();
   if (full) return full;
   if (match.label) return match.label;
   return null;
 }
+
 export interface AddFavoriteOptions {
   /** Optional display label override. If not provided, we build one from
    *  firstName + lastName, or fall back to JobDiva / formatted phone. */
@@ -109,58 +269,141 @@ export interface AddFavoriteOptions {
   firstName?: string | null;
   lastName?: string | null;
 }
-export function addFavorite(phone: string, opts?: AddFavoriteOptions | string | null): void {
+
+export function addFavorite(
+  phone: string,
+  opts?: AddFavoriteOptions | string | null,
+): void {
   if (!phone) return;
-  const target = normalizeFavoritePhone(phone);
-  if (!target) return;
+  const key = favKey(phone);
+  if (!key) return;
+  if (favoritesByKey.has(key)) return; // already starred -- idempotent
   // Back-compat: callers used to pass a plain label string as 2nd arg.
   const options: AddFavoriteOptions =
     typeof opts === 'string' || opts == null
-      ? { label: opts ?? null }
+      ? { label: typeof opts === 'string' ? opts : null }
       : opts;
-  const list = getFavorites();
-  if (list.some((f) => normalizeFavoritePhone(f.phone) === target)) return;
-  // Synthesize label from name parts if user didn't pass one explicitly.
   const nameJoined = [options.firstName, options.lastName]
     .map((p) => (p ?? '').trim())
     .filter(Boolean)
     .join(' ');
-  list.push({
+  const optimistic: FavoriteContact = {
     phone,
     label: options.label ?? (nameJoined || null),
     firstName: options.firstName ?? null,
     lastName: options.lastName ?? null,
     addedAt: new Date().toISOString(),
-  });
-  saveFavorites(list);
+  };
+  favoritesByKey.set(key, optimistic);
+  emit();
+  // Fire-and-forget server sync.
+  const token = sessionStorage.getItem('ace_token');
+  if (!token) return;
+  const p = addFavoriteApi(token, {
+    phone,
+    firstName: options.firstName ?? null,
+    lastName: options.lastName ?? null,
+    label: options.label ?? null,
+  })
+    .then((row) => {
+      favoritesByKey.set(favKey(row.phone), rowToContact(row));
+      pendingAdds.delete(key);
+      emit();
+      return row;
+    })
+    .catch((err) => {
+      console.warn('[favorites] add did not sync to server', err);
+      pendingAdds.delete(key);
+      return null;
+    });
+  pendingAdds.set(key, p);
 }
+
 export function removeFavorite(phone: string): void {
   if (!phone) return;
-  const target = normalizeFavoritePhone(phone);
-  if (!target) return;
-  const list = getFavorites().filter((f) => normalizeFavoritePhone(f.phone) !== target);
-  saveFavorites(list);
+  const key = favKey(phone);
+  if (!key) return;
+  const entry = favoritesByKey.get(key);
+  if (!entry) return;
+  favoritesByKey.delete(key);
+  emit();
+  const token = sessionStorage.getItem('ace_token');
+  if (!token) return;
+  // If a POST is still in flight for this number, wait for it to settle so
+  // we have a server id to DELETE against. Otherwise we'd leak the row.
+  (async () => {
+    let id = entry.id;
+    const pending = pendingAdds.get(key);
+    if (!id && pending) {
+      const settled = await pending;
+      if (settled && typeof settled === 'object' && 'id' in settled) {
+        id = settled.id;
+      }
+    }
+    if (id) {
+      try {
+        await deleteFavoriteApi(token, id);
+      } catch (err) {
+        console.warn('[favorites] delete did not sync to server', err);
+      }
+    }
+  })();
 }
+
 export function toggleFavorite(phone: string, label?: string | null): boolean {
-  if (isFavorite(phone)) { removeFavorite(phone); return false; }
-  addFavorite(phone, label); return true;
+  if (isFavorite(phone)) {
+    removeFavorite(phone);
+    return false;
+  }
+  addFavorite(phone, label);
+  return true;
 }
+
 /** Update first/last name (and derived label) for an existing favorite. */
-export function updateFavoriteName(phone: string, firstName: string, lastName: string): void {
+export function updateFavoriteName(
+  phone: string,
+  firstName: string,
+  lastName: string,
+): void {
   if (!phone) return;
-  const target = normalizeFavoritePhone(phone);
-  if (!target) return;
-  const list = getFavorites();
-  const idx = list.findIndex((f) => normalizeFavoritePhone(f.phone) === target);
-  if (idx === -1) return;
+  const key = favKey(phone);
+  if (!key) return;
+  const existing = favoritesByKey.get(key);
+  if (!existing) return;
   const joined = [firstName, lastName].map((p) => p.trim()).filter(Boolean).join(' ');
-  list[idx] = {
-    ...list[idx],
+  const updated: FavoriteContact = {
+    ...existing,
     firstName: firstName.trim() || null,
     lastName: lastName.trim() || null,
     label: joined || null,
   };
-  saveFavorites(list);
+  favoritesByKey.set(key, updated);
+  emit();
+  const token = sessionStorage.getItem('ace_token');
+  if (!token) return;
+  (async () => {
+    // Wait for any in-flight add to land so we have an id to PATCH.
+    let id = existing.id;
+    const pending = pendingAdds.get(key);
+    if (!id && pending) {
+      const settled = await pending;
+      if (settled && typeof settled === 'object' && 'id' in settled) {
+        id = settled.id;
+      }
+    }
+    if (!id) return;
+    try {
+      const row = await apiPatchFavorite(token, id, {
+        firstName: updated.firstName,
+        lastName: updated.lastName,
+        label: updated.label,
+      });
+      favoritesByKey.set(favKey(row.phone), rowToContact(row));
+      emit();
+    } catch (err) {
+      console.warn('[favorites] rename did not sync to server', err);
+    }
+  })();
 }
 
 // ---------- Hold music ----------

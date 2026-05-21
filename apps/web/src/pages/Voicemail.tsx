@@ -28,6 +28,7 @@ import {
 import { useSip } from '../contexts/SipContext';
 import { useJobDivaContact, getCachedJobDivaName } from '../hooks/useJobDivaContact';
 import { formatPhone } from '../lib/phone';
+import { getFavoriteName } from '../lib/userPrefs';
 
 function formatDuration(seconds: number): string {
   if (!seconds) return '';
@@ -61,6 +62,14 @@ export default function Voicemail() {
   const [search, setSearch] = useState('');
   const [selectMode, setSelectMode] = useState(false);
   const [selected, setSelected] = useState<Set<number>>(new Set());
+  // Re-render rows when the user adds/removes a favorite so the friendly
+  // name on each voicemail row updates without a manual refresh. (#161)
+  const [, setFavTick] = useState(0);
+  useEffect(() => {
+    const refresh = () => setFavTick((t) => t + 1);
+    window.addEventListener('ace:favoritesChanged', refresh);
+    return () => window.removeEventListener('ace:favoritesChanged', refresh);
+  }, []);
   // Server tells us how many days voicemails are retained. Cached once
   // per session. Used to render the "Auto-deletes in X days" countdown.
   const [retentionDays, setRetentionDays] = useState(30);
@@ -109,6 +118,10 @@ export default function Voicemail() {
       const digits = (vm.fromNumber || '').replace(/[^\d]/g, '');
       if (qDigits && digits.includes(qDigits)) return true;
       if ((vm.transcription ?? '').toLowerCase().includes(q)) return true;
+      // Match against the user-saved favorite name so searching "Adam"
+      // finds a voicemail from a starred contact. (#161)
+      const favName = getFavoriteName(vm.fromNumber);
+      if (favName && favName.toLowerCase().includes(q)) return true;
       const cachedName = getCachedJobDivaName(vm.fromNumber);
       if (cachedName && cachedName.toLowerCase().includes(q)) return true;
       return false;
@@ -116,7 +129,9 @@ export default function Voicemail() {
   }, [items, search, contactWant]);
 
   const contactLabel = contactFilter
-    ? getCachedJobDivaName(contactFilter) ?? formatNumber(contactFilter)
+    ? getFavoriteName(contactFilter)
+      ?? getCachedJobDivaName(contactFilter)
+      ?? formatNumber(contactFilter)
     : '';
 
   function goBack() {
@@ -413,7 +428,8 @@ function VoicemailRow({
   onToggleUnread: () => void;
 }) {
   const jd = useJobDivaContact(vm.fromNumber);
-  const label = jd?.name ?? formatNumber(vm.fromNumber);
+  // Favorite-saved name wins over JobDiva so the user's own label shows. (#161)
+  const label = getFavoriteName(vm.fromNumber) ?? jd?.name ?? formatNumber(vm.fromNumber);
   const unread = !vm.listenedAt;
   const audioRef = useRef<HTMLAudioElement>(null);
   const [playbackRate, setPlaybackRate] = useState(1);

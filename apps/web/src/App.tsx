@@ -15,6 +15,7 @@ import Settings from './pages/Settings';
 import type { User } from './api';
 import { getMe } from './api';
 import { installSessionGuard, onSessionExpired } from './lib/sessionGuard';
+import { loadFavoritesFromServer, clearFavoritesCache } from './lib/userPrefs';
 
 // Install the fetch interceptor once, at module load — before any
 // component issues an API call. Subsequent calls are no-ops.
@@ -44,6 +45,9 @@ export default function App() {
       .then((u) => {
         setUser(u);
         persistSipCreds(u);
+        // Pull this user's favorites from the server so they're available
+        // across every device they sign into. (Phase 6.11)
+        void loadFavoritesFromServer(token);
       })
       .catch(() => {
         sessionStorage.removeItem('ace_token');
@@ -58,12 +62,18 @@ export default function App() {
     persistSipCreds(newUser);
     setToken(newToken);
     setUser(newUser);
+    // Pull favorites for the freshly-logged-in user, so their universal
+    // contact list is ready before they land on /keypad. (Phase 6.11)
+    void loadFavoritesFromServer(newToken);
     navigate('/keypad');
   }
 
   function handleLogout() {
     sessionStorage.removeItem('ace_token');
     persistSipCreds(null);
+    // Wipe the favorites cache so a different user on the same machine
+    // doesn't inherit them. (Phase 6.11)
+    clearFavoritesCache();
     setToken(null);
     setUser(null);
     navigate('/login');

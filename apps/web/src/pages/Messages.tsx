@@ -2,13 +2,14 @@
 // thread list on the left (or full screen on narrow), thread detail on the right.
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Send, ArrowLeft, RefreshCcw, MessageSquarePlus, Image as ImageIcon, Search, X, Zap, Phone, History, Star } from 'lucide-react';
+import { Send, ArrowLeft, RefreshCcw, MessageSquarePlus, Image as ImageIcon, Search, X, Zap, Phone, History, Star, Ban } from 'lucide-react';
 import {
   getThreads,
   getThread,
   sendMessage,
   uploadMedia,
   getContactHistory,
+  addBlockedNumber,
   type ThreadSummary,
   type MessageRecord,
   type ContactHistory,
@@ -21,6 +22,7 @@ import {
   isFavorite,
   addFavorite,
   removeFavorite,
+  getFavoriteName,
   getThreadLastVisit,
   markThreadVisited,
 } from '../lib/userPrefs';
@@ -61,6 +63,15 @@ export default function Messages() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
 
+  // Re-render thread rows when the user adds/removes a favorite so the
+  // friendly name on the thread row updates immediately. (#161)
+  const [, setFavTick] = useState(0);
+  useEffect(() => {
+    const refresh = () => setFavTick((t) => t + 1);
+    window.addEventListener('ace:favoritesChanged', refresh);
+    return () => window.removeEventListener('ace:favoritesChanged', refresh);
+  }, []);
+
   // Open a thread if ?to=+1... was passed (used by InCall Message button).
   useEffect(() => {
     const to = searchParams.get('to');
@@ -95,6 +106,10 @@ export default function Messages() {
       const digits = (t.threadKey || '').replace(/[^\d]/g, '');
       if (qDigits && digits.includes(qDigits)) return true;
       if ((t.body ?? '').toLowerCase().includes(q)) return true;
+      // Match against the favorite name too, so searching "Adam" finds a
+      // thread saved as a favorite even before JobDiva resolves. (#161)
+      const favName = getFavoriteName(t.threadKey);
+      if (favName && favName.toLowerCase().includes(q)) return true;
       const cachedName = getCachedJobDivaName(t.threadKey);
       if (cachedName && cachedName.toLowerCase().includes(q)) return true;
       return false;
@@ -226,6 +241,13 @@ function ThreadDetail({ number, onBack }: ThreadDetailProps) {
   const navigate = useNavigate();
   const { sipState, call } = useSip();
   const [messages, setMessages] = useState<MessageRecord[]>([]);
+  // Resolve the display name with the favorites lookup taking precedence
+  // over JobDiva, so a user-chosen friendly name always wins. (#161)
+  const favName = getFavoriteName(number);
+  const displayName = favName ?? jd?.name ?? formatNumber(number);
+  // Has the user already blocked this number? Hides the Block button
+  // and shows a small "Blocked" badge instead. (#159)
+  const [blocked, setBlocked] = useState(false);
 
   // Mark this thread as visited so the unread dot disappears from the
   // threads list. Fires on mount and on every poll (so if a new inbound
@@ -270,6 +292,30 @@ function ThreadDetail({ number, onBack }: ThreadDetailProps) {
     }
     call(number);
     navigate('/in-call');
+  }
+
+  // Block this contact. Confirms first, calls the backend, then sets local
+  // state so the header swaps to a "Blocked" badge until the user reloads.
+  // The block is fully managed in Settings → Blocked numbers. (#159)
+  async function handleBlock() {
+    if (!number) return;
+    const token = sessionStorage.getItem('ace_token');
+    if (!token) return;
+    const friendly = favName ?? jd?.name ?? formatNumber(number);
+    if (
+      !confirm(
+        `Block ${friendly}?\n\nThey won't be able to call or text you. ` +
+          'You can unblock them later in Settings → Blocked numbers.',
+      )
+    ) {
+      return;
+    }
+    try {
+      await addBlockedNumber(token, { number, reason: 'Blocked from thread header' });
+      setBlocked(true);
+    } catch (e) {
+      alert(`Could not block: ${(e as Error).message}`);
+    }
   }
 
   // Favorite state for this thread's contact.
@@ -399,11 +445,19 @@ function ThreadDetail({ number, onBack }: ThreadDetailProps) {
           <ArrowLeft size={18} />
         </button>
         <div className="thread-header-name">
-          {jd?.name ?? formatNumber(number)}
-          {jd?.name && (
+          {displayName}
+          {displayName !== formatNumber(number) && (
             <span className="thread-header-sub">{formatNumber(number)}</span>
           )}
         </div>
+        {blocked && (
+          <span
+            className="thread-blocked-badge"
+            title="You blocked this number. Manage in Settings → Blocked numbers."
+          >
+            <Ban size={14} /> Blocked
+          </span>
+        )}
         <button
           className={`icon-btn thread-fav-btn ${favorited ? 'active' : ''}`}
           onClick={handleToggleFav}
@@ -412,6 +466,16 @@ function ThreadDetail({ number, onBack }: ThreadDetailProps) {
         >
           <Star size={18} fill={favorited ? 'currentColor' : 'none'} />
         </button>
+        {!blocked && (
+          <button
+            className="icon-btn thread-block-btn"
+            onClick={handleBlock}
+            aria-label="Block this number"
+            title="Block this number"
+          >
+            <Ban size={18} />
+          </button>
+        )}
         <button
           className="icon-btn thread-call-btn"
           onClick={handleCall}
@@ -663,7 +727,7 @@ function ThreadDetail({ number, onBack }: ThreadDetailProps) {
       {showHistory && history && (
         <HistoryModal
           history={history}
-          contactLabel={jd?.name ?? formatNumber(number)}
+          contactLabel={displayName}
           contactPhone={number}
           onClose={() => setShowHistory(false)}
         />
@@ -837,7 +901,9 @@ function ThreadRow({
   onOpen: () => void;
 }) {
   const jd = useJobDivaContact(thread.threadKey);
-  const label = jd?.name ?? formatNumber(thread.threadKey);
+  // Favorite name takes precedence over JobDiva so the user's own label
+  // wins (e.g. they saved "Adam — recruiter" but JobDiva says "Adam Smith"). (#161)
+  const label = getFavoriteName(thread.threadKey) ?? jd?.name ?? formatNumber(thread.threadKey);
   // A thread is "unread" if the most recent message was inbound AND arrived
   // after the user last opened this specific thread. Outbound messages
   // (sent by the user) never count as unread.

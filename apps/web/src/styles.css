@@ -2439,6 +2439,33 @@ body {
 [data-theme="light"] .thread-fav-btn { color: var(--text-muted); }
 [data-theme="light"] .thread-fav-btn.active { color: #f5a623; }
 
+/* Thread header Block button + Blocked badge (#159). Muted by default,
+   turns red on hover so the destructive action is signalled clearly. */
+.thread-block-btn { color: rgba(235, 235, 245, 0.55); }
+.thread-block-btn:hover { color: #ff453a; }
+[data-theme="light"] .thread-block-btn { color: var(--text-muted); }
+[data-theme="light"] .thread-block-btn:hover { color: #d70015; }
+.thread-blocked-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  margin-left: 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  background: rgba(255, 69, 58, 0.18);
+  color: #ff6b6b;
+}
+[data-theme="light"] .thread-blocked-badge {
+  background: rgba(215, 0, 21, 0.12);
+  color: #d70015;
+}
+
+/* Recents per-row Block button (#159). Same hover-red pattern. */
+.callback-ico.block-ico:hover { color: #ff453a; }
+[data-theme="light"] .callback-ico.block-ico:hover { color: #d70015; }
+
 /* ============ CALL QUALITY INDICATOR (InCall header) ============ */
 .call-quality {
   display: inline-flex;

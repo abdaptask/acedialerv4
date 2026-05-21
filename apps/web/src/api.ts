@@ -666,6 +666,89 @@ export async function removeBlockedNumber(token: string, id: number): Promise<vo
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
 }
+// ===========================================================================
+// Phase 6.11 — Favorites sync
+//
+// Server-side per-user favorites. Replaces the localStorage-only store that
+// used to live in lib/userPrefs.ts. The lib still exposes a synchronous API
+// (getFavoriteName, isFavorite, addFavorite, etc.) backed by an in-memory
+// cache hydrated from these endpoints at app boot.
+// ===========================================================================
+
+export interface FavoriteRow {
+  id: number;
+  phone: string;
+  firstName: string | null;
+  lastName: string | null;
+  label: string | null;
+  addedAt: string;
+}
+
+export async function listFavorites(token: string): Promise<FavoriteRow[]> {
+  const res = await fetch(`${API_URL}/favorites`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const json = (await res.json()) as { items: FavoriteRow[] };
+  return json.items;
+}
+
+export async function addFavoriteApi(
+  token: string,
+  input: {
+    phone: string;
+    firstName?: string | null;
+    lastName?: string | null;
+    label?: string | null;
+  },
+): Promise<FavoriteRow> {
+  const res = await fetch(`${API_URL}/favorites`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) {
+    const err = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(err.error || `HTTP ${res.status}`);
+  }
+  return (await res.json()) as FavoriteRow;
+}
+
+export async function patchFavorite(
+  token: string,
+  id: number,
+  input: {
+    firstName?: string | null;
+    lastName?: string | null;
+    label?: string | null;
+  },
+): Promise<FavoriteRow> {
+  const res = await fetch(`${API_URL}/favorites/${id}`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) {
+    const err = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(err.error || `HTTP ${res.status}`);
+  }
+  return (await res.json()) as FavoriteRow;
+}
+
+export async function deleteFavoriteApi(token: string, id: number): Promise<void> {
+  const res = await fetch(`${API_URL}/favorites/${id}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+}
+
 
 
 // ─────────────────────────────────────────────────────────────────

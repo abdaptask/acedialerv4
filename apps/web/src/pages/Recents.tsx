@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { PhoneIncoming, PhoneOutgoing, PhoneMissed, Phone, RefreshCcw, Play, Search, X, MessageSquare, ArrowLeft, Star, Ban } from 'lucide-react';
-import { getCalls, type CallRecord } from '../api';
+import { getCalls, addBlockedNumber, type CallRecord } from '../api';
 import { useSip } from '../contexts/SipContext';
 import { useJobDivaContact, getCachedJobDivaName } from '../hooks/useJobDivaContact';
 import { formatPhone, toE164 } from '../lib/phone';
@@ -97,6 +97,11 @@ export default function Recents() {
     window.addEventListener('ace:favoritesChanged', refresh);
     return () => window.removeEventListener('ace:favoritesChanged', refresh);
   }, []);
+  // Set of last-10-digit numbers the user blocked in this session, so we
+  // can hide the Block button on those rows without waiting for a reload.
+  // (The CallRecord rows themselves don't know about the blocklist — that
+  // status is server-side and only applies to FUTURE inbound calls.) (#159)
+  const [blockedThisSession, setBlockedThisSession] = useState<Set<string>>(new Set());
   const { sipState, call } = useSip();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -214,6 +219,41 @@ export default function Recents() {
     setAddFavTarget(null);
   }
 
+  // Block the other party on this call. Confirms first; on success we just
+  // show a quick alert so the user knows it took. The webhook will start
+  // dropping their calls/SMS immediately. Manage in Settings → Blocked. (#159)
+  async function handleBlock(c: CallRecord) {
+    const target = c.direction === 'inbound' ? c.fromNumber : c.toNumber;
+    if (!target) return;
+    const token = sessionStorage.getItem('ace_token');
+    if (!token) return;
+    const friendly = getFavoriteName(target) ?? getCachedJobDivaName(target) ?? formatNumber(target);
+    if (
+      !confirm(
+        `Block ${friendly}?\n\nThey won't be able to call or text you. ` +
+          'Unblock anytime in Settings → Blocked numbers.',
+      )
+    ) {
+      return;
+    }
+    try {
+      await addBlockedNumber(token, { number: target, reason: 'Blocked from Recents' });
+      // Remember this number for the session so the Block button disappears
+      // from every row that shares the same last-10 digits.
+      const key = last10(target);
+      if (key) {
+        setBlockedThisSession((prev) => {
+          const next = new Set(prev);
+          next.add(key);
+          return next;
+        });
+      }
+      alert(`${friendly} has been blocked.`);
+    } catch (e) {
+      alert(`Could not block: ${(e as Error).message}`);
+    }
+  }
+
   return (
     <div className="recents">
       {contactFilter && (
@@ -275,17 +315,23 @@ export default function Recents() {
       )}
 
       <ul className="call-list">
-        {filtered.map((c) => (
-          <RecentRow
-            key={c.id}
-            c={c}
-            expanded={expandedId === c.id}
-            onCallBack={() => handleCallBack(c)}
-            onSendSms={() => handleSendSms(c)}
-            onToggleFavorite={() => handleToggleFavorite(c)}
-            onToggleRecording={() => setExpandedId(expandedId === c.id ? null : c.id)}
-          />
-        ))}
+        {filtered.map((c) => {
+          const num = c.direction === 'inbound' ? c.fromNumber : c.toNumber;
+          const sessionBlocked = !!num && blockedThisSession.has(last10(num));
+          return (
+            <RecentRow
+              key={c.id}
+              c={c}
+              expanded={expandedId === c.id}
+              blockedHere={sessionBlocked}
+              onCallBack={() => handleCallBack(c)}
+              onSendSms={() => handleSendSms(c)}
+              onToggleFavorite={() => handleToggleFavorite(c)}
+              onBlock={() => handleBlock(c)}
+              onToggleRecording={() => setExpandedId(expandedId === c.id ? null : c.id)}
+            />
+          );
+        })}
       </ul>
 
       {addFavTarget && (
@@ -382,16 +428,20 @@ export default function Recents() {
 function RecentRow({
   c,
   expanded,
+  blockedHere,
   onCallBack,
   onSendSms,
   onToggleFavorite,
+  onBlock,
   onToggleRecording,
 }: {
   c: CallRecord;
   expanded: boolean;
+  blockedHere: boolean;
   onCallBack: () => void;
   onSendSms: () => void;
   onToggleFavorite: () => void;
+  onBlock: () => void;
   onToggleRecording: () => void;
 }) {
   const number = c.direction === 'inbound' ? c.fromNumber : c.toNumber;
@@ -456,6 +506,22 @@ function RecentRow({
           >
             <Star size={16} fill={isFav ? 'currentColor' : 'none'} />
           </button>
+          {/* "Block this number" — hidden on calls that came in blocked AND
+              on numbers the user just blocked this session. (#159) */}
+          {c.status !== 'blocked' && !blockedHere && number && (
+            <button
+              type="button"
+              className="callback-ico block-ico"
+              aria-label="Block this number"
+              title="Block this number"
+              onClick={(e) => {
+                e.stopPropagation();
+                onBlock();
+              }}
+            >
+              <Ban size={16} />
+            </button>
+          )}
           <Phone size={18} className="callback-ico" aria-hidden="true" />
         </div>
       </div>

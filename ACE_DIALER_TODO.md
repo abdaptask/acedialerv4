@@ -1,6 +1,6 @@
 # ACE Dialer — Working Checklist
 
-**Last updated:** 2026-05-21
+**Last updated:** 2026-05-21 (end of day)
 **Owner:** Abdulla (abdulla@aptask.com)
 **Pilot target:** 150 total users, ~30–40 concurrent peak
 
@@ -8,88 +8,110 @@ Check items off as we complete them. New items get appended at the bottom. Items
 
 ---
 
-## Decisions needed today (before code starts)
+## Decisions made
 
-- [ ] **Postgres provider** — Neon ($19/mo Scale, autoscaling, branching) **or** Render Postgres ($19/mo, same datacenter)?
-- [ ] **Auto-provision on first SSO** — when an `@aptask.com` employee signs in for the first time, auto-create their dialer account **or** require admin invite first?
-  - *Recommended:* require invite (controls DID cost)
-- [ ] **Break-glass local-password accounts** — keep yours + one backup admin with password login as a fallback when Entra ID is down? (yes/no)
-  - *Recommended:* yes
-- [ ] **Installer code-signing** — purchase Windows + Mac certs (~$200/yr each) **or** accept SmartScreen warning for pilot, revisit at GA?
-  - *Recommended:* defer for pilot
+- [ ] **Postgres provider** — Neon ($19/mo Scale) **or** Render Postgres ($19/mo)? *Still pending — user is sourcing cheaper Postgres elsewhere.*
+- [x] **Auto-provision on first SSO** — **invite-only** (admin invite required, controls DID cost)
+- [x] **Break-glass local-password accounts** — **yes**, abdulla@aptask.com retains password fallback alongside SSO
+- [x] **Installer code-signing** — **Mac done** (Developer ID + notarization in CI). **Windows deferred** to GA (pilot accepts SmartScreen warning)
 
 ---
 
-## Phase 1 — Entra ID setup (you, ~30 min)
+## Phase 1 — Entra ID setup ✅ DONE
 
-- [ ] Sign in to https://portal.azure.com as ApTask admin
-- [ ] Navigate: Entra ID → App Registrations → New registration
-- [ ] Name the app: `ACE Dialer`
-- [ ] Supported account types: **Accounts in this organizational directory only (Single tenant)**
-- [ ] Redirect URI #1 (Web): `https://ace-dialer.vercel.app/auth/microsoft/callback`
-- [ ] Redirect URI #2 (Public client/native): `ace-dialer://auth/callback`
-- [ ] Register the app
-- [ ] Copy and save: **Application (client) ID**
-- [ ] Copy and save: **Directory (tenant) ID**
-- [ ] Certificates & secrets → New client secret → 24 months → copy and save the **Value** (not the ID)
-- [ ] API permissions → ensure these are granted: `openid`, `profile`, `email`, `User.Read`
-- [ ] Add these three values to Render's `ace-dialer-api` env vars: `MS_CLIENT_ID`, `MS_TENANT_ID`, `MS_CLIENT_SECRET`
+- [x] Sign in to https://portal.azure.com as ApTask admin
+- [x] Entra ID → App Registrations → New registration
+- [x] App name: `ACE Dialer`
+- [x] Supported account types: Single tenant (ApTask only)
+- [x] Redirect URI #1 (Web): `https://acedialerv4-web.vercel.app/auth/microsoft/callback`
+- [x] Redirect URI #2 (Public client/native): `ace-dialer://auth/callback`
+- [x] Register the app + copy **Application (client) ID**
+- [x] Copy **Directory (tenant) ID**
+- [x] Client secret (24 months) — copy the **Value** (not the ID)
+- [x] API permissions: `openid`, `profile`, `email`, `User.Read`
+- [x] Add `MS_CLIENT_ID`, `MS_TENANT_ID`, `MS_CLIENT_SECRET` to Render `ace-dialer-api` env
 
 ---
 
 ## Phase 2 — Schema + SSO backend ✅ DONE
 
-- [x] Prisma migration: nullable passwordHash, azureOid, provider, AuditLog table
-- [x] @azure/msal-node integration + `/auth/microsoft/exchange` + `/auth/microsoft/config`
+- [x] Prisma migration: nullable `passwordHash`, `azureOid` unique, `provider`, `AuditLog` table
+- [x] `@azure/msal-node` integration (`ConfidentialClientApplication` for web, `PublicClientApplication` for Electron PKCE)
+- [x] `POST /auth/microsoft/exchange` + `GET /auth/microsoft/config`
 - [x] `MS_CLIENT_ID` / `MS_TENANT_ID` / `MS_CLIENT_SECRET` set on Render
 - [x] Deployed; `/auth/microsoft/config` returns `enabled:true`
+- [x] Local-login guard against null `passwordHash` for SSO-only users
+
+---
 
 ## Phase 3 — Login UI (web) ✅ DONE
 
-- [x] PKCE helpers in `lib/oauth.ts`
+- [x] PKCE helpers in `lib/oauth.ts` (codeVerifier/codeChallenge, state)
 - [x] Rewritten `Login.tsx` with "Sign in with Microsoft" + break-glass password disclosure
 - [x] `MicrosoftCallback.tsx` callback page handling state + code exchange
-- [x] App.tsx route registered
-- [x] Verified end-to-end: signed in via Microsoft, landed on /keypad, AuditLog entry written
+- [x] `App.tsx` route registered (`/auth/microsoft/callback`)
+- [x] Verified end-to-end on browser: signed in via Microsoft, landed on `/keypad`, AuditLog entry written
 
-## Phase 4 — Polish Login UI + Electron deep-link (Claude, ~2 hr)
+---
 
-- [ ] **#188** Polish Login page: dark Microsoft CTA, demote password button to text link, hero block, gradient backdrop, theme support
-- [ ] **#177** Electron `app.setAsDefaultProtocolClient('ace-dialer')` + `open-url` + second-instance argv handler for SSO callback
+## Phase 4 — Polish Login UI + Electron deep-link + Installers ✅ DONE
 
-## Phase 5 — Bulk import existing 150 users (Claude, ~2 hr)
+- [x] **#188** Polished Login: gradient backdrop, glass card, dark Microsoft CTA, demoted password to disclosure, hero block, dark theme
+- [x] **#177** Electron `app.setAsDefaultProtocolClient('ace-dialer')` + `open-url` (mac) + second-instance argv handler (win) for SSO callback
+- [x] Single-instance lock + `ace:open-external` + `ace:sso-callback` IPC channels
+- [x] Preload bridge: `openExternal`, `onSsoCallback`, `notifyReadyForSso`
+- [x] `isElectron()` branch in Login.tsx → `shell.openExternal` + `onSsoCallback` subscription
+- [x] Focus/visibility reset so cancelled SSO doesn't leave UI stuck in "Redirecting…"
+- [x] Vite `base: './'` for file:// asset paths
+- [x] `HashRouter` for file:// (Electron), `BrowserRouter` for http(s):// (web)
+- [x] **#170** Windows `.exe` build via GitHub Actions (electron-builder `--win`, NSIS installer)
+- [x] **Mac `.dmg` build via GitHub Actions** (electron-builder `--mac`, both arm64 + x64)
+- [x] **Apple Developer Program enrolled** + Developer ID Application cert generated via CSR
+- [x] Cert + private key combined into `Certificates.p12`, base64-encoded, added to GitHub secrets
+- [x] App-specific password generated for notarization, Team ID copied
+- [x] 5 GitHub secrets configured: `APPLE_CSC_LINK`, `APPLE_CSC_KEY_PASSWORD`, `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID`
+- [x] `entitlements.mac.plist` at `apps/desktop/` root (not in gitignored `build/`)
+- [x] Hardened Runtime entitlements: JIT, unsigned-executable-memory, library-validation disabled, mic, network client+server
+- [x] `mac.notarize: true` + `extendInfo` with `CFBundleURLTypes` + `NSMicrophoneUsageDescription`
+- [x] **Signed + notarized `.dmg` installs cleanly on Mac with zero Gatekeeper warnings**
+- [x] **Windows `.exe` installs cleanly via NSIS one-click installer**
+- [x] SSO works end-to-end on Mac Electron app (browser → `ace-dialer://` → app)
+- [x] SSO works end-to-end on Windows Electron app
+- [x] Microphone permission prompt fires on first call (Mac System Settings shows ACE Dialer)
+- [x] SIP password populated in DB → JsSIP connects to `wss://sip.telnyx.com:7443` → registered
+- [x] Verified live call works on Mac signed build
 
-- [ ] **#189** CSV ingest endpoint `POST /admin/users/bulk-import` (admin-only)
+---
+
+## Phase 5 — Bulk import existing 150 users (Claude, ~2 hr) ← NEXT
+
+- [ ] **#189** CSV ingest endpoint `POST /admin/users/bulk-import` (admin-only, idempotent on email)
 - [ ] **#189** CLI fallback: `node scripts/bulk-import-users.mjs --file=users.csv`
 - [ ] You: pull existing user list from Telnyx Portal (SIP Connection → Credentials tab → export) + add emails column from Entra ID
 - [ ] Run import → confirm all 150 User rows created → spot-check a few
 
+---
+
 ## Phase 6 — Admin Users panel + per-user provisioning (Claude + you, ~4 hr)
 
 - [ ] **#178** Backend: `PATCH /admin/users/:id` with last-admin safeguard + AuditLog
-- [ ] **#167** Backend: `POST /admin/users` provisioning orchestration (Telnyx + DB + audit)
+- [ ] **#167** Backend: `POST /admin/users` provisioning orchestration (Telnyx sub-credential + DID purchase + assign + voicemail enable + DB row + audit)
 - [ ] **#168 + #179** Frontend: `Settings → Users` panel with table, Invite, promote/demote, deactivate
-- [ ] **#180** Frontend: `Settings → Audit Log` viewer
+- [ ] **#180** Frontend: `Settings → Audit Log` viewer (read-only)
 - [ ] **#169** CLI fallback: `scripts/provision-user.mjs`
+- [ ] **#166** Investigate Telnyx API: sub-credentials, DID purchase + assign, voicemail config endpoints
+- [ ] **#171** Write new-user one-pager (PDF): Install → Open → Sign in with Microsoft → Done
 
-## Phase 7 — Smoke test (you, ~30 min)
+---
+
+## Phase 7 — Pilot smoke test (you, ~30 min)
 
 - [ ] Sign out → sign back in via Microsoft → confirm avatar + name in header
 - [ ] Sign in as a bulk-imported 2nd user from a different machine/browser
 - [ ] Exchange a chat message + a phone call between the two
 - [ ] As admin: promote 2nd user to admin → confirm AuditLog entry
 - [ ] Try to demote self → confirm last-admin safeguard
-
-## Tomorrow (May 22) — Full provisioning + installers
-
-- [ ] **Task #166** Investigate Telnyx API: sub-credentials, DID purchase + assign, voicemail config endpoint
-- [ ] **Task #167** `POST /admin/users` orchestration: create User row + Telnyx SIP creds + assign DID + enable voicemail + send invite email (or display credentials)
-- [ ] **Task #168** Wire "Invite User" button to real provisioning endpoint
-- [ ] **Task #169** CLI fallback: `node scripts/provision-user.mjs --email=... --first=... --last=...`
-- [ ] **Task #170** Add Windows `.exe` build to GitHub Actions (electron-builder `--win`)
-- [ ] **Task #171** Write new-user one-pager (PDF): Install → Open → Sign in with Microsoft → Done
-- [ ] **Task #180** Audit Log viewer page in Settings (read-only)
-- [ ] **Task #172** Full pilot smoke test with a real 2nd ApTask user end-to-end
+- [ ] **#172** Full pilot smoke test with a real 2nd ApTask user end-to-end
 
 ---
 
@@ -102,6 +124,7 @@ Check items off as we complete them. New items get appended at the bottom. Items
 - [ ] **Task #187** Verify Telnyx WebRTC vs SIP pricing model (does it stack?)
 - [ ] **Task #185** Replace 15s polling with real-time push (Postgres LISTEN/NOTIFY or Realtime equivalent on new Postgres provider)
 - [ ] **Task #140** Wire socket.io for instant chat push (kill 6s polling)
+- [ ] **Task #194** Windows code-signing (EV or OV cert, ~$200/yr) — defer to GA
 
 ---
 
@@ -110,9 +133,22 @@ Check items off as we complete them. New items get appended at the bottom. Items
 - [ ] **Task #158** Custom busy greeting (blocked on Telnyx engineering escalation)
 - [ ] **Task #151** Update DATABASE_URL on Render webhooks service (after Postgres provider switch)
 - [ ] "Block this number" buttons on Recents rows + Messages thread headers (from #159 follow-up)
+- [ ] **#159** Number blocking — in progress
+- [ ] **#161** Show favorite name in all surfaces — in progress
 - [ ] Migrate voicemail/MMS storage from Supabase Storage to Cloudflare R2 (after Postgres provider switch)
 - [ ] Settings → Profile picture upload (currently just initials gradient)
 - [ ] Per-user call recording opt-in (compliance / consent)
+
+---
+
+## Bonus items completed today (not originally in plan)
+
+- [x] **Recents dedupe** — added `STATUS_RANK` + `dedupeCallLegs()` helper in `calls.routes.ts`; one row per session, status-ranked
+- [x] **Internal chat frontend** — `Chat.tsx` (418 lines) + 6th bottom-nav tab + unread badge; reuses Messages CSS
+- [x] **CSS rescue** — fixed truncated `.audio-picker-label` that was killing all styles past line 3603
+- [x] **CORS reflect-origin** — supports `file://` Electron pages (Origin: null) without dropping browser security
+- [x] **Cross-platform native binaries** — `optionalDependencies` for rollup (linux/darwin/win32) + dmg-license (macOS only)
+- [x] **Vercel build fix** — added all 4 rollup platform binaries so Linux build server works
 
 ---
 
