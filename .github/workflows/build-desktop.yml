@@ -31,11 +31,22 @@ jobs:
       - name: Build desktop TS
         working-directory: apps/desktop
         run: npm run build
-      - name: Package macOS .dmg
+      - name: Package macOS .dmg (signed + notarized)
         working-directory: apps/desktop
-        # No code signing — release/.dmg can still be opened via right-click → Open
+        # electron-builder reads these env vars automatically:
+        #   CSC_LINK / CSC_KEY_PASSWORD  → signing identity (.p12)
+        #   APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD / APPLE_TEAM_ID → notarize
+        # When all five secrets are present, the .dmg is signed AND notarized
+        # so end users get zero Gatekeeper warnings on install. When ANY of the
+        # secrets are absent (e.g. on a PR from a fork), CSC_IDENTITY_AUTO_DISCOVERY
+        # falls back to 'false' so the build still completes — just unsigned.
         env:
-          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+          CSC_LINK: ${{ secrets.APPLE_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.APPLE_CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          CSC_IDENTITY_AUTO_DISCOVERY: ${{ secrets.APPLE_CSC_LINK == '' && 'false' || 'true' }}
         run: npm run package:mac
       - name: Upload .dmg artifacts
         uses: actions/upload-artifact@v4
