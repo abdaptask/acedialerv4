@@ -49,4 +49,22 @@ contextBridge.exposeInMainWorld('ace', {
       return null;
     }
   },
+  // ── Microsoft SSO bridge (Phase 7) ──
+  // openExternal: ask main to open a https:// URL in the system browser
+  // (used for the Microsoft authorize page — Microsoft blocks embedded
+  // webviews for OAuth + Conditional Access often requires a real browser).
+  openExternal: (url: string): Promise<boolean> =>
+    ipcRenderer.invoke('ace:open-external', url),
+  // onSsoCallback: renderer subscribes so it gets the ace-dialer://auth/callback
+  // URL the OS handed us when Microsoft redirected back. Returns an unsubscribe
+  // function for the React useEffect cleanup pattern.
+  onSsoCallback: (cb: (url: string) => void) => {
+    const handler = (_e: unknown, url: string) => cb(url);
+    ipcRenderer.on('ace:sso-callback', handler);
+    return () => ipcRenderer.removeListener('ace:sso-callback', handler);
+  },
+  // notifyReadyForSso: renderer pings main when it's ready to receive
+  // cold-start protocol URLs (used to flush a buffered URL from the
+  // first launch's argv).
+  notifyReadyForSso: () => ipcRenderer.send('ace:sso-ready'),
 });

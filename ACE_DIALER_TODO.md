@@ -37,64 +37,48 @@ Check items off as we complete them. New items get appended at the bottom. Items
 
 ---
 
-## Phase 2 — Schema + SSO backend (Claude, ~3 hr)
+## Phase 2 — Schema + SSO backend ✅ DONE
 
-- [ ] Prisma migration: `User.passwordHash` → nullable
-- [ ] Prisma migration: add `User.azureOid` (unique, nullable string)
-- [ ] Prisma migration: add `User.provider` enum (`'local' | 'microsoft'`, default `'microsoft'`)
-- [ ] Prisma migration: create `AuditLog` table (id, actorUserId, action, targetUserId, metadata jsonb, createdAt)
-- [ ] Run migration locally + on Render
-- [ ] Install `@azure/msal-node` in `apps/api`
-- [ ] Build `GET /auth/microsoft/start` — returns Microsoft auth URL with state token
-- [ ] Build `GET /auth/microsoft/callback` — exchanges code → validates id_token JWT → looks up/creates User row → mints our JWT
-- [ ] Verify state-token CSRF protection works
-- [ ] Test against Entra ID from local dev
+- [x] Prisma migration: nullable passwordHash, azureOid, provider, AuditLog table
+- [x] @azure/msal-node integration + `/auth/microsoft/exchange` + `/auth/microsoft/config`
+- [x] `MS_CLIENT_ID` / `MS_TENANT_ID` / `MS_CLIENT_SECRET` set on Render
+- [x] Deployed; `/auth/microsoft/config` returns `enabled:true`
 
----
+## Phase 3 — Login UI (web) ✅ DONE
 
-## Phase 3 — Login UI + Electron deep-link (Claude, ~2 hr)
+- [x] PKCE helpers in `lib/oauth.ts`
+- [x] Rewritten `Login.tsx` with "Sign in with Microsoft" + break-glass password disclosure
+- [x] `MicrosoftCallback.tsx` callback page handling state + code exchange
+- [x] App.tsx route registered
+- [x] Verified end-to-end: signed in via Microsoft, landed on /keypad, AuditLog entry written
 
-- [ ] Rewrite `apps/web/src/pages/Login.tsx` — primary "Sign in with Microsoft" button
-- [ ] Add small "Sign in with password" link below (visible only if break-glass enabled)
-- [ ] Wire button → `GET /auth/microsoft/start` → redirect
-- [ ] Handle callback redirect → store JWT → route to `/keypad`
-- [ ] Electron: `app.setAsDefaultProtocolClient('ace-dialer')` in `apps/desktop/src/main.ts`
-- [ ] Electron: handle `open-url` event (Mac) + second-instance argv parsing (Windows) to catch `ace-dialer://auth/callback?code=...`
-- [ ] Electron: hand the code to the renderer via IPC, renderer posts to backend, gets JWT
+## Phase 4 — Polish Login UI + Electron deep-link (Claude, ~2 hr)
 
----
+- [ ] **#188** Polish Login page: dark Microsoft CTA, demote password button to text link, hero block, gradient backdrop, theme support
+- [ ] **#177** Electron `app.setAsDefaultProtocolClient('ace-dialer')` + `open-url` + second-instance argv handler for SSO callback
 
-## Phase 4 — Admin Users panel (Claude, ~3 hr)
+## Phase 5 — Bulk import existing 150 users (Claude, ~2 hr)
 
-- [ ] Backend: `GET /admin/users` (list all users, admin-only)
-- [ ] Backend: `PATCH /admin/users/:id` accepts `{ isAdmin?, isActive? }`
-- [ ] Backend: last-admin safeguard (cannot demote self if `isAdmin && count(admins) === 1`)
-- [ ] Backend: every successful change writes an `AuditLog` row
-- [ ] Frontend: new `Settings → Users` section gated on `user.isAdmin`
-- [ ] Frontend: table of users with status (active, last seen, admin badge, DID)
-- [ ] Frontend: 3-dot menu per row — Make admin / Remove admin / Deactivate / Reset password
-- [ ] Frontend: confirmation modal for promote/demote actions
-- [ ] Frontend: "Invite User" button (stub for today — full wiring lands tomorrow)
+- [ ] **#189** CSV ingest endpoint `POST /admin/users/bulk-import` (admin-only)
+- [ ] **#189** CLI fallback: `node scripts/bulk-import-users.mjs --file=users.csv`
+- [ ] You: pull existing user list from Telnyx Portal (SIP Connection → Credentials tab → export) + add emails column from Entra ID
+- [ ] Run import → confirm all 150 User rows created → spot-check a few
 
----
+## Phase 6 — Admin Users panel + per-user provisioning (Claude + you, ~4 hr)
 
-## Phase 5 — Smoke test today's work (you, ~30 min)
+- [ ] **#178** Backend: `PATCH /admin/users/:id` with last-admin safeguard + AuditLog
+- [ ] **#167** Backend: `POST /admin/users` provisioning orchestration (Telnyx + DB + audit)
+- [ ] **#168 + #179** Frontend: `Settings → Users` panel with table, Invite, promote/demote, deactivate
+- [ ] **#180** Frontend: `Settings → Audit Log` viewer
+- [ ] **#169** CLI fallback: `scripts/provision-user.mjs`
 
-- [ ] Pull latest, run `npm install` in repo root, verify web build compiles
-- [ ] Push to GitHub, wait for Vercel + Render redeploy
-- [ ] Sign out of dialer
-- [ ] On Login page, see "Sign in with Microsoft" button
-- [ ] Click it → redirected to Microsoft login
-- [ ] Sign in with your `@aptask.com` account → redirected back to dialer at `/keypad`
-- [ ] Confirm avatar + name in top-right header shows your O365 profile
-- [ ] Manually insert a 2nd test user row via Render's Postgres console (we'll automate this in Phase 7 tomorrow)
-- [ ] Sign that user in via Microsoft from a private window
-- [ ] Open Chat tab → start conversation with your primary account
-- [ ] Confirm both sides see the message within ~6 sec
-- [ ] As primary admin, go to Settings → Users → make the 2nd user an admin → confirm AuditLog entry written
-- [ ] Try to demote yourself → confirm UI blocks it with "last admin" warning
+## Phase 7 — Smoke test (you, ~30 min)
 
----
+- [ ] Sign out → sign back in via Microsoft → confirm avatar + name in header
+- [ ] Sign in as a bulk-imported 2nd user from a different machine/browser
+- [ ] Exchange a chat message + a phone call between the two
+- [ ] As admin: promote 2nd user to admin → confirm AuditLog entry
+- [ ] Try to demote self → confirm last-admin safeguard
 
 ## Tomorrow (May 22) — Full provisioning + installers
 

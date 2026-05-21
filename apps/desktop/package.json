@@ -30,17 +30,26 @@
       {
         "from": "../web/dist",
         "to": "web",
-        "filter": ["**/*"]
+        "filter": [
+          "**/*"
+        ]
       },
       {
         "from": "assets",
         "to": "assets",
-        "filter": ["tray-icon*.png"]
+        "filter": [
+          "tray-icon*.png"
+        ]
       }
     ],
     "win": {
       "target": [
-        { "target": "nsis", "arch": ["x64"] }
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
       ],
       "publisherName": "ApTask"
     },
@@ -54,14 +63,40 @@
     },
     "mac": {
       "target": [
-        { "target": "dmg", "arch": ["x64", "arm64"] }
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
       ],
       "category": "public.app-category.business",
-      "hardenedRuntime": false
+      "hardenedRuntime": false,
+      "extendInfo": {
+        "CFBundleURLTypes": [
+          {
+            "CFBundleURLName": "ACE Dialer",
+            "CFBundleURLSchemes": [
+              "ace-dialer"
+            ]
+          }
+        ]
+      }
     },
     "linux": {
-      "target": ["AppImage"]
-    }
+      "target": [
+        "AppImage"
+      ]
+    },
+    "protocols": [
+      {
+        "name": "ACE Dialer",
+        "schemes": [
+          "ace-dialer"
+        ]
+      }
+    ]
   },
   "devDependencies": {
     "@types/node": "^20.11.0",

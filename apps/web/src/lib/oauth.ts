@@ -90,3 +90,19 @@ export function buildMicrosoftAuthUrl(args: {
   });
   return `https://login.microsoftonline.com/${args.tenantId}/oauth2/v2.0/authorize?${params.toString()}`;
 }
+
+// ── Phase 7: Electron-aware redirect URI selection ──
+//
+// Web browsers redirect to our own /auth/microsoft/callback page.
+// Electron uses the custom ace-dialer:// protocol so the OS launches our
+// app instead of trying to load the URL inside a webview. Whichever URI
+// we use during /authorize MUST match what we send to /token in the
+// exchange step — Microsoft validates them as a pair.
+export function isElectron(): boolean {
+  return Boolean((globalThis as { ace?: { isElectron?: boolean } }).ace?.isElectron);
+}
+
+export function getRedirectUri(): string {
+  if (isElectron()) return 'ace-dialer://auth/callback';
+  return `${window.location.origin}/auth/microsoft/callback`;
+}

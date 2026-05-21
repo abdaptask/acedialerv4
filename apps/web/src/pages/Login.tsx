@@ -1,19 +1,19 @@
-// Phase 7 — Login page is now primarily a "Sign in with Microsoft" landing.
+// Polished Login page — primary "Sign in with Microsoft" CTA, with
+// break-glass password sign-in tucked into a discreet "Other ways to
+// sign in" disclosure underneath.
 //
-// The flow:
-//   1. On mount, fetch /auth/microsoft/config to see whether SSO is wired up
-//      on the backend. If yes, render the big Microsoft button.
-//   2. Clicking Microsoft → generate PKCE codeVerifier + state, stash both
-//      in sessionStorage, navigate to Microsoft's authorize endpoint.
-//   3. Microsoft redirects back to /auth/microsoft/callback (handled by
-//      MicrosoftCallback.tsx) with ?code=...&state=...
-//
-// We keep a small "Sign in with password" disclosure for break-glass admin
-// access in case Entra ID is down. SSO-only users will see "Invalid
-// credentials" if they try local login (their passwordHash is NULL).
+// Visual structure:
+//   - Outer .auth-shell-v2 — gradient backdrop, centered content
+//   - .auth-card-v2 — glass-effect card with proper shadow + radius
+//   - Brand block at top (icon + ACE Dialer wordmark + tagline)
+//   - Microsoft button (dark variant per Microsoft brand guidance)
+//   - "Other ways to sign in" link → expands to password form
+//   - Footer line with "by ApTask" + version
 import { useEffect, useState } from 'react';
+import { Phone } from 'lucide-react';
 import { login, getMicrosoftConfig, type User, type MicrosoftConfig } from '../api';
-import { startOAuthFlow, buildMicrosoftAuthUrl } from '../lib/oauth';
+import { startOAuthFlow, buildMicrosoftAuthUrl, isElectron, getRedirectUri, consumeOAuthState } from '../lib/oauth';
+import { exchangeMicrosoftCode } from '../api';
 
 interface Props {
   onSuccess: (token: string, user: User) => void;
@@ -28,9 +28,6 @@ function consumeLogoutReason(): 'jwt_expired' | 'sip_failed' | null {
   return null;
 }
 
-// Read an SSO error stashed by the callback page so we can show a friendly
-// message after a failed SSO sign-in (e.g. "Your account hasn't been
-// invited yet"). One-shot read — clears after display.
 function consumeSsoError(): string | null {
   try {
     const v = sessionStorage.getItem('ace_sso_error');
@@ -42,7 +39,7 @@ function consumeSsoError(): string | null {
 export default function Login({ onSuccess }: Props) {
   const [config, setConfig] = useState<MicrosoftConfig | null>(null);
   const [showPasswordForm, setShowPasswordForm] = useState(false);
-  const [email, setEmail] = useState('abdulla@aptask.com');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [ssoError, setSsoError] = useState<string | null>(null);
@@ -53,25 +50,69 @@ export default function Login({ onSuccess }: Props) {
   useEffect(() => {
     const reason = consumeLogoutReason();
     if (reason === 'jwt_expired') {
-      setLogoutNotice('Your session expired. Please sign in again.');
+      setLogoutNotice('Your session expired — please sign in again.');
     } else if (reason === 'sip_failed') {
-      setLogoutNotice('Lost connection to the calling service. Please sign in again.');
+      setLogoutNotice('Lost connection to the calling service — please sign in again.');
     }
     setSsoError(consumeSsoError());
-
     void getMicrosoftConfig().then(setConfig);
-  }, []);
 
-  // Begin the Microsoft OAuth dance. We generate state + PKCE here and
-  // store them in sessionStorage; the callback page reads them after
-  // Microsoft redirects back.
+    // Phase 7 — Electron SSO callback subscription.
+    // After the user signs in at Microsoft, the OS routes the
+    // ace-dialer://auth/callback?code=... URL to our app, which forwards
+    // it here via window.ace.onSsoCallback. We parse code+state, verify
+    // state matches what we stashed, do the exchange, and onSuccess()
+    // hands the JWT to App.tsx.
+    if (!isElectron() || !window.ace) return;
+    const unsub = window.ace.onSsoCallback(async (rawUrl: string) => {
+      try {
+        const url = new URL(rawUrl);
+        const code = url.searchParams.get('code');
+        const returnedState = url.searchParams.get('state');
+        const oauthError = url.searchParams.get('error');
+        if (oauthError) {
+          setSsoError(`Microsoft sign-in failed: ${url.searchParams.get('error_description') || oauthError}`);
+          setStartingSso(false);
+          return;
+        }
+        if (!code || !returnedState) {
+          setSsoError('Sign-in returned without a code — please try again.');
+          setStartingSso(false);
+          return;
+        }
+        const { state: expectedState, codeVerifier } = consumeOAuthState();
+        if (!expectedState || expectedState !== returnedState || !codeVerifier) {
+          setSsoError('Sign-in session expired — please try again.');
+          setStartingSso(false);
+          return;
+        }
+        const redirectUri = 'ace-dialer://auth/callback';
+        const { token, user } = await exchangeMicrosoftCode(code, redirectUri, codeVerifier);
+        onSuccess(token, user);
+      } catch (e) {
+        const err = e as Error & { code?: string };
+        setSsoError(
+          err.code === 'not_invited'
+            ? "Your ApTask account hasn't been invited to the dialer yet. Ask your admin."
+            : err.code === 'account_disabled'
+              ? 'Your dialer account has been deactivated. Contact your admin.'
+              : err.message || 'Sign-in failed.',
+        );
+        setStartingSso(false);
+      }
+    });
+    // Tell main process we're ready to receive any buffered cold-start URL.
+    window.ace.notifyReadyForSso();
+    return () => unsub();
+  }, [onSuccess]);
+
   async function handleMicrosoftSignIn() {
     if (!config?.enabled || !config.clientId || !config.tenantId) return;
     setStartingSso(true);
     setError(null);
     try {
       const { state, codeChallenge } = await startOAuthFlow();
-      const redirectUri = `${window.location.origin}/auth/microsoft/callback`;
+      const redirectUri = getRedirectUri();
       const url = buildMicrosoftAuthUrl({
         tenantId: config.tenantId,
         clientId: config.clientId,
@@ -79,10 +120,19 @@ export default function Login({ onSuccess }: Props) {
         state,
         codeChallenge,
       });
-      // Full-page navigate (NOT pushState) so the browser leaves our SPA
-      // for Microsoft's domain. Microsoft redirects back via window.location,
-      // landing us at /auth/microsoft/callback.
-      window.location.assign(url);
+      if (isElectron() && window.ace?.openExternal) {
+        // Electron: open Microsoft authorize page in the system browser.
+        // Microsoft blocks embedded webviews for OAuth and Conditional Access
+        // policies usually require a full browser session for MFA. The OS
+        // will then route ace-dialer://auth/callback back to our app via
+        // the registered protocol handler (see preload.ts onSsoCallback).
+        await window.ace.openExternal(url);
+        // Don't reset startingSso — the user is now in another window and
+        // will be redirected back to our app shortly.
+      } else {
+        // Web: full-page navigate to Microsoft.
+        window.location.assign(url);
+      }
     } catch (e) {
       setStartingSso(false);
       setError((e as Error).message || 'Could not start Microsoft sign-in');
@@ -103,64 +153,85 @@ export default function Login({ onSuccess }: Props) {
     }
   }
 
+  const version =
+    typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'dev';
+
   return (
-    <div className="auth-shell">
-      <div className="auth-card">
-        <h1>ACE Dialer</h1>
-        <p className="subtitle">Sign in with your ApTask account</p>
+    <div className="auth-shell-v2">
+      {/* Soft animated gradient blobs in the background — pure CSS */}
+      <div className="auth-bg-blob auth-bg-blob-1" aria-hidden="true" />
+      <div className="auth-bg-blob auth-bg-blob-2" aria-hidden="true" />
+
+      <div className="auth-card-v2">
+        {/* Brand block */}
+        <div className="auth-brand">
+          <div className="auth-brand-mark" aria-hidden="true">
+            <Phone size={22} strokeWidth={2.5} />
+          </div>
+          <h1 className="auth-brand-name">ACE Dialer</h1>
+          <p className="auth-brand-tagline">Sign in with your ApTask account</p>
+        </div>
 
         {logoutNotice && (
-          <div role="alert" className="auth-banner auth-banner-warn">
+          <div role="alert" className="auth-banner-v2 auth-banner-warn-v2">
             {logoutNotice}
           </div>
         )}
 
         {ssoError && (
-          <div role="alert" className="auth-banner auth-banner-error">
+          <div role="alert" className="auth-banner-v2 auth-banner-error-v2">
             {ssoError}
           </div>
         )}
 
-        {/* Primary action: Microsoft SSO */}
+        {/* Primary CTA */}
         {config?.enabled ? (
           <button
             type="button"
-            className="ms-signin-btn"
+            className="ms-signin-btn-v2"
             disabled={startingSso}
             onClick={handleMicrosoftSignIn}
           >
-            {/* Tiny inline Microsoft 4-color logo */}
             <svg width="20" height="20" viewBox="0 0 23 23" aria-hidden="true">
               <rect x="1" y="1" width="10" height="10" fill="#F25022" />
               <rect x="12" y="1" width="10" height="10" fill="#7FBA00" />
               <rect x="1" y="12" width="10" height="10" fill="#00A4EF" />
               <rect x="12" y="12" width="10" height="10" fill="#FFB900" />
             </svg>
-            <span>{startingSso ? 'Redirecting…' : 'Sign in with Microsoft'}</span>
+            <span>{startingSso ? 'Redirecting to Microsoft…' : 'Sign in with Microsoft'}</span>
           </button>
-        ) : (
-          <div className="auth-banner auth-banner-warn">
-            Single sign-on is not configured. Ask your admin.
+        ) : config ? (
+          <div className="auth-banner-v2 auth-banner-warn-v2">
+            Single sign-on is not configured on the server. Contact your admin.
           </div>
+        ) : (
+          <button type="button" className="ms-signin-btn-v2" disabled>
+            <span>Loading…</span>
+          </button>
         )}
 
-        {/* Break-glass: local password (small, secondary) */}
+        {/* Break-glass: tucked-away password form */}
+        <div className="auth-divider">
+          <span>or</span>
+        </div>
+
         <button
           type="button"
-          className="auth-disclosure-btn"
+          className="auth-disclosure-btn-v2"
           onClick={() => setShowPasswordForm((v) => !v)}
         >
           {showPasswordForm ? 'Hide password sign-in' : 'Sign in with password (admin only)'}
         </button>
 
         {showPasswordForm && (
-          <form onSubmit={handlePasswordSubmit} className="auth-pwd-form">
+          <form onSubmit={handlePasswordSubmit} className="auth-pwd-form-v2">
             <label>
               <span>Email</span>
               <input
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
+                placeholder="you@aptask.com"
                 required
                 autoComplete="email"
               />
@@ -176,13 +247,18 @@ export default function Login({ onSuccess }: Props) {
               />
             </label>
             {error && <div className="error">{error}</div>}
-            <button type="submit" disabled={submitting}>
+            <button type="submit" disabled={submitting} className="auth-pwd-submit">
               {submitting ? 'Signing in…' : 'Sign in'}
             </button>
           </form>
         )}
 
-        <p className="hint">Pilot — single tenant SSO (Entra ID)</p>
+        {/* Footer */}
+        <div className="auth-footer">
+          <span>ACE Dialer · v{version}</span>
+          <span className="auth-footer-sep">·</span>
+          <span>by ApTask</span>
+        </div>
       </div>
     </div>
   );

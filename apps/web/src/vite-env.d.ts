@@ -15,6 +15,10 @@ interface AceElectronBridge {
   onDeclineRequest: (cb: () => void) => () => void;
   onClose: (cb: () => void) => () => void;
   getQueryParam: (name: string) => string | null;
+  // Phase 7 — Microsoft SSO bridge
+  openExternal: (url: string) => Promise<boolean>;
+  onSsoCallback: (cb: (url: string) => void) => () => void;
+  notifyReadyForSso: () => void;
 }
 interface Window {
   ace?: AceElectronBridge;

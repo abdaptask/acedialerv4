@@ -15,6 +15,47 @@ let tray: Tray | null = null;
  * trigger another close-event that we'd intercept and hide.
  */
 let isQuittingForReal = false;
+// ────────────────────────────────────────────────────────────────────────
+// Microsoft SSO deep-link handling (Phase 7).
+//
+// We register ace-dialer:// as a custom URL scheme so when Microsoft
+// redirects the user's browser to ace-dialer://auth/callback?code=... the
+// OS launches (or focuses) our app and we can deliver the auth code to
+// the renderer for exchange.
+//
+// macOS uses the 'open-url' event. Windows/Linux pass the URL as a
+// second-instance argv string, which we capture via 'second-instance'.
+// ────────────────────────────────────────────────────────────────────────
+
+/** Pulled out of argv on cold-start when Windows launches the app FROM the
+ *  protocol URL. Held until mainWindow finishes loading so we can deliver
+ *  it once the renderer is ready to receive. */
+let pendingSsoUrl: string | null = null;
+
+/** Find an ace-dialer:// URL in an argv array. Windows passes it as the
+ *  last positional argument when the OS launches us from a protocol click. */
+function findProtocolUrl(argv: readonly string[]): string | null {
+  for (const arg of argv) {
+    if (typeof arg === 'string' && arg.startsWith('ace-dialer://')) return arg;
+  }
+  return null;
+}
+
+/** Deliver the SSO callback URL to the main window's renderer. If the
+ *  window doesn't exist yet (cold start), buffer in `pendingSsoUrl` and
+ *  flush after the renderer signals it's ready via 'ace:sso-ready'. */
+function handleSsoCallback(url: string) {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    if (!mainWindow.isVisible()) mainWindow.show();
+    mainWindow.focus();
+    mainWindow.webContents.send('ace:sso-callback', url);
+    pendingSsoUrl = null;
+  } else {
+    pendingSsoUrl = url;
+  }
+}
+
+
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -381,6 +422,72 @@ function buildMenu() {
   ];
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
+
+// Register ace-dialer:// as the default app for that protocol on the OS.
+// Without this, Windows shows a "no app to open this link" dialog when
+// Microsoft redirects. On Mac, this gets recorded in Info.plist by
+// electron-builder, but we register at runtime too as a safety net for
+// dev mode where the .plist isn't installed.
+if (process.defaultApp) {
+  // We're running under `electron .` in dev — pass argv[1] (the script
+  // path) to setAsDefaultProtocolClient so Windows knows what to launch.
+  if (process.argv.length >= 2) {
+    app.setAsDefaultProtocolClient('ace-dialer', process.execPath, [path.resolve(process.argv[1])]);
+  }
+} else {
+  app.setAsDefaultProtocolClient('ace-dialer');
+}
+
+// Single-instance lock — if the OS tries to launch us a second time (which
+// happens when the protocol fires while we're already running), the
+// 'second-instance' event fires on the existing instance instead. We pull
+// the protocol URL from that event's argv and forward to the main window.
+const gotLock = app.requestSingleInstanceLock();
+if (!gotLock) {
+  app.quit();
+} else {
+  app.on('second-instance', (_event, argv) => {
+    const url = findProtocolUrl(argv);
+    if (url) handleSsoCallback(url);
+    // Always surface the main window when launched-again
+    if (mainWindow) {
+      if (!mainWindow.isVisible()) mainWindow.show();
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.focus();
+    }
+  });
+}
+
+// macOS routes protocol launches through 'open-url' instead of argv.
+app.on('open-url', (event, url) => {
+  event.preventDefault();
+  if (url.startsWith('ace-dialer://')) handleSsoCallback(url);
+});
+
+// Cold-start: Windows passes the protocol URL in our own argv when the
+// OS launches us from a clean state. Capture it now and hand it off as
+// soon as the renderer signals it's ready.
+{
+  const url = findProtocolUrl(process.argv);
+  if (url) pendingSsoUrl = url;
+}
+
+// Renderer says "I'm ready to receive SSO callbacks" — flush anything
+// we buffered during cold-start.
+ipcMain.on('ace:sso-ready', () => {
+  if (pendingSsoUrl) handleSsoCallback(pendingSsoUrl);
+});
+
+// Renderer asks us to open the Microsoft authorize URL in the system
+// browser — we do NOT load it inside the Electron window because
+// Microsoft blocks embedded webviews for OAuth (and Conditional Access
+// policies often require a full browser session for MFA).
+ipcMain.handle('ace:open-external', async (_event, url: string) => {
+  if (typeof url !== 'string') return false;
+  if (!/^https:\/\//i.test(url)) return false;
+  await shell.openExternal(url);
+  return true;
+});
 
 app.whenReady().then(() => {
   buildMenu();
