@@ -7,6 +7,40 @@
 
 ---
 
+## ▶ START HERE TOMORROW (May 22)
+
+### Morning — clear the queue (~30 min)
+1. **Push v0.7.2** (sitting in working tree):
+   ```powershell
+   cd C:\Users\asheikh\Documents\Claude\Projects\Dialer\acedialerv4
+   Remove-Item .git\index.lock -ErrorAction SilentlyContinue
+   git add ACE_DIALER_TODO.md apps package.json
+   git commit -m "v0.7.2: rebuild decline-with-message + reporting roadmap"
+   git push origin main
+   ```
+2. **Wait ~10 min** for CI → first test of silent auto-update. If the desktop apps show "Update ready — Restart to install" within 15 min and the click works, the whole update infrastructure is validated.
+3. **Smoke-test decline-with-message v2** — call your DID, three-button row, tap Reply, sheet slides up, send SMS.
+4. **Telnyx Portal — flip voicemail transcription on** (#203). 5-min freebie.
+
+### Bring with you tomorrow
+1. Telnyx Portal CSV: SIP Connection → Credentials tab → export (for bulk import)
+2. Entra ID user list with emails
+3. **Decision:** auto-promote `@aptask.com` emails to admin on bulk import, or manually promote after?
+4. **Decision:** send email notifications on user invite? If yes, pick a provider (Resend / Postmark / SES)
+
+### Recommended build order for the day
+- **A) Phase 5 bulk-import 150 users (#189)** — unblocks the actual pilot. ~2-3 hrs.
+- **B) Live Ops Dashboard P0 (#204)** — first reporting slice. ~6 hrs. Gives admins visibility once users are in.
+- **C) Telnyx API investigation (#166)** — unblocks #167, #202, cost reporting. ~2-3 hrs. Schedule for later in the week.
+
+### What I'll have ready for you
+- `POST /admin/users/bulk-import` endpoint + CSV upload UI in Users panel (Phase 5)
+- Pre-import dry-run preview so we don't half-create 150 rows on a bad CSV
+- Error report for failed rows
+
+---
+
+
 ## Decisions made
 
 - [ ] **Postgres provider** — Neon or Render Postgres? *User sourcing cheaper elsewhere.*
