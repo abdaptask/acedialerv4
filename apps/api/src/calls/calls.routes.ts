@@ -29,6 +29,64 @@ interface UpdateCallBody {
   hangupCause?: string | null;
 }
 
+// Phase 6.13 - Dedupe call legs in Recents.
+//
+// Telnyx fires multiple webhooks for the same inbound call: one for the PSTN
+// leg and one for the SIP-delivery leg to our WebRTC client. Each has a
+// distinct `call_control_id`, so naive `findMany` returns two rows per
+// physical call - that's why a single blocked call was showing as 'Missed'
+// AND 'Blocked' in Recents.
+//
+// Solution: group by `sessionId` (Telnyx's call_session_id is shared across
+// legs of the same call) and keep the row with the most meaningful status.
+// Ties on rank fall back to the most recent `startedAt`.
+const STATUS_RANK: Record<string, number> = {
+  blocked: 100,
+  answered: 90,
+  completed: 80,
+  forwarded: 70,
+  rejected: 60,
+  no_answer: 50,
+  missed: 40,
+  failed: 30,
+  initiated: 20,
+};
+
+function dedupeCallLegs<T extends { sessionId?: string | null; status?: string | null; startedAt?: Date | string | null }>(
+  rows: T[],
+): T[] {
+  const bySession = new Map<string, T>();
+  const standalone: T[] = [];
+  for (const row of rows) {
+    const sid = row.sessionId;
+    if (!sid) {
+      standalone.push(row);
+      continue;
+    }
+    const existing = bySession.get(sid);
+    if (!existing) {
+      bySession.set(sid, row);
+      continue;
+    }
+    const existingRank = STATUS_RANK[existing.status ?? ''] ?? 0;
+    const candidateRank = STATUS_RANK[row.status ?? ''] ?? 0;
+    if (candidateRank > existingRank) {
+      bySession.set(sid, row);
+    } else if (candidateRank === existingRank) {
+      const existingTs = existing.startedAt ? new Date(existing.startedAt as string | Date).getTime() : 0;
+      const candidateTs = row.startedAt ? new Date(row.startedAt as string | Date).getTime() : 0;
+      if (candidateTs > existingTs) bySession.set(sid, row);
+    }
+  }
+  const merged = [...bySession.values(), ...standalone];
+  merged.sort((a, b) => {
+    const ta = a.startedAt ? new Date(a.startedAt as string | Date).getTime() : 0;
+    const tb = b.startedAt ? new Date(b.startedAt as string | Date).getTime() : 0;
+    return tb - ta;
+  });
+  return merged;
+}
+
 export async function callsRoutes(app: FastifyInstance) {
   // --- Missed-call count for bottom-nav badge ---
   // Counts inbound calls that didn't connect (missed/no_answer/rejected/failed)
@@ -73,9 +131,11 @@ export async function callsRoutes(app: FastifyInstance) {
         ],
       },
       orderBy: { startedAt: 'desc' },
-      take: 100,
+      // Bumped from 100 -> 200 so dedupe (which collapses 2 legs into 1) still
+      // leaves a healthy ~100-row history in the UI.
+      take: 200,
     });
-    return calls;
+    return dedupeCallLegs(calls);
   });
 
   app.get('/calls/:id', { onRequest: [app.authenticate] }, async (request, reply) => {
