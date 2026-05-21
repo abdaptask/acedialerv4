@@ -667,3 +667,105 @@ export async function removeBlockedNumber(token: string, id: number): Promise<vo
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
 }
 
+
+// ─────────────────────────────────────────────────────────────────
+// Internal Chat — dialer-user ↔ dialer-user messaging (not external SMS).
+// Lives entirely in our DB; intended for short notes between teammates.
+// ─────────────────────────────────────────────────────────────────
+
+export interface InternalChatUser {
+  id: number;
+  email: string;
+  firstName: string | null;
+  lastName: string | null;
+}
+
+export interface InternalChatThread {
+  otherId: number;
+  lastMessage: string;
+  mediaUrl: string | null;
+  lastAt: string;
+  lastSenderId: number;
+  unreadCount: number;
+  otherUser: InternalChatUser | null;
+}
+
+export interface InternalChatMessage {
+  id: number;
+  senderId: number;
+  recipientId: number;
+  threadKey: string;
+  body: string;
+  mediaUrl: string | null;
+  readAt: string | null;
+  createdAt: string;
+}
+
+export async function getInternalChatUsers(token: string): Promise<InternalChatUser[]> {
+  const res = await fetch(`${API_URL}/internal-chat/users`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) throw new Error(`Failed to load users (${res.status})`);
+  return res.json();
+}
+
+export async function getInternalChatThreads(token: string): Promise<InternalChatThread[]> {
+  const res = await fetch(`${API_URL}/internal-chat/threads`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) throw new Error(`Failed to load chat threads (${res.status})`);
+  return res.json();
+}
+
+export async function getInternalChatThread(
+  token: string,
+  otherUserId: number,
+): Promise<InternalChatMessage[]> {
+  const res = await fetch(`${API_URL}/internal-chat/threads/${otherUserId}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) throw new Error(`Failed to load conversation (${res.status})`);
+  return res.json();
+}
+
+export async function sendInternalChatMessage(
+  token: string,
+  recipientId: number,
+  body: string,
+  mediaUrl?: string | null,
+): Promise<InternalChatMessage> {
+  const res = await fetch(`${API_URL}/internal-chat`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ recipientId, body, mediaUrl: mediaUrl ?? null }),
+  });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '');
+    throw new Error(detail || `Failed to send (${res.status})`);
+  }
+  return res.json();
+}
+
+export async function markInternalChatThreadRead(
+  token: string,
+  otherUserId: number,
+): Promise<{ ok: boolean; marked: number }> {
+  const res = await fetch(`${API_URL}/internal-chat/threads/${otherUserId}/read`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) return { ok: false, marked: 0 };
+  return res.json();
+}
+
+export async function getInternalChatUnreadCount(token: string): Promise<number> {
+  const res = await fetch(`${API_URL}/internal-chat/unread/count`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) return 0;
+  const json = await res.json().catch(() => ({ count: 0 }));
+  return Number(json?.count ?? 0);
+}

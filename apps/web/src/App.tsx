@@ -9,6 +9,7 @@ import Voicemail from './pages/Voicemail';
 import Contacts from './pages/Contacts';
 import Favorites from './pages/Favorites';
 import Messages from './pages/Messages';
+import Chat from './pages/Chat';
 import Settings from './pages/Settings';
 import type { User } from './api';
 import { getMe } from './api';
@@ -102,6 +103,7 @@ export default function App() {
         <Route path="in-call" element={<InCall />} />
         <Route path="favorites" element={<Favorites />} />
         <Route path="messages" element={<Messages />} />
+        <Route path="chat" element={<Chat />} />
         <Route path="recents" element={<Recents />} />
         <Route path="contacts" element={<Contacts />} />
         <Route path="voicemail" element={<Voicemail />} />

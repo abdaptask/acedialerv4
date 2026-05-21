@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom';
 import {
   MessageSquare,
+  MessageCircle,
   Clock,
   User as UserIcon,
   Grid3x3,
@@ -18,6 +19,7 @@ import {
   getMessagesUnreadCount,
   getMissedCallsCount,
   getVoicemailsUnreadCount,
+  getInternalChatUnreadCount,
 } from '../api';
 import IncomingCall from '../components/IncomingCall';
 import SmsNotifier from '../components/SmsNotifier';
@@ -68,8 +70,8 @@ export default function Layout({ user, onLogout }: Props) {
 
   // Bottom-nav unread/missed counts. Polled every 15s while the app is open.
   // When the user clicks a tab, mark that tab visited (resets its count).
-  const [unread, setUnread] = useState<{ messages: number; missed: number; voicemail: number }>({
-    messages: 0, missed: 0, voicemail: 0,
+  const [unread, setUnread] = useState<{ messages: number; missed: number; voicemail: number; chat: number }>({
+    messages: 0, missed: 0, voicemail: 0, chat: 0,
   });
   useEffect(() => {
     let cancelled = false;
@@ -77,12 +79,13 @@ export default function Layout({ user, onLogout }: Props) {
       const token = sessionStorage.getItem('ace_token');
       if (!token) return;
       try {
-        const [m, c, v] = await Promise.all([
+        const [m, c, v, chat] = await Promise.all([
           getMessagesUnreadCount(token, getLastVisit('messages')),
           getMissedCallsCount(token, getLastVisit('recents')),
           getVoicemailsUnreadCount(token),
+          getInternalChatUnreadCount(token),
         ]);
-        if (!cancelled) setUnread({ messages: m, missed: c, voicemail: v });
+        if (!cancelled) setUnread({ messages: m, missed: c, voicemail: v, chat });
       } catch { /* silent */ }
     };
     void refresh();
@@ -297,6 +300,17 @@ export default function Layout({ user, onLogout }: Props) {
             )}
           </span>
           <span>Messages</span>
+        </NavLink>
+        <NavLink to="/chat" className={({ isActive }) => (isActive ? 'tab active' : 'tab')}>
+          <span className="tab-icon-wrap">
+            <MessageCircle size={22} />
+            {unread.chat > 0 && (
+              <span className="tab-badge" aria-label={`${unread.chat} unread chats`}>
+                {unread.chat > 99 ? '99+' : unread.chat}
+              </span>
+            )}
+          </span>
+          <span>Chat</span>
         </NavLink>
         <NavLink to="/recents" className={({ isActive }) => (isActive ? 'tab active' : 'tab')}>
           <span className="tab-icon-wrap">
