@@ -198,14 +198,21 @@ export class SipService {
   }
 
   /**
-   * Internal: fire wildcard unregister on the given (old) UA, then close
-   * its socket ~250ms later so the REGISTER frame has time to flush over
-   * the WebSocket before close. Caller is expected to set this.ua = null
-   * immediately so subsequent operations don't touch the dying UA.
+   * Internal: send a SPECIFIC-Contact unregister on the given (old) UA,
+   * then close its socket ~250ms later so the REGISTER frame has time to
+   * flush over the WebSocket before close. Caller is expected to set
+   * this.ua = null immediately so subsequent operations don't touch the
+   * dying UA.
+   *
+   * v0.8.8: switched from `unregister({all:true})` (Contact:*) to plain
+   * `unregister()` (Contact:<thisDevice>;expires=0). Wildcard form evicts
+   * ALL Contacts for the same SIP user — which would kick OTHER devices
+   * out of the registrar whenever this device quits. Specific-Contact
+   * unregister evicts only this device's Contact.
    */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private scheduleCleanup(oldUa: any): void {
-    try { oldUa?.unregister?.({ all: true }); } catch (e) {
+    try { oldUa?.unregister?.(); } catch (e) {
       console.warn('[sip] cleanup unregister threw', e);
     }
     setTimeout(() => {
@@ -928,9 +935,34 @@ export class SipService {
 
   acceptCall(): void {
     const id = this.incomingCallId;
-    if (!id) return;
+    if (!id) {
+      console.warn('[sip] acceptCall: no incomingCallId', {
+        callsSize: this.calls.size,
+        activeCallId: this.activeCallId,
+      });
+      return;
+    }
     const entry = this.calls.get(id);
-    if (!entry) return;
+    if (!entry) {
+      console.warn('[sip] acceptCall: no entry for incomingCallId=', id, {
+        callsSize: this.calls.size,
+      });
+      return;
+    }
+    // v0.8.8 diagnostic — capture session state immediately before answer
+    // so we can tell which of JsSIP's 8 statuses is rejecting the call.
+    // INVALID_STATE_ERROR is thrown whenever _status !== WAITING_FOR_ANSWER
+    // (3=INVITE_RECEIVED, 5=ANSWERED, 6=WAITING_FOR_ACK, 7=CANCELED,
+    // 8=TERMINATED, 9=CONFIRMED).
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const statusBefore = (entry.session as any)?._status;
+    console.log('[sip] acceptCall', {
+      id,
+      sessionStatus: statusBefore,
+      direction: entry.session?.direction,
+      callsSize: this.calls.size,
+      activeCallId: this.activeCallId,
+    });
     applySpeakerSelection(this.primaryAudioEl);
     try {
       entry.session.answer({
@@ -943,7 +975,15 @@ export class SipService {
         },
       });
     } catch (e) {
-      console.warn('[sip] answer failed', e);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const statusAfter = (entry.session as any)?._status;
+      console.warn('[sip] answer failed', e, {
+        sessionStatus: statusAfter,
+        sessionStatusBefore: statusBefore,
+        incomingCallId: this.incomingCallId,
+        activeCallId: this.activeCallId,
+        callsSize: this.calls.size,
+      });
     }
   }
 

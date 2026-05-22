@@ -87,6 +87,17 @@ contextBridge.exposeInMainWorld('ace', {
     ipcRenderer.on('ace:update-downloaded', handler);
     return () => ipcRenderer.removeListener('ace:update-downloaded', handler);
   },
+  // v0.8.8 — query the current auto-update state on demand. Closes the
+  // "stuck at 100%" gap where the UpdateBanner mounted AFTER electron-
+  // updater already fired the one-shot 'update-downloaded' event. The
+  // banner now polls this on mount and immediately flips to "Restart to
+  // install" if the download has already completed.
+  getUpdateState: (): Promise<{
+    phase: 'idle' | 'checking' | 'available' | 'downloading' | 'downloaded' | 'error';
+    version?: string | null;
+    percent?: number;
+    message?: string;
+  }> => ipcRenderer.invoke('ace:get-update-state'),
   // Trigger install-now. Main process quits, runs the installer, and
   // relaunches the new build.
   installUpdate: (): Promise<boolean> => ipcRenderer.invoke('ace:install-update'),

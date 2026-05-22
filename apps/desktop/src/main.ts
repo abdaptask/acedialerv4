@@ -513,6 +513,32 @@ ipcMain.handle('ace:open-external', async (_event, url: string) => {
 // Surfacing inside the app gives a much more reliable nudge.
 // ────────────────────────────────────────────────────────────────────────
 let autoUpdateInitialized = false;
+
+// v0.8.8 — State-mirror for auto-update events. electron-updater emits
+// 'update-downloaded' exactly once. If the renderer's UpdateBanner had
+// unmounted/remounted (route change, hot reload, React strict-mode mount
+// double, etc.) between the download starting and finishing, the event
+// was lost forever and the banner stayed stuck at "Downloading 100%".
+// We now mirror state here and expose 'ace:get-update-state' so the
+// renderer can rehydrate on mount.
+type UpdateStateMirror =
+  | { phase: 'idle' }
+  | { phase: 'checking' }
+  | { phase: 'available'; version: string | null }
+  | { phase: 'downloading'; version: string | null; percent: number }
+  | { phase: 'downloaded'; version: string | null }
+  | { phase: 'error'; message: string };
+let lastUpdateState: UpdateStateMirror = { phase: 'idle' };
+
+function versionFromMirror(): string | null {
+  if (lastUpdateState.phase === 'available' ||
+      lastUpdateState.phase === 'downloading' ||
+      lastUpdateState.phase === 'downloaded') {
+    return lastUpdateState.version;
+  }
+  return null;
+}
+
 function initAutoUpdater() {
   if (autoUpdateInitialized) return;
   autoUpdateInitialized = true;
@@ -525,32 +551,37 @@ function initAutoUpdater() {
   autoUpdater.autoInstallOnAppQuit = true;
 
   autoUpdater.on('checking-for-update', () => {
-    // Quiet — only log; no UI.
     console.log('[auto-update] checking for update');
+    lastUpdateState = { phase: 'checking' };
   });
   autoUpdater.on('update-available', (info) => {
     console.log('[auto-update] update available', info?.version);
+    lastUpdateState = { phase: 'available', version: info?.version ?? null };
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('ace:update-available', { version: info?.version ?? null });
     }
   });
   autoUpdater.on('update-not-available', () => {
     console.log('[auto-update] up to date');
+    lastUpdateState = { phase: 'idle' };
   });
   autoUpdater.on('download-progress', (progress) => {
     const pct = Math.round(progress?.percent ?? 0);
+    lastUpdateState = { phase: 'downloading', version: versionFromMirror(), percent: pct };
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('ace:update-progress', { percent: pct });
     }
   });
   autoUpdater.on('update-downloaded', (info) => {
     console.log('[auto-update] update downloaded', info?.version);
+    lastUpdateState = { phase: 'downloaded', version: info?.version ?? null };
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('ace:update-downloaded', { version: info?.version ?? null });
     }
   });
   autoUpdater.on('error', (err) => {
     console.warn('[auto-update] error', err?.message ?? err);
+    lastUpdateState = { phase: 'error', message: err?.message ?? String(err) };
   });
 
   // First check shortly after launch (give the renderer a moment to mount
@@ -558,6 +589,11 @@ function initAutoUpdater() {
   setTimeout(() => { void autoUpdater.checkForUpdates().catch(() => {}); }, 15_000);
   setInterval(() => { void autoUpdater.checkForUpdates().catch(() => {}); }, 60 * 60 * 1000);
 }
+
+// v0.8.8 — IPC handler: renderer queries this on UpdateBanner mount to
+// rehydrate state and avoid missing the one-shot 'update-downloaded'
+// event. Closes the "stuck at 100%" gap.
+ipcMain.handle('ace:get-update-state', async () => lastUpdateState);
 
 // Renderer asks main to install the downloaded update. quitAndInstall closes
 // every window, runs the installer, and relaunches the new build. The

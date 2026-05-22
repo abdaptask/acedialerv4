@@ -87,6 +87,27 @@ export default function UpdateBanner() {
     const unsubDone = ace!.onUpdateDownloaded!((info) => {
       setState({ phase: 'downloaded', version: info.version });
     });
+
+    // v0.8.8 — Rehydrate from the main process's state-mirror on mount.
+    // electron-updater fires 'update-downloaded' exactly once. If this
+    // component remounted (router change, dev hot-reload, React strict-
+    // mode double-mount, etc.) between the download start and finish,
+    // the event was lost forever and the banner stayed stuck at
+    // "Downloading 100%". Querying the mirror on mount guarantees we
+    // surface "Restart to install" no matter when we appeared.
+    if (typeof ace!.getUpdateState === 'function') {
+      void ace!.getUpdateState().then((s) => {
+        if (!s || s.phase === 'idle' || s.phase === 'checking' || s.phase === 'error') return;
+        if (s.phase === 'downloaded') {
+          setState({ phase: 'downloaded', version: s.version ?? null });
+        } else if (s.phase === 'downloading') {
+          setState({ phase: 'downloading', version: s.version ?? null, percent: s.percent ?? 0 });
+        } else if (s.phase === 'available') {
+          setState({ phase: 'available', version: s.version ?? null });
+        }
+      }).catch(() => { /* main process not ready yet — events will catch up */ });
+    }
+
     return () => {
       unsubAvail?.();
       unsubProg?.();

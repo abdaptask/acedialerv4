@@ -25,6 +25,14 @@ interface AceElectronBridge {
   onUpdateDownloaded?: (cb: (info: { version: string | null }) => void) => () => void;
   installUpdate?: () => Promise<boolean>;
   checkForUpdates?: () => Promise<{ state: string; version?: string | null; message?: string }>;
+  // v0.8.8 — state-mirror query for the auto-update banner to rehydrate
+  // on mount and never miss the one-shot 'update-downloaded' event.
+  getUpdateState?: () => Promise<{
+    phase: 'idle' | 'checking' | 'available' | 'downloading' | 'downloaded' | 'error';
+    version?: string | null;
+    percent?: number;
+    message?: string;
+  }>;
 }
 interface Window {
   ace?: AceElectronBridge;
