@@ -9,6 +9,7 @@ import {
   Voicemail,
   LogOut,
   Settings as SettingsIcon,
+  Download as DownloadIcon,
   Phone,
   ChevronDown,
   Monitor,
@@ -115,6 +116,12 @@ export default function Layout({ user, onLogout }: Props) {
 
   // User dropdown menu
   const [menuOpen, setMenuOpen] = useState(false);
+  // Manual "Check for updates" status (Electron only). Shows inline below
+  // the menu item: 'checking…' | 'no_update' | 'update_found' | 'error'. (#213)
+  const [updateCheck, setUpdateCheck] = useState<{
+    state: 'idle' | 'checking' | 'no_update' | 'update_found' | 'error';
+    message?: string;
+  }>({ state: 'idle' });
   const menuRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!menuOpen) return;
@@ -287,6 +294,40 @@ export default function Layout({ user, onLogout }: Props) {
               >
                 <SettingsIcon size={16} /> Settings
               </button>
+              {/* Manual "Check for updates" — only meaningful in Electron.
+                  Auto-update should handle this, but the manual button is a
+                  reliable fallback when the 60-min poll hasn't fired yet. (#213) */}
+              {isElectron && window.ace?.checkForUpdates && (
+                <>
+                  <button
+                    type="button"
+                    className="user-menu-item"
+                    role="menuitem"
+                    disabled={updateCheck.state === 'checking'}
+                    onClick={async () => {
+                      setUpdateCheck({ state: 'checking' });
+                      try {
+                        const result = await window.ace!.checkForUpdates!();
+                        setUpdateCheck({
+                          state: result.state === 'no_update' ? 'no_update'
+                            : result.state === 'update_found' ? 'update_found'
+                            : 'error',
+                          message: result.message,
+                        });
+                      } catch (err) {
+                        setUpdateCheck({ state: 'error', message: (err as Error).message });
+                      }
+                    }}
+                  >
+                    <DownloadIcon size={16} /> {updateCheck.state === 'checking' ? 'Checking…' : 'Check for updates'}
+                  </button>
+                  {updateCheck.state !== 'idle' && updateCheck.state !== 'checking' && (
+                    <div className={`user-menu-status ${updateCheck.state}`}>
+                      {updateCheck.message ?? ''}
+                    </div>
+                  )}
+                </>
+              )}
               <button
                 type="button"
                 className="user-menu-item danger"

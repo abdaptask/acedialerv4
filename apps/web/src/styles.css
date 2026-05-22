@@ -5095,3 +5095,50 @@ button.call-pill-info:hover { background: rgba(255, 255, 255, 0.05); }
   border-radius: 3px;
   cursor: default;
 }
+
+/* ============ ALERTS (#210) ============ */
+.alerts-list { list-style: none; padding: 0; margin: 12px 0 0; }
+.alert-row {
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  margin-bottom: 8px;
+  background: rgba(255,255,255,0.04);
+  border-left: 3px solid var(--text-muted);
+}
+[data-theme="light"] .alert-row { background: rgba(0,0,0,0.03); }
+.alert-row.critical { border-left-color: #ff453a; background: rgba(255,69,58,0.06); }
+.alert-row.warn { border-left-color: #ff9500; background: rgba(255,149,0,0.06); }
+.alert-row.info { border-left-color: var(--text-muted); }
+.alert-icon {
+  width: 32px; height: 32px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.06);
+}
+.alert-row.critical .alert-icon { color: #ff6b6b; background: rgba(255,69,58,0.15); }
+.alert-row.warn .alert-icon { color: #ff9500; background: rgba(255,149,0,0.15); }
+.alert-row.info .alert-icon { color: var(--text-muted); }
+.alert-text { flex: 1; min-width: 0; }
+.alert-message { font-size: 13px; font-weight: 500; }
+.alert-tag {
+  font-size: 10px; font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+.alert-tag.critical { background: rgba(255,69,58,0.2); color: #ff6b6b; }
+.alert-tag.warn { background: rgba(255,149,0,0.2); color: #ff9500; }
+.alert-tag.info { background: rgba(118,118,128,0.2); color: var(--text-muted); }
+
+/* ============ Check for updates inline status (#213) ============ */
+.user-menu-status {
+  padding: 6px 14px;
+  font-size: 11px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+[data-theme="light"] .user-menu-status { border-top-color: rgba(0, 0, 0, 0.06); }
+.user-menu-status.no_update { color: #34c759; }
+.user-menu-status.update_found { color: #0a84ff; }
+.user-menu-status.error { color: #ff6b6b; }

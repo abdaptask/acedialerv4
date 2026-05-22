@@ -563,6 +563,32 @@ function initAutoUpdater() {
 // every window, runs the installer, and relaunches the new build. The
 // `isQuittingForReal` flag lets the window-close handler skip its
 // hide-to-tray behavior so we actually exit instead of just hiding.
+// Manual "Check for updates" — invoked from the user-dropdown menu item.
+// Returns a status the renderer can show inline. The actual update events
+// (available / downloaded) still flow through the normal autoUpdater event
+// handlers, so the existing UpdateBanner machinery still works on top.
+ipcMain.handle('ace:check-for-updates', async () => {
+  try {
+    const result = await autoUpdater.checkForUpdates();
+    if (!result) {
+      return { state: 'no_update', message: 'You are on the latest version.' };
+    }
+    const remote = result.updateInfo?.version;
+    const local = autoUpdater.currentVersion?.version;
+    if (remote && local && remote === local) {
+      return { state: 'no_update', version: local, message: 'You are on the latest version.' };
+    }
+    return {
+      state: 'update_found',
+      version: remote ?? null,
+      message: remote ? `v${remote} is downloading…` : 'Update found — downloading…',
+    };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { state: 'error', message: msg };
+  }
+});
+
 ipcMain.handle('ace:install-update', async () => {
   isQuittingForReal = true;
   setImmediate(() => autoUpdater.quitAndInstall(false, true));

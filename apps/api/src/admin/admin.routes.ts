@@ -1008,4 +1008,359 @@ export async function adminRoutes(app: FastifyInstance) {
       };
     },
   );
+
+  // ───────────────────── GET /admin/reports/cost (#207) ───────────────
+  // Telnyx cost reporting. Pricing constants come from env vars (with
+  // sane defaults) so an admin can tune them in one place if Telnyx
+  // pricing changes.
+  app.get<{ Querystring: { range?: string } }>(
+    '/admin/reports/cost',
+    { onRequest: [app.authenticate, requireAdmin] },
+    async (request) => {
+      const range = request.query.range ?? '30d';
+      const now = new Date();
+      const since = range === '7d'
+        ? new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
+        : new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+      const days = range === '7d' ? 7 : 30;
+
+      // Pricing — Telnyx US defaults. Override via env if your plan differs.
+      const COST_INBOUND_PER_MIN = parseFloat(process.env.TELNYX_COST_INBOUND_PER_MIN ?? '0.005');
+      const COST_OUTBOUND_PER_MIN = parseFloat(process.env.TELNYX_COST_OUTBOUND_PER_MIN ?? '0.007');
+      const COST_PER_SMS = parseFloat(process.env.TELNYX_COST_PER_SMS ?? '0.004');
+      const COST_PER_DID_MONTHLY = parseFloat(process.env.TELNYX_COST_PER_DID_MONTHLY ?? '1.00');
+
+      // Per-user voice spend.
+      const calls = await prisma.call.findMany({
+        where: { startedAt: { gte: since }, durationSeconds: { gt: 0 } },
+        select: { userId: true, direction: true, durationSeconds: true },
+      });
+      const byUser = new Map<number, { inboundSec: number; outboundSec: number }>();
+      for (const c of calls) {
+        const cur = byUser.get(c.userId) ?? { inboundSec: 0, outboundSec: 0 };
+        if (c.direction === 'inbound') cur.inboundSec += c.durationSeconds;
+        else cur.outboundSec += c.durationSeconds;
+        byUser.set(c.userId, cur);
+      }
+
+      // SMS spend.
+      const smsByUser = await prisma.message.groupBy({
+        by: ['userId'],
+        where: { createdAt: { gte: since } },
+        _count: { _all: true },
+      });
+      const smsMap = new Map(smsByUser.map((r) => [r.userId, r._count._all]));
+
+      // Per-DID minutes.
+      const callsByDid = await prisma.call.groupBy({
+        by: ['toNumber'],
+        where: {
+          startedAt: { gte: since },
+          direction: 'inbound',
+          durationSeconds: { gt: 0 },
+        },
+        _sum: { durationSeconds: true },
+      });
+      const didMinutes = callsByDid
+        .map((r) => ({ did: r.toNumber, minutes: Math.round((r._sum.durationSeconds ?? 0) / 60) }))
+        .filter((r) => r.did)
+        .sort((a, b) => b.minutes - a.minutes)
+        .slice(0, 25);
+
+      const userIds = Array.from(byUser.keys()).concat(Array.from(smsMap.keys()));
+      const uniqUserIds = Array.from(new Set(userIds));
+      const userDetails = uniqUserIds.length > 0
+        ? await prisma.user.findMany({
+            where: { id: { in: uniqUserIds } },
+            select: { id: true, email: true, firstName: true, lastName: true, didNumber: true },
+          })
+        : [];
+      const userById = new Map(userDetails.map((u) => [u.id, u]));
+
+      const byUserArr = uniqUserIds.map((id) => {
+        const voice = byUser.get(id) ?? { inboundSec: 0, outboundSec: 0 };
+        const smsCount = smsMap.get(id) ?? 0;
+        const u = userById.get(id);
+        const inboundCost = (voice.inboundSec / 60) * COST_INBOUND_PER_MIN;
+        const outboundCost = (voice.outboundSec / 60) * COST_OUTBOUND_PER_MIN;
+        const smsCost = smsCount * COST_PER_SMS;
+        const total = inboundCost + outboundCost + smsCost;
+        return {
+          userId: id,
+          email: u?.email ?? '(unknown)',
+          name:
+            ([u?.firstName, u?.lastName].filter(Boolean).join(' ').trim() ||
+              u?.email) ?? '(unknown)',
+          didNumber: u?.didNumber ?? null,
+          inboundMinutes: Math.round(voice.inboundSec / 60),
+          outboundMinutes: Math.round(voice.outboundSec / 60),
+          smsCount,
+          inboundCost,
+          outboundCost,
+          smsCost,
+          totalCost: total,
+        };
+      }).sort((a, b) => b.totalCost - a.totalCost);
+
+      // Active DID count for the rental projection.
+      const activeUsers = await prisma.user.count({ where: { isActive: true, didNumber: { not: null } } });
+
+      const voiceTotal = byUserArr.reduce((s, u) => s + u.inboundCost + u.outboundCost, 0);
+      const smsTotal = byUserArr.reduce((s, u) => s + u.smsCost, 0);
+      const didRentalMonthly = activeUsers * COST_PER_DID_MONTHLY;
+
+      // Projected monthly = (voice + sms over `days`) / days * 30 + DID rental.
+      const usageProjection = ((voiceTotal + smsTotal) / Math.max(days, 1)) * 30;
+      const projectedMonthly = usageProjection + didRentalMonthly;
+
+      return {
+        range,
+        generatedAt: now.toISOString(),
+        pricing: {
+          inboundPerMin: COST_INBOUND_PER_MIN,
+          outboundPerMin: COST_OUTBOUND_PER_MIN,
+          perSms: COST_PER_SMS,
+          didMonthly: COST_PER_DID_MONTHLY,
+        },
+        totals: {
+          voiceCost: voiceTotal,
+          smsCost: smsTotal,
+          didRentalMonthly,
+          projectedMonthly,
+          activeDids: activeUsers,
+        },
+        byUser: byUserArr,
+        didMinutes,
+      };
+    },
+  );
+
+  // ───────────────────── GET /admin/reports/recruiter (#208) ──────────
+  // ApTask-specific recruiter metrics.
+  //   - candidateReach: unique outbound numbers dialed per user per day (avg)
+  //   - conversationRate: % of outbound calls that connected > 30s
+  app.get<{ Querystring: { range?: string } }>(
+    '/admin/reports/recruiter',
+    { onRequest: [app.authenticate, requireAdmin] },
+    async (request) => {
+      const range = request.query.range ?? '7d';
+      const now = new Date();
+      const since = range === '30d'
+        ? new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
+        : new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      const days = range === '30d' ? 30 : 7;
+
+      const outboundCalls = await prisma.call.findMany({
+        where: {
+          startedAt: { gte: since },
+          direction: 'outbound',
+        },
+        select: { userId: true, toNumber: true, durationSeconds: true, startedAt: true },
+      });
+
+      type Row = {
+        userId: number;
+        totalDialed: number;
+        connectedOver30s: number;
+        uniqueNumbers: Set<string>;
+        uniqueDays: Set<string>;
+      };
+      const rows = new Map<number, Row>();
+      for (const c of outboundCalls) {
+        const row = rows.get(c.userId) ?? {
+          userId: c.userId,
+          totalDialed: 0,
+          connectedOver30s: 0,
+          uniqueNumbers: new Set<string>(),
+          uniqueDays: new Set<string>(),
+        };
+        row.totalDialed += 1;
+        if (c.durationSeconds >= 30) row.connectedOver30s += 1;
+        if (c.toNumber) row.uniqueNumbers.add(c.toNumber.replace(/[^\d]/g, '').slice(-10));
+        row.uniqueDays.add(c.startedAt.toISOString().slice(0, 10));
+        rows.set(c.userId, row);
+      }
+
+      const userIds = Array.from(rows.keys());
+      const users = userIds.length > 0
+        ? await prisma.user.findMany({
+            where: { id: { in: userIds } },
+            select: { id: true, email: true, firstName: true, lastName: true },
+          })
+        : [];
+      const userById = new Map(users.map((u) => [u.id, u]));
+
+      const byUser = userIds.map((id) => {
+        const r = rows.get(id)!;
+        const u = userById.get(id);
+        const activeDays = Math.max(r.uniqueDays.size, 1);
+        const conversationRate = r.totalDialed > 0 ? r.connectedOver30s / r.totalDialed : 0;
+        return {
+          userId: id,
+          email: u?.email ?? '(unknown)',
+          name:
+            ([u?.firstName, u?.lastName].filter(Boolean).join(' ').trim() ||
+              u?.email) ?? '(unknown)',
+          totalDialed: r.totalDialed,
+          uniqueNumbers: r.uniqueNumbers.size,
+          activeDays,
+          avgUniquePerDay: Math.round((r.uniqueNumbers.size / activeDays) * 10) / 10,
+          connectedOver30s: r.connectedOver30s,
+          conversationRate,
+        };
+      }).sort((a, b) => b.totalDialed - a.totalDialed);
+
+      // Team averages for benchmarking.
+      const totalDialed = byUser.reduce((s, r) => s + r.totalDialed, 0);
+      const totalConnected = byUser.reduce((s, r) => s + r.connectedOver30s, 0);
+      const totalUnique = byUser.reduce((s, r) => s + r.uniqueNumbers, 0);
+      const teamConversationRate = totalDialed > 0 ? totalConnected / totalDialed : 0;
+      const teamAvgUniquePerUser = byUser.length > 0
+        ? Math.round((totalUnique / byUser.length) * 10) / 10
+        : 0;
+
+      return {
+        range,
+        generatedAt: now.toISOString(),
+        days,
+        team: {
+          totalDialed,
+          totalConnected,
+          totalUnique,
+          conversationRate: teamConversationRate,
+          avgUniquePerUser: teamAvgUniquePerUser,
+          activeRecruiters: byUser.length,
+        },
+        byUser,
+      };
+    },
+  );
+
+  // ───────────────────── GET /admin/reports/alerts (#210) ─────────────
+  // Surfaces anomalies the admin should know about. No cron yet — admin
+  // refreshes to recompute. Cheap enough to run on demand.
+  app.get(
+    '/admin/reports/alerts',
+    { onRequest: [app.authenticate, requireAdmin] },
+    async () => {
+      const now = new Date();
+      const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      const fourteenDaysAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
+      const twoHoursAgo = new Date(now.getTime() - 2 * 60 * 60 * 1000);
+      const startOfDay = new Date(now);
+      startOfDay.setUTCHours(0, 0, 0, 0);
+
+      type Alert = {
+        severity: 'info' | 'warn' | 'critical';
+        type: string;
+        message: string;
+        userId?: number;
+        userEmail?: string;
+        userName?: string;
+      };
+      const alerts: Alert[] = [];
+
+      // 1. Active users with NO call/SMS activity in the last 7 days.
+      const activeUsers = await prisma.user.findMany({
+        where: { isActive: true, sipUsername: { not: null }, didNumber: { not: null } },
+        select: { id: true, email: true, firstName: true, lastName: true, createdAt: true },
+      });
+
+      const recentlyActiveCallerIds = new Set(
+        (await prisma.call.findMany({
+          where: { startedAt: { gte: sevenDaysAgo } },
+          distinct: ['userId'],
+          select: { userId: true },
+        })).map((r) => r.userId)
+      );
+      const recentlyActiveMessagerIds = new Set(
+        (await prisma.message.findMany({
+          where: { createdAt: { gte: sevenDaysAgo } },
+          distinct: ['userId'],
+          select: { userId: true },
+        })).map((r) => r.userId)
+      );
+
+      for (const u of activeUsers) {
+        // Don't alert on accounts created within the last 7 days — they're new.
+        if (u.createdAt >= sevenDaysAgo) continue;
+        if (recentlyActiveCallerIds.has(u.id) || recentlyActiveMessagerIds.has(u.id)) continue;
+        alerts.push({
+          severity: 'warn',
+          type: 'user.idle_7d',
+          message: 'No calls or messages in 7 days',
+          userId: u.id,
+          userEmail: u.email,
+          userName:
+            ([u.firstName, u.lastName].filter(Boolean).join(' ').trim() ||
+              u.email),
+        });
+      }
+
+      // 2. Spike in today's missed calls vs 7-day average.
+      const missedToday = await prisma.call.count({
+        where: {
+          startedAt: { gte: startOfDay },
+          direction: 'inbound',
+          status: { in: ['missed', 'no_answer', 'rejected'] },
+        },
+      });
+      const missedLast7d = await prisma.call.count({
+        where: {
+          startedAt: { gte: sevenDaysAgo, lt: startOfDay },
+          direction: 'inbound',
+          status: { in: ['missed', 'no_answer', 'rejected'] },
+        },
+      });
+      const missedAvgPerDay = missedLast7d / 7;
+      if (missedAvgPerDay > 0 && missedToday > missedAvgPerDay * 1.5 && missedToday >= 3) {
+        alerts.push({
+          severity: 'critical',
+          type: 'missed.spike',
+          message: `${missedToday} missed today vs ${Math.round(missedAvgPerDay)}/day 7-day avg`,
+        });
+      }
+
+      // 3. DIDs (numbers we own) with no inbound activity in 14 days.
+      const allDids = activeUsers.map((u) => ({ id: u.id, email: u.email, did: '' as string }));
+      const recentInboundToNumbers = new Set(
+        (await prisma.call.findMany({
+          where: {
+            startedAt: { gte: fourteenDaysAgo },
+            direction: 'inbound',
+          },
+          distinct: ['toNumber'],
+          select: { toNumber: true },
+        })).map((r) => r.toNumber)
+      );
+      const usersWithDids = await prisma.user.findMany({
+        where: { isActive: true, didNumber: { not: null } },
+        select: { id: true, email: true, firstName: true, lastName: true, didNumber: true },
+      });
+      for (const u of usersWithDids) {
+        if (!u.didNumber) continue;
+        if (recentInboundToNumbers.has(u.didNumber)) continue;
+        alerts.push({
+          severity: 'info',
+          type: 'did.inactive_14d',
+          message: `DID ${u.didNumber} has received no calls in 14 days`,
+          userId: u.id,
+          userEmail: u.email,
+          userName:
+            ([u.firstName, u.lastName].filter(Boolean).join(' ').trim() ||
+              u.email),
+        });
+      }
+
+      return {
+        generatedAt: now.toISOString(),
+        counts: {
+          critical: alerts.filter((a) => a.severity === 'critical').length,
+          warn: alerts.filter((a) => a.severity === 'warn').length,
+          info: alerts.filter((a) => a.severity === 'info').length,
+        },
+        alerts,
+      };
+    },
+  );
 }

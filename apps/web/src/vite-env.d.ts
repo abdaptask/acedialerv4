@@ -24,6 +24,7 @@ interface AceElectronBridge {
   onUpdateProgress?: (cb: (info: { percent: number }) => void) => () => void;
   onUpdateDownloaded?: (cb: (info: { version: string | null }) => void) => () => void;
   installUpdate?: () => Promise<boolean>;
+  checkForUpdates?: () => Promise<{ state: string; version?: string | null; message?: string }>;
 }
 interface Window {
   ace?: AceElectronBridge;

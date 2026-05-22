@@ -46,6 +46,9 @@ import {
   Radio,
   TrendingUp,
   AlertTriangle,
+  DollarSign,
+  Target,
+  Siren,
 } from 'lucide-react';
 import {
   getMe,
@@ -66,6 +69,9 @@ import {
   getPresenceReport,
   getUsageReport,
   getQualityReport,
+  getCostReport,
+  getRecruiterReport,
+  getAlertsReport,
   type AdminUserRow,
   type AuditLogEntry,
   type BulkImportRow,
@@ -74,6 +80,9 @@ import {
   type PresenceReport,
   type UsageReport,
   type QualityReport,
+  type CostReport,
+  type RecruiterReport,
+  type AlertsReport,
 } from '../api';
 import {
   DEFAULT_QUICK_REPLIES,
@@ -127,6 +136,9 @@ const SECTIONS: SectionDef[] = [
   { key: 'presence', label: 'Presence', icon: Radio, blurb: 'Who is on call right now (admin only)', Component: PresenceSection },
   { key: 'usage', label: 'Usage', icon: TrendingUp, blurb: 'Per-user volume + talk time (admin only)', Component: UsageSection },
   { key: 'quality', label: 'Quality', icon: AlertTriangle, blurb: 'Missed rate + hangup causes (admin only)', Component: QualitySection },
+  { key: 'cost', label: 'Cost', icon: DollarSign, blurb: 'Telnyx spend per user + projection (admin only)', Component: CostSection },
+  { key: 'recruiter', label: 'Recruiter', icon: Target, blurb: 'Reach + conversation rate (admin only)', Component: RecruiterSection },
+  { key: 'alerts', label: 'Alerts', icon: Siren, blurb: 'Health & anomaly alerts (admin only)', Component: AlertsSection },
   { key: 'users', label: 'Users', icon: Users, blurb: 'Invite, promote, deactivate (admin only)', Component: UsersAdminSection },
   { key: 'audit-log', label: 'Audit log', icon: ScrollText, blurb: 'Recent admin actions (admin only)', Component: AuditLogSection },
 ];
@@ -3000,6 +3012,295 @@ function QualitySection() {
           </React.Fragment>
         ))}
       </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Phase 8.1 — Cost report (#207)
+// ---------------------------------------------------------------------------
+function CostSection() {
+  const [me, setMe] = useState<{ isAdmin: boolean } | null>(null);
+  const [data, setData] = useState<CostReport | null>(null);
+  const [range, setRange] = useState<'7d' | '30d'>('30d');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const token = sessionStorage.getItem('ace_token');
+    if (token) void getMe(token).then((u) => setMe({ isAdmin: u.isAdmin })).catch(() => undefined);
+  }, []);
+
+  useEffect(() => {
+    const tok = sessionStorage.getItem('ace_token');
+    if (!tok) return;
+    setLoading(true);
+    getCostReport(tok, range)
+      .then((r) => { setData(r); setError(null); })
+      .catch((e) => setError((e as Error).message))
+      .finally(() => setLoading(false));
+  }, [range]);
+
+  if (me && !me.isAdmin) return <div className="admin-empty"><ShieldCheck size={28} /><p><strong>Admin access required</strong></p></div>;
+  if (loading && !data) return <div className="muted">Loading…</div>;
+  if (error && !data) return <div className="error">{error}</div>;
+  if (!data) return null;
+
+  const fmtMoney = (n: number) => '$' + n.toFixed(2);
+
+  return (
+    <div className="cost">
+      <div className="liveops-header">
+        <div>
+          <h3 style={{ margin: 0 }}>Cost</h3>
+          <p className="muted small" style={{ margin: '2px 0 0' }}>
+            Telnyx voice + SMS + DID rental. Pricing tunable via API env vars.
+          </p>
+        </div>
+        <div className="presence-filter">
+          <button className={range === '7d' ? 'active' : ''} onClick={() => setRange('7d')}>7 days</button>
+          <button className={range === '30d' ? 'active' : ''} onClick={() => setRange('30d')}>30 days</button>
+        </div>
+      </div>
+
+      <div className="liveops-stats">
+        <div className="liveops-card active">
+          <div className="liveops-card-num">{fmtMoney(data.totals.projectedMonthly)}</div>
+          <div className="liveops-card-label">Projected monthly</div>
+        </div>
+        <div className="liveops-card">
+          <div className="liveops-card-num">{fmtMoney(data.totals.voiceCost)}</div>
+          <div className="liveops-card-label">Voice ({range})</div>
+        </div>
+        <div className="liveops-card">
+          <div className="liveops-card-num">{fmtMoney(data.totals.smsCost)}</div>
+          <div className="liveops-card-label">SMS ({range})</div>
+        </div>
+        <div className="liveops-card">
+          <div className="liveops-card-num">{fmtMoney(data.totals.didRentalMonthly)}</div>
+          <div className="liveops-card-label">{data.totals.activeDids} DIDs × ${data.pricing.didMonthly}/mo</div>
+        </div>
+      </div>
+
+      <div className="liveops-cols">
+        <div className="liveops-col">
+          <div className="liveops-section-title">Top spenders</div>
+          <table className="presence-table">
+            <thead><tr><th>User</th><th>In min</th><th>Out min</th><th>SMS</th><th>Total</th></tr></thead>
+            <tbody>
+              {data.byUser.slice(0, 20).map((u) => (
+                <tr key={u.userId}>
+                  <td>
+                    <div>{u.name}</div>
+                    <div className="muted small">{u.didNumber || u.email}</div>
+                  </td>
+                  <td>{u.inboundMinutes}</td>
+                  <td>{u.outboundMinutes}</td>
+                  <td>{u.smsCount}</td>
+                  <td><strong>{fmtMoney(u.totalCost)}</strong></td>
+                </tr>
+              ))}
+              {data.byUser.length === 0 && <tr><td colSpan={5} className="muted" style={{ padding: '1rem' }}>No usage yet.</td></tr>}
+            </tbody>
+          </table>
+        </div>
+        <div className="liveops-col">
+          <div className="liveops-section-title">Top DIDs by inbound minutes</div>
+          <table className="presence-table">
+            <thead><tr><th>DID</th><th>Inbound minutes</th></tr></thead>
+            <tbody>
+              {data.didMinutes.map((d) => (
+                <tr key={d.did}>
+                  <td className="muted small" style={{ fontVariantNumeric: 'tabular-nums' }}>{d.did}</td>
+                  <td><strong>{d.minutes}</strong></td>
+                </tr>
+              ))}
+              {data.didMinutes.length === 0 && <tr><td colSpan={2} className="muted" style={{ padding: '1rem' }}>No inbound calls yet.</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <p className="muted small" style={{ marginTop: 16 }}>
+        Defaults: ${data.pricing.inboundPerMin}/min inbound · ${data.pricing.outboundPerMin}/min outbound · ${data.pricing.perSms}/SMS · ${data.pricing.didMonthly}/DID/mo. Override via env: <code>TELNYX_COST_INBOUND_PER_MIN</code> etc.
+      </p>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Phase 8.1 — Recruiter metrics (#208)
+// ---------------------------------------------------------------------------
+function RecruiterSection() {
+  const [me, setMe] = useState<{ isAdmin: boolean } | null>(null);
+  const [data, setData] = useState<RecruiterReport | null>(null);
+  const [range, setRange] = useState<'7d' | '30d'>('7d');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const token = sessionStorage.getItem('ace_token');
+    if (token) void getMe(token).then((u) => setMe({ isAdmin: u.isAdmin })).catch(() => undefined);
+  }, []);
+
+  useEffect(() => {
+    const tok = sessionStorage.getItem('ace_token');
+    if (!tok) return;
+    setLoading(true);
+    getRecruiterReport(tok, range)
+      .then((r) => { setData(r); setError(null); })
+      .catch((e) => setError((e as Error).message))
+      .finally(() => setLoading(false));
+  }, [range]);
+
+  if (me && !me.isAdmin) return <div className="admin-empty"><ShieldCheck size={28} /><p><strong>Admin access required</strong></p></div>;
+  if (loading && !data) return <div className="muted">Loading…</div>;
+  if (error && !data) return <div className="error">{error}</div>;
+  if (!data) return null;
+
+  return (
+    <div className="recruiter">
+      <div className="liveops-header">
+        <div>
+          <h3 style={{ margin: 0 }}>Recruiter metrics</h3>
+          <p className="muted small" style={{ margin: '2px 0 0' }}>
+            Outbound dial activity over the last {data.days} days
+          </p>
+        </div>
+        <div className="presence-filter">
+          <button className={range === '7d' ? 'active' : ''} onClick={() => setRange('7d')}>7 days</button>
+          <button className={range === '30d' ? 'active' : ''} onClick={() => setRange('30d')}>30 days</button>
+        </div>
+      </div>
+
+      <div className="liveops-stats">
+        <div className="liveops-card">
+          <div className="liveops-card-num">{data.team.totalDialed}</div>
+          <div className="liveops-card-label">Total dials</div>
+        </div>
+        <div className="liveops-card">
+          <div className="liveops-card-num">{Math.round(data.team.conversationRate * 100)}%</div>
+          <div className="liveops-card-label">Conversation rate (&gt;30s)</div>
+        </div>
+        <div className="liveops-card">
+          <div className="liveops-card-num">{data.team.totalUnique}</div>
+          <div className="liveops-card-label">Unique numbers reached</div>
+        </div>
+        <div className="liveops-card">
+          <div className="liveops-card-num">{data.team.activeRecruiters}</div>
+          <div className="liveops-card-label">Active recruiters</div>
+        </div>
+      </div>
+
+      <table className="presence-table" style={{ marginTop: 12 }}>
+        <thead><tr><th>Recruiter</th><th>Dials</th><th>Unique</th><th>Avg unique/day</th><th>Connected &gt;30s</th><th>Conv rate</th></tr></thead>
+        <tbody>
+          {data.byUser.map((u) => {
+            const rate = Math.round(u.conversationRate * 100);
+            const color = rate >= 30 ? '#34c759' : rate >= 15 ? '#ff9500' : '#ff6b6b';
+            return (
+              <tr key={u.userId}>
+                <td>
+                  <div>{u.name}</div>
+                  <div className="muted small">{u.email}</div>
+                </td>
+                <td><strong>{u.totalDialed}</strong></td>
+                <td>{u.uniqueNumbers}</td>
+                <td>{u.avgUniquePerDay}</td>
+                <td>{u.connectedOver30s}</td>
+                <td><strong style={{ color }}>{rate}%</strong></td>
+              </tr>
+            );
+          })}
+          {data.byUser.length === 0 && <tr><td colSpan={6} className="muted" style={{ padding: '1rem', textAlign: 'center' }}>No outbound activity in this range.</td></tr>}
+        </tbody>
+      </table>
+
+      <p className="muted small" style={{ marginTop: 12 }}>
+        <strong>Conversation rate</strong> = % of outbound calls that connected for more than 30 seconds. <strong>Avg unique/day</strong> = distinct phone numbers dialed on days the recruiter was active.
+      </p>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Phase 8.1 — Health alerts (#210)
+// Polls every 60s. No cron yet — admin refreshes the page to recompute.
+// ---------------------------------------------------------------------------
+function AlertsSection() {
+  const [me, setMe] = useState<{ isAdmin: boolean } | null>(null);
+  const [data, setData] = useState<AlertsReport | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const token = sessionStorage.getItem('ace_token');
+    if (token) void getMe(token).then((u) => setMe({ isAdmin: u.isAdmin })).catch(() => undefined);
+    let cancelled = false;
+    async function fetchData() {
+      const tok = sessionStorage.getItem('ace_token');
+      if (!tok) return;
+      try {
+        const r = await getAlertsReport(tok);
+        if (!cancelled) { setData(r); setError(null); }
+      } catch (e) {
+        if (!cancelled) setError((e as Error).message);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    void fetchData();
+    const id = window.setInterval(fetchData, 60_000);
+    return () => { cancelled = true; window.clearInterval(id); };
+  }, []);
+
+  if (me && !me.isAdmin) return <div className="admin-empty"><ShieldCheck size={28} /><p><strong>Admin access required</strong></p></div>;
+  if (loading && !data) return <div className="muted">Loading…</div>;
+  if (error && !data) return <div className="error">{error}</div>;
+  if (!data) return null;
+
+  const sevIcon = (s: string) => s === 'critical' ? <Siren size={16} /> : s === 'warn' ? <AlertTriangle size={16} /> : <Activity size={16} />;
+
+  return (
+    <div className="alerts">
+      <div className="liveops-header">
+        <div>
+          <h3 style={{ margin: 0 }}>Health alerts</h3>
+          <p className="muted small" style={{ margin: '2px 0 0' }}>
+            Refreshes every 60s · {data.alerts.length} alerts active
+          </p>
+        </div>
+      </div>
+
+      <div className="liveops-breakdown">
+        <div className="liveops-pill missed">🔴 {data.counts.critical} critical</div>
+        <div className="liveops-pill out" style={{ background: 'rgba(255,149,0,0.16)', color: '#ff9500' }}>⚠️ {data.counts.warn} warnings</div>
+        <div className="liveops-pill in" style={{ background: 'rgba(118,118,128,0.16)', color: 'var(--text-muted)' }}>ℹ️ {data.counts.info} info</div>
+      </div>
+
+      {data.alerts.length === 0 ? (
+        <div className="admin-empty">
+          <p>🎉 <strong>All clear.</strong></p>
+          <p className="muted small">No anomalies detected right now.</p>
+        </div>
+      ) : (
+        <ul className="alerts-list">
+          {data.alerts.map((a, i) => (
+            <li key={i} className={`alert-row ${a.severity}`}>
+              <span className="alert-icon">{sevIcon(a.severity)}</span>
+              <div className="alert-text">
+                <div className="alert-message">{a.message}</div>
+                {a.userName && <div className="muted small">{a.userName} · {a.userEmail}</div>}
+              </div>
+              <span className={`alert-tag ${a.severity}`}>{a.severity}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <p className="muted small" style={{ marginTop: 14 }}>
+        Alert types: <strong>user.idle_7d</strong> (no activity 7 days), <strong>missed.spike</strong> (today &gt; 1.5× 7-day avg), <strong>did.inactive_14d</strong> (no inbound 14 days).
+      </p>
     </div>
   );
 }

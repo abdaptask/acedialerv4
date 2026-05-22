@@ -104,37 +104,75 @@ export function SipProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => { callStateRef.current = callState; }, [callState]);
 
   useEffect(() => {
-    // Per-user SIP creds, written to sessionStorage by the login flow. This
-    // is the multi-user path. If the logged-in user has no SIP creds set in
-    // the database, we fall through to the legacy build-time VITE_SIP_* env
-    // vars so single-user dev/preview builds still work.
-    const sessionSipUsername = sessionStorage.getItem('ace_sip_username');
-    const sessionSipPassword = sessionStorage.getItem('ace_sip_password');
-    const sessionDid = sessionStorage.getItem('ace_did');
+    // Per-user SIP creds, written to sessionStorage by App.tsx persistSipCreds
+    // after getMe() returns. There's a known race where SipContext mounts
+    // before persistSipCreds has run — we used to flip to 'failed' and never
+    // retry, which is what showed "Connection failed" on login.
+    //
+    // Fix (#212): if creds are missing on the initial read, we DON'T fail
+    // hard. We mark sipState='connecting' and listen for the
+    // ace:sip-creds-updated event App.tsx dispatches when creds land. As
+    // soon as that fires, we re-read sessionStorage and connect. Also covers
+    // SSO callback flows and password updates from Settings → Account.
+    let connected = false;
+    function readAndConnect(): boolean {
+      const sessionSipUsername = sessionStorage.getItem('ace_sip_username');
+      const sessionSipPassword = sessionStorage.getItem('ace_sip_password');
+      const sessionDid = sessionStorage.getItem('ace_did');
 
-    const username =
-      sessionSipUsername ||
-      (import.meta.env.VITE_SIP_USERNAME as string | undefined);
-    const password =
-      sessionSipPassword ||
-      (import.meta.env.VITE_SIP_PASSWORD as string | undefined);
-    const callerNumber =
-      sessionDid ||
-      (import.meta.env.VITE_SIP_FROM_NUMBER as string | undefined);
+      const username =
+        sessionSipUsername ||
+        (import.meta.env.VITE_SIP_USERNAME as string | undefined);
+      const password =
+        sessionSipPassword ||
+        (import.meta.env.VITE_SIP_PASSWORD as string | undefined);
+      const callerNumber =
+        sessionDid ||
+        (import.meta.env.VITE_SIP_FROM_NUMBER as string | undefined);
 
-    if (!username || !password) {
-      console.warn(
-        '[sip] no SIP credentials for this user — calls disabled. ' +
-        'Set sipUsername + sipPassword on the user (DB or PATCH /auth/me), ' +
-        'or set VITE_SIP_USERNAME + VITE_SIP_PASSWORD as build env vars.',
-      );
-      setSipState('failed');
-      return;
+      if (!username || !password) {
+        return false;
+      }
+
+      console.log('[sip] connecting as', username, 'caller=', callerNumber);
+      const wssUri = import.meta.env.VITE_SIP_WSS_URI as string | undefined;
+      sipService.connect({ username, password, callerNumber, wssUri });
+      connected = true;
+      return true;
     }
 
-    console.log('[sip] connecting as', username, 'caller=', callerNumber);
-    const wssUri = import.meta.env.VITE_SIP_WSS_URI as string | undefined;
-    sipService.connect({ username, password, callerNumber, wssUri });
+    if (!readAndConnect()) {
+      // No creds yet — stay in 'connecting' state and wait for the
+      // App.tsx persistSipCreds → ace:sip-creds-updated handshake.
+      console.log('[sip] creds not in sessionStorage yet; waiting for App to populate…');
+      setSipState('connecting');
+      const onCredsUpdated = () => {
+        if (connected) return;
+        if (readAndConnect()) {
+          console.log('[sip] connected after creds-updated event');
+          window.removeEventListener('ace:sip-creds-updated', onCredsUpdated);
+        }
+      };
+      window.addEventListener('ace:sip-creds-updated', onCredsUpdated);
+      // Safety fallback: poll sessionStorage every 500ms for up to 20s in
+      // case the event listener missed it (mount-order edge case). After
+      // 20s with no creds, set 'failed' so the user sees something.
+      let polls = 0;
+      const pollId = window.setInterval(() => {
+        polls += 1;
+        if (connected) { window.clearInterval(pollId); return; }
+        if (readAndConnect()) {
+          console.log('[sip] connected after sessionStorage poll');
+          window.clearInterval(pollId);
+          window.removeEventListener('ace:sip-creds-updated', onCredsUpdated);
+        } else if (polls >= 40) {
+          window.clearInterval(pollId);
+          window.removeEventListener('ace:sip-creds-updated', onCredsUpdated);
+          console.warn('[sip] no SIP credentials after 20s — giving up.');
+          setSipState('failed');
+        }
+      }, 500);
+    }
 
     const offAccept = window.ace?.onAcceptRequest?.(() => {
       sipService.acceptCall();

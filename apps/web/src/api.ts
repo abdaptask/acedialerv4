@@ -1242,3 +1242,78 @@ export async function getQualityReport(token: string, range: '7d' | '30d' = '7d'
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return (await res.json()) as QualityReport;
 }
+
+// ===========================================================================
+// Phase 8.1 reports (v0.8.1)
+//   - GET /admin/reports/cost (#207)
+//   - GET /admin/reports/recruiter (#208)
+//   - GET /admin/reports/alerts (#210)
+// ===========================================================================
+
+export interface CostReport {
+  range: string;
+  generatedAt: string;
+  pricing: { inboundPerMin: number; outboundPerMin: number; perSms: number; didMonthly: number };
+  totals: {
+    voiceCost: number;
+    smsCost: number;
+    didRentalMonthly: number;
+    projectedMonthly: number;
+    activeDids: number;
+  };
+  byUser: Array<{
+    userId: number; email: string; name: string; didNumber: string | null;
+    inboundMinutes: number; outboundMinutes: number; smsCount: number;
+    inboundCost: number; outboundCost: number; smsCost: number; totalCost: number;
+  }>;
+  didMinutes: Array<{ did: string; minutes: number }>;
+}
+export async function getCostReport(token: string, range: '7d' | '30d' = '30d'): Promise<CostReport> {
+  const res = await fetch(`${API_URL}/admin/reports/cost?range=${range}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return (await res.json()) as CostReport;
+}
+
+export interface RecruiterReport {
+  range: string;
+  generatedAt: string;
+  days: number;
+  team: {
+    totalDialed: number; totalConnected: number; totalUnique: number;
+    conversationRate: number; avgUniquePerUser: number; activeRecruiters: number;
+  };
+  byUser: Array<{
+    userId: number; email: string; name: string;
+    totalDialed: number; uniqueNumbers: number; activeDays: number;
+    avgUniquePerDay: number; connectedOver30s: number; conversationRate: number;
+  }>;
+}
+export async function getRecruiterReport(token: string, range: '7d' | '30d' = '7d'): Promise<RecruiterReport> {
+  const res = await fetch(`${API_URL}/admin/reports/recruiter?range=${range}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return (await res.json()) as RecruiterReport;
+}
+
+export interface AlertsReport {
+  generatedAt: string;
+  counts: { critical: number; warn: number; info: number };
+  alerts: Array<{
+    severity: 'info' | 'warn' | 'critical';
+    type: string;
+    message: string;
+    userId?: number;
+    userEmail?: string;
+    userName?: string;
+  }>;
+}
+export async function getAlertsReport(token: string): Promise<AlertsReport> {
+  const res = await fetch(`${API_URL}/admin/reports/alerts`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return (await res.json()) as AlertsReport;
+}

@@ -31,6 +31,10 @@ function persistSipCreds(u: User | null): void {
   else sessionStorage.removeItem('ace_sip_password');
   if (u?.didNumber) sessionStorage.setItem('ace_did', u.didNumber);
   else sessionStorage.removeItem('ace_did');
+  // Notify SipContext so it can register against Telnyx now that the creds
+  // are in sessionStorage. This kills the login-race where SipContext's
+  // useEffect read empty creds and went to 'failed' before User loaded. (#212)
+  window.dispatchEvent(new CustomEvent('ace:sip-creds-updated'));
 }
 
 export default function App() {

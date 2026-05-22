@@ -90,4 +90,10 @@ contextBridge.exposeInMainWorld('ace', {
   // Trigger install-now. Main process quits, runs the installer, and
   // relaunches the new build.
   installUpdate: (): Promise<boolean> => ipcRenderer.invoke('ace:install-update'),
+  // Manual check-for-updates from the user-dropdown menu. Returns one of:
+  //   { state: 'no_update', message }
+  //   { state: 'update_found', version, message }   (download starts in bg)
+  //   { state: 'error', message }
+  checkForUpdates: (): Promise<{ state: string; version?: string | null; message?: string }> =>
+    ipcRenderer.invoke('ace:check-for-updates'),
 });
