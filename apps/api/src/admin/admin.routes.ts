@@ -610,8 +610,8 @@ export async function adminRoutes(app: FastifyInstance) {
           userId: r.userId,
           email: u?.email ?? '(unknown)',
           name:
-            [u?.firstName, u?.lastName].filter(Boolean).join(' ').trim() ||
-            u?.email ?? '(unknown)',
+            ([u?.firstName, u?.lastName].filter(Boolean).join(' ').trim() ||
+              u?.email) ?? '(unknown)',
           callCount: r._count._all,
         };
       });
