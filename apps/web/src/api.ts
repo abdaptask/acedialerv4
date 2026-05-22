@@ -1148,3 +1148,97 @@ export async function getLiveOpsReport(token: string): Promise<LiveOpsReport> {
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return (await res.json()) as LiveOpsReport;
 }
+
+// ===========================================================================
+// Phase 8 reports (v0.8.0)
+//   - GET /admin/reports/presence (#211)
+//   - GET /admin/reports/usage (#205)
+//   - GET /admin/reports/quality (#206)
+// ===========================================================================
+
+export type PresenceStatus = 'on_call' | 'active' | 'recent' | 'idle';
+
+export interface PresenceItem {
+  id: number;
+  email: string;
+  name: string;
+  didNumber: string | null;
+  isAdmin: boolean;
+  status: PresenceStatus;
+  lastActivity: string | null;
+  currentCall: {
+    fromNumber: string;
+    toNumber: string;
+    direction: string;
+    startedAt: string;
+    status: string;
+  } | null;
+  todayCalls: number;
+  todayBreakdown: { inbound: number; outbound: number; missed: number };
+}
+
+export interface PresenceReport {
+  generatedAt: string;
+  counts: { on_call: number; active: number; recent: number; idle: number };
+  items: PresenceItem[];
+}
+
+export async function getPresenceReport(token: string): Promise<PresenceReport> {
+  const res = await fetch(`${API_URL}/admin/reports/presence`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return (await res.json()) as PresenceReport;
+}
+
+export interface UsageReport {
+  range: string;
+  generatedAt: string;
+  byUser: Array<{
+    userId: number;
+    email: string;
+    name: string;
+    didNumber: string | null;
+    totalCalls: number;
+    inbound: number;
+    outbound: number;
+    missed: number;
+    talkSeconds: number;
+    smsSent: number;
+    smsReceived: number;
+  }>;
+  byDay: Array<{ date: string; inbound: number; outbound: number; missed: number }>;
+}
+
+export async function getUsageReport(token: string, range: 'today' | '7d' | '30d' = '7d'): Promise<UsageReport> {
+  const res = await fetch(`${API_URL}/admin/reports/usage?range=${range}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return (await res.json()) as UsageReport;
+}
+
+export interface QualityReport {
+  range: string;
+  generatedAt: string;
+  missedRateByUser: Array<{
+    userId: number;
+    email: string;
+    name: string;
+    missed: number;
+    answered: number;
+    shortCalls: number;
+    missedRate: number;
+  }>;
+  hangupCauses: Array<{ cause: string; count: number }>;
+  totals: { shortCalls: number; totalCalls: number };
+  heatmap: number[][]; // 7 rows (days, 0=Sun) x 24 cols (hours UTC)
+}
+
+export async function getQualityReport(token: string, range: '7d' | '30d' = '7d'): Promise<QualityReport> {
+  const res = await fetch(`${API_URL}/admin/reports/quality?range=${range}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return (await res.json()) as QualityReport;
+}

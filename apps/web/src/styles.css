@@ -4946,3 +4946,152 @@ button.call-pill-info:hover { background: rgba(255, 255, 255, 0.05); }
   .sip-status-pill .sip-status-sep,
   .sip-status-pill .sip-status-did { display: none; }
 }
+
+/* ============ PRESENCE / USAGE / QUALITY (v0.8.0 #205, #206, #211) ============ */
+.presence-filter {
+  display: flex; gap: 6px;
+  background: rgba(255,255,255,0.04);
+  padding: 4px;
+  border-radius: 8px;
+}
+.presence-filter button {
+  padding: 6px 12px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12px; font-weight: 600;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.presence-filter button.active {
+  background: #0a84ff;
+  color: #fff;
+}
+[data-theme="light"] .presence-filter { background: rgba(0,0,0,0.04); }
+
+.presence-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  margin-top: 12px;
+}
+.presence-table th {
+  text-align: left;
+  font-weight: 600;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  padding: 8px 10px;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+}
+.presence-table td {
+  padding: 10px;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+  vertical-align: middle;
+}
+[data-theme="light"] .presence-table th { border-bottom-color: rgba(0,0,0,0.08); }
+[data-theme="light"] .presence-table td { border-bottom-color: rgba(0,0,0,0.04); }
+.presence-row.on_call { background: rgba(52,199,89,0.05); }
+.presence-row.idle { opacity: 0.7; }
+
+.presence-name {
+  display: flex; align-items: center; gap: 10px;
+}
+.presence-dot {
+  width: 10px; height: 10px; border-radius: 50%;
+  background: rgba(118,118,128,0.4); flex-shrink: 0;
+}
+.presence-dot.on_call {
+  background: #34c759;
+  box-shadow: 0 0 0 0 rgba(52,199,89,0.6);
+  animation: presence-pulse 1.5s infinite;
+}
+.presence-dot.active { background: #0a84ff; }
+.presence-dot.recent { background: #ff9500; }
+.presence-dot.idle { background: rgba(118,118,128,0.4); }
+@keyframes presence-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(52,199,89,0.6); }
+  70% { box-shadow: 0 0 0 8px rgba(52,199,89,0); }
+  100% { box-shadow: 0 0 0 0 rgba(52,199,89,0); }
+}
+
+.presence-pill {
+  display: inline-flex;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 11px; font-weight: 600;
+}
+.presence-pill.on_call { background: rgba(52,199,89,0.18); color: #34c759; }
+.presence-pill.active { background: rgba(10,132,255,0.18); color: #0a84ff; }
+.presence-pill.recent { background: rgba(255,149,0,0.18); color: #ff9500; }
+.presence-pill.idle { background: rgba(118,118,128,0.18); color: var(--text-muted); }
+
+.presence-today {
+  font-variant-numeric: tabular-nums;
+}
+
+.usage-chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  height: 140px;
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  margin-bottom: 18px;
+}
+[data-theme="light"] .usage-chart { border-bottom-color: rgba(0,0,0,0.06); }
+
+.hangup-list { list-style: none; padding: 0; margin: 0; }
+.hangup-list li { padding: 6px 0; }
+.hangup-row {
+  display: flex; justify-content: space-between; align-items: center;
+  font-size: 13px; margin-bottom: 4px;
+}
+.hangup-name {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  color: var(--text);
+}
+.hangup-count {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+.hangup-bar {
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.05);
+  overflow: hidden;
+}
+.hangup-bar > div {
+  height: 100%;
+  background: linear-gradient(90deg, #0a84ff, #5e5ce6);
+  border-radius: 999px;
+}
+[data-theme="light"] .hangup-bar { background: rgba(0,0,0,0.05); }
+
+.heatmap {
+  display: grid;
+  grid-template-columns: 50px repeat(24, 1fr);
+  gap: 2px;
+  margin-top: 8px;
+}
+.heatmap-corner, .heatmap-col-label, .heatmap-row-label, .heatmap-cell {
+  font-size: 10px;
+  text-align: center;
+  color: var(--text-muted);
+}
+.heatmap-col-label, .heatmap-row-label {
+  padding: 4px 0;
+  font-variant-numeric: tabular-nums;
+}
+.heatmap-row-label {
+  text-align: left;
+  padding-right: 6px;
+  font-weight: 600;
+}
+.heatmap-cell {
+  height: 20px;
+  border-radius: 3px;
+  cursor: default;
+}

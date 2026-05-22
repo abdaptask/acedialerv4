@@ -1,3 +1,4 @@
+import * as React from 'react';
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams, NavLink, Navigate } from 'react-router-dom';
 import {
@@ -42,6 +43,9 @@ import {
   PhoneIncoming,
   PhoneOutgoing,
   PhoneMissed as PhoneMissedIcon,
+  Radio,
+  TrendingUp,
+  AlertTriangle,
 } from 'lucide-react';
 import {
   getMe,
@@ -59,11 +63,17 @@ import {
   listAuditLogs,
   bulkImportUsers,
   getLiveOpsReport,
+  getPresenceReport,
+  getUsageReport,
+  getQualityReport,
   type AdminUserRow,
   type AuditLogEntry,
   type BulkImportRow,
   type BulkImportResult,
   type LiveOpsReport,
+  type PresenceReport,
+  type UsageReport,
+  type QualityReport,
 } from '../api';
 import {
   DEFAULT_QUICK_REPLIES,
@@ -114,6 +124,9 @@ const SECTIONS: SectionDef[] = [
   // Admin-only. Components themselves show an "Admin access required"
   // empty state for non-admins so the nav nav-items don't dead-link.
   { key: 'live-ops', label: 'Live ops', icon: Activity, blurb: 'Real-time dashboard (admin only)', Component: LiveOpsSection },
+  { key: 'presence', label: 'Presence', icon: Radio, blurb: 'Who is on call right now (admin only)', Component: PresenceSection },
+  { key: 'usage', label: 'Usage', icon: TrendingUp, blurb: 'Per-user volume + talk time (admin only)', Component: UsageSection },
+  { key: 'quality', label: 'Quality', icon: AlertTriangle, blurb: 'Missed rate + hangup causes (admin only)', Component: QualitySection },
   { key: 'users', label: 'Users', icon: Users, blurb: 'Invite, promote, deactivate (admin only)', Component: UsersAdminSection },
   { key: 'audit-log', label: 'Audit log', icon: ScrollText, blurb: 'Recent admin actions (admin only)', Component: AuditLogSection },
 ];
@@ -2601,6 +2614,391 @@ function LiveOpsSection() {
             </ul>
           )}
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Phase 8 — Presence dashboard (#211)
+// Real-time table of every active user: on_call / active / recent / idle.
+// Auto-refreshes every 10s for "live agent" feel.
+// ---------------------------------------------------------------------------
+function PresenceSection() {
+  const [me, setMe] = useState<{ isAdmin: boolean } | null>(null);
+  const [data, setData] = useState<PresenceReport | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [filter, setFilter] = useState<'all' | 'on_call' | 'active' | 'idle'>('all');
+
+  useEffect(() => {
+    const token = sessionStorage.getItem('ace_token');
+    if (!token) return;
+    void getMe(token).then((u) => setMe({ isAdmin: u.isAdmin })).catch(() => undefined);
+    let cancelled = false;
+    async function fetchData() {
+      const tok = sessionStorage.getItem('ace_token');
+      if (!tok) return;
+      try {
+        const r = await getPresenceReport(tok);
+        if (!cancelled) { setData(r); setError(null); }
+      } catch (e) {
+        if (!cancelled) setError((e as Error).message);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    void fetchData();
+    const id = window.setInterval(fetchData, 10_000);
+    return () => { cancelled = true; window.clearInterval(id); };
+  }, []);
+
+  if (me && !me.isAdmin) {
+    return (
+      <div className="admin-empty">
+        <ShieldCheck size={28} style={{ opacity: 0.5, marginBottom: 8 }} />
+        <p><strong>Admin access required</strong></p>
+      </div>
+    );
+  }
+  if (loading && !data) return <div className="muted">Loading…</div>;
+  if (error && !data) return <div className="error">{error}</div>;
+  if (!data) return null;
+
+  const filtered = data.items.filter((i) => {
+    if (filter === 'all') return true;
+    if (filter === 'idle') return i.status === 'idle' || i.status === 'recent';
+    return i.status === filter;
+  });
+
+  function fmtAgo(iso: string | null): string {
+    if (!iso) return '—';
+    const ms = Date.now() - new Date(iso).getTime();
+    const mins = Math.floor(ms / 60000);
+    if (mins < 1) return 'just now';
+    if (mins < 60) return mins + 'm ago';
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return hrs + 'h ago';
+    return Math.floor(hrs / 24) + 'd ago';
+  }
+
+  function fmtPhone(n: string | null | undefined): string {
+    if (!n) return '';
+    const d = n.replace(/[^\d]/g, '');
+    if (d.length === 11 && d.startsWith('1')) return '(' + d.slice(1, 4) + ') ' + d.slice(4, 7) + '-' + d.slice(7);
+    if (d.length === 10) return '(' + d.slice(0, 3) + ') ' + d.slice(3, 6) + '-' + d.slice(6);
+    return n;
+  }
+
+  function fmtCallDuration(iso: string): string {
+    const sec = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
+    const m = Math.floor(sec / 60);
+    const s = sec % 60;
+    return `${m}:${s.toString().padStart(2, '0')}`;
+  }
+
+  return (
+    <div className="presence">
+      <div className="liveops-header">
+        <div>
+          <h3 style={{ margin: 0 }}>Presence</h3>
+          <p className="muted small" style={{ margin: '2px 0 0' }}>
+            Refreshes every 10s · {data.items.length} users
+          </p>
+        </div>
+        <div className="presence-filter">
+          <button className={filter === 'all' ? 'active' : ''} onClick={() => setFilter('all')}>All ({data.items.length})</button>
+          <button className={filter === 'on_call' ? 'active' : ''} onClick={() => setFilter('on_call')}>On call ({data.counts.on_call})</button>
+          <button className={filter === 'active' ? 'active' : ''} onClick={() => setFilter('active')}>Active ({data.counts.active})</button>
+          <button className={filter === 'idle' ? 'active' : ''} onClick={() => setFilter('idle')}>Idle ({data.counts.recent + data.counts.idle})</button>
+        </div>
+      </div>
+
+      <table className="presence-table">
+        <thead>
+          <tr>
+            <th>User</th>
+            <th>Status</th>
+            <th>Current call</th>
+            <th>Last active</th>
+            <th>Today</th>
+            <th>DID</th>
+          </tr>
+        </thead>
+        <tbody>
+          {filtered.map((u) => (
+            <tr key={u.id} className={`presence-row ${u.status}`}>
+              <td>
+                <div className="presence-name">
+                  <span className={`presence-dot ${u.status}`} aria-hidden="true" />
+                  <div>
+                    <div>{u.name}</div>
+                    <div className="muted small">{u.email}{u.isAdmin && ' · admin'}</div>
+                  </div>
+                </div>
+              </td>
+              <td>
+                <span className={`presence-pill ${u.status}`}>
+                  {u.status === 'on_call' ? 'On call' :
+                   u.status === 'active' ? 'Active' :
+                   u.status === 'recent' ? 'Recent' : 'Idle'}
+                </span>
+              </td>
+              <td>
+                {u.currentCall ? (
+                  <div>
+                    <div>
+                      {u.currentCall.direction === 'inbound' ? '↘ ' : '↗ '}
+                      {fmtPhone(u.currentCall.direction === 'inbound' ? u.currentCall.fromNumber : u.currentCall.toNumber)}
+                    </div>
+                    <div className="muted small">{fmtCallDuration(u.currentCall.startedAt)}</div>
+                  </div>
+                ) : <span className="muted small">—</span>}
+              </td>
+              <td className="muted small">{fmtAgo(u.lastActivity)}</td>
+              <td className="presence-today">
+                <strong>{u.todayCalls}</strong>
+                <span className="muted small">
+                  {' '}({u.todayBreakdown.inbound}/{u.todayBreakdown.outbound}/{u.todayBreakdown.missed})
+                </span>
+              </td>
+              <td className="muted small">{fmtPhone(u.didNumber) || '—'}</td>
+            </tr>
+          ))}
+          {filtered.length === 0 && (
+            <tr><td colSpan={6} className="muted" style={{ padding: '1rem', textAlign: 'center' }}>No users in this filter.</td></tr>
+          )}
+        </tbody>
+      </table>
+      <p className="muted small" style={{ marginTop: 8 }}>
+        Today column: <strong>total</strong> (inbound/outbound/missed). Status reflects last 10 min activity for "active", 1 hr for "recent".
+      </p>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Phase 8 — Usage report (#205)
+// Per-user leaderboard + daily volume chart.
+// ---------------------------------------------------------------------------
+function UsageSection() {
+  const [me, setMe] = useState<{ isAdmin: boolean } | null>(null);
+  const [data, setData] = useState<UsageReport | null>(null);
+  const [range, setRange] = useState<'today' | '7d' | '30d'>('7d');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const token = sessionStorage.getItem('ace_token');
+    if (!token) return;
+    void getMe(token).then((u) => setMe({ isAdmin: u.isAdmin })).catch(() => undefined);
+  }, []);
+
+  useEffect(() => {
+    const tok = sessionStorage.getItem('ace_token');
+    if (!tok) return;
+    setLoading(true);
+    getUsageReport(tok, range)
+      .then((r) => { setData(r); setError(null); })
+      .catch((e) => setError((e as Error).message))
+      .finally(() => setLoading(false));
+  }, [range]);
+
+  if (me && !me.isAdmin) {
+    return <div className="admin-empty"><ShieldCheck size={28} /><p><strong>Admin access required</strong></p></div>;
+  }
+  if (loading && !data) return <div className="muted">Loading…</div>;
+  if (error && !data) return <div className="error">{error}</div>;
+  if (!data) return null;
+
+  const peakDay = Math.max(1, ...data.byDay.map((d) => d.inbound + d.outbound + d.missed));
+
+  function fmtTalk(sec: number): string {
+    if (sec < 60) return sec + 's';
+    const m = Math.floor(sec / 60);
+    if (m < 60) return m + 'm';
+    const h = Math.floor(m / 60);
+    return `${h}h ${m % 60}m`;
+  }
+
+  return (
+    <div className="usage">
+      <div className="liveops-header">
+        <div>
+          <h3 style={{ margin: 0 }}>Usage</h3>
+          <p className="muted small" style={{ margin: '2px 0 0' }}>Per-user volume + talk time</p>
+        </div>
+        <div className="presence-filter">
+          <button className={range === 'today' ? 'active' : ''} onClick={() => setRange('today')}>Today</button>
+          <button className={range === '7d' ? 'active' : ''} onClick={() => setRange('7d')}>7 days</button>
+          <button className={range === '30d' ? 'active' : ''} onClick={() => setRange('30d')}>30 days</button>
+        </div>
+      </div>
+
+      <div className="liveops-section-title">Calls per day</div>
+      <div className="usage-chart">
+        {data.byDay.map((d) => {
+          const total = d.inbound + d.outbound + d.missed;
+          const pct = total > 0 ? (total / peakDay) * 100 : 0;
+          return (
+            <div key={d.date} className="liveops-bar-wrap" title={`${d.date} — ${d.inbound} in / ${d.outbound} out / ${d.missed} missed`}>
+              <div className="liveops-bar-stack" style={{ height: pct + '%' }}>
+                {d.outbound > 0 && <div className="liveops-bar-seg out" style={{ flex: d.outbound }} />}
+                {d.inbound > 0 && <div className="liveops-bar-seg in" style={{ flex: d.inbound }} />}
+                {d.missed > 0 && <div className="liveops-bar-seg missed" style={{ flex: d.missed }} />}
+              </div>
+              <div className="liveops-bar-label">{d.date.slice(5)}</div>
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="liveops-section-title">Top users by call volume</div>
+      <table className="presence-table">
+        <thead>
+          <tr><th>#</th><th>User</th><th>Total</th><th>In</th><th>Out</th><th>Missed</th><th>Talk time</th><th>SMS sent/recv</th></tr>
+        </thead>
+        <tbody>
+          {data.byUser.slice(0, 25).map((u, i) => (
+            <tr key={u.userId}>
+              <td><span className="liveops-rank">{i + 1}</span></td>
+              <td>
+                <div>{u.name}</div>
+                <div className="muted small">{u.email}</div>
+              </td>
+              <td><strong>{u.totalCalls}</strong></td>
+              <td>{u.inbound}</td>
+              <td>{u.outbound}</td>
+              <td>{u.missed}</td>
+              <td>{fmtTalk(u.talkSeconds)}</td>
+              <td className="muted small">{u.smsSent} / {u.smsReceived}</td>
+            </tr>
+          ))}
+          {data.byUser.length === 0 && <tr><td colSpan={8} className="muted" style={{ padding: '1rem', textAlign: 'center' }}>No activity in this range.</td></tr>}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Phase 8 — Quality report (#206)
+// Missed-rate per user + hangup-cause breakdown + peak-hours heatmap.
+// ---------------------------------------------------------------------------
+function QualitySection() {
+  const [me, setMe] = useState<{ isAdmin: boolean } | null>(null);
+  const [data, setData] = useState<QualityReport | null>(null);
+  const [range, setRange] = useState<'7d' | '30d'>('7d');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const token = sessionStorage.getItem('ace_token');
+    if (!token) return;
+    void getMe(token).then((u) => setMe({ isAdmin: u.isAdmin })).catch(() => undefined);
+  }, []);
+
+  useEffect(() => {
+    const tok = sessionStorage.getItem('ace_token');
+    if (!tok) return;
+    setLoading(true);
+    getQualityReport(tok, range)
+      .then((r) => { setData(r); setError(null); })
+      .catch((e) => setError((e as Error).message))
+      .finally(() => setLoading(false));
+  }, [range]);
+
+  if (me && !me.isAdmin) {
+    return <div className="admin-empty"><ShieldCheck size={28} /><p><strong>Admin access required</strong></p></div>;
+  }
+  if (loading && !data) return <div className="muted">Loading…</div>;
+  if (error && !data) return <div className="error">{error}</div>;
+  if (!data) return null;
+
+  const peakHeat = Math.max(1, ...data.heatmap.flat());
+  const totalHangup = data.hangupCauses.reduce((s, h) => s + h.count, 0);
+  const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+  return (
+    <div className="quality">
+      <div className="liveops-header">
+        <div>
+          <h3 style={{ margin: 0 }}>Quality &amp; health</h3>
+          <p className="muted small" style={{ margin: '2px 0 0' }}>
+            {data.totals.totalCalls} total calls · {data.totals.shortCalls} under 10s
+          </p>
+        </div>
+        <div className="presence-filter">
+          <button className={range === '7d' ? 'active' : ''} onClick={() => setRange('7d')}>7 days</button>
+          <button className={range === '30d' ? 'active' : ''} onClick={() => setRange('30d')}>30 days</button>
+        </div>
+      </div>
+
+      <div className="liveops-cols">
+        <div className="liveops-col">
+          <div className="liveops-section-title">Highest missed-call rate</div>
+          {data.missedRateByUser.length === 0 ? (
+            <div className="muted small">Not enough inbound traffic yet.</div>
+          ) : (
+            <table className="presence-table">
+              <thead><tr><th>User</th><th>Missed%</th><th>Missed/Answered</th><th>Short&lt;10s</th></tr></thead>
+              <tbody>
+                {data.missedRateByUser.map((r) => (
+                  <tr key={r.userId}>
+                    <td>
+                      <div>{r.name}</div>
+                      <div className="muted small">{r.email}</div>
+                    </td>
+                    <td><strong style={{ color: r.missedRate > 0.3 ? '#ff6b6b' : r.missedRate > 0.1 ? '#ff9500' : '#34c759' }}>{Math.round(r.missedRate * 100)}%</strong></td>
+                    <td className="muted small">{r.missed} / {r.answered}</td>
+                    <td className="muted small">{r.shortCalls}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+        <div className="liveops-col">
+          <div className="liveops-section-title">Hangup causes</div>
+          {data.hangupCauses.length === 0 ? (
+            <div className="muted small">No hangup causes recorded.</div>
+          ) : (
+            <ul className="hangup-list">
+              {data.hangupCauses.slice(0, 12).map((h) => {
+                const pct = totalHangup > 0 ? (h.count / totalHangup) * 100 : 0;
+                return (
+                  <li key={h.cause}>
+                    <div className="hangup-row">
+                      <span className="hangup-name">{h.cause}</span>
+                      <span className="hangup-count">{h.count}</span>
+                    </div>
+                    <div className="hangup-bar"><div style={{ width: pct + '%' }} /></div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+      </div>
+
+      <div className="liveops-section-title" style={{ marginTop: 24 }}>Peak hours heatmap (UTC, last {range})</div>
+      <div className="heatmap">
+        <div className="heatmap-corner" />
+        {Array.from({ length: 24 }, (_, h) => (
+          <div key={h} className="heatmap-col-label">{h % 3 === 0 ? h : ''}</div>
+        ))}
+        {days.map((day, d) => (
+          <React.Fragment key={day}>
+            <div className="heatmap-row-label">{day}</div>
+            {Array.from({ length: 24 }, (_, h) => {
+              const v = data.heatmap[d][h];
+              const intensity = peakHeat > 0 ? v / peakHeat : 0;
+              return (
+                <div key={h} className="heatmap-cell" style={{ background: `rgba(10, 132, 255, ${0.05 + intensity * 0.85})` }} title={`${day} ${h}:00 — ${v} calls`} />
+              );
+            })}
+          </React.Fragment>
+        ))}
       </div>
     </div>
   );

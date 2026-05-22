@@ -694,4 +694,318 @@ export async function adminRoutes(app: FastifyInstance) {
       };
     },
   );
+
+  // ───────────────────── GET /admin/reports/presence (#211) ───────────
+  // Per-user real-time presence: who's on a call, who's active, who's idle.
+  // No true SIP-presence tracking (would need Telnyx Status webhooks); we
+  // proxy via open Call rows + recent activity timestamps. Good enough.
+  app.get(
+    '/admin/reports/presence',
+    { onRequest: [app.authenticate, requireAdmin] },
+    async () => {
+      const now = new Date();
+      const tenMinAgo = new Date(now.getTime() - 10 * 60 * 1000);
+      const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
+      const last24h = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+      const startOfDay = new Date(now);
+      startOfDay.setUTCHours(0, 0, 0, 0);
+      const fourHoursAgo = new Date(now.getTime() - 4 * 60 * 60 * 1000);
+
+      const users = await prisma.user.findMany({
+        where: { isActive: true },
+        select: {
+          id: true, email: true, firstName: true, lastName: true,
+          didNumber: true, sipUsername: true, isAdmin: true,
+        },
+        orderBy: [{ firstName: 'asc' }, { email: 'asc' }],
+      });
+
+      const openCalls = await prisma.call.findMany({
+        where: {
+          endedAt: null,
+          startedAt: { gte: fourHoursAgo },
+          status: { in: ['ringing', 'answered', 'initiated', 'connected'] },
+        },
+        select: {
+          userId: true, fromNumber: true, toNumber: true, direction: true,
+          startedAt: true, status: true,
+        },
+      });
+      const openCallByUser = new Map<number, typeof openCalls[number]>();
+      for (const c of openCalls) {
+        if (!openCallByUser.has(c.userId)) openCallByUser.set(c.userId, c);
+      }
+
+      const lastCallPerUser = await prisma.call.groupBy({
+        by: ['userId'],
+        _max: { startedAt: true },
+        where: { startedAt: { gte: last24h } },
+      });
+      const lastMsgPerUser = await prisma.message.groupBy({
+        by: ['userId'],
+        _max: { createdAt: true },
+        where: { createdAt: { gte: last24h } },
+      });
+      const lastByUser = new Map<number, Date>();
+      for (const r of lastCallPerUser) {
+        if (r._max.startedAt) lastByUser.set(r.userId, r._max.startedAt);
+      }
+      for (const r of lastMsgPerUser) {
+        if (!r._max.createdAt) continue;
+        const prev = lastByUser.get(r.userId);
+        if (!prev || r._max.createdAt > prev) lastByUser.set(r.userId, r._max.createdAt);
+      }
+
+      const todayCallsPerUser = await prisma.call.groupBy({
+        by: ['userId', 'direction', 'status'],
+        where: { startedAt: { gte: startOfDay } },
+        _count: { _all: true },
+      });
+      const todayByUser = new Map<number, { inbound: number; outbound: number; missed: number }>();
+      for (const r of todayCallsPerUser) {
+        const cur = todayByUser.get(r.userId) ?? { inbound: 0, outbound: 0, missed: 0 };
+        const c = r._count._all;
+        if (r.direction === 'inbound') {
+          if (['missed', 'no_answer', 'rejected'].includes(r.status)) cur.missed += c;
+          else cur.inbound += c;
+        } else if (r.direction === 'outbound') {
+          cur.outbound += c;
+        }
+        todayByUser.set(r.userId, cur);
+      }
+
+      const items = users.map((u) => {
+        const open = openCallByUser.get(u.id);
+        const last = lastByUser.get(u.id);
+        let status: 'on_call' | 'active' | 'recent' | 'idle' = 'idle';
+        if (open) status = 'on_call';
+        else if (last && last >= tenMinAgo) status = 'active';
+        else if (last && last >= oneHourAgo) status = 'recent';
+        const today = todayByUser.get(u.id) ?? { inbound: 0, outbound: 0, missed: 0 };
+        return {
+          id: u.id,
+          email: u.email,
+          name:
+            ([u.firstName, u.lastName].filter(Boolean).join(' ').trim() ||
+              u.email),
+          didNumber: u.didNumber,
+          isAdmin: u.isAdmin,
+          status,
+          lastActivity: last ? last.toISOString() : null,
+          currentCall: open
+            ? {
+                fromNumber: open.fromNumber,
+                toNumber: open.toNumber,
+                direction: open.direction,
+                startedAt: open.startedAt.toISOString(),
+                status: open.status,
+              }
+            : null,
+          todayCalls: today.inbound + today.outbound + today.missed,
+          todayBreakdown: today,
+        };
+      });
+
+      const counts = {
+        on_call: items.filter((i) => i.status === 'on_call').length,
+        active: items.filter((i) => i.status === 'active').length,
+        recent: items.filter((i) => i.status === 'recent').length,
+        idle: items.filter((i) => i.status === 'idle').length,
+      };
+
+      return { generatedAt: now.toISOString(), counts, items };
+    },
+  );
+
+  // ───────────────────── GET /admin/reports/usage (#205) ──────────────
+  app.get<{ Querystring: { range?: string } }>(
+    '/admin/reports/usage',
+    { onRequest: [app.authenticate, requireAdmin] },
+    async (request) => {
+      const range = request.query.range ?? '7d';
+      const now = new Date();
+      let since: Date;
+      if (range === 'today') {
+        since = new Date(now); since.setUTCHours(0, 0, 0, 0);
+      } else if (range === '30d') {
+        since = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+      } else {
+        since = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      }
+
+      const callsByUser = await prisma.call.groupBy({
+        by: ['userId', 'direction', 'status'],
+        where: { startedAt: { gte: since } },
+        _count: { _all: true },
+        _sum: { durationSeconds: true },
+      });
+      type Agg = { userId: number; inbound: number; outbound: number; missed: number; talkSec: number };
+      const aggMap = new Map<number, Agg>();
+      for (const r of callsByUser) {
+        const cur = aggMap.get(r.userId) ?? { userId: r.userId, inbound: 0, outbound: 0, missed: 0, talkSec: 0 };
+        const c = r._count._all;
+        const t = r._sum.durationSeconds ?? 0;
+        if (r.direction === 'inbound') {
+          if (['missed', 'no_answer', 'rejected'].includes(r.status)) cur.missed += c;
+          else cur.inbound += c;
+        } else if (r.direction === 'outbound') {
+          cur.outbound += c;
+        }
+        cur.talkSec += t;
+        aggMap.set(r.userId, cur);
+      }
+
+      const smsByUser = await prisma.message.groupBy({
+        by: ['userId', 'direction'],
+        where: { createdAt: { gte: since } },
+        _count: { _all: true },
+      });
+      const smsMap = new Map<number, { sent: number; received: number }>();
+      for (const r of smsByUser) {
+        const cur = smsMap.get(r.userId) ?? { sent: 0, received: 0 };
+        if (r.direction === 'outbound') cur.sent += r._count._all;
+        else cur.received += r._count._all;
+        smsMap.set(r.userId, cur);
+      }
+
+      const allUserIds = new Set<number>([...aggMap.keys(), ...smsMap.keys()]);
+      const userDetails = allUserIds.size === 0 ? [] : await prisma.user.findMany({
+        where: { id: { in: Array.from(allUserIds) } },
+        select: { id: true, email: true, firstName: true, lastName: true, didNumber: true },
+      });
+      const userById = new Map(userDetails.map((u) => [u.id, u]));
+
+      const byUser = Array.from(allUserIds).map((id) => {
+        const agg = aggMap.get(id) ?? { userId: id, inbound: 0, outbound: 0, missed: 0, talkSec: 0 };
+        const sms = smsMap.get(id) ?? { sent: 0, received: 0 };
+        const u = userById.get(id);
+        const total = agg.inbound + agg.outbound + agg.missed;
+        return {
+          userId: id,
+          email: u?.email ?? '(unknown)',
+          name:
+            ([u?.firstName, u?.lastName].filter(Boolean).join(' ').trim() ||
+              u?.email) ?? '(unknown)',
+          didNumber: u?.didNumber ?? null,
+          totalCalls: total,
+          inbound: agg.inbound,
+          outbound: agg.outbound,
+          missed: agg.missed,
+          talkSeconds: agg.talkSec,
+          smsSent: sms.sent,
+          smsReceived: sms.received,
+        };
+      }).sort((a, b) => b.totalCalls - a.totalCalls);
+
+      const allCallsInWindow = await prisma.call.findMany({
+        where: { startedAt: { gte: since } },
+        select: { startedAt: true, direction: true, status: true },
+      });
+      const days = range === 'today' ? 1 : range === '30d' ? 30 : 7;
+      const byDay: Array<{ date: string; inbound: number; outbound: number; missed: number }> = [];
+      for (let i = 0; i < days; i += 1) {
+        const dayStart = new Date(now); dayStart.setUTCHours(0, 0, 0, 0);
+        dayStart.setUTCDate(dayStart.getUTCDate() - (days - 1 - i));
+        const dayEnd = new Date(dayStart); dayEnd.setUTCDate(dayEnd.getUTCDate() + 1);
+        let inb = 0, out = 0, mis = 0;
+        for (const c of allCallsInWindow) {
+          if (c.startedAt < dayStart || c.startedAt >= dayEnd) continue;
+          if (c.direction === 'inbound') {
+            if (['missed', 'no_answer', 'rejected'].includes(c.status)) mis += 1;
+            else inb += 1;
+          } else if (c.direction === 'outbound') {
+            out += 1;
+          }
+        }
+        byDay.push({ date: dayStart.toISOString().slice(0, 10), inbound: inb, outbound: out, missed: mis });
+      }
+
+      return { range, generatedAt: now.toISOString(), byUser, byDay };
+    },
+  );
+
+  // ───────────────────── GET /admin/reports/quality (#206) ────────────
+  app.get<{ Querystring: { range?: string } }>(
+    '/admin/reports/quality',
+    { onRequest: [app.authenticate, requireAdmin] },
+    async (request) => {
+      const range = request.query.range ?? '7d';
+      const now = new Date();
+      const since = range === '30d'
+        ? new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
+        : new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+      const calls = await prisma.call.findMany({
+        where: { startedAt: { gte: since } },
+        select: {
+          userId: true, direction: true, status: true,
+          durationSeconds: true, hangupCause: true, startedAt: true,
+        },
+      });
+
+      type UA = { userId: number; missed: number; answered: number; short: number };
+      const ua = new Map<number, UA>();
+      const hangupCauses = new Map<string, number>();
+      const heatmap: number[][] = Array.from({ length: 7 }, () => Array(24).fill(0));
+
+      for (const c of calls) {
+        const u = ua.get(c.userId) ?? { userId: c.userId, missed: 0, answered: 0, short: 0 };
+        if (c.direction === 'inbound') {
+          if (['missed', 'no_answer', 'rejected'].includes(c.status)) u.missed += 1;
+          else u.answered += 1;
+        }
+        if (c.durationSeconds > 0 && c.durationSeconds < 10) u.short += 1;
+        ua.set(c.userId, u);
+
+        if (c.hangupCause) {
+          hangupCauses.set(c.hangupCause, (hangupCauses.get(c.hangupCause) ?? 0) + 1);
+        }
+        const dow = c.startedAt.getUTCDay();
+        const hr = c.startedAt.getUTCHours();
+        heatmap[dow][hr] += 1;
+      }
+
+      const userIds = Array.from(ua.keys());
+      const users = userIds.length > 0 ? await prisma.user.findMany({
+        where: { id: { in: userIds } },
+        select: { id: true, email: true, firstName: true, lastName: true },
+      }) : [];
+      const userById = new Map(users.map((u) => [u.id, u]));
+
+      const missedRateByUser = userIds.map((id) => {
+        const u = ua.get(id)!;
+        const detail = userById.get(id);
+        const totalInbound = u.missed + u.answered;
+        const rate = totalInbound > 0 ? u.missed / totalInbound : 0;
+        return {
+          userId: id,
+          email: detail?.email ?? '(unknown)',
+          name:
+            ([detail?.firstName, detail?.lastName].filter(Boolean).join(' ').trim() ||
+              detail?.email) ?? '(unknown)',
+          missed: u.missed,
+          answered: u.answered,
+          shortCalls: u.short,
+          missedRate: rate,
+        };
+      }).filter((r) => r.missed + r.answered >= 3)
+        .sort((a, b) => b.missedRate - a.missedRate)
+        .slice(0, 25);
+
+      const hangupCausesArr = Array.from(hangupCauses.entries())
+        .map(([cause, count]) => ({ cause, count }))
+        .sort((a, b) => b.count - a.count);
+
+      const totalShort = Array.from(ua.values()).reduce((sum, u) => sum + u.short, 0);
+
+      return {
+        range,
+        generatedAt: now.toISOString(),
+        missedRateByUser,
+        hangupCauses: hangupCausesArr,
+        totals: { shortCalls: totalShort, totalCalls: calls.length },
+        heatmap,
+      };
+    },
+  );
 }
