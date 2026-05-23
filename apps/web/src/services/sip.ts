@@ -949,30 +949,101 @@ export class SipService {
       });
       return;
     }
-    // v0.8.8 diagnostic — capture session state immediately before answer
-    // so we can tell which of JsSIP's 8 statuses is rejecting the call.
-    // INVALID_STATE_ERROR is thrown whenever _status !== WAITING_FOR_ANSWER
-    // (3=INVITE_RECEIVED, 5=ANSWERED, 6=WAITING_FOR_ACK, 7=CANCELED,
-    // 8=TERMINATED, 9=CONFIRMED).
+    // v0.8.9 — fire-and-forget the async answer path so the click handler
+    // stays synchronous. Inside _answerIncoming we preflight gUM, then call
+    // session.answer() with a pre-acquired MediaStream + the full pcConfig
+    // mirror of outbound. This closes the Windows-only inbound hang where
+    // JsSIP's internal createLocalDescription() never resolved.
+    void this._answerIncoming(entry);
+  }
+
+  /**
+   * v0.8.9 — Centralised inbound answer path used by both `acceptCall()`
+   * and `holdActiveAndAccept()`.
+   *
+   * Why this exists:
+   *   1) JsSIP's own getUserMedia (the one invoked when you pass
+   *      `mediaConstraints` to session.answer()) can silently hang the
+   *      entire answer pipeline on Chromium-Electron-Windows. We preflight
+   *      ourselves with a 3-second ceiling, then hand the resolved
+   *      MediaStream to JsSIP via the `mediaStream` option so its internal
+   *      gUM is skipped entirely.
+   *   2) Inbound pcConfig was previously a subset of outbound's. Outbound
+   *      works (ringback proves the media path is established end-to-end).
+   *      Mirroring outbound's full pcConfig — iceTransportPolicy,
+   *      bundlePolicy, rtcpMuxPolicy, plus the third Google STUN server —
+   *      onto inbound eliminates the createLocalDescription() hang seen in
+   *      JsSIP debug for v0.8.8 on Windows.
+   *   3) If the preflight times out, we strip a stale `ace_mic` device id
+   *      from localStorage so the next call falls back to System Default,
+   *      and we send 480 "Mic Unavailable" to the caller instead of leaving
+   *      them ringing into nothing.
+   */
+  private async _answerIncoming(entry: CallEntry): Promise<void> {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const statusBefore = (entry.session as any)?._status;
     console.log('[sip] acceptCall', {
-      id,
+      id: entry.id,
       sessionStatus: statusBefore,
       direction: entry.session?.direction,
       callsSize: this.calls.size,
       activeCallId: this.activeCallId,
     });
+
+    // Preflight mic with a hard 3-second ceiling.
+    let stream: MediaStream | null = null;
+    try {
+      const gum = navigator.mediaDevices.getUserMedia({
+        audio: buildAudioConstraints(),
+        video: false,
+      });
+      const timeout = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('mic_acquire_timeout')), 3000),
+      );
+      stream = await Promise.race([gum, timeout]);
+      const track = stream.getAudioTracks()[0];
+      console.log('[sip] inbound mic acquired', {
+        label: track?.label,
+        deviceId: track?.getSettings?.().deviceId,
+      });
+    } catch (e) {
+      console.error('[sip] inbound answer: mic acquire failed', e);
+      // If we requested a specific deviceId and that hung, strip it so
+      // the next call falls back to System Default.
+      try {
+        const stored = localStorage.getItem('ace_mic');
+        if (stored && stored !== 'default') {
+          console.warn('[sip] clearing stale ace_mic device id', stored);
+          localStorage.removeItem('ace_mic');
+        }
+      } catch { /* noop */ }
+      // Tell the caller we can't answer instead of leaving them ringing.
+      try { entry.session.terminate({ status_code: 480, reason_phrase: 'Mic Unavailable' }); } catch { /* noop */ }
+      this.emit<CallEvent>('call', {
+        state: 'ended',
+        callId: entry.id,
+        hangupCause: 'mic_acquire_failed',
+      });
+      return;
+    }
+
     applySpeakerSelection(this.primaryAudioEl);
     try {
       entry.session.answer({
-        mediaConstraints: { audio: buildAudioConstraints(), video: false },
+        // Pass our pre-acquired stream so JsSIP skips its own (hang-prone)
+        // getUserMedia call inside the answer pipeline.
+        mediaStream: stream,
         pcConfig: {
           iceServers: [
             { urls: 'stun:stun.telnyx.com:3478' },
             { urls: 'stun:stun.l.google.com:19302' },
+            { urls: 'stun:stun1.l.google.com:19302' },
           ],
+          iceTransportPolicy: 'all',
+          bundlePolicy: 'max-bundle',
+          rtcpMuxPolicy: 'require',
         },
+        rtcAnswerConstraints: { offerToReceiveAudio: true, offerToReceiveVideo: false },
       });
     } catch (e) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -984,6 +1055,8 @@ export class SipService {
         activeCallId: this.activeCallId,
         callsSize: this.calls.size,
       });
+      // JsSIP didn't take ownership of our stream — release it.
+      try { stream.getTracks().forEach((t) => t.stop()); } catch { /* noop */ }
     }
   }
 
@@ -1033,26 +1106,18 @@ export class SipService {
     this.primaryAudioEl.srcObject = null;
     this.primaryAudioEl.muted = false;
 
-    // 2. Answer the incoming. session.on('accepted') will promote it to
-    //    activeCallId and emit the 'connected' event the UI listens for.
-    applySpeakerSelection(this.primaryAudioEl);
-    try {
-      incoming.session.answer({
-        mediaConstraints: { audio: buildAudioConstraints(), video: false },
-        pcConfig: {
-          iceServers: [
-            { urls: 'stun:stun.telnyx.com:3478' },
-            { urls: 'stun:stun.l.google.com:19302' },
-          ],
-        },
-      });
-    } catch (e) {
-      console.warn('[sip] hold-and-accept: answer threw', e);
+    // 2. Answer the incoming via the centralised _answerIncoming path
+    //    (preflight gUM + full pcConfig). session.on('accepted') will
+    //    promote it to activeCallId and emit the 'connected' event the UI
+    //    listens for. Errors inside _answerIncoming send 480 to the caller
+    //    and emit 'ended'; we don't need a try/catch here because the
+    //    async work is fire-and-forget.
+    void this._answerIncoming(incoming).catch((e) => {
+      console.warn('[sip] hold-and-accept: _answerIncoming rejected', e);
       // Best-effort: unhold the original so the user isn't stuck with both
       // calls in a broken state.
       void this.unholdCallWithMusicIfConfigured(active);
-      return null;
-    }
+    });
 
     // Return the now-held call's id so SipContext can track it as the
     // "second" call (drives the held-strip in InCall).
