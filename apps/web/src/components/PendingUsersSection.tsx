@@ -25,19 +25,45 @@ import {
   AlertCircle,
   Loader2,
   X,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 import {
   listPendingUsers,
   importPendingUsers,
   invitePendingUser,
   deletePendingUser,
+  getPendingUserCredentials,
+  listUnassignedTelnyxNumbers,
   type PendingUser,
   type PendingUserList,
   type PendingUserRow,
   type InvitePendingResult,
+  type PendingUserCredentials,
+  type UnassignedTelnyxNumber,
 } from '../api';
 
-type StatusFilter = 'pending' | 'invited' | 'all';
+type StatusFilter = 'pending' | 'invited' | 'accepted';
+
+// Derived row status used for both the per-row pill and the client-side
+// filter. "Invited" means invited-but-not-yet-logged-in; "Accepted" is
+// the same row after the user has signed in at least once.
+type DerivedStatus = 'pending' | 'invited' | 'accepted' | 'skipped';
+
+function deriveStatus(row: PendingUser): DerivedStatus {
+  if (row.status === 'invited') {
+    return row.hasLoggedIn ? 'accepted' : 'invited';
+  }
+  return row.status;
+}
+
+// One-letter abbreviations used in the chip + row pill.
+const STATUS_LETTER: Record<DerivedStatus, string> = {
+  pending: 'P',
+  invited: 'I',
+  accepted: 'A',
+  skipped: 'S',
+};
 
 export default function PendingUsersSection() {
   const token = sessionStorage.getItem('ace_token');
@@ -71,10 +97,23 @@ export default function PendingUsersSection() {
     return <p className="settings-empty">Sign in to view this section.</p>;
   }
 
-  const counts = data?.counts ?? { pending: 0, invited: 0, skipped: 0 };
+  const counts = data?.counts ?? {
+    pending: 0,
+    invited: 0,
+    skipped: 0,
+    accepted: 0,
+  };
+
+  // Client-side filter: when the server returns all invited rows (because
+  // we asked for status='accepted' or 'invited'), narrow down to the
+  // derived bucket the user actually picked.
+  const visibleItems = (data?.items ?? []).filter((r) => {
+    const d = deriveStatus(r);
+    return d === filter;
+  });
 
   return (
-    <div className="settings-section">
+    <div className="settings-section pending-users-section">
       <header className="settings-section-header">
         <div>
           <h2>Pending Users</h2>
@@ -104,21 +143,28 @@ export default function PendingUsersSection() {
         </div>
       </header>
 
-      {/* Filter chips with live counts */}
+      {/* Legend explaining the one-letter status chips below */}
+      <div className="pending-filter-legend">
+        <span><strong>P</strong> Pending</span>
+        <span className="sep">·</span>
+        <span><strong>I</strong> Invited (no login yet)</span>
+        <span className="sep">·</span>
+        <span><strong>A</strong> Accepted (signed in)</span>
+      </div>
+
+      {/* Filter chips — one letter + count each */}
       <div className="pending-filter-row">
-        {(['pending', 'invited', 'all'] as StatusFilter[]).map((s) => {
-          const count =
-            s === 'all'
-              ? counts.pending + counts.invited + counts.skipped
-              : (counts as Record<string, number>)[s] ?? 0;
+        {(['pending', 'invited', 'accepted'] as StatusFilter[]).map((s) => {
+          const count = counts[s] ?? 0;
           return (
             <button
               key={s}
               type="button"
-              className={`pending-filter-chip ${filter === s ? 'active' : ''}`}
+              className={`pending-filter-chip pending-filter-chip-letter ${filter === s ? 'active' : ''}`}
               onClick={() => setFilter(s)}
+              title={s[0].toUpperCase() + s.slice(1)}
             >
-              {s[0].toUpperCase() + s.slice(1)}{' '}
+              <strong>{STATUS_LETTER[s]}</strong>
               <span className="pending-filter-count">{count}</span>
             </button>
           );
@@ -137,17 +183,17 @@ export default function PendingUsersSection() {
         </div>
       )}
 
-      {data && data.items.length === 0 && !loading && (
+      {data && visibleItems.length === 0 && !loading && (
         <div className="pending-empty">
           {filter === 'pending'
             ? 'No pending users. Upload a CSV to stage Pulse users for migration.'
             : filter === 'invited'
-              ? 'No invited users yet. Click Invite on a pending row to provision.'
-              : 'No users in the staging area. Upload a CSV to get started.'}
+              ? 'No invited users waiting. Either everyone has signed in (check A) or no one has been invited yet.'
+              : 'No users have signed in yet. Invited users will move here after their first login.'}
         </div>
       )}
 
-      {data && data.items.length > 0 && (
+      {data && visibleItems.length > 0 && (
         <div className="pending-table-wrap">
           <table className="pending-table">
             <thead>
@@ -163,7 +209,7 @@ export default function PendingUsersSection() {
               </tr>
             </thead>
             <tbody>
-              {data.items.map((u) => (
+              {visibleItems.map((u) => (
                 <PendingRow
                   key={u.id}
                   row={u}
@@ -227,21 +273,33 @@ function PendingRow({
   const name = [row.firstName, row.lastName].filter(Boolean).join(' ') || '—';
   const formattedDid = formatPhone(row.pulseVoipNumber);
   const formattedImported = new Date(row.importedAt).toLocaleString();
+  const d = deriveStatus(row);
+  const fullStatusLabel =
+    d === 'pending'
+      ? 'Pending'
+      : d === 'invited'
+        ? 'Invited (no login yet)'
+        : d === 'accepted'
+          ? 'Accepted (signed in)'
+          : 'Skipped';
   return (
-    <tr className={`pending-row pending-${row.status}`}>
+    <tr className={`pending-row pending-${d}`}>
       <td className="pending-name">{name}</td>
       <td>{row.email}</td>
       <td className="pending-mono">{row.pulseVoipExt}</td>
       <td className="pending-mono">{formattedDid}</td>
       <td className="pending-mono">{row.pulseConnectionName ?? '—'}</td>
       <td>
-        <span className={`pending-status-pill pending-${row.status}`}>
-          {row.status}
+        <span
+          className={`pending-status-pill pending-status-pill-letter pending-${d}`}
+          title={fullStatusLabel}
+        >
+          {STATUS_LETTER[d]}
         </span>
       </td>
       <td className="pending-imported">{formattedImported}</td>
       <td className="ta-right">
-        {row.status === 'pending' ? (
+        {d === 'pending' ? (
           <>
             <button
               type="button"
@@ -260,13 +318,17 @@ function PendingRow({
               <Trash2 size={14} />
             </button>
           </>
-        ) : row.status === 'invited' ? (
+        ) : d === 'invited' ? (
           <span className="pending-invited-note">
             User #{row.invitedUserId ?? '?'} ·{' '}
             {row.invitedAt ? new Date(row.invitedAt).toLocaleDateString() : ''}
           </span>
+        ) : d === 'accepted' ? (
+          <span className="pending-invited-note">
+            Signed in · User #{row.invitedUserId ?? '?'}
+          </span>
         ) : (
-          <span className="pending-invited-note">{row.status}</span>
+          <span className="pending-invited-note">{d}</span>
         )}
       </td>
     </tr>
@@ -381,13 +443,14 @@ function CsvUploadModal({
                 Parsed <strong>{parsed.length}</strong> rows. Preview first 5:
               </div>
               <div className="pending-table-wrap pending-preview-table">
-                <table className="pending-table">
+                <table className="pending-table pending-preview-grid">
                   <thead>
                     <tr>
                       <th>Name</th>
                       <th>Email</th>
                       <th>voip_ext</th>
                       <th>voip_number</th>
+                      <th>password</th>
                       <th>connection</th>
                     </tr>
                   </thead>
@@ -398,12 +461,17 @@ function CsvUploadModal({
                         <td>{r.email}</td>
                         <td className="pending-mono">{r.pulseVoipExt}</td>
                         <td className="pending-mono">{formatPhone(r.pulseVoipNumber)}</td>
+                        <td className="pending-mono pending-secret">{r.pulseExtPassword}</td>
                         <td className="pending-mono">{r.pulseConnectionName ?? '—'}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
+              <p className="pending-preview-note">
+                You're previewing what's in the CSV before anything is saved.
+                Passwords shown here come straight from your file; click <strong>Commit import</strong> to stage them.
+              </p>
             </>
           )}
 
@@ -463,12 +531,54 @@ function InviteModal({
   onResult: (r: InvitePendingResult) => void;
 }) {
   const token = sessionStorage.getItem('ace_token')!;
-  const [didMode, setDidMode] = useState<'existing' | 'new'>('existing');
+  const [didMode, setDidMode] = useState<'existing' | 'new' | 'unassigned'>('existing');
   const [credsMode, setCredsMode] = useState<'existing' | 'new'>('existing');
   const [repointWebhook, setRepointWebhook] = useState(true);
   const [sendEmail, setSendEmail] = useState(true);
   const [newDidAreaCode, setNewDidAreaCode] = useState('');
   const [submitting, setSubmitting] = useState(false);
+
+  // Unassigned ACE numbers picker — lazy-loaded when the admin picks the
+  // 'unassigned' radio. Saves a Telnyx round-trip for admins who never use it.
+  const [unassigned, setUnassigned] = useState<UnassignedTelnyxNumber[] | null>(null);
+  const [unassignedLoading, setUnassignedLoading] = useState(false);
+  const [unassignedErr, setUnassignedErr] = useState<string | null>(null);
+  const [pickedUnassignedDid, setPickedUnassignedDid] = useState<string>('');
+
+  // Fetch the list the first time the admin selects this option.
+  useEffect(() => {
+    if (didMode !== 'unassigned' || unassigned !== null || unassignedLoading) return;
+    setUnassignedLoading(true);
+    setUnassignedErr(null);
+    listUnassignedTelnyxNumbers(token)
+      .then((items) => {
+        setUnassigned(items);
+        if (items.length > 0) setPickedUnassignedDid(items[0].phoneNumber);
+      })
+      .catch((e) => setUnassignedErr(e instanceof Error ? e.message : 'Failed to load'))
+      .finally(() => setUnassignedLoading(false));
+  }, [didMode, unassigned, unassignedLoading, token]);
+
+  // Reveal SIP credentials: the LIST endpoint strips the password, so we
+  // fetch it on-demand from /admin/pending-users/:id/credentials (audited
+  // on the server side — every reveal is logged).
+  const [creds, setCreds] = useState<PendingUserCredentials | null>(null);
+  const [credsLoading, setCredsLoading] = useState(false);
+  const [credsErr, setCredsErr] = useState<string | null>(null);
+
+  async function revealCreds() {
+    if (creds) { setCreds(null); return; }      // click again to hide
+    setCredsLoading(true);
+    setCredsErr(null);
+    try {
+      const c = await getPendingUserCredentials(token, target.id);
+      setCreds(c);
+    } catch (e) {
+      setCredsErr(e instanceof Error ? e.message : 'Failed to load credentials');
+    } finally {
+      setCredsLoading(false);
+    }
+  }
 
   const defaultAreaCode = useMemo(
     () => extractUsAreaCode(target.pulseVoipNumber) ?? '',
@@ -476,6 +586,11 @@ function InviteModal({
   );
 
   async function confirm() {
+    // Refuse to submit if 'unassigned' was picked but no number selected.
+    if (didMode === 'unassigned' && !pickedUnassignedDid) {
+      onResult({ ok: false, error: 'Pick an unassigned number from the dropdown first.' });
+      return;
+    }
     setSubmitting(true);
     try {
       const r = await invitePendingUser(token, target.id, {
@@ -484,6 +599,7 @@ function InviteModal({
         repointWebhook,
         sendEmail,
         newDidAreaCode: didMode === 'new' && newDidAreaCode ? newDidAreaCode : undefined,
+        unassignedDidNumber: didMode === 'unassigned' ? pickedUnassignedDid : undefined,
       });
       onResult(r);
     } catch (e) {
@@ -518,6 +634,37 @@ function InviteModal({
             <span>Pulse connection: <strong className="pending-mono">{target.pulseConnectionName ?? '—'}</strong></span>
           </p>
 
+          {/* Reveal full credentials (audited). Hides again on click. */}
+          <div className="pending-reveal-row">
+            <button
+              type="button"
+              className="pending-reveal-btn"
+              onClick={() => void revealCreds()}
+              disabled={credsLoading || submitting}
+              title={creds ? 'Hide credentials' : 'Show the SIP credentials (audit-logged)'}
+            >
+              {credsLoading
+                ? <><Loader2 size={14} className="spin" /> Loading…</>
+                : creds
+                  ? <><EyeOff size={14} /> Hide credentials</>
+                  : <><Eye size={14} /> Reveal credentials</>}
+            </button>
+            {credsErr && (
+              <span className="pending-reveal-err">
+                <AlertCircle size={12} /> {credsErr}
+              </span>
+            )}
+          </div>
+          {creds && (
+            <div className="pending-reveal-box">
+              <div><span>Email</span><strong>{creds.email}</strong></div>
+              <div><span>Pulse ext</span><strong className="pending-mono">{creds.pulseVoipExt}</strong></div>
+              <div><span>Pulse DID</span><strong className="pending-mono">{formatPhone(creds.pulseVoipNumber)}</strong></div>
+              <div><span>SIP password</span><strong className="pending-mono pending-secret">{creds.pulseExtPassword}</strong></div>
+              <div><span>Connection</span><strong className="pending-mono">{creds.pulseConnectionName ?? '—'}</strong></div>
+            </div>
+          )}
+
           <hr className="pending-divider" />
 
           {/* ── Q1: DID ── */}
@@ -531,8 +678,8 @@ function InviteModal({
                 onChange={() => setDidMode('existing')}
               />
               <span>
-                <strong>Use existing Pulse number</strong> ({formatPhone(target.pulseVoipNumber)})
-                <span className="pending-toggle-help">No Telnyx purchase. The user keeps the same phone number.</span>
+                <strong>Use existing Pulse number</strong> — {formatPhone(target.pulseVoipNumber)}
+                <span className="pending-toggle-help">No new Telnyx number bought — user keeps their current phone number.</span>
               </span>
             </label>
             <label className="pending-toggle">
@@ -569,6 +716,65 @@ function InviteModal({
                 </span>
               </div>
             )}
+
+            {/* Third option: reuse an ACE-owned number that isn't currently
+                routed anywhere. Loads the list lazily when picked. */}
+            <label className="pending-toggle">
+              <input
+                type="radio"
+                name="didMode"
+                checked={didMode === 'unassigned'}
+                onChange={() => setDidMode('unassigned')}
+              />
+              <span>
+                <strong>Use an ACE number you already own</strong>
+                <span className="pending-toggle-help">
+                  Pick from numbers already in your Telnyx account that aren't routed to any voice or messaging connection. $0 — no new purchase.
+                </span>
+              </span>
+            </label>
+            {didMode === 'unassigned' && (
+              <div className="pending-toggle-extra">
+                {unassignedLoading && (
+                  <span className="pending-toggle-help">
+                    <Loader2 size={12} className="spin" /> Loading unassigned numbers…
+                  </span>
+                )}
+                {unassignedErr && (
+                  <span className="pending-reveal-err">
+                    <AlertCircle size={12} /> {unassignedErr}
+                  </span>
+                )}
+                {unassigned && unassigned.length === 0 && !unassignedLoading && (
+                  <span className="pending-toggle-help">
+                    No unassigned numbers found in your Telnyx account. Pick a different option.
+                  </span>
+                )}
+                {unassigned && unassigned.length > 0 && (
+                  <label>
+                    Pick a number:{' '}
+                    <select
+                      value={pickedUnassignedDid}
+                      onChange={(e) => setPickedUnassignedDid(e.target.value)}
+                      className="pending-unassigned-select"
+                    >
+                      {unassigned.map((n) => (
+                        <option key={n.id} value={n.phoneNumber}>
+                          {formatPhone(n.phoneNumber)}
+                          {n.regionLabel ? ` — ${n.regionLabel}` : ''}
+                          {n.areaCode ? ` (${n.areaCode})` : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
+                {unassigned && unassigned.length > 0 && (
+                  <span className="pending-toggle-help">
+                    {unassigned.length} number{unassigned.length === 1 ? '' : 's'} available. Will be routed to the user's connection on Confirm.
+                  </span>
+                )}
+              </div>
+            )}
           </fieldset>
 
           {/* ── Q2: SIP Credentials ── */}
@@ -584,7 +790,7 @@ function InviteModal({
               <span>
                 <strong>Reuse Pulse credentials</strong> ({target.pulseVoipExt})
                 <span className="pending-toggle-help">
-                  No Telnyx API call. <strong>User must uninstall Pulse</strong> or both apps
+                  No Telnyx API call. <strong>User must uninstall the old dialer</strong> or both apps
                   will ring on every inbound call.
                 </span>
               </span>
@@ -638,7 +844,7 @@ function InviteModal({
               <span>
                 <strong>Send welcome email to {target.email}</strong>
                 <span className="pending-toggle-help">
-                  Heads-up email with sign-in instructions and the "uninstall Pulse first" warning.
+                  Heads-up email with sign-in instructions and the "uninstall old dialer first" warning.
                   Uncheck if you'll notify the user via Teams instead.
                 </span>
               </span>
@@ -712,7 +918,9 @@ function ResultModal({ result, onClose }: { result: InvitePendingResult; onClose
                 {result.didNumber && (
                   <li>
                     DID: <strong>{formatPhone(result.didNumber)}</strong>
-                    {result.didPurchased ? ' (newly purchased)' : ' (kept from Pulse)'}
+                    {result.didPurchased
+                      ? ' (newly purchased from Telnyx)'
+                      : ' (routed to user)'}
                   </li>
                 )}
                 {result.sipUsername && (

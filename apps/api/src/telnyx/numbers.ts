@@ -60,7 +60,9 @@ export interface PhoneNumber {
   id: string;                    // Telnyx-internal number id (used in PATCH)
   phone_number: string;          // E.164
   connection_id?: string;        // SIP Connection currently routing this number
+  messaging_profile_id?: string; // Messaging Profile currently handling SMS
   status: string;                // "active" | "pending" | ...
+  region_information?: Array<{ region_name?: string; region_type?: string }>;
 }
 
 export interface CredentialConnection {
@@ -181,6 +183,22 @@ export function assignDidToConnection(
   return call(`/phone_numbers/${numberId}`, {
     method: 'PATCH',
     body: JSON.stringify({ connection_id: connectionId }),
+  });
+}
+
+/**
+ * Bind a number to ACE's Messaging Profile so inbound SMS flows to ACE's
+ * messaging webhook. Called from the invite flow regardless of which DID
+ * mode the admin picked — by the time the user logs in, their texts
+ * should arrive in ACE, not the old dialer.
+ */
+export function assignNumberMessagingProfile(
+  numberId: string,
+  messagingProfileId: string,
+): Promise<TelnyxResult<SingleResponse<PhoneNumber>>> {
+  return call(`/phone_numbers/${numberId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ messaging_profile_id: messagingProfileId }),
   });
 }
 
@@ -308,4 +326,66 @@ export function extractUsAreaCode(phoneNumber: string): string | null {
   if (digits.length === 11 && digits.startsWith('1')) return digits.slice(1, 4);
   if (digits.length === 10) return digits.slice(0, 3);
   return null;
+}
+
+// ───────────── 9. List unassigned numbers we already own ──────────────────
+
+/**
+ * Returns Telnyx phone numbers we own that are NOT currently routed to any
+ * voice connection AND not bound to any messaging profile. Lets the admin
+ * pick from the existing inventory instead of buying a new DID — useful
+ * when ApTask has previously ported in numbers or has leftover inventory.
+ *
+ * Paginates through /v2/phone_numbers and filters client-side; Telnyx
+ * doesn't expose a server-side "connection_id is null" filter.
+ */
+export interface UnassignedNumber {
+  id: string;
+  phoneNumber: string;
+  areaCode: string | null;
+  status: string;
+  regionLabel: string | null;
+}
+
+export async function listUnassignedNumbers(): Promise<TelnyxResult<UnassignedNumber[]>> {
+  const out: UnassignedNumber[] = [];
+  let page = 1;
+  const pageSize = 250;            // Telnyx max
+  // Hard cap pages so we don't loop forever on a huge inventory.
+  const MAX_PAGES = 8;
+
+  while (page <= MAX_PAGES) {
+    const qs = new URLSearchParams({
+      'page[number]': String(page),
+      'page[size]': String(pageSize),
+    });
+    const res = await call<ListResponse<PhoneNumber>>(
+      `/phone_numbers?${qs.toString()}`,
+      { method: 'GET' },
+    );
+    if (!res.ok) return { ok: false, status: res.status, error: res.error };
+    const batch = res.data?.data ?? [];
+
+    for (const n of batch) {
+      // Truly unassigned: no voice connection AND no messaging profile.
+      if (!n.connection_id && !n.messaging_profile_id) {
+        out.push({
+          id: n.id,
+          phoneNumber: n.phone_number,
+          areaCode: extractUsAreaCode(n.phone_number),
+          status: n.status,
+          regionLabel: n.region_information?.[0]?.region_name ?? null,
+        });
+      }
+    }
+
+    // Stop when we've gone past the last page.
+    const totalPages = res.data?.meta?.total_pages ?? page;
+    if (batch.length < pageSize || page >= totalPages) break;
+    page += 1;
+  }
+
+  // Sort by area code so the dropdown is predictable.
+  out.sort((a, b) => (a.areaCode ?? 'zzz').localeCompare(b.areaCode ?? 'zzz'));
+  return { ok: true, status: 200, data: out };
 }

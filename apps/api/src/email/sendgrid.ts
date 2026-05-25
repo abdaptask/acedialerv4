@@ -120,7 +120,7 @@ export function sendWelcomeEmail(input: WelcomeEmailInput): Promise<SendGridResu
     `yourself.`,
     ``,
     `*** IMPORTANT ***`,
-    `Pulse will be uninstalled at the same time. ACE Dialer replaces Pulse;`,
+    `The old dialer will be uninstalled at the same time. ACE Dialer replaces it;`,
     `running both at once causes duplicate ringing and dropped calls.`,
     ``,
     `WHAT TO DO ONCE IT'S INSTALLED:`,
@@ -161,12 +161,13 @@ export function sendWelcomeEmail(input: WelcomeEmailInput): Promise<SendGridResu
         <tr><td style="padding:16px 32px;">
           <div style="background:#fef2f2;border-left:4px solid #dc2626;border-radius:6px;padding:16px;">
             <p style="margin:0 0 6px 0;font-size:14px;font-weight:700;color:#991b1b;">
-              ⚠ Important: Pulse will be uninstalled
+              ⚠ Important: the old dialer will be uninstalled
             </p>
             <p style="margin:0;font-size:14px;color:#7f1d1d;">
-              ACE Dialer replaces Pulse and uses the same phone credentials.
+              ACE Dialer replaces it and uses the same phone credentials.
               Running both at once causes <strong>duplicate ringing on every
-              incoming call</strong>. IT will remove Pulse when they install ACE.
+              incoming call</strong>. IT will remove the old dialer when they
+              install ACE.
             </p>
           </div>
         </td></tr>

@@ -62,6 +62,8 @@ import {
   type BlockedNumber,
   listAdminUsers,
   inviteAdminUser,
+  inviteNewUserAutoProvision,
+  type InviteNewUserResult,
   updateAdminUser,
   listAuditLogs,
   bulkImportUsers,
@@ -169,6 +171,20 @@ function SettingsNav({ activeCategory }: { activeCategory: SectionCategory }) {
     return new Set<SectionCategory>(['Personal', activeCategory]);
   });
 
+  // Resolve isAdmin once so we can hide the Admin nav group from non-admins.
+  // The backend already 403s every /admin/* endpoint, but showing nav items
+  // a user can't open is confusing.
+  const [isAdmin, setIsAdmin] = useState<boolean>(false);
+  useEffect(() => {
+    const token = sessionStorage.getItem('ace_token');
+    if (!token) return;
+    let cancelled = false;
+    getMe(token)
+      .then((u) => { if (!cancelled) setIsAdmin(!!u.isAdmin); })
+      .catch(() => { /* leave isAdmin=false on error */ });
+    return () => { cancelled = true; };
+  }, []);
+
   useEffect(() => {
     setOpenCats((prev) => {
       if (prev.has(activeCategory)) return prev;
@@ -192,6 +208,9 @@ function SettingsNav({ activeCategory }: { activeCategory: SectionCategory }) {
   return (
     <nav className="settings-nav-list grouped">
       {SECTION_CATEGORIES.map((cat) => {
+        // Hide the Admin group entirely for non-admin users so they don't see
+        // nav items that 403 when clicked. Backend stays the source of truth.
+        if (cat === 'Admin' && !isAdmin) return null;
         const items = SECTIONS.filter((sec) => sec.category === cat);
         if (items.length === 0) return null;
         const open = openCats.has(cat);
@@ -1641,6 +1660,7 @@ function UsersAdminSection() {
   const [error, setError] = useState<string | null>(null);
   const [showInvite, setShowInvite] = useState(false);
   const [showImport, setShowImport] = useState(false);
+  const [showAutoProvision, setShowAutoProvision] = useState(false);
   const [openMenuId, setOpenMenuId] = useState<number | null>(null);
   const [search, setSearch] = useState('');
 
@@ -1742,10 +1762,19 @@ function UsersAdminSection() {
           </button>
           <button
             type="button"
-            className="device-action primary"
+            className="device-action"
             onClick={() => setShowInvite(true)}
+            title="Add a user with pre-existing SIP credentials (you paste them)"
           >
-            <UserPlus size={14} /> Invite user
+            <UserPlus size={14} /> Add manually
+          </button>
+          <button
+            type="button"
+            className="device-action primary"
+            onClick={() => setShowAutoProvision(true)}
+            title="Brand-new hire: ACE buys a Telnyx DID, creates SIP creds, sends welcome email"
+          >
+            <UserPlus size={14} /> Invite new user
           </button>
         </div>
       </div>
@@ -1941,6 +1970,189 @@ function UsersAdminSection() {
           }}
         />
       )}
+
+      {showAutoProvision && (
+        <AutoProvisionUserModal
+          onClose={() => setShowAutoProvision(false)}
+          onDone={() => {
+            setShowAutoProvision(false);
+            load(); // refresh the table after a real provision
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+// ─────────────────── Auto-provision brand-new user ────────────────────
+// Used when admin adds someone who was NEVER on Pulse — a brand-new hire.
+// Backend purchases a Telnyx DID, creates SIP creds, binds messaging, sends
+// the welcome email, all in one POST. Modal shows per-step result table.
+function AutoProvisionUserModal({
+  onClose,
+  onDone,
+}: {
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const [email, setEmail] = useState('');
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
+  const [areaCode, setAreaCode] = useState('');
+  const [makeAdmin, setMakeAdmin] = useState(false);
+  const [sendEmail, setSendEmail] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [result, setResult] = useState<InviteNewUserResult | null>(null);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    const token = sessionStorage.getItem('ace_token');
+    if (!token) return;
+    if (!email.trim()) return;
+    setSubmitting(true);
+    setResult(null);
+    try {
+      const r = await inviteNewUserAutoProvision(token, {
+        email: email.trim(),
+        firstName: firstName.trim() || undefined,
+        lastName: lastName.trim() || undefined,
+        newDidAreaCode: areaCode.trim() || undefined,
+        isAdmin: makeAdmin,
+        sendEmail,
+      });
+      setResult(r);
+    } catch (err) {
+      setResult({ ok: false, error: (err as Error).message });
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div className="compose-modal" onClick={submitting ? undefined : onClose}>
+      <div
+        className="fav-modal"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-labelledby="auto-provision-title"
+        style={{ maxWidth: 560 }}
+      >
+        <div className="fav-modal-header">
+          <UserPlus size={18} className="fav-modal-icon" />
+          <h3 id="auto-provision-title">Invite a brand-new user</h3>
+        </div>
+
+        {!result && (
+          <>
+            <p className="muted small" style={{ marginTop: 0 }}>
+              For someone who was <strong>never on Pulse</strong>. ACE will buy a Telnyx DID, create SIP credentials, bind the messaging profile, and email the user — all in one click. <strong>This spends money on Telnyx (~$0.45 setup + $0.45/mo per number).</strong>
+            </p>
+
+            <form onSubmit={handleSubmit} autoComplete="off">
+              <label className="fav-modal-field" style={{ marginBottom: 8 }}>
+                <span className="fav-modal-label">Work email *</span>
+                <input
+                  type="email"
+                  className="fav-modal-input"
+                  placeholder="firstname.lastname@aptask.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  autoFocus
+                  required
+                />
+              </label>
+              <div className="fav-modal-row">
+                <label className="fav-modal-field">
+                  <span className="fav-modal-label">First name</span>
+                  <input
+                    type="text"
+                    className="fav-modal-input"
+                    value={firstName}
+                    onChange={(e) => setFirstName(e.target.value)}
+                  />
+                </label>
+                <label className="fav-modal-field">
+                  <span className="fav-modal-label">Last name</span>
+                  <input
+                    type="text"
+                    className="fav-modal-input"
+                    value={lastName}
+                    onChange={(e) => setLastName(e.target.value)}
+                  />
+                </label>
+              </div>
+              <label className="fav-modal-field" style={{ marginTop: 8 }}>
+                <span className="fav-modal-label">DID area code (3 digits)</span>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  pattern="\d{3}"
+                  maxLength={3}
+                  className="fav-modal-input"
+                  placeholder="732"
+                  value={areaCode}
+                  onChange={(e) => setAreaCode(e.target.value.replace(/[^\d]/g, '').slice(0, 3))}
+                  style={{ maxWidth: 110 }}
+                />
+                <span className="muted small">Defaults to 732 if blank.</span>
+              </label>
+
+              <label className="fav-modal-field" style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12 }}>
+                <input
+                  type="checkbox"
+                  checked={makeAdmin}
+                  onChange={(e) => setMakeAdmin(e.target.checked)}
+                />
+                <span>Grant admin role</span>
+              </label>
+              <label className="fav-modal-field" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <input
+                  type="checkbox"
+                  checked={sendEmail}
+                  onChange={(e) => setSendEmail(e.target.checked)}
+                />
+                <span>Send welcome email after provisioning</span>
+              </label>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
+                <button type="button" className="device-action" onClick={onClose} disabled={submitting}>
+                  Cancel
+                </button>
+                <button type="submit" className="device-action primary" disabled={submitting || !email.trim()}>
+                  {submitting ? 'Provisioning…' : 'Provision now'}
+                </button>
+              </div>
+            </form>
+          </>
+        )}
+
+        {result && (
+          <div style={{ marginTop: 4 }}>
+            <p style={{ margin: '0 0 12px', fontWeight: 600 }}>
+              {result.ok
+                ? `✅ User provisioned successfully${result.didNumber ? ' — ' + result.didNumber : ''}`
+                : `❌ Provisioning failed: ${result.error ?? 'unknown error'}`}
+            </p>
+
+            {result.steps && result.steps.length > 0 && (
+              <ul style={{ margin: 0, paddingLeft: 20, fontSize: 14 }}>
+                {result.steps.map((s, i) => (
+                  <li key={i} style={{ marginBottom: 4 }}>
+                    {s.ok ? '✓' : '✗'} {s.step}
+                    {s.error && <span className="muted small" style={{ marginLeft: 6 }}>— {s.error}</span>}
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
+              <button type="button" className="device-action primary" onClick={onDone}>
+                Close
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

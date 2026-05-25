@@ -5458,8 +5458,221 @@ body::-webkit-scrollbar { display: none; }
   border: 1px solid rgba(0,0,0,0.15); background: #fff; border-radius: 6px;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.9rem;
 }
-.pending-confirm-btn { background: #34c759; border-color: #34c759; }
-.pending-confirm-btn:hover { background: #2eb551; border-color: #2eb551; }
+/* Modal footer — match the look of section-action buttons so Cancel and
+   Confirm sit at the same height with matching border-radius. The earlier
+   rule only styled them inside .settings-section-actions, leaving the
+   modal footer with browser defaults. Applies to ALL three pending-users
+   modals (invite, result, upload) so no button is ever naked. */
+.pending-invite-modal .modal-footer,
+.pending-result-modal .modal-footer,
+.pending-upload-modal .modal-footer { display: flex; gap: 0.6rem; justify-content: flex-end; padding: 1rem 1.25rem 1.25rem; }
+.pending-invite-modal .modal-footer .settings-btn,
+.pending-invite-modal .modal-footer .settings-btn-secondary,
+.pending-result-modal .modal-footer .settings-btn,
+.pending-result-modal .modal-footer .settings-btn-secondary,
+.pending-upload-modal .modal-footer .settings-btn,
+.pending-upload-modal .modal-footer .settings-btn-secondary {
+  display: inline-flex; align-items: center; gap: 0.45rem;
+  padding: 0.6rem 1.1rem; border-radius: 8px;
+  font-size: 0.88rem; font-weight: 600; cursor: pointer; line-height: 1;
+  transition: background 0.12s, border-color 0.12s;
+}
+.pending-invite-modal .modal-footer .settings-btn-secondary,
+.pending-result-modal .modal-footer .settings-btn-secondary {
+  background: transparent; color: var(--text, #1a1a1a);
+  border: 1px solid rgba(0,0,0,0.18);
+}
+.pending-invite-modal .modal-footer .settings-btn-secondary:hover,
+.pending-result-modal .modal-footer .settings-btn-secondary:hover { background: rgba(0,0,0,0.05); }
+[data-theme="dark"] .pending-invite-modal .modal-footer .settings-btn-secondary,
+[data-theme="dark"] .pending-result-modal .modal-footer .settings-btn-secondary {
+  color: #fff; border-color: rgba(255,255,255,0.18);
+}
+[data-theme="dark"] .pending-invite-modal .modal-footer .settings-btn-secondary:hover,
+[data-theme="dark"] .pending-result-modal .modal-footer .settings-btn-secondary:hover {
+  background: rgba(255,255,255,0.06);
+}
+.pending-invite-modal .modal-footer button:disabled,
+.pending-result-modal .modal-footer button:disabled { opacity: 0.5; cursor: not-allowed; }
+.pending-result-modal .modal-footer .settings-btn {
+  background: #0a84ff; color: #fff; border: 1px solid #0a84ff;
+}
+.pending-result-modal .modal-footer .settings-btn:hover {
+  background: #0c6fd6; border-color: #0c6fd6;
+}
+
+/* Confirm button — match the primary blue used by the Invite button in the
+   row and the Upload CSV button up top. Was flat green which didn't match
+   anything else in the dialer. */
+.pending-confirm-btn {
+  background: #0a84ff;
+  color: #fff;
+  border: 1px solid #0a84ff;
+}
+.pending-confirm-btn:hover { background: #0c6fd6; border-color: #0c6fd6; }
+
+/* CSV-upload preview note + preview table layout overrides. The preview
+   table reuses .pending-table for visual consistency but has 6 columns
+   (not 5), so the row-table fixed widths need to relax to auto. */
+.pending-preview-note {
+  margin: 0.6rem 0 0;
+  font-size: 0.78rem;
+  color: #6b7280;
+  font-style: italic;
+}
+[data-theme="dark"] .pending-preview-note { color: #8e8e93; }
+.pending-preview-grid { table-layout: auto !important; }
+.pending-preview-grid th,
+.pending-preview-grid td {
+  width: auto !important;
+  white-space: nowrap;
+  padding-left: 0.6rem;
+  padding-right: 0.6rem;
+}
+/* Re-show columns we hid in the live row table (Pulse ext + Connection
+   are still useful in the preview). */
+.pending-preview-grid th:nth-child(n),
+.pending-preview-grid td:nth-child(n) { display: table-cell !important; }
+
+/* Secret-style highlight for the SIP password cell. */
+.pending-secret {
+  background: rgba(255,204,0,0.18);
+  padding: 0.05rem 0.4rem;
+  border-radius: 4px;
+}
+[data-theme="dark"] .pending-secret { background: rgba(255,204,0,0.16); color: #f5c419; }
+
+/* Reveal-credentials button + box inside the invite modal. */
+.pending-reveal-row {
+  display: flex; align-items: center; gap: 0.6rem;
+  margin: 0.6rem 0 0;
+}
+.pending-reveal-btn {
+  display: inline-flex; align-items: center; gap: 0.4rem;
+  padding: 0.35rem 0.7rem; border-radius: 6px;
+  border: 1px solid rgba(0,0,0,0.15); background: transparent;
+  font-size: 0.78rem; font-weight: 600; cursor: pointer;
+  color: var(--text, #1a1a1a);
+}
+.pending-reveal-btn:hover { background: rgba(0,0,0,0.04); }
+.pending-reveal-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+[data-theme="dark"] .pending-reveal-btn { color: #fff; border-color: rgba(255,255,255,0.18); }
+[data-theme="dark"] .pending-reveal-btn:hover { background: rgba(255,255,255,0.06); }
+.pending-reveal-err {
+  display: inline-flex; align-items: center; gap: 0.3rem;
+  font-size: 0.78rem; color: #d70015;
+}
+.pending-reveal-box {
+  display: grid; grid-template-columns: auto 1fr; gap: 0.4rem 0.85rem;
+  margin: 0.6rem 0 0;
+  padding: 0.75rem 1rem;
+  border: 1px dashed rgba(0,0,0,0.12); border-radius: 8px;
+  background: rgba(0,0,0,0.02);
+  font-size: 0.82rem;
+}
+.pending-reveal-box > div { display: contents; }
+.pending-reveal-box span { color: #6b7280; }
+.pending-reveal-box strong { font-weight: 600; word-break: break-all; }
+[data-theme="dark"] .pending-reveal-box {
+  border-color: rgba(255,255,255,0.12);
+  background: rgba(255,255,255,0.03);
+}
+[data-theme="dark"] .pending-reveal-box span { color: #8e8e93; }
+
+/* Polish the upload-CSV modal: header padding, modal-close button, and the
+   browser-default file input that looked like 1998. */
+.pending-upload-modal { max-width: 720px; }
+.pending-upload-modal .modal-header,
+.pending-invite-modal .modal-header,
+.pending-result-modal .modal-header {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 0.75rem; padding: 1.1rem 1.25rem 0.85rem;
+  border-bottom: 1px solid rgba(0,0,0,0.06);
+}
+.pending-upload-modal .modal-header h3,
+.pending-invite-modal .modal-header h3,
+.pending-result-modal .modal-header h3 { margin: 0; font-size: 1.05rem; }
+[data-theme="dark"] .pending-upload-modal .modal-header,
+[data-theme="dark"] .pending-invite-modal .modal-header,
+[data-theme="dark"] .pending-result-modal .modal-header { border-bottom-color: rgba(255,255,255,0.08); }
+
+.pending-upload-modal .modal-close,
+.pending-invite-modal .modal-close,
+.pending-result-modal .modal-close {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; padding: 0; border-radius: 6px;
+  border: none; background: transparent; color: #6b7280;
+  cursor: pointer;
+}
+.pending-upload-modal .modal-close:hover,
+.pending-invite-modal .modal-close:hover,
+.pending-result-modal .modal-close:hover { background: rgba(0,0,0,0.06); color: #1a1a1a; }
+[data-theme="dark"] .pending-upload-modal .modal-close,
+[data-theme="dark"] .pending-invite-modal .modal-close,
+[data-theme="dark"] .pending-result-modal .modal-close { color: #8e8e93; }
+[data-theme="dark"] .pending-upload-modal .modal-close:hover,
+[data-theme="dark"] .pending-invite-modal .modal-close:hover,
+[data-theme="dark"] .pending-result-modal .modal-close:hover { background: rgba(255,255,255,0.08); color: #fff; }
+
+.pending-upload-modal .modal-body { padding: 1rem 1.25rem; }
+
+.pending-upload-instructions {
+  margin: 0 0 1rem;
+  font-size: 0.85rem; color: #4b5563; line-height: 1.5;
+}
+.pending-upload-instructions code {
+  display: block; margin-top: 0.4rem;
+  padding: 0.5rem 0.7rem; border-radius: 6px;
+  background: rgba(0,0,0,0.05); color: #1f2937;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.78rem; line-height: 1.6;
+}
+[data-theme="dark"] .pending-upload-instructions { color: #d1d5db; }
+[data-theme="dark"] .pending-upload-instructions code { background: rgba(255,255,255,0.06); color: #f3f4f6; }
+
+/* Style the file input — Chrome/Edge file-selector-button can be themed
+   (Safari/Firefox use OS-default and we leave those alone). */
+.pending-upload-fileinput {
+  margin: 0 0 0.85rem;
+  padding: 0.85rem;
+  border: 1px dashed rgba(0,0,0,0.18);
+  border-radius: 8px;
+  background: rgba(0,0,0,0.015);
+}
+.pending-upload-fileinput input[type="file"] {
+  font-size: 0.85rem; color: #4b5563; max-width: 100%;
+}
+.pending-upload-fileinput input[type="file"]::file-selector-button {
+  margin-right: 0.7rem; padding: 0.45rem 0.85rem;
+  border: 1px solid #0a84ff; border-radius: 6px;
+  background: #0a84ff; color: #fff;
+  font-size: 0.82rem; font-weight: 600; cursor: pointer;
+}
+.pending-upload-fileinput input[type="file"]::file-selector-button:hover {
+  background: #0c6fd6; border-color: #0c6fd6;
+}
+[data-theme="dark"] .pending-upload-fileinput {
+  border-color: rgba(255,255,255,0.15); background: rgba(255,255,255,0.025);
+}
+[data-theme="dark"] .pending-upload-fileinput input[type="file"] { color: #d1d5db; }
+
+/* Unassigned-number picker dropdown inside the invite modal. */
+.pending-unassigned-select {
+  margin-left: 0.4rem;
+  padding: 0.35rem 0.55rem;
+  border-radius: 6px;
+  border: 1px solid rgba(0,0,0,0.18);
+  background: #fff;
+  color: var(--text, #1a1a1a);
+  font-size: 0.85rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  min-width: 14rem;
+}
+[data-theme="dark"] .pending-unassigned-select {
+  background: rgba(255,255,255,0.04);
+  color: #fff;
+  border-color: rgba(255,255,255,0.18);
+}
 .pending-icon-ok { color: #1e8a3e; vertical-align: middle; margin-right: 0.4rem; }
 .pending-icon-err { color: #d70015; vertical-align: middle; margin-right: 0.4rem; }
 .pending-result-summary p { margin: 0 0 0.6rem; font-size: 0.92rem; }
@@ -5483,75 +5696,117 @@ body::-webkit-scrollbar { display: none; }
 @keyframes pending-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 .spin { animation: pending-spin 1s linear infinite; }
 
-/* Fix Pulse DID overlapping Status — give Pulse DID overflow:hidden so it
-   stays within its column instead of bleeding into Status. Also widen Status
-   slightly so the pill has more breathing room. */
-.pending-table th:nth-child(4),
-.pending-table td:nth-child(4) {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  width: 18%;
-}
-.pending-table th:nth-child(6),
-.pending-table td:nth-child(6) {
-  width: 14%;
-  text-align: center;
-}
-.pending-table th:last-child,
-.pending-table td:last-child {
-  width: 18%;
-}
-
 /* ===========================================================================
-   THE ACTUAL ROOT CAUSE — Settings container is constraining width.
-   Override it specifically for Pending Users + force everything single-line.
+   Pending Users — FINAL clean layout pass
+   Replaces all prior stacked patches. One section, single source of truth.
    =========================================================================== */
 
-/* 1. Force the Pending Users section to ignore parent max-width and use the
-   full available width of the Settings layout. */
-.settings-section:has(.pending-table-wrap),
-.settings-section:has(.pending-filter-row) {
-  max-width: none !important;
-  width: 100% !important;
+/* The Settings pane caps every tab at max-width:560px (good for cred forms,
+   too narrow for our 5-column table + Invite button). Opt only the Pending
+   Users tab out of the cap. `:has()` is supported in every modern Chromium
+   (Electron 117+, Edge, Chrome 105+) and Safari 15.4+. */
+.settings-pane-body:has(.pending-users-section) {
+  max-width: 720px;
 }
 
-/* 2. Drop fixed table-layout so columns auto-size to content. */
-.pending-table {
-  table-layout: auto !important;
-  width: 100% !important;
+/* Legend strip that explains the P / I / A chip letters. */
+.pending-filter-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0 0 0.55rem;
+  font-size: 0.78rem;
+  color: #6b7280;
+}
+.pending-filter-legend strong {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.15rem;
+  height: 1.15rem;
+  margin-right: 0.3rem;
+  border-radius: 4px;
+  background: rgba(0,0,0,0.06);
+  color: #1f2937;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+.pending-filter-legend .sep { opacity: 0.55; }
+[data-theme="dark"] .pending-filter-legend { color: #8e8e93; }
+[data-theme="dark"] .pending-filter-legend strong {
+  background: rgba(255,255,255,0.08);
+  color: #e5e7eb;
 }
 
-/* 3. EVERYTHING on one line — no wrapping anywhere in the row. */
-.pending-table th,
-.pending-table td {
-  white-space: nowrap !important;
-  overflow: visible !important;
-  text-overflow: clip !important;
+/* Compact letter-only filter chips. The base .pending-filter-chip rule is
+   reused for hover/active colors; this just tightens padding and bumps the
+   letter weight. */
+.pending-filter-chip-letter {
+  padding: 0.32rem 0.6rem;
+  min-width: 2.6rem;
+  justify-content: center;
+}
+.pending-filter-chip-letter strong {
+  font-size: 0.85rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
 }
 
-/* 4. Reset all the column widths I forced earlier — let the browser size them
-   based on content. */
-.pending-table th:nth-child(1), .pending-table td:nth-child(1),
-.pending-table th:nth-child(2), .pending-table td:nth-child(2),
-.pending-table th:nth-child(4), .pending-table td:nth-child(4),
-.pending-table th:nth-child(6), .pending-table td:nth-child(6),
+/* Letter-only status pill inside each row — same square-ish shape as the
+   legend swatch, color comes from the existing .pending-{status} rules. */
+.pending-status-pill-letter {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  padding: 0;
+  border-radius: 6px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+/* Accepted status — green-on-light pill colors. Reuse existing invited
+   palette as a base then tint slightly bluer to differentiate. */
+.pending-status-pill.pending-accepted { background: rgba(10,132,255,0.18); color: #0a5fc6; }
+[data-theme="dark"] .pending-status-pill.pending-accepted { background: rgba(10,132,255,0.22); color: #5eb0ff; }
+
+/* Column widths for the 5 VISIBLE columns at the new 720px max:
+   1: Name | 2: Email | 4: Pulse DID | 6: Status (letter) | 8: Actions
+   Pulse ext (3), Connection (5), Imported (7) stay display:none from the
+   base rule above (line 5366 ish).
+   Email is sized to fit firstname.lastname@aptask.com comfortably; the
+   excess gets pushed to the Actions column so the trash icon never clips. */
+.pending-table th:nth-child(1), .pending-table td:nth-child(1) {
+  width: 22%;
+}
+.pending-table th:nth-child(2), .pending-table td:nth-child(2) {
+  width: 28%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding-right: 0.4rem;
+}
+.pending-table th:nth-child(4), .pending-table td:nth-child(4) {
+  width: 18%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding-left: 0.4rem;
+}
+.pending-table th:nth-child(6), .pending-table td:nth-child(6) {
+  width: 60px;
+  text-align: center;
+}
 .pending-table th:last-child, .pending-table td:last-child {
-  width: auto !important;
-  min-width: 0 !important;
+  width: auto;
+  text-align: right;
+  white-space: nowrap;
+  padding-right: 0.85rem;
 }
 
-/* 5. Email column gets a tiny bit more breathing room so it doesn't crowd
-   the Pulse DID. */
-.pending-table td:nth-child(2) { padding-right: 1.5rem !important; }
-
-/* 6. Actions column: keep it right-aligned and snug to the right edge */
-.pending-table th:last-child, .pending-table td:last-child {
-  text-align: right !important;
-  padding-right: 0.85rem !important;
-}
-
-/* 7. If the table STILL exceeds available width (very narrow viewport), let
-   the wrap scroll horizontally instead of clipping the trash icon. */
-.pending-table-wrap {
-  overflow-x: auto !important;
-}
+/* Hard floor — if the table genuinely can't fit (very narrow window), let
+   the wrap scroll horizontally instead of clipping the Invite button. */
+.pending-table-wrap { overflow-x: auto; }
