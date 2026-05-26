@@ -43,6 +43,15 @@ export const config = {
     'https://ace-dialer-webhooks.onrender.com/webhooks/telnyx/calls',
   ),
 
+  // v0.9.7 — Template Credential Connection used to clone settings (outbound
+  // voice profile, channel limits, codecs, anchorsite, etc.) onto every NEW
+  // connection we create during the invite flow. The "currently-working" DID
+  // is +17322001305 (Abdulla's number); its credential connection has the
+  // proven-good config. Either set the DID and we look up its connection_id,
+  // or set TELNYX_TEMPLATE_CONNECTION_ID directly to skip the lookup.
+  telnyxTemplateConnectionDid: optional('TELNYX_TEMPLATE_CONNECTION_DID', '+17322001305'),
+  telnyxTemplateConnectionId: optional('TELNYX_TEMPLATE_CONNECTION_ID'),
+
   // Supabase Storage (for MMS uploads)
   supabaseUrl: optional('SUPABASE_URL'),
   supabaseServiceKey: optional('SUPABASE_SERVICE_ROLE_KEY'),

@@ -106,32 +106,51 @@ export interface WelcomeEmailInput {
  * model can't install software themselves — IT handles that. So the email
  * sets expectations and includes the bold "Pulse will be uninstalled" warning.
  */
+// v0.9.7 — release page hosts both the Windows .exe and the Mac .dmg
+// installers. Always points at "latest" so the link doesn't go stale.
+const DOWNLOAD_URL = 'https://github.com/abdaptask/acedialerv4/releases/latest';
+
 export function sendWelcomeEmail(input: WelcomeEmailInput): Promise<SendGridResult> {
   const firstName = (input.firstName?.trim() || '').split(/\s+/)[0] || 'there';
   const niceDid = formatDidForDisplay(input.didNumber);
-  const subject = `Welcome to ACE Dialer — sign-in instructions inside`;
+  const supportEmail = config.aceSupportEmail || 'it@aptask.com';
+  const subject = `Welcome to ACE Dialer — install + sign-in inside`;
 
   // Plaintext version (for clients that strip HTML, screen readers, spam scoring)
   const text = [
     `Hi ${firstName},`,
     ``,
-    `Your ACE Dialer account is ready. Our IT team will install the app on`,
-    `your computer shortly — you don't need to download or install anything`,
-    `yourself.`,
+    niceDid
+      ? `Your ACE Dialer account is ready. Your business phone number is ${niceDid}.`
+      : `Your ACE Dialer account is ready.`,
+    ``,
+    `HOW TO INSTALL:`,
+    ``,
+    `The fastest way: download + run the installer yourself (takes 2 minutes).`,
+    ``,
+    `  Windows:  ${DOWNLOAD_URL}`,
+    `  Mac:      ${DOWNLOAD_URL}`,
+    ``,
+    `On that page, click the .exe (Windows) or .dmg (Mac) file. Run it.`,
+    `You'll see "unidentified developer" — that's expected for now. On`,
+    `Windows click "More info" then "Run anyway"; on Mac right-click the`,
+    `.dmg and choose Open.`,
+    ``,
+    `If you'd rather wait for IT: they'll reach out within 1 business day`,
+    `to install it for you.`,
+    ``,
+    `ONCE INSTALLED:`,
+    ``,
+    `1. Open ACE Dialer from your desktop`,
+    `2. Click "Sign in with Microsoft"`,
+    `3. Sign in with your @aptask.com account (same as Outlook)`,
+    `4. Done — you can make and receive calls + texts`,
     ``,
     `*** IMPORTANT ***`,
-    `The old dialer will be uninstalled at the same time. ACE Dialer replaces it;`,
-    `running both at once causes duplicate ringing and dropped calls.`,
+    `If you're still on the old dialer (Pulse), UNINSTALL IT FIRST. Running`,
+    `both at once causes every incoming call to ring twice and possibly drop.`,
     ``,
-    `WHAT TO DO ONCE IT'S INSTALLED:`,
-    `  1. Look for the "ACE Dialer" icon on your desktop.`,
-    `  2. Open it. You'll see a "Sign in with Microsoft" button.`,
-    `  3. Sign in with your @aptask.com account (same as Outlook).`,
-    `  4. That's it — the dialer is ready to use.`,
-    ``,
-    niceDid ? `YOUR PHONE NUMBER: ${niceDid}` : `Your assigned phone number will appear in the app once you sign in.`,
-    ``,
-    `Need help? Reply to this email or contact ${config.aceSupportEmail ?? 'IT'}.`,
+    `Need help? Reply to this email or contact ${supportEmail}.`,
     ``,
     `— The ACE Dialer team`,
   ].join('\n');
@@ -149,59 +168,85 @@ export function sendWelcomeEmail(input: WelcomeEmailInput): Promise<SendGridResu
           <p style="margin:8px 0 0 0;font-size:14px;color:#64748b;">Hi ${escapeHtml(firstName)}, your account is ready.</p>
         </td></tr>
 
-        <!-- IT-install heads up -->
+        ${niceDid ? `<!-- Phone number (prominent box) -->
         <tr><td style="padding:24px 32px 8px 32px;">
-          <p style="margin:0;font-size:15px;color:#0f172a;">
-            Our IT team will install the ACE Dialer app on your computer shortly.
-            <strong>You don't need to download or install anything yourself.</strong>
+          <div style="background:#f0f9ff;border-left:4px solid #0284c7;border-radius:6px;padding:16px;">
+            <p style="margin:0 0 4px 0;font-size:12px;text-transform:uppercase;letter-spacing:0.05em;color:#075985;font-weight:600;">
+              Your business phone number
+            </p>
+            <p style="margin:0;font-size:22px;font-weight:700;color:#0c4a6e;font-variant-numeric:tabular-nums;">
+              ${escapeHtml(niceDid)}
+            </p>
+          </div>
+        </td></tr>` : ''}
+
+        <!-- How to install -->
+        <tr><td style="padding:24px 32px 8px 32px;">
+          <h2 style="margin:0 0 8px 0;font-size:18px;font-weight:600;color:#0f172a;">
+            How to install
+          </h2>
+          <p style="margin:0 0 16px 0;font-size:14px;color:#0f172a;">
+            Fastest way: download + run the installer yourself (takes about 2 minutes).
           </p>
+          <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 0 12px 0;">
+            <tr>
+              <td style="padding-right:10px;">
+                <a href="${escapeHtml(DOWNLOAD_URL)}"
+                   style="display:inline-block;background:#0a84ff;color:#ffffff;font-weight:600;font-size:14px;
+                          padding:10px 18px;border-radius:6px;text-decoration:none;">
+                  Download for Windows
+                </a>
+              </td>
+              <td>
+                <a href="${escapeHtml(DOWNLOAD_URL)}"
+                   style="display:inline-block;background:#0a84ff;color:#ffffff;font-weight:600;font-size:14px;
+                          padding:10px 18px;border-radius:6px;text-decoration:none;">
+                  Download for Mac
+                </a>
+              </td>
+            </tr>
+          </table>
+          <p style="margin:8px 0 0 0;font-size:13px;color:#475569;">
+            On that page, click the <strong>.exe</strong> (Windows) or <strong>.dmg</strong> (Mac) file.
+            You may see an "unidentified developer" warning — that's expected for now.
+            On Windows click <strong>More info → Run anyway</strong>; on Mac right-click the .dmg and choose <strong>Open</strong>.
+          </p>
+          <p style="margin:10px 0 0 0;font-size:13px;color:#64748b;">
+            Prefer to wait for IT? They'll reach out within 1 business day to install it for you.
+          </p>
+        </td></tr>
+
+        <!-- Once installed (numbered) -->
+        <tr><td style="padding:16px 32px 8px 32px;">
+          <h2 style="margin:0 0 12px 0;font-size:16px;font-weight:600;color:#0f172a;">
+            Once installed
+          </h2>
+          <ol style="margin:0;padding-left:20px;font-size:14px;color:#0f172a;">
+            <li style="margin-bottom:6px;">Open <strong>ACE Dialer</strong> from your desktop.</li>
+            <li style="margin-bottom:6px;">Click <strong>"Sign in with Microsoft"</strong>.</li>
+            <li style="margin-bottom:6px;">Sign in with your <strong>@aptask.com</strong> account (same one as Outlook).</li>
+            <li>Done — you can make and receive calls and texts.</li>
+          </ol>
         </td></tr>
 
         <!-- The bold warning -->
         <tr><td style="padding:16px 32px;">
           <div style="background:#fef2f2;border-left:4px solid #dc2626;border-radius:6px;padding:16px;">
             <p style="margin:0 0 6px 0;font-size:14px;font-weight:700;color:#991b1b;">
-              ⚠ Important: the old dialer will be uninstalled
+              Important: uninstall the old dialer first
             </p>
             <p style="margin:0;font-size:14px;color:#7f1d1d;">
-              ACE Dialer replaces it and uses the same phone credentials.
-              Running both at once causes <strong>duplicate ringing on every
-              incoming call</strong>. IT will remove the old dialer when they
-              install ACE.
+              If you're still on the old dialer (Pulse), <strong>uninstall it before signing in to ACE</strong>.
+              Running both at once causes every incoming call to <strong>ring twice and possibly drop</strong>.
             </p>
           </div>
         </td></tr>
-
-        <!-- What to do once installed -->
-        <tr><td style="padding:16px 32px 8px 32px;">
-          <h2 style="margin:0 0 12px 0;font-size:16px;font-weight:600;color:#0f172a;">
-            What to do once it's installed
-          </h2>
-          <ol style="margin:0;padding-left:20px;font-size:14px;color:#0f172a;">
-            <li style="margin-bottom:6px;">Look for the <strong>ACE Dialer</strong> icon on your desktop.</li>
-            <li style="margin-bottom:6px;">Open it. You'll see a <strong>"Sign in with Microsoft"</strong> button.</li>
-            <li style="margin-bottom:6px;">Sign in with your <strong>@aptask.com</strong> account — same one you use for Outlook.</li>
-            <li>That's it. The dialer is ready to make and receive calls.</li>
-          </ol>
-        </td></tr>
-
-        ${niceDid ? `<!-- Phone number -->
-        <tr><td style="padding:16px 32px;">
-          <div style="background:#f0f9ff;border-left:4px solid #0284c7;border-radius:6px;padding:16px;">
-            <p style="margin:0 0 4px 0;font-size:12px;text-transform:uppercase;letter-spacing:0.05em;color:#075985;font-weight:600;">
-              Your phone number
-            </p>
-            <p style="margin:0;font-size:18px;font-weight:600;color:#0c4a6e;font-variant-numeric:tabular-nums;">
-              ${escapeHtml(niceDid)}
-            </p>
-          </div>
-        </td></tr>` : ''}
 
         <!-- Support -->
         <tr><td style="padding:16px 32px 32px 32px;border-top:1px solid #e2e8f0;">
           <p style="margin:0;font-size:13px;color:#64748b;">
-            Need help or have questions? Reply to this email or contact
-            <a href="mailto:${escapeHtml(config.aceSupportEmail ?? '')}" style="color:#0284c7;text-decoration:none;">${escapeHtml(config.aceSupportEmail ?? 'IT')}</a>.
+            Need help? Reply to this email or contact
+            <a href="mailto:${escapeHtml(supportEmail)}" style="color:#0284c7;text-decoration:none;">${escapeHtml(supportEmail)}</a>.
           </p>
           <p style="margin:12px 0 0 0;font-size:12px;color:#94a3b8;">
             — The ACE Dialer team

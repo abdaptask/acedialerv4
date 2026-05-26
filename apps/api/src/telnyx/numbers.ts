@@ -208,6 +208,91 @@ export function assignNumberMessagingProfile(
   });
 }
 
+/**
+ * v0.9.7 — Un-assign a DID (clears connection_id, returns it to the
+ * unassigned pool). Also clears messaging_profile_id via the /messaging
+ * sub-endpoint. Idempotent. Used by the delete-invited-user cleanup flow.
+ */
+export async function unassignNumber(numberId: string): Promise<TelnyxResult<unknown>> {
+  // Clear voice connection
+  const voice = await call(`/phone_numbers/${numberId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ connection_id: null }),
+  });
+  if (!voice.ok) return voice;
+  // Clear messaging profile (separate sub-resource)
+  return call(`/phone_numbers/${numberId}/messaging`, {
+    method: 'PATCH',
+    body: JSON.stringify({ messaging_profile_id: null }),
+  });
+}
+
+/**
+ * v0.9.7 — Delete a Telnyx Credential Connection. Used by the delete-
+ * invited-user cleanup flow. The DID assigned to it MUST be unassigned
+ * first or Telnyx refuses (orphan DIDs).
+ */
+export function deleteCredentialConnection(
+  connectionId: string,
+): Promise<TelnyxResult<unknown>> {
+  return call(`/credential_connections/${connectionId}`, { method: 'DELETE' });
+}
+
+/**
+ * v0.9.7 — Fetch the FULL config of a single Credential Connection by id.
+ * Used as the "template" probe: at invite time we read the working
+ * `ace-dialer` connection (the one Abdulla uses today) and mirror its
+ * settings on every new connection — so new users get a fully-configured
+ * SIP endpoint without any admin guesswork.
+ *
+ * Fields that matter (and that we propagate to new connections):
+ *   - inbound: codecs, channel_limit, sip_subdomain, sip_subdomain_receive_settings
+ *   - outbound: outbound_voice_profile_id (CRITICAL — required to PLACE calls),
+ *               channel_limit, ani_override, ani_override_type
+ *   - rtcp_settings, anchorsite_override, encrypted_media, webhook_event_url
+ *   - active, send_invite_to_url, dtmf_type
+ */
+export interface FullCredentialConnection {
+  id: string;
+  connection_name: string;
+  user_name: string;
+  password?: string;
+  active?: boolean;
+  anchorsite_override?: string;
+  encrypted_media?: string | null;
+  webhook_event_url?: string;
+  webhook_api_version?: string;
+  inbound?: {
+    codecs?: string[];
+    channel_limit?: number;
+    sip_subdomain?: string | null;
+    sip_subdomain_receive_settings?: string;
+    sip_region?: string;
+    dnis_number_format?: string;
+    isup_headers_enabled?: boolean;
+  };
+  outbound?: {
+    outbound_voice_profile_id?: string;
+    channel_limit?: number;
+    ani_override?: string | null;
+    ani_override_type?: string;
+    localization?: string;
+  };
+  rtcp_settings?: {
+    port?: string;
+    capture_enabled?: boolean;
+    report_frequency_secs?: number;
+  };
+  send_invite_to_url?: boolean;
+  dtmf_type?: string;
+}
+
+export function fetchCredentialConnection(
+  connectionId: string,
+): Promise<TelnyxResult<SingleResponse<FullCredentialConnection>>> {
+  return call(`/credential_connections/${connectionId}`, { method: 'GET' });
+}
+
 // ───────────────────── 5. Look up a Credential Connection ───────────────────
 
 /**
@@ -232,6 +317,26 @@ export async function findConnectionByName(
   // Telnyx filter is a prefix/contains match — be strict about exact name.
   const exact = (res.data?.data ?? []).find((c) => c.connection_name === connectionName) ?? null;
   return { ok: true, status: res.status, data: exact };
+}
+
+/**
+ * v0.9.7 — Resolve the template connection id from config. Prefers a
+ * directly-configured TELNYX_TEMPLATE_CONNECTION_ID; otherwise looks up
+ * TELNYX_TEMPLATE_CONNECTION_DID via findNumberByE164 → number.connection_id.
+ * Returns null if neither is configured / the DID isn't routed to a
+ * connection. Used by the invite + verify endpoints.
+ */
+export async function resolveTemplateConnectionId(): Promise<TelnyxResult<string | null>> {
+  if (config.telnyxTemplateConnectionId) {
+    return { ok: true, status: 200, data: config.telnyxTemplateConnectionId };
+  }
+  if (!config.telnyxTemplateConnectionDid) {
+    return { ok: true, status: 200, data: null };
+  }
+  const lookup = await findNumberByE164(config.telnyxTemplateConnectionDid);
+  if (!lookup.ok) return { ok: false, status: lookup.status, error: lookup.error };
+  const connId = lookup.data?.connection_id ?? null;
+  return { ok: true, status: 200, data: connId };
 }
 
 // ───────────────────── 6. Create a Credential Connection ────────────────────
@@ -267,6 +372,15 @@ export interface CreateCredentialConnectionInput {
   userName: string;
   password?: string;             // optional — auto-generated if missing
   webhookEventUrl?: string;      // optional — defaults to config.telnyxWebhookUrl
+  // v0.9.7 — Optional template-derived overrides. When createConnectionFromTemplate
+  // calls into here, it passes the working connection's outbound voice profile id
+  // (CRITICAL — without it the user can't place calls) plus the anchorsite/
+  // encrypted_media values it observed on the template. Telnyx accepts these in
+  // the POST body; sub-object fields (inbound.codecs etc.) must be set via a
+  // follow-up PATCH (see patchCredentialConnection).
+  outboundVoiceProfileId?: string;
+  anchorsiteOverride?: string;
+  encryptedMedia?: string | null;
 }
 export function createCredentialConnection(
   input: CreateCredentialConnectionInput,
@@ -279,16 +393,150 @@ export function createCredentialConnection(
     // Sensible ACE defaults so new connections behave like the existing
     // `ace-dialer` connection: latency-optimized routing, Krisp noise
     // suppression, encrypted media. Mirrors what we observed in the
-    // Telnyx probe of the existing ACE connection.
-    anchorsite_override: 'Latency',
-    encrypted_media: 'SRTP',
+    // Telnyx probe of the existing ACE connection. Template overrides
+    // (when provided by createConnectionFromTemplate) win.
+    anchorsite_override: input.anchorsiteOverride ?? 'Latency',
+    encrypted_media: input.encryptedMedia === null ? null : (input.encryptedMedia ?? 'SRTP'),
     webhook_api_version: '2',
     webhook_event_url: input.webhookEventUrl ?? config.telnyxWebhookUrl ?? '',
   };
+  // outbound is a sub-object in the POST body; Telnyx accepts
+  // outbound.outbound_voice_profile_id at create time.
+  if (input.outboundVoiceProfileId) {
+    body.outbound = { outbound_voice_profile_id: input.outboundVoiceProfileId };
+  }
   return call('/credential_connections', {
     method: 'POST',
     body: JSON.stringify(body),
   });
+}
+
+/**
+ * v0.9.7 — Generic PATCH on a Credential Connection. Used after create to
+ * apply sub-object settings (inbound.codecs, inbound.channel_limit,
+ * outbound.channel_limit, etc.) that Telnyx rejects in the POST body but
+ * accepts in a follow-up PATCH on /credential_connections/:id.
+ *
+ * Telnyx docs:
+ *   https://developers.telnyx.com/api/connections/update-credential-connection
+ */
+export function patchCredentialConnection(
+  connectionId: string,
+  patch: Record<string, unknown>,
+): Promise<TelnyxResult<SingleResponse<FullCredentialConnection>>> {
+  return call(`/credential_connections/${connectionId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(patch),
+  });
+}
+
+/**
+ * v0.9.7 — Build a "clone of the proven-working connection" for a NEW user.
+ *
+ * Pipeline:
+ *   1. Fetch the template connection's full config (the +17322001305 / Abdulla
+ *      connection has the right outbound voice profile, anchorsite, codecs,
+ *      channel limits — all the bits a new user needs to actually PLACE calls).
+ *   2. POST a new connection with the template's outbound_voice_profile_id +
+ *      anchorsite + encrypted_media (POST-acceptable fields).
+ *   3. PATCH the new connection to apply inbound.codecs, inbound.channel_limit,
+ *      and outbound.channel_limit (POST-rejected fields).
+ *
+ * If the template fetch fails, the caller should fall back to a plain
+ * createCredentialConnection() and log a warning — never block the invite.
+ */
+export interface CreateConnectionFromTemplateInput {
+  connectionName: string;
+  userName: string;
+  password?: string;
+  templateConnectionId: string;
+}
+export interface CreateConnectionFromTemplateResult {
+  ok: boolean;
+  connection?: CredentialConnection;
+  templateApplied: boolean;          // true when the PATCH step succeeded
+  warnings: string[];
+  error?: unknown;
+}
+export async function createConnectionFromTemplate(
+  input: CreateConnectionFromTemplateInput,
+): Promise<CreateConnectionFromTemplateResult> {
+  const warnings: string[] = [];
+
+  // Step 1 — fetch template
+  const tplRes = await fetchCredentialConnection(input.templateConnectionId);
+  if (!tplRes.ok || !tplRes.data) {
+    return {
+      ok: false,
+      templateApplied: false,
+      warnings: [`fetchCredentialConnection failed: ${JSON.stringify(tplRes.error)}`],
+      error: tplRes.error,
+    };
+  }
+  const tpl = tplRes.data.data;
+
+  // Step 2 — POST new connection with the bits Telnyx accepts at create time.
+  const createRes = await createCredentialConnection({
+    connectionName: input.connectionName,
+    userName: input.userName,
+    password: input.password,
+    outboundVoiceProfileId: tpl.outbound?.outbound_voice_profile_id,
+    anchorsiteOverride: tpl.anchorsite_override,
+    encryptedMedia: tpl.encrypted_media,
+    webhookEventUrl: tpl.webhook_event_url,
+  });
+  if (!createRes.ok || !createRes.data) {
+    return {
+      ok: false,
+      templateApplied: false,
+      warnings,
+      error: createRes.error,
+    };
+  }
+  const newConn = createRes.data.data;
+
+  // Step 3 — PATCH to mirror the inbound/outbound sub-object settings
+  // Telnyx wouldn't accept in the POST body.
+  const patchBody: Record<string, unknown> = {};
+  const inboundPatch: Record<string, unknown> = {};
+  if (tpl.inbound?.codecs && tpl.inbound.codecs.length > 0) {
+    inboundPatch.codecs = tpl.inbound.codecs;
+  }
+  if (typeof tpl.inbound?.channel_limit === 'number') {
+    inboundPatch.channel_limit = tpl.inbound.channel_limit;
+  }
+  if (typeof tpl.inbound?.sip_subdomain === 'string') {
+    inboundPatch.sip_subdomain = tpl.inbound.sip_subdomain;
+  }
+  if (tpl.inbound?.sip_subdomain_receive_settings) {
+    inboundPatch.sip_subdomain_receive_settings = tpl.inbound.sip_subdomain_receive_settings;
+  }
+  if (Object.keys(inboundPatch).length > 0) patchBody.inbound = inboundPatch;
+
+  const outboundPatch: Record<string, unknown> = {};
+  if (typeof tpl.outbound?.channel_limit === 'number') {
+    outboundPatch.channel_limit = tpl.outbound.channel_limit;
+  }
+  if (tpl.outbound?.outbound_voice_profile_id) {
+    // re-stamp in case POST silently dropped it
+    outboundPatch.outbound_voice_profile_id = tpl.outbound.outbound_voice_profile_id;
+  }
+  if (Object.keys(outboundPatch).length > 0) patchBody.outbound = outboundPatch;
+
+  let templateApplied = false;
+  if (Object.keys(patchBody).length > 0) {
+    const patchRes = await patchCredentialConnection(newConn.id, patchBody);
+    if (patchRes.ok) {
+      templateApplied = true;
+    } else {
+      warnings.push(`PATCH template settings failed: ${JSON.stringify(patchRes.error)}`);
+    }
+  } else {
+    // Nothing to patch — POST already covered everything.
+    templateApplied = true;
+  }
+
+  return { ok: true, connection: newConn, templateApplied, warnings };
 }
 
 // ─────────────────── 7. Repoint a connection's webhook URL ──────────────────

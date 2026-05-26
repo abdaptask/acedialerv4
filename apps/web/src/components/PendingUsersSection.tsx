@@ -27,12 +27,16 @@ import {
   X,
   Eye,
   EyeOff,
+  Pencil,
+  RotateCw,
 } from 'lucide-react';
 import {
   listPendingUsers,
   importPendingUsers,
   invitePendingUser,
   deletePendingUser,
+  verifyPendingUser,
+  editPendingUser,
   getPendingUserCredentials,
   listUnassignedTelnyxNumbers,
   type PendingUser,
@@ -41,6 +45,7 @@ import {
   type InvitePendingResult,
   type PendingUserCredentials,
   type UnassignedTelnyxNumber,
+  type DeletePendingUserResult,
 } from '../api';
 
 type StatusFilter = 'pending' | 'invited' | 'accepted';
@@ -74,6 +79,10 @@ export default function PendingUsersSection() {
   const [uploadOpen, setUploadOpen] = useState(false);
   const [inviteTarget, setInviteTarget] = useState<PendingUser | null>(null);
   const [resultOf, setResultOf] = useState<InvitePendingResult | null>(null);
+  // v0.9.7 — new modal state
+  const [editTarget, setEditTarget] = useState<PendingUser | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<PendingUser | null>(null);
+  const [verifying, setVerifying] = useState<number | null>(null);
 
   const refresh = useCallback(async () => {
     if (!token) return;
@@ -214,15 +223,24 @@ export default function PendingUsersSection() {
                   key={u.id}
                   row={u}
                   onInvite={() => setInviteTarget(u)}
-                  onDelete={async () => {
-                    if (!confirm(`Delete ${u.email} from staging? (does NOT touch any User row)`)) return;
+                  onEdit={() => setEditTarget(u)}
+                  verifying={verifying === u.id}
+                  onVerify={async () => {
+                    setVerifying(u.id);
                     try {
-                      await deletePendingUser(token, u.id);
+                      const r = await verifyPendingUser(token, u.id);
+                      setResultOf(r);
                       await refresh();
                     } catch (e) {
-                      alert(e instanceof Error ? e.message : 'Delete failed');
+                      setResultOf({
+                        ok: false,
+                        error: e instanceof Error ? e.message : 'Verify failed',
+                      });
+                    } finally {
+                      setVerifying(null);
                     }
                   }}
+                  onDelete={() => setDeleteTarget(u)}
                 />
               ))}
             </tbody>
@@ -255,6 +273,36 @@ export default function PendingUsersSection() {
       {resultOf && (
         <ResultModal result={resultOf} onClose={() => setResultOf(null)} />
       )}
+
+      {editTarget && (
+        <EditPendingUserModal
+          target={editTarget}
+          onClose={() => setEditTarget(null)}
+          onSaved={async () => {
+            setEditTarget(null);
+            await refresh();
+          }}
+        />
+      )}
+
+      {deleteTarget && (
+        <DeletePendingUserModal
+          target={deleteTarget}
+          onClose={() => setDeleteTarget(null)}
+          onDeleted={async (result) => {
+            setDeleteTarget(null);
+            await refresh();
+            // For invited deletes, show the step log via the existing
+            // ResultModal so admin sees exactly what was cleaned up.
+            if (deleteTarget && deriveStatus(deleteTarget) !== 'pending' && result.steps?.length) {
+              setResultOf({
+                ok: result.ok,
+                steps: result.steps,
+              });
+            }
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -264,11 +312,17 @@ export default function PendingUsersSection() {
 function PendingRow({
   row,
   onInvite,
+  onEdit,
+  onVerify,
   onDelete,
+  verifying,
 }: {
   row: PendingUser;
   onInvite: () => void;
+  onEdit: () => void;
+  onVerify: () => void;
   onDelete: () => void;
+  verifying: boolean;
 }) {
   const name = [row.firstName, row.lastName].filter(Boolean).join(' ') || '—';
   const formattedDid = formatPhone(row.pulseVoipNumber);
@@ -282,6 +336,8 @@ function PendingRow({
         : d === 'accepted'
           ? 'Accepted (signed in)'
           : 'Skipped';
+  // Verify button shown for INVITED or ACCEPTED — both have a linked User.
+  const showVerify = d === 'invited' || d === 'accepted';
   return (
     <tr className={`pending-row pending-${d}`}>
       <td className="pending-name">{name}</td>
@@ -299,8 +355,8 @@ function PendingRow({
       </td>
       <td className="pending-imported">{formattedImported}</td>
       <td className="ta-right">
-        {d === 'pending' ? (
-          <>
+        <div className="pending-actions-cell">
+          {d === 'pending' && (
             <button
               type="button"
               className="pending-action-primary"
@@ -309,27 +365,57 @@ function PendingRow({
             >
               Invite
             </button>
+          )}
+          {d === 'invited' && (
+            <span className="pending-invited-note">
+              User #{row.invitedUserId ?? '?'} ·{' '}
+              {row.invitedAt ? new Date(row.invitedAt).toLocaleDateString() : ''}
+            </span>
+          )}
+          {d === 'accepted' && (
+            <span className="pending-invited-note">
+              Signed in · User #{row.invitedUserId ?? '?'}
+            </span>
+          )}
+          <button
+            type="button"
+            className="pending-action-icon"
+            onClick={onEdit}
+            title="Edit name/email/Pulse fields"
+            aria-label="Edit"
+          >
+            <Pencil size={14} />
+          </button>
+          {showVerify && (
             <button
               type="button"
-              className="pending-action-icon"
-              onClick={onDelete}
-              title="Remove from staging (does not touch User row)"
+              className="pending-action-icon pending-action-icon-verify"
+              onClick={onVerify}
+              disabled={verifying}
+              title="Re-run Telnyx config for this user (fixes broken voice/SMS setup)"
+              aria-label="Verify"
             >
-              <Trash2 size={14} />
+              {verifying ? (
+                <Loader2 size={14} className="spin" />
+              ) : (
+                <RotateCw size={14} />
+              )}
             </button>
-          </>
-        ) : d === 'invited' ? (
-          <span className="pending-invited-note">
-            User #{row.invitedUserId ?? '?'} ·{' '}
-            {row.invitedAt ? new Date(row.invitedAt).toLocaleDateString() : ''}
-          </span>
-        ) : d === 'accepted' ? (
-          <span className="pending-invited-note">
-            Signed in · User #{row.invitedUserId ?? '?'}
-          </span>
-        ) : (
-          <span className="pending-invited-note">{d}</span>
-        )}
+          )}
+          <button
+            type="button"
+            className="pending-action-icon"
+            onClick={onDelete}
+            title={
+              d === 'pending'
+                ? 'Remove from staging (does not touch any User row)'
+                : 'Delete user + clean up Telnyx (un-assigns DID, deletes connection, deletes User)'
+            }
+            aria-label="Delete"
+          >
+            <Trash2 size={14} />
+          </button>
+        </div>
       </td>
     </tr>
   );
@@ -961,6 +1047,301 @@ function ResultModal({ result, onClose }: { result: InvitePendingResult; onClose
         <footer className="modal-footer">
           <button type="button" className="settings-btn" onClick={onClose}>
             Close
+          </button>
+        </footer>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────── Edit Pending User Modal (v0.9.7) ───────────────────────
+//
+// Lets the admin fix typos on any staged or invited row. For invited rows,
+// name/email mirror onto the linked User row server-side; Pulse credential
+// fields are disabled with a tooltip ("delete + re-invite to change them").
+
+function EditPendingUserModal({
+  target,
+  onClose,
+  onSaved,
+}: {
+  target: PendingUser;
+  onClose: () => void;
+  onSaved: () => Promise<void>;
+}) {
+  const token = sessionStorage.getItem('ace_token')!;
+  const d = deriveStatus(target);
+  const isInvited = d === 'invited' || d === 'accepted';
+
+  const [firstName, setFirstName] = useState(target.firstName ?? '');
+  const [lastName, setLastName] = useState(target.lastName ?? '');
+  const [email, setEmail] = useState(target.email);
+  const [pulseVoipExt, setPulseVoipExt] = useState(target.pulseVoipExt);
+  const [pulseVoipNumber, setPulseVoipNumber] = useState(target.pulseVoipNumber);
+  const [pulseExtPassword, setPulseExtPassword] = useState('');
+  const [pulseConnectionName, setPulseConnectionName] = useState(target.pulseConnectionName ?? '');
+  const [pulseUserStatus, setPulseUserStatus] = useState(target.pulseUserStatus ?? '');
+  const [showPassword, setShowPassword] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const credsTooltip = "Can't change after invite — delete + re-invite if needed";
+
+  async function save() {
+    setSaving(true);
+    setErr(null);
+    try {
+      const patch: Parameters<typeof editPendingUser>[2] = {};
+      if (firstName !== (target.firstName ?? '')) patch.firstName = firstName || null;
+      if (lastName !== (target.lastName ?? '')) patch.lastName = lastName || null;
+      if (email.toLowerCase() !== target.email.toLowerCase()) patch.email = email;
+      // Pulse fields only sent when not invited.
+      if (!isInvited) {
+        if (pulseVoipExt !== target.pulseVoipExt) patch.pulseVoipExt = pulseVoipExt;
+        if (pulseVoipNumber !== target.pulseVoipNumber) patch.pulseVoipNumber = pulseVoipNumber;
+        if (pulseExtPassword) patch.pulseExtPassword = pulseExtPassword;
+      }
+      if ((pulseConnectionName || null) !== (target.pulseConnectionName ?? null)) {
+        patch.pulseConnectionName = pulseConnectionName || null;
+      }
+      if ((pulseUserStatus || null) !== (target.pulseUserStatus ?? null)) {
+        patch.pulseUserStatus = pulseUserStatus || null;
+      }
+      await editPendingUser(token, target.id, patch);
+      await onSaved();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Save failed');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" onClick={saving ? undefined : onClose}>
+      <div className="modal pending-edit-modal" onClick={(e) => e.stopPropagation()}>
+        <header className="modal-header">
+          <h3>Edit {target.email}</h3>
+          <button type="button" className="modal-close" onClick={onClose} disabled={saving} aria-label="Close">
+            <X size={18} />
+          </button>
+        </header>
+        <div className="modal-body">
+          {isInvited && (
+            <p className="pending-edit-blurb">
+              This user has already been invited. Name and email changes mirror onto the
+              linked User row; Pulse ext / DID / password are frozen (delete + re-invite to change them).
+            </p>
+          )}
+
+          <div className="pending-edit-grid">
+            <label>
+              <span>First name</span>
+              <input type="text" value={firstName} onChange={(e) => setFirstName(e.target.value)} />
+            </label>
+            <label>
+              <span>Last name</span>
+              <input type="text" value={lastName} onChange={(e) => setLastName(e.target.value)} />
+            </label>
+            <label className="pending-edit-span2">
+              <span>Email</span>
+              <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+            </label>
+            <label>
+              <span>Pulse ext</span>
+              <input
+                type="text"
+                className="pending-mono"
+                value={pulseVoipExt}
+                onChange={(e) => setPulseVoipExt(e.target.value)}
+                disabled={isInvited}
+                title={isInvited ? credsTooltip : undefined}
+              />
+            </label>
+            <label>
+              <span>Pulse DID</span>
+              <input
+                type="text"
+                className="pending-mono"
+                value={pulseVoipNumber}
+                onChange={(e) => setPulseVoipNumber(e.target.value)}
+                disabled={isInvited}
+                title={isInvited ? credsTooltip : undefined}
+              />
+            </label>
+            <label className="pending-edit-span2">
+              <span>Pulse password {isInvited ? '(disabled)' : '(leave blank to keep current)'}</span>
+              <div className="pending-edit-password-row">
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  className="pending-mono"
+                  value={pulseExtPassword}
+                  onChange={(e) => setPulseExtPassword(e.target.value)}
+                  placeholder={isInvited ? '' : '••••••••'}
+                  disabled={isInvited}
+                  title={isInvited ? credsTooltip : undefined}
+                />
+                <button
+                  type="button"
+                  className="pending-reveal-btn"
+                  onClick={() => setShowPassword((s) => !s)}
+                  disabled={isInvited}
+                >
+                  {showPassword ? <EyeOff size={14} /> : <Eye size={14} />}
+                </button>
+              </div>
+            </label>
+            <label>
+              <span>Pulse connection name</span>
+              <input
+                type="text"
+                className="pending-mono"
+                value={pulseConnectionName}
+                onChange={(e) => setPulseConnectionName(e.target.value)}
+              />
+            </label>
+            <label>
+              <span>Pulse user status</span>
+              <input
+                type="text"
+                value={pulseUserStatus}
+                onChange={(e) => setPulseUserStatus(e.target.value)}
+              />
+            </label>
+          </div>
+
+          {err && (
+            <div className="pending-error" style={{ marginTop: '0.75rem' }}>
+              <AlertCircle size={14} /> {err}
+            </div>
+          )}
+        </div>
+        <footer className="modal-footer">
+          <button type="button" className="settings-btn-secondary" onClick={onClose} disabled={saving}>
+            Cancel
+          </button>
+          <button
+            type="button"
+            className="settings-btn"
+            onClick={() => void save()}
+            disabled={saving}
+          >
+            {saving ? (
+              <><Loader2 size={14} className="spin" /> Saving…</>
+            ) : (
+              <>Save changes</>
+            )}
+          </button>
+        </footer>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────── Delete Pending User Modal (v0.9.7) ───────────────────
+//
+// For PENDING: simple confirm.
+// For INVITED/ACCEPTED: two-step confirmation — admin must type DELETE to
+// arm the button. Shows what will be cleaned up (DID released, connection
+// deleted, User row deleted).
+
+function DeletePendingUserModal({
+  target,
+  onClose,
+  onDeleted,
+}: {
+  target: PendingUser;
+  onClose: () => void;
+  onDeleted: (result: DeletePendingUserResult) => Promise<void>;
+}) {
+  const token = sessionStorage.getItem('ace_token')!;
+  const d = deriveStatus(target);
+  const isInvited = d === 'invited' || d === 'accepted';
+  const [confirmText, setConfirmText] = useState('');
+  const [deleting, setDeleting] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const canDelete = !isInvited || confirmText === 'DELETE';
+  const niceDid = formatPhone(target.pulseVoipNumber);
+
+  async function doDelete() {
+    setDeleting(true);
+    setErr(null);
+    try {
+      const r = await deletePendingUser(token, target.id);
+      await onDeleted(r);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Delete failed');
+    } finally {
+      setDeleting(false);
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" onClick={deleting ? undefined : onClose}>
+      <div className="modal pending-delete-modal" onClick={(e) => e.stopPropagation()}>
+        <header className="modal-header">
+          <h3>Delete {target.email}</h3>
+          <button type="button" className="modal-close" onClick={onClose} disabled={deleting} aria-label="Close">
+            <X size={18} />
+          </button>
+        </header>
+        <div className="modal-body">
+          {!isInvited ? (
+            <p>
+              Remove <strong>{target.email}</strong> from the staging table.
+              This does <strong>not</strong> touch any User row.
+            </p>
+          ) : (
+            <>
+              <p>
+                This will permanently clean up <strong>{target.email}</strong> from ACE and Telnyx:
+              </p>
+              <ul className="pending-delete-bullets">
+                <li>Un-assign DID <strong>{niceDid}</strong> back to inventory</li>
+                <li>Delete the SIP credential connection (Telnyx)</li>
+                <li>Delete the User account <strong>#{target.invitedUserId ?? '?'}</strong></li>
+                <li>Delete this row from staging</li>
+              </ul>
+              <p className="pending-delete-warn">
+                Call history and SMS records may be retained by Postgres FK constraints
+                — in that case the User row is left in place and you'll need to deactivate
+                via Admin → Users instead.
+              </p>
+              <p style={{ marginTop: '0.75rem', fontSize: '0.88rem' }}>
+                Type <code>DELETE</code> to confirm:
+              </p>
+              <input
+                type="text"
+                value={confirmText}
+                onChange={(e) => setConfirmText(e.target.value)}
+                className="pending-delete-confirm-input"
+                placeholder="DELETE"
+                autoFocus
+              />
+            </>
+          )}
+
+          {err && (
+            <div className="pending-error" style={{ marginTop: '0.75rem' }}>
+              <AlertCircle size={14} /> {err}
+            </div>
+          )}
+        </div>
+        <footer className="modal-footer">
+          <button type="button" className="settings-btn-secondary" onClick={onClose} disabled={deleting}>
+            Cancel
+          </button>
+          <button
+            type="button"
+            className="settings-btn pending-delete-confirm-btn"
+            onClick={() => void doDelete()}
+            disabled={!canDelete || deleting}
+          >
+            {deleting ? (
+              <><Loader2 size={14} className="spin" /> Deleting…</>
+            ) : (
+              <><Trash2 size={14} /> {isInvited ? 'Delete & clean up' : 'Delete'}</>
+            )}
           </button>
         </footer>
       </div>

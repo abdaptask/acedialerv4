@@ -150,6 +150,22 @@ const PendingUserImportSchema = z.object({
   rows: z.array(PendingUserRowSchema).min(1).max(500),
 });
 
+// v0.9.7 — PATCH /admin/pending-users/:id schema. All fields optional so the
+// admin can edit one column at a time. Server-side restrictions block edits
+// to Pulse credentials on already-invited rows (those values were already
+// pushed to Telnyx; changing them in PendingUser would silently drift from
+// reality, so we force a delete + re-invite for those changes instead).
+const PendingUserPatchSchema = z.object({
+  firstName: z.string().max(80).nullable().optional(),
+  lastName: z.string().max(80).nullable().optional(),
+  email: z.string().email().optional(),
+  pulseVoipExt: z.string().min(1).max(120).optional(),
+  pulseVoipNumber: z.string().min(1).max(20).optional(),
+  pulseExtPassword: z.string().min(1).max(200).optional(),
+  pulseConnectionName: z.string().max(120).nullable().optional(),
+  pulseUserStatus: z.string().max(20).nullable().optional(),
+});
+
 const InviteFromPendingSchema = z.object({
   // 'existing'   = keep the user's current Pulse DID
   // 'new'        = purchase a fresh local US DID from Telnyx
@@ -310,15 +326,54 @@ export async function adminRoutes(app: FastifyInstance) {
       // Telnyx user_name: letters + digits only — no underscores, hyphens,
       // or spaces (see Telnyx error code 10015).
       const userName = `ace${slug.replace(/[^a-z0-9]/gi, '').slice(0, 20)}${Date.now().toString(36).slice(-6)}`;
-      const conn = await telnyx.createCredentialConnection({ connectionName, userName });
-      if (!conn.ok || !conn.data) {
-        step('create Telnyx Credential Connection', false, JSON.stringify(conn.error));
-        return reply.code(502).send({ error: 'createCredentialConnection failed', steps });
+
+      // v0.9.7 — template-clone path. If the template DID/ID resolves, clone
+      // its outbound voice profile + channel limits + codecs onto the new
+      // connection so the user can actually PLACE calls from minute one.
+      // Fall back to plain create if anything goes wrong.
+      let sipUsername: string;
+      let sipPassword: string;
+      let connectionId: string;
+      const tplIdRes = await telnyx.resolveTemplateConnectionId();
+      const tplId = tplIdRes.ok ? tplIdRes.data : null;
+      let usedTemplate = false;
+      if (tplId) {
+        const cloneRes = await telnyx.createConnectionFromTemplate({
+          connectionName,
+          userName,
+          templateConnectionId: tplId,
+        });
+        if (cloneRes.ok && cloneRes.connection) {
+          sipUsername = cloneRes.connection.user_name;
+          sipPassword = cloneRes.connection.password ?? '';
+          connectionId = cloneRes.connection.id;
+          usedTemplate = true;
+          if (cloneRes.templateApplied) {
+            step('clone Telnyx connection from template (outbound voice profile + limits)', true);
+          } else {
+            step('clone Telnyx connection from template — created but PATCH partial', true);
+            for (const w of cloneRes.warnings) step(`template warning: ${w}`, false);
+          }
+        } else {
+          step('clone Telnyx connection from template', false, JSON.stringify(cloneRes.error ?? cloneRes.warnings));
+        }
+      } else if (!tplIdRes.ok) {
+        step('resolve template connection id', false, JSON.stringify(tplIdRes.error));
+      } else {
+        step('resolve template connection id', false, 'No TELNYX_TEMPLATE_CONNECTION_ID/DID configured');
       }
-      const sipUsername = conn.data.data.user_name;
-      const sipPassword = conn.data.data.password ?? '';
-      const connectionId = conn.data.data.id;
-      step('create Telnyx Credential Connection', true);
+
+      if (!usedTemplate) {
+        const conn = await telnyx.createCredentialConnection({ connectionName, userName });
+        if (!conn.ok || !conn.data) {
+          step('create Telnyx Credential Connection (fallback)', false, JSON.stringify(conn.error));
+          return reply.code(502).send({ error: 'createCredentialConnection failed', steps });
+        }
+        sipUsername = conn.data.data.user_name;
+        sipPassword = conn.data.data.password ?? '';
+        connectionId = conn.data.data.id;
+        step('create Telnyx Credential Connection (fallback — no template)', true);
+      }
 
       // 2 + 3) Get a DID and route it to the new connection. Two paths:
       //   - 'unassigned': look up an already-owned DID, assign it (no purchase)
@@ -1880,19 +1935,57 @@ export async function adminRoutes(app: FastifyInstance) {
         // or spaces (see Telnyx error code 10015).
         const userName =
           `ace${pending.pulseVoipExt.replace(/[^a-z0-9]/gi, '').toLowerCase().slice(0, 20)}${Date.now().toString(36).slice(-6)}`;
-        const res = await telnyx.createCredentialConnection({ connectionName, userName });
-        if (!res.ok || !res.data) {
-          step('create new Telnyx Credential Connection', false, JSON.stringify(res.error));
-          return reply.code(502).send({
-            error: 'Telnyx createCredentialConnection failed',
-            steps,
+
+        // v0.9.7 — Try template-clone first so the new connection inherits the
+        // proven-working outbound voice profile + channel limits + codecs from
+        // the +17322001305 connection. If we can't resolve the template or the
+        // clone fails, fall back to a plain create — NEVER block the invite.
+        const tplIdRes = await telnyx.resolveTemplateConnectionId();
+        const tplId = tplIdRes.ok ? tplIdRes.data : null;
+        let usedTemplate = false;
+        if (tplId) {
+          const cloneRes = await telnyx.createConnectionFromTemplate({
+            connectionName,
+            userName,
+            templateConnectionId: tplId,
           });
+          if (cloneRes.ok && cloneRes.connection) {
+            sipUsername = cloneRes.connection.user_name;
+            sipPassword = cloneRes.connection.password ?? '';
+            newConnectionId = cloneRes.connection.id;
+            credsCreated = true;
+            usedTemplate = true;
+            if (cloneRes.templateApplied) {
+              step('clone Telnyx connection from template (outbound voice profile + limits)', true);
+            } else {
+              step('clone Telnyx connection from template — created but PATCH partial', true);
+              for (const w of cloneRes.warnings) step(`template warning: ${w}`, false);
+            }
+          } else {
+            step('clone Telnyx connection from template', false, JSON.stringify(cloneRes.error ?? cloneRes.warnings));
+          }
+        } else if (!tplIdRes.ok) {
+          step('resolve template connection id', false, JSON.stringify(tplIdRes.error));
+        } else {
+          step('resolve template connection id', false, 'No TELNYX_TEMPLATE_CONNECTION_ID/DID configured');
         }
-        sipUsername = res.data.data.user_name;
-        sipPassword = res.data.data.password ?? '';
-        newConnectionId = res.data.data.id;
-        credsCreated = true;
-        step('create new Telnyx Credential Connection', true);
+
+        if (!usedTemplate) {
+          // Fallback: plain create without template clone.
+          const res = await telnyx.createCredentialConnection({ connectionName, userName });
+          if (!res.ok || !res.data) {
+            step('create new Telnyx Credential Connection (fallback)', false, JSON.stringify(res.error));
+            return reply.code(502).send({
+              error: 'Telnyx createCredentialConnection failed',
+              steps,
+            });
+          }
+          sipUsername = res.data.data.user_name;
+          sipPassword = res.data.data.password ?? '';
+          newConnectionId = res.data.data.id;
+          credsCreated = true;
+          step('create new Telnyx Credential Connection (fallback — no template)', true);
+        }
       }
 
       // ── Step 2: DID number ──────────────────────────────────────────
@@ -2138,7 +2231,11 @@ export async function adminRoutes(app: FastifyInstance) {
     },
   );
 
-  // ── DELETE /admin/pending-users/:id ─────────────────────────────────────
+  // ── DELETE /admin/pending-users/:id (v0.9.7) ────────────────────────────
+  // For PENDING rows: drops the staging row only.
+  // For INVITED rows: cleans up Telnyx (unassign DID + delete Credential
+  // Connection), deletes the linked User row, then drops the PendingUser row.
+  // Returns a per-step log so the UI can show exactly what was cleaned up.
   app.delete<{ Params: { id: string } }>(
     '/admin/pending-users/:id',
     { onRequest: [app.authenticate, requireAdmin] },
@@ -2149,21 +2246,459 @@ export async function adminRoutes(app: FastifyInstance) {
 
       const pending = await prisma.pendingUser.findUnique({
         where: { id },
-        select: { id: true, email: true, status: true },
+        select: { id: true, email: true, status: true, invitedUserId: true },
       });
       if (!pending) return reply.code(404).send({ error: 'Not found' });
-      if (pending.status === 'invited') {
+
+      type StepLog = { step: string; ok: boolean; error?: string };
+      const steps: StepLog[] = [];
+      const step = (name: string, ok: boolean, error?: string) => {
+        steps.push({ step: name, ok, ...(error ? { error } : {}) });
+      };
+
+      // PENDING — easy case: just drop the row.
+      if (pending.status !== 'invited') {
+        await prisma.pendingUser.delete({ where: { id } });
+        await recordAudit(actor.sub, 'pending_user.deleted', null, {
+          pendingUserId: id,
+          email: pending.email,
+        });
+        step('delete PendingUser row', true);
+        return { ok: true, steps };
+      }
+
+      // INVITED — clean up Telnyx + the linked User row.
+      let didReleased: string | null = null;
+      let connectionDeleted: string | null = null;
+      let deletedUserId: number | null = null;
+
+      const user = pending.invitedUserId
+        ? await prisma.user.findUnique({
+            where: { id: pending.invitedUserId },
+            select: { id: true, email: true, didNumber: true, sipUsername: true },
+          })
+        : null;
+
+      if (user) {
+        // 1) Un-assign DID → returns it to the unassigned pool (clears both
+        //    connection_id + messaging_profile_id).
+        if (user.didNumber) {
+          const lookup = await telnyx.findNumberByE164(user.didNumber);
+          if (!lookup.ok) {
+            step(`look up DID ${user.didNumber}`, false, JSON.stringify(lookup.error));
+          } else if (!lookup.data) {
+            step(`look up DID ${user.didNumber}`, false, 'Number not found (already released?)');
+          } else {
+            const un = await telnyx.unassignNumber(lookup.data.id);
+            if (un.ok) {
+              didReleased = user.didNumber;
+              step(`un-assign DID ${user.didNumber} (back to inventory)`, true);
+            } else {
+              step(`un-assign DID ${user.didNumber}`, false, JSON.stringify(un.error));
+            }
+          }
+        } else {
+          step('un-assign DID', true, undefined);
+        }
+
+        // 2) Delete the Credential Connection (looked up by user_name = sipUsername).
+        //    Telnyx requires the DID to be unassigned first; if step 1 failed,
+        //    this PATCH-then-DELETE will still try (logs the failure).
+        if (user.sipUsername) {
+          // user_name filter: Telnyx /credential_connections lets us filter by
+          // user_name; we re-use findConnectionByName for connection_name match
+          // OR fall back to a user_name filter via the API.
+          const qs = new URLSearchParams({
+            'filter[user_name]': user.sipUsername,
+            'page[size]': '5',
+          });
+          // Reuse the underlying call() via fetchCredentialConnection? No —
+          // that takes an id. Use findConnectionByName as a best-effort, but
+          // the connection_name doesn't always match sipUsername. Try direct
+          // list-by-user_name:
+          const listRes = await fetch(
+            `https://api.telnyx.com/v2/credential_connections?${qs.toString()}`,
+            {
+              method: 'GET',
+              headers: {
+                Authorization: `Bearer ${config.telnyxApiKey}`,
+                'Content-Type': 'application/json',
+              },
+            },
+          );
+          const listBody = (await listRes.json().catch(() => ({}))) as {
+            data?: Array<{ id: string; user_name: string }>;
+          };
+          const match = (listBody.data ?? []).find((c) => c.user_name === user.sipUsername);
+          if (!match) {
+            step(`look up connection for sipUsername ${user.sipUsername}`, false, 'No matching connection found');
+          } else {
+            const del = await telnyx.deleteCredentialConnection(match.id);
+            if (del.ok) {
+              connectionDeleted = match.id;
+              step(`delete Credential Connection ${match.id}`, true);
+            } else {
+              step(`delete Credential Connection ${match.id}`, false, JSON.stringify(del.error));
+            }
+          }
+        } else {
+          step('delete Credential Connection', true, undefined);
+        }
+
+        // 3) Delete the User row. Prisma onDelete on schema: Favorite is
+        //    Cascade; other relations (Call, Conversation, etc.) are plain
+        //    relations and may block. We use a transactional approach:
+        //    swallow FK errors with a clear message rather than corrupting state.
+        try {
+          await prisma.user.delete({ where: { id: user.id } });
+          deletedUserId = user.id;
+          step(`delete User row #${user.id}`, true);
+        } catch (e) {
+          step(`delete User row #${user.id}`, false, e instanceof Error ? e.message : String(e));
+          // Don't bail — still try to drop the PendingUser row so admin can
+          // re-import. The User may have call/SMS history blocking the FK; in
+          // that case the admin can deactivate via Admin → Users instead.
+        }
+      } else if (pending.invitedUserId) {
+        step(`look up User #${pending.invitedUserId}`, false, 'Linked User not found (already deleted?)');
+      }
+
+      // 4) Always drop the PendingUser row at the end.
+      try {
+        await prisma.pendingUser.delete({ where: { id } });
+        step('delete PendingUser row', true);
+      } catch (e) {
+        step('delete PendingUser row', false, e instanceof Error ? e.message : String(e));
+      }
+
+      await recordAudit(actor.sub, 'pending_user.deleted_invited', deletedUserId, {
+        pendingUserId: id,
+        email: pending.email,
+        deletedUserId,
+        didReleased,
+        connectionDeleted,
+      });
+
+      return {
+        ok: true,
+        didReleased,
+        connectionDeleted,
+        deletedUserId,
+        steps,
+      };
+    },
+  );
+
+  // ── PATCH /admin/pending-users/:id (v0.9.7) ─────────────────────────────
+  // Edit any column on a staging row. For PENDING rows: free edit. For
+  // INVITED/ACCEPTED rows: name+email also mirror onto the linked User row,
+  // but Pulse credentials (ext, number, password) are frozen — those values
+  // were already pushed to Telnyx so changing them in PendingUser would
+  // silently drift from reality. Admin must delete + re-invite to change them.
+  app.patch<{ Params: { id: string } }>(
+    '/admin/pending-users/:id',
+    { onRequest: [app.authenticate, requireAdmin] },
+    async (request, reply) => {
+      const actor = request.user as JwtPayload;
+      const id = Number(request.params.id);
+      if (!Number.isFinite(id)) return reply.code(400).send({ error: 'Invalid id' });
+      const parsed = PendingUserPatchSchema.safeParse(request.body);
+      if (!parsed.success) {
+        return reply.code(400).send({ error: 'Invalid input', details: parsed.error.flatten() });
+      }
+      const target = await prisma.pendingUser.findUnique({ where: { id } });
+      if (!target) return reply.code(404).send({ error: 'Not found' });
+
+      const patch = parsed.data;
+      const isInvited = target.status === 'invited';
+
+      // Block credential edits on already-invited rows.
+      if (isInvited) {
+        const blockedFields = ['pulseVoipExt', 'pulseVoipNumber', 'pulseExtPassword'] as const;
+        for (const f of blockedFields) {
+          if (patch[f] !== undefined && patch[f] !== target[f]) {
+            return reply.code(400).send({
+              error: "DID and SIP creds can't be edited after invite — delete + re-invite to change them",
+              field: f,
+            });
+          }
+        }
+      }
+
+      // Email uniqueness: among pending_users AND (for invited) users.
+      if (patch.email !== undefined && patch.email.toLowerCase() !== target.email.toLowerCase()) {
+        const newEmail = patch.email.toLowerCase();
+        const dupPending = await prisma.pendingUser.findFirst({
+          where: { email: newEmail, NOT: { id } },
+          select: { id: true },
+        });
+        if (dupPending) {
+          return reply.code(409).send({
+            error: `Another pending row already uses ${newEmail}`,
+          });
+        }
+        if (isInvited) {
+          const dupUser = await prisma.user.findUnique({
+            where: { email: newEmail },
+            select: { id: true },
+          });
+          // Allow if the dup is the same linked user (shouldn't happen since
+          // we're changing email, but defensive).
+          if (dupUser && dupUser.id !== target.invitedUserId) {
+            return reply.code(409).send({
+              error: `Another user already uses ${newEmail}`,
+            });
+          }
+        }
+      }
+
+      // Build the update.
+      const data: Record<string, unknown> = {};
+      const changes: Record<string, unknown> = {};
+      const set = <K extends keyof typeof patch>(k: K) => {
+        const next = patch[k];
+        if (next === undefined) return;
+        const prev = target[k as keyof typeof target] as unknown;
+        if (next === prev) return;
+        const writeVal = k === 'email' && typeof next === 'string' ? next.toLowerCase() : next;
+        data[k] = writeVal;
+        changes[k] = { from: prev, to: writeVal };
+      };
+      set('firstName');
+      set('lastName');
+      set('email');
+      set('pulseVoipExt');
+      set('pulseVoipNumber');
+      set('pulseExtPassword');
+      set('pulseConnectionName');
+      set('pulseUserStatus');
+
+      if (Object.keys(data).length === 0) {
+        // No-op — return current row so the UI doesn't have to re-fetch.
+        return {
+          ok: true,
+          row: { ...target, pulseExtPassword: undefined, hasPassword: !!target.pulseExtPassword,
+            importedAt: target.importedAt.toISOString(),
+            invitedAt: target.invitedAt ? target.invitedAt.toISOString() : null },
+          mirroredToUser: false,
+        };
+      }
+
+      const updated = await prisma.pendingUser.update({ where: { id }, data });
+
+      // Mirror name/email onto the linked User row for INVITED.
+      let mirroredToUser = false;
+      if (isInvited && target.invitedUserId) {
+        const userPatch: Record<string, unknown> = {};
+        if (data.firstName !== undefined) userPatch.firstName = data.firstName;
+        if (data.lastName !== undefined) userPatch.lastName = data.lastName;
+        if (data.email !== undefined) userPatch.email = data.email;
+        if (Object.keys(userPatch).length > 0) {
+          try {
+            await prisma.user.update({ where: { id: target.invitedUserId }, data: userPatch });
+            mirroredToUser = true;
+          } catch (e) {
+            // Don't fail the whole patch — log and continue.
+            console.warn('[pending.patch] mirror to User failed', { id: target.invitedUserId, e });
+          }
+        }
+      }
+
+      await recordAudit(actor.sub, 'pending_user.updated', target.invitedUserId ?? null, {
+        pendingUserId: id,
+        email: target.email,
+        status: target.status,
+        changes,
+        mirroredToUser,
+      });
+
+      return {
+        ok: true,
+        row: {
+          ...updated,
+          pulseExtPassword: undefined,
+          hasPassword: !!updated.pulseExtPassword,
+          importedAt: updated.importedAt.toISOString(),
+          invitedAt: updated.invitedAt ? updated.invitedAt.toISOString() : null,
+        },
+        mirroredToUser,
+      };
+    },
+  );
+
+  // ── POST /admin/pending-users/:id/verify (v0.9.7) ───────────────────────
+  // Re-runs the Telnyx config for an already-invited user. Idempotent. Fixes
+  // broken invites (wrong outbound voice profile, missing messaging binding,
+  // etc.) without delete+re-invite. Returns the same step-log shape as the
+  // invite endpoint so the UI can reuse ResultModal.
+  app.post<{ Params: { id: string } }>(
+    '/admin/pending-users/:id/verify',
+    { onRequest: [app.authenticate, requireAdmin] },
+    async (request, reply) => {
+      const actor = request.user as JwtPayload;
+      const id = Number(request.params.id);
+      if (!Number.isFinite(id)) return reply.code(400).send({ error: 'Invalid id' });
+
+      const pending = await prisma.pendingUser.findUnique({ where: { id } });
+      if (!pending) return reply.code(404).send({ error: 'Not found' });
+
+      const user = pending.invitedUserId
+        ? await prisma.user.findUnique({
+            where: { id: pending.invitedUserId },
+            select: { id: true, email: true, didNumber: true, sipUsername: true },
+          })
+        : null;
+
+      if (!user || !user.didNumber || !user.sipUsername) {
         return reply.code(400).send({
-          error: 'Cannot delete an already-invited row. Use Admin → Users to manage the actual user.',
+          error: 'Must be invited first (no linked User, didNumber, or sipUsername)',
         });
       }
 
-      await prisma.pendingUser.delete({ where: { id } });
-      await recordAudit(actor.sub, 'pending_user.deleted', null, {
+      type StepLog = { step: string; ok: boolean; error?: string };
+      const steps: StepLog[] = [];
+      const step = (name: string, ok: boolean, error?: string) => {
+        steps.push({ step: name, ok, ...(error ? { error } : {}) });
+      };
+
+      // 1) Resolve template.
+      const tplIdRes = await telnyx.resolveTemplateConnectionId();
+      const tplId = tplIdRes.ok ? tplIdRes.data : null;
+      if (!tplId) {
+        step('resolve template connection id', false,
+          tplIdRes.ok
+            ? 'No TELNYX_TEMPLATE_CONNECTION_ID/DID configured'
+            : JSON.stringify(tplIdRes.error));
+        return reply.code(502).send({ error: 'No template configured', steps });
+      }
+      step(`resolve template connection (${tplId})`, true);
+
+      // 2) Fetch template + find the user's existing connection by user_name.
+      const tplRes = await telnyx.fetchCredentialConnection(tplId);
+      if (!tplRes.ok || !tplRes.data) {
+        step('fetch template connection', false, JSON.stringify(tplRes.error));
+        return reply.code(502).send({ error: 'Template fetch failed', steps });
+      }
+      const tpl = tplRes.data.data;
+      step('fetch template connection config', true);
+
+      // Find user's connection by sipUsername (user_name filter).
+      const qs = new URLSearchParams({
+        'filter[user_name]': user.sipUsername,
+        'page[size]': '5',
+      });
+      const listRes = await fetch(
+        `https://api.telnyx.com/v2/credential_connections?${qs.toString()}`,
+        {
+          method: 'GET',
+          headers: {
+            Authorization: `Bearer ${config.telnyxApiKey}`,
+            'Content-Type': 'application/json',
+          },
+        },
+      );
+      const listBody = (await listRes.json().catch(() => ({}))) as {
+        data?: Array<{ id: string; user_name: string }>;
+      };
+      const userConn = (listBody.data ?? []).find((c) => c.user_name === user.sipUsername);
+      if (!userConn) {
+        step(`find user's Credential Connection (user_name=${user.sipUsername})`, false, 'No connection found');
+        return reply.code(404).send({ error: "User's Telnyx connection not found", steps });
+      }
+      step(`find user's Credential Connection (${userConn.id})`, true);
+
+      // 3) PATCH the user's connection to mirror template settings.
+      const patchBody: Record<string, unknown> = {};
+      if (tpl.anchorsite_override) patchBody.anchorsite_override = tpl.anchorsite_override;
+      if (tpl.encrypted_media !== undefined) patchBody.encrypted_media = tpl.encrypted_media;
+      if (tpl.webhook_event_url) {
+        patchBody.webhook_event_url = tpl.webhook_event_url;
+        patchBody.webhook_api_version = tpl.webhook_api_version ?? '2';
+      }
+      const inb: Record<string, unknown> = {};
+      if (tpl.inbound?.codecs && tpl.inbound.codecs.length > 0) inb.codecs = tpl.inbound.codecs;
+      if (typeof tpl.inbound?.channel_limit === 'number') inb.channel_limit = tpl.inbound.channel_limit;
+      if (Object.keys(inb).length > 0) patchBody.inbound = inb;
+      const out: Record<string, unknown> = {};
+      if (tpl.outbound?.outbound_voice_profile_id) {
+        out.outbound_voice_profile_id = tpl.outbound.outbound_voice_profile_id;
+      }
+      if (typeof tpl.outbound?.channel_limit === 'number') out.channel_limit = tpl.outbound.channel_limit;
+      if (Object.keys(out).length > 0) patchBody.outbound = out;
+
+      if (Object.keys(patchBody).length > 0) {
+        const patchRes = await telnyx.patchCredentialConnection(userConn.id, patchBody);
+        if (patchRes.ok) {
+          step('PATCH user connection to match template (outbound voice profile + limits)', true);
+        } else {
+          step('PATCH user connection to match template', false, JSON.stringify(patchRes.error));
+        }
+      } else {
+        step('PATCH user connection — nothing to apply', true);
+      }
+
+      // 4) Re-bind DID's connection_id to user's connection.
+      const digits = user.didNumber.replace(/[^\d]/g, '');
+      const didE164 = user.didNumber.startsWith('+')
+        ? user.didNumber
+        : digits.length === 11 && digits.startsWith('1')
+          ? `+${digits}`
+          : digits.length === 10
+            ? `+1${digits}`
+            : `+${digits}`;
+      const numLookup = await telnyx.findNumberByE164(didE164);
+      if (!numLookup.ok || !numLookup.data) {
+        step(`look up DID ${didE164}`, false,
+          numLookup.ok ? 'Not found' : JSON.stringify(numLookup.error));
+      } else {
+        if (numLookup.data.connection_id !== userConn.id) {
+          const assign = await telnyx.assignDidToConnection(numLookup.data.id, userConn.id);
+          if (assign.ok) {
+            step(`re-bind DID ${didE164} → connection ${userConn.id}`, true);
+          } else {
+            step(`re-bind DID ${didE164} → connection ${userConn.id}`, false, JSON.stringify(assign.error));
+          }
+        } else {
+          step(`DID ${didE164} already bound to user connection`, true);
+        }
+
+        // 5) Re-bind messaging profile.
+        if (config.telnyxMessagingProfileId) {
+          if (numLookup.data.messaging_profile_id !== config.telnyxMessagingProfileId) {
+            const bind = await telnyx.assignNumberMessagingProfile(
+              numLookup.data.id,
+              config.telnyxMessagingProfileId,
+            );
+            if (bind.ok) {
+              step('bind DID to ACE messaging profile (SMS routing)', true);
+            } else {
+              step('bind DID to ACE messaging profile', false, JSON.stringify(bind.error));
+            }
+          } else {
+            step('DID already bound to ACE messaging profile', true);
+          }
+        } else {
+          step('bind messaging profile', false,
+            'Skipped: TELNYX_MESSAGING_PROFILE_ID env var not set');
+        }
+      }
+
+      await recordAudit(actor.sub, 'pending_user.verified', user.id, {
         pendingUserId: id,
         email: pending.email,
+        userId: user.id,
+        connectionId: userConn.id,
+        didNumber: didE164,
+        templateConnectionId: tplId,
       });
-      return { ok: true };
+
+      return {
+        ok: true,
+        userId: user.id,
+        didNumber: didE164,
+        sipUsername: user.sipUsername,
+        steps,
+      };
     },
   );
 

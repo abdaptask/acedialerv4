@@ -1540,7 +1540,20 @@ export async function invitePendingUser(
   return body;
 }
 
-export async function deletePendingUser(token: string, id: number): Promise<void> {
+/// v0.9.7 — DELETE now returns a step-log when the row was an invited user
+/// (so the UI can show what was cleaned up in Telnyx + DB). For PENDING rows
+/// the response is `{ ok: true, steps: [...] }` with a single step.
+export interface DeletePendingUserResult {
+  ok: boolean;
+  didReleased?: string | null;
+  connectionDeleted?: string | null;
+  deletedUserId?: number | null;
+  steps?: Array<{ step: string; ok: boolean; error?: string }>;
+}
+export async function deletePendingUser(
+  token: string,
+  id: number,
+): Promise<DeletePendingUserResult> {
   const res = await fetch(`${API_URL}/admin/pending-users/${id}`, {
     method: 'DELETE',
     headers: { Authorization: `Bearer ${token}` },
@@ -1553,6 +1566,69 @@ export async function deletePendingUser(token: string, id: number): Promise<void
         : `HTTP ${res.status}`,
     );
   }
+  return (await res.json().catch(() => ({ ok: true }))) as DeletePendingUserResult;
+}
+
+/// v0.9.7 — re-run Telnyx config for an already-invited user (idempotent fix).
+/// Returns the same step-log shape as invitePendingUser so the UI can show it
+/// in the existing ResultModal.
+export async function verifyPendingUser(
+  token: string,
+  id: number,
+): Promise<InvitePendingResult> {
+  const res = await fetch(`${API_URL}/admin/pending-users/${id}/verify`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const body = (await res.json().catch(() => ({}))) as InvitePendingResult;
+  if (!res.ok) {
+    return {
+      ok: false,
+      error:
+        typeof body === 'object' && 'error' in body
+          ? String((body as { error: unknown }).error)
+          : `HTTP ${res.status}`,
+      steps: 'steps' in body ? (body as { steps?: InvitePendingResult['steps'] }).steps : undefined,
+    };
+  }
+  return body;
+}
+
+/// v0.9.7 — edit any field on a PendingUser row. For INVITED rows, Pulse
+/// ext/number/password are frozen server-side (returns 400 if you try to
+/// change them); name+email mirror onto the linked User row automatically.
+export interface PendingUserPatch {
+  firstName?: string | null;
+  lastName?: string | null;
+  email?: string;
+  pulseVoipExt?: string;
+  pulseVoipNumber?: string;
+  pulseExtPassword?: string;
+  pulseConnectionName?: string | null;
+  pulseUserStatus?: string | null;
+}
+export async function editPendingUser(
+  token: string,
+  id: number,
+  patch: PendingUserPatch,
+): Promise<{ ok: true; row: PendingUser; mirroredToUser: boolean }> {
+  const res = await fetch(`${API_URL}/admin/pending-users/${id}`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(patch),
+  });
+  if (!res.ok) {
+    const errBody = await res.json().catch(() => ({}));
+    throw new Error(
+      typeof errBody === 'object' && errBody !== null && 'error' in errBody
+        ? String((errBody as { error: unknown }).error)
+        : `HTTP ${res.status}`,
+    );
+  }
+  return (await res.json()) as { ok: true; row: PendingUser; mirroredToUser: boolean };
 }
 
 /// Returns the unredacted SIP credentials for a single staged user. Every

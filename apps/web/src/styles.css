@@ -5404,7 +5404,8 @@ body::-webkit-scrollbar { display: none; }
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.84rem; color: #6b7280;
 }
 .pending-table th:nth-child(6), .pending-table td:nth-child(6) { width: 110px; }
-.pending-table th:last-child, .pending-table td:last-child { width: 130px; text-align: right; white-space: nowrap; }
+/* v0.9.7 — wider Actions column to fit Invite button + 3 icon buttons */
+.pending-table th:last-child, .pending-table td:last-child { width: 220px; text-align: right; white-space: nowrap; }
 
 /* Status pill */
 .pending-status-pill {
@@ -5433,6 +5434,79 @@ body::-webkit-scrollbar { display: none; }
 .pending-action-icon:hover { background: rgba(215,0,21,0.08); color: #d70015; border-color: rgba(215,0,21,0.25); }
 [data-theme="dark"] .pending-action-icon { border-color: rgba(255,255,255,0.10); color: #8e8e93; }
 .pending-invited-note { font-size: 0.78rem; color: #6b7280; }
+
+/* v0.9.7 — Actions cell: align Invite + edit/verify/delete icons in a row */
+.pending-actions-cell {
+  display: inline-flex; align-items: center; justify-content: flex-end; gap: 0.35rem;
+}
+.pending-actions-cell .pending-action-primary { margin-right: 0; }
+.pending-actions-cell .pending-invited-note { margin-right: 0.35rem; }
+/* Verify icon gets a blue hover (distinguish from Edit/Delete hovers) */
+.pending-action-icon.pending-action-icon-verify:hover {
+  background: rgba(10,132,255,0.10); color: #0a84ff; border-color: rgba(10,132,255,0.30);
+}
+.pending-action-icon:disabled { opacity: 0.55; cursor: wait; }
+
+/* v0.9.7 — Edit modal */
+.pending-edit-modal { max-width: 640px; }
+.pending-edit-blurb {
+  margin: 0 0 1rem; padding: 0.7rem 0.85rem; border-radius: 8px;
+  background: rgba(255,204,0,0.10); border: 1px solid rgba(255,204,0,0.30);
+  font-size: 0.85rem; color: #6b5200;
+}
+[data-theme="dark"] .pending-edit-blurb { color: #f5c419; }
+.pending-edit-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem 1rem;
+}
+.pending-edit-grid label {
+  display: flex; flex-direction: column; gap: 0.3rem;
+  font-size: 0.82rem; color: #6b7280;
+}
+.pending-edit-grid label span { font-weight: 600; color: #0f172a; }
+[data-theme="dark"] .pending-edit-grid label span { color: #e5e5e7; }
+.pending-edit-grid input {
+  padding: 0.45rem 0.6rem; border: 1px solid rgba(0,0,0,0.15); border-radius: 6px;
+  font-size: 0.88rem; background: #fff; color: #0f172a;
+}
+[data-theme="dark"] .pending-edit-grid input {
+  background: rgba(255,255,255,0.04); border-color: rgba(255,255,255,0.10); color: #e5e5e7;
+}
+.pending-edit-grid input:disabled {
+  background: rgba(0,0,0,0.04); color: #94a3b8; cursor: not-allowed;
+}
+[data-theme="dark"] .pending-edit-grid input:disabled { background: rgba(255,255,255,0.02); color: #6b7280; }
+.pending-edit-span2 { grid-column: span 2; }
+.pending-edit-password-row { display: flex; gap: 0.4rem; align-items: center; }
+.pending-edit-password-row input { flex: 1; }
+
+/* v0.9.7 — Delete modal */
+.pending-delete-modal { max-width: 520px; }
+.pending-delete-bullets {
+  margin: 0.5rem 0 0.75rem 0; padding-left: 20px;
+  font-size: 0.88rem; color: #0f172a;
+}
+[data-theme="dark"] .pending-delete-bullets { color: #e5e5e7; }
+.pending-delete-bullets li { margin-bottom: 0.3rem; }
+.pending-delete-warn {
+  margin: 0.75rem 0; padding: 0.7rem 0.85rem; border-radius: 8px;
+  background: rgba(255,204,0,0.10); border: 1px solid rgba(255,204,0,0.30);
+  font-size: 0.82rem; color: #6b5200;
+}
+[data-theme="dark"] .pending-delete-warn { color: #f5c419; }
+.pending-delete-confirm-input {
+  width: 100%; margin-top: 0.4rem;
+  padding: 0.55rem 0.75rem; border: 1px solid rgba(215,0,21,0.30); border-radius: 6px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.95rem;
+  text-transform: uppercase; letter-spacing: 0.08em; background: #fff; color: #c01a10;
+}
+[data-theme="dark"] .pending-delete-confirm-input {
+  background: rgba(255,255,255,0.04); color: #ff6b6b; border-color: rgba(215,0,21,0.40);
+}
+.pending-delete-confirm-btn {
+  background: #d70015 !important; border-color: #d70015 !important;
+}
+.pending-delete-confirm-btn:hover:not(:disabled) { background: #b80014 !important; }
+.pending-delete-confirm-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
 /* Empty / loading / error */
 .pending-empty, .pending-loading {
@@ -5829,7 +5903,8 @@ body::-webkit-scrollbar { display: none; }
   text-align: center;
 }
 .pending-table th:last-child, .pending-table td:last-child {
-  width: auto;
+  /* v0.9.7 — fit Invite button + 3 icon buttons (Edit, Verify, Delete) */
+  width: 200px;
   text-align: right;
   white-space: nowrap;
   padding-right: 0.85rem;
