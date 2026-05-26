@@ -191,12 +191,18 @@ export function assignDidToConnection(
  * messaging webhook. Called from the invite flow regardless of which DID
  * mode the admin picked — by the time the user logs in, their texts
  * should arrive in ACE, not the old dialer.
+ *
+ * Telnyx splits voice and messaging settings across separate sub-resources.
+ * The base /phone_numbers/:id PATCH only accepts voice-related fields
+ * (connection_id, etc.) and rejects messaging_profile_id with error 10027.
+ * The messaging settings live on /phone_numbers/:id/messaging — see
+ * https://developers.telnyx.com/docs/api/v2/numbers/Number-Configurations#updatePhoneNumberWithMessagingSettings
  */
 export function assignNumberMessagingProfile(
   numberId: string,
   messagingProfileId: string,
 ): Promise<TelnyxResult<SingleResponse<PhoneNumber>>> {
-  return call(`/phone_numbers/${numberId}`, {
+  return call(`/phone_numbers/${numberId}/messaging`, {
     method: 'PATCH',
     body: JSON.stringify({ messaging_profile_id: messagingProfileId }),
   });

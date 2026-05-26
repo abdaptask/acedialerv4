@@ -259,14 +259,16 @@ export default function Settings() {
   const { section } = useParams<{ section?: string }>();
   const navigate = useNavigate();
 
-  // Reset scroll to top whenever the user switches sections. Without this,
-  // React Router preserves the previous section's scroll offset, which
-  // makes the new section's content look blank (because the user is
-  // scrolled past the header). Resets both the inner pane-body AND the
-  // window in case the dialer is in a vertical-overflow state.
+  // Reset scroll to top whenever the user switches sections. The ACTUAL
+  // scroll container is .app-content (set in Layout.tsx — overflow-y: auto),
+  // NOT the inner pane/pane-body. The earlier v0.9.3 fix targeted children
+  // that don't scroll, which is why users still saw blank space when
+  // switching sections. Reset .app-content too (and the others as belt-
+  // and-suspenders for any future layout change).
   const paneBodyRef = useRef<HTMLDivElement | null>(null);
   const paneRef = useRef<HTMLElement | null>(null);
   useEffect(() => {
+    document.querySelector('.app-content')?.scrollTo({ top: 0, left: 0 });
     paneBodyRef.current?.scrollTo({ top: 0, left: 0 });
     paneRef.current?.scrollTo({ top: 0, left: 0 });
     window.scrollTo({ top: 0, left: 0 });
