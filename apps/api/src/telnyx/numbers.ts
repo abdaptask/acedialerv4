@@ -245,12 +245,24 @@ export function deleteCredentialConnection(
  * settings on every new connection — so new users get a fully-configured
  * SIP endpoint without any admin guesswork.
  *
- * Fields that matter (and that we propagate to new connections):
- *   - inbound: codecs, channel_limit, sip_subdomain, sip_subdomain_receive_settings
- *   - outbound: outbound_voice_profile_id (CRITICAL — required to PLACE calls),
- *               channel_limit, ani_override, ani_override_type
- *   - rtcp_settings, anchorsite_override, encrypted_media, webhook_event_url
- *   - active, send_invite_to_url, dtmf_type
+ * v0.9.11 — expanded to cover EVERY field Telnyx returns on
+ *   GET /v2/credential_connections/:id so the template clone can be
+ *   byte-for-byte except for per-user identity (connection_name, user_name,
+ *   password) and the user's own DID for ani_override. The critical fields
+ *   the previous version was silently dropping:
+ *     • sip_uri_calling_preference  (the "Receive SIP URI calls" toggle)
+ *     • outbound.encrypted_media    (mislabelled — actually lives on outbound)
+ *     • outbound.ani_override       ("Caller ID Override" — set per-user)
+ *     • outbound.ani_override_type  (must be "always" for the override to show)
+ *     • outbound.localization
+ *     • outbound.t38_reinvite_source
+ *     • outbound.instant_ringback_enabled
+ *     • inbound.dnis_number_format / isup_headers_enabled / sip_region
+ *     • inbound.generate_ringback_tone / timeout_1xx_secs / timeout_2xx_secs
+ *     • inbound.shaken_stir_enabled
+ *     • rtcp_settings (full)
+ *     • dtmf_type / send_invite_to_url / active / default_routing_method
+ *     • transport_protocol
  */
 export interface FullCredentialConnection {
   id: string;
@@ -259,32 +271,65 @@ export interface FullCredentialConnection {
   password?: string;
   active?: boolean;
   anchorsite_override?: string;
+  // Top-level encrypted_media kept for backwards-compat with older Telnyx
+  // payloads (current API surfaces it on outbound.encrypted_media instead).
   encrypted_media?: string | null;
   webhook_event_url?: string;
   webhook_api_version?: string;
+  webhook_event_failover_url?: string;
+  webhook_timeout_secs?: number | null;
+  sip_uri_calling_preference?: string;     // "disabled" | "unrestricted" | "enabled" — Auth+Routing "Receive SIP URI calls"
+  transport_protocol?: string;             // "UDP" | "TCP" | "TLS"
+  default_routing_method?: string;         // "sequential" | "round-robin"
+  dtmf_type?: string;                      // "RFC 2833" | "Inband" | "SIP INFO"
+  send_invite_to_url?: boolean;
+  ios_push_credential_id?: string | null;
+  android_push_credential_id?: string | null;
+  tags?: string[];
   inbound?: {
     codecs?: string[];
     channel_limit?: number;
     sip_subdomain?: string | null;
     sip_subdomain_receive_settings?: string;
-    sip_region?: string;
+    default_routing_method?: string;
     dnis_number_format?: string;
     isup_headers_enabled?: boolean;
+    sip_region?: string;
+    generate_ringback_tone?: boolean;
+    timeout_1xx_secs?: number;
+    timeout_2xx_secs?: number;
+    shaken_stir_enabled?: boolean;
+    ani_number_format?: string;
   };
+  // v0.9.11+ — Telnyx "Audio Enhancements" sub-objects (Krisp Viva noise
+  // suppression + jitter buffer). Live at the TOP LEVEL of the connection
+  // resource, not under inbound. We don't enumerate the inner field names
+  // here — Telnyx ships new options periodically (engine variants,
+  // attenuation_limit, config: 'inbound_only' | 'outbound_only' | 'both',
+  // etc.). The clone builder spreads the whole object so any field shape
+  // works without code changes.
+  noise_suppression?: Record<string, unknown>;
+  jitter_buffer?: Record<string, unknown>;
+  /// Catch-all for any field Telnyx adds in the future. The clone builder
+  /// spreads safe fields (anything that isn't id/timestamps/identity) so
+  /// new account-level features just work.
+  [key: string]: unknown;
   outbound?: {
     outbound_voice_profile_id?: string;
     channel_limit?: number;
     ani_override?: string | null;
-    ani_override_type?: string;
+    ani_override_type?: string;            // "always" | "normal" | "never"
     localization?: string;
+    t38_reinvite_source?: string;
+    instant_ringback_enabled?: boolean;
+    encrypted_media?: string | null;       // "SRTP" | "DTLS" | null
+    generate_ringback_tone?: boolean;
   };
   rtcp_settings?: {
     port?: string;
     capture_enabled?: boolean;
     report_frequency_secs?: number;
   };
-  send_invite_to_url?: boolean;
-  dtmf_type?: string;
 }
 
 export function fetchCredentialConnection(
@@ -431,19 +476,231 @@ export function patchCredentialConnection(
 }
 
 /**
+ * v0.9.11 — small helper used by the template-clone PATCH builders. Returns
+ * the value when it's defined, else `undefined` so the caller can drop the
+ * key. Telnyx rejects unknown fields with HTTP 422; this filter prevents us
+ * from accidentally sending `undefined` keys (which JSON.stringify drops
+ * anyway, but more importantly it stops us from sending half-formed
+ * sub-objects like { ani_override: undefined } which Telnyx may interpret
+ * as "clear the field").
+ */
+export function cloneable<T>(value: T | undefined | null, options?: { allowNull?: boolean }): T | null | undefined {
+  if (value === undefined) return undefined;
+  if (value === null) return options?.allowNull ? null : undefined;
+  return value;
+}
+
+/**
+ * v0.9.11 — build an inbound sub-object that mirrors the template byte-for-
+ * byte. Filters out undefined keys so we don't send junk to Telnyx.
+ */
+function buildInboundCloneFromTemplate(
+  tpl: FullCredentialConnection,
+): Record<string, unknown> {
+  const inb: Record<string, unknown> = {};
+  const src = tpl.inbound ?? {};
+  if (src.codecs && src.codecs.length > 0) inb.codecs = src.codecs;
+  if (typeof src.channel_limit === 'number') inb.channel_limit = src.channel_limit;
+  // sip_subdomain CAN legitimately be null; pass it through so we preserve
+  // template intent (e.g. template explicitly nulled the subdomain).
+  if (src.sip_subdomain !== undefined) inb.sip_subdomain = src.sip_subdomain;
+  if (src.sip_subdomain_receive_settings) {
+    inb.sip_subdomain_receive_settings = src.sip_subdomain_receive_settings;
+  }
+  if (src.default_routing_method) inb.default_routing_method = src.default_routing_method;
+  if (src.dnis_number_format) inb.dnis_number_format = src.dnis_number_format;
+  if (typeof src.isup_headers_enabled === 'boolean') {
+    inb.isup_headers_enabled = src.isup_headers_enabled;
+  }
+  if (src.sip_region) inb.sip_region = src.sip_region;
+  if (typeof src.generate_ringback_tone === 'boolean') {
+    inb.generate_ringback_tone = src.generate_ringback_tone;
+  }
+  if (typeof src.timeout_1xx_secs === 'number') inb.timeout_1xx_secs = src.timeout_1xx_secs;
+  if (typeof src.timeout_2xx_secs === 'number') inb.timeout_2xx_secs = src.timeout_2xx_secs;
+  if (typeof src.shaken_stir_enabled === 'boolean') {
+    inb.shaken_stir_enabled = src.shaken_stir_enabled;
+  }
+  if (src.ani_number_format) inb.ani_number_format = src.ani_number_format;
+  return inb;
+}
+
+/**
+ * v0.9.11 — build an outbound sub-object that mirrors the template byte-for-
+ * byte EXCEPT for ani_override which the caller can override per-user (so
+ * each user's Caller ID Override is their OWN DID, not the template's).
+ *
+ * Pass `aniOverride` to set Caller ID Override; pass null to explicitly
+ * clear it; omit to inherit the template's value verbatim.
+ */
+function buildOutboundCloneFromTemplate(
+  tpl: FullCredentialConnection,
+  overrides?: { aniOverride?: string | null },
+): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  const src = tpl.outbound ?? {};
+  if (src.outbound_voice_profile_id) {
+    out.outbound_voice_profile_id = src.outbound_voice_profile_id;
+  }
+  if (typeof src.channel_limit === 'number') out.channel_limit = src.channel_limit;
+
+  // Caller ID Override — per-user. If the caller passed an explicit
+  // aniOverride, use that; otherwise inherit the template's value (which
+  // for the +17322001305 template is the template's own DID — usually NOT
+  // what we want for a new user, hence the override).
+  if (overrides && Object.prototype.hasOwnProperty.call(overrides, 'aniOverride')) {
+    out.ani_override = overrides.aniOverride ?? null;
+  } else if (src.ani_override !== undefined) {
+    out.ani_override = src.ani_override;
+  }
+  if (src.ani_override_type) out.ani_override_type = src.ani_override_type;
+  if (src.localization) out.localization = src.localization;
+  if (src.t38_reinvite_source) out.t38_reinvite_source = src.t38_reinvite_source;
+  if (typeof src.instant_ringback_enabled === 'boolean') {
+    out.instant_ringback_enabled = src.instant_ringback_enabled;
+  }
+  // encrypted_media nominally lives on the outbound sub-object in the
+  // current Telnyx schema. Older payloads put it at the top level; we mirror
+  // whichever the template surfaces.
+  if (src.encrypted_media !== undefined) out.encrypted_media = src.encrypted_media;
+  if (typeof src.generate_ringback_tone === 'boolean') {
+    out.generate_ringback_tone = src.generate_ringback_tone;
+  }
+  return out;
+}
+
+/**
+ * v0.9.11 — build the top-level (non-sub-object) clone fields from the
+ * template. Excludes identity fields the caller MUST set per-user
+ * (connection_name, user_name, password).
+ */
+function buildTopLevelCloneFromTemplate(
+  tpl: FullCredentialConnection,
+): Record<string, unknown> {
+  const body: Record<string, unknown> = {};
+  if (tpl.anchorsite_override) body.anchorsite_override = tpl.anchorsite_override;
+  // Top-level encrypted_media is the legacy location; preserve if Telnyx
+  // returns it that way (otherwise we cover it via outbound.encrypted_media).
+  if (tpl.encrypted_media !== undefined) body.encrypted_media = tpl.encrypted_media;
+  if (tpl.webhook_event_url) body.webhook_event_url = tpl.webhook_event_url;
+  if (tpl.webhook_api_version) body.webhook_api_version = tpl.webhook_api_version;
+  if (tpl.webhook_event_failover_url !== undefined) {
+    body.webhook_event_failover_url = tpl.webhook_event_failover_url;
+  }
+  if (tpl.webhook_timeout_secs !== undefined && tpl.webhook_timeout_secs !== null) {
+    body.webhook_timeout_secs = tpl.webhook_timeout_secs;
+  }
+  if (tpl.sip_uri_calling_preference) {
+    body.sip_uri_calling_preference = tpl.sip_uri_calling_preference;
+  }
+  if (tpl.transport_protocol) body.transport_protocol = tpl.transport_protocol;
+  if (tpl.default_routing_method) body.default_routing_method = tpl.default_routing_method;
+  if (tpl.dtmf_type) body.dtmf_type = tpl.dtmf_type;
+  if (typeof tpl.send_invite_to_url === 'boolean') {
+    body.send_invite_to_url = tpl.send_invite_to_url;
+  }
+  if (typeof tpl.active === 'boolean') body.active = tpl.active;
+  if (tpl.rtcp_settings) {
+    const rtcp: Record<string, unknown> = {};
+    if (tpl.rtcp_settings.port) rtcp.port = tpl.rtcp_settings.port;
+    if (typeof tpl.rtcp_settings.capture_enabled === 'boolean') {
+      rtcp.capture_enabled = tpl.rtcp_settings.capture_enabled;
+    }
+    if (typeof tpl.rtcp_settings.report_frequency_secs === 'number') {
+      rtcp.report_frequency_secs = tpl.rtcp_settings.report_frequency_secs;
+    }
+    if (Object.keys(rtcp).length > 0) body.rtcp_settings = rtcp;
+  }
+
+  // v0.9.12 — Audio Enhancements (Krisp + jitter buffer). Spread the WHOLE
+  // sub-objects verbatim; Telnyx ships new fields in here periodically
+  // (engine variants, attenuation_limit, etc.) and we don't want to drop
+  // them. Confirmed on +17322001305: noise_suppression.engine =
+  // "krisp_viva_tel_lite", config = "both", attenuation_limit slider, and
+  // jitter_buffer { enabled, min_ms, max_ms }.
+  if (tpl.noise_suppression && typeof tpl.noise_suppression === 'object') {
+    body.noise_suppression = { ...tpl.noise_suppression };
+  }
+  if (tpl.jitter_buffer && typeof tpl.jitter_buffer === 'object') {
+    body.jitter_buffer = { ...tpl.jitter_buffer };
+  }
+
+  // v0.9.12 — passthrough for any UNKNOWN top-level field Telnyx returns.
+  // We never know in advance what new connection-level settings Telnyx will
+  // launch. Spread anything not in this denylist so future features just
+  // work without code changes. Denylist = identity + meta + sub-objects we
+  // already handled above.
+  const HANDLED_OR_META = new Set([
+    'id', 'record_type', 'created_at', 'updated_at',
+    'connection_name', 'user_name', 'password',
+    'ios_push_credential_id', 'android_push_credential_id', 'tags',
+    'anchorsite_override', 'encrypted_media', 'webhook_event_url',
+    'webhook_api_version', 'webhook_event_failover_url', 'webhook_timeout_secs',
+    'sip_uri_calling_preference', 'transport_protocol', 'default_routing_method',
+    'dtmf_type', 'send_invite_to_url', 'active', 'rtcp_settings',
+    'noise_suppression', 'jitter_buffer',
+    'inbound', 'outbound',
+  ]);
+  for (const [k, v] of Object.entries(tpl)) {
+    if (HANDLED_OR_META.has(k)) continue;
+    if (v === undefined) continue;
+    // Sub-objects: shallow-clone so callers can safely mutate.
+    body[k] = v && typeof v === 'object' && !Array.isArray(v) ? { ...(v as object) } : v;
+  }
+
+  return body;
+}
+
+/**
+ * v0.9.11 — build the FULL clone PATCH body that mirrors the template
+ * byte-for-byte, with optional per-user overrides for fields that should
+ * differ per user (most importantly, ani_override → user's own DID).
+ * Exported so the verify endpoint can reuse the exact same payload shape
+ * to repair an already-invited user's connection.
+ */
+export function buildTemplateCloneBody(
+  tpl: FullCredentialConnection,
+  overrides?: { aniOverride?: string | null },
+): Record<string, unknown> {
+  const body = buildTopLevelCloneFromTemplate(tpl);
+  const inb = buildInboundCloneFromTemplate(tpl);
+  if (Object.keys(inb).length > 0) body.inbound = inb;
+  const out = buildOutboundCloneFromTemplate(tpl, overrides);
+  if (Object.keys(out).length > 0) body.outbound = out;
+  // strip any explicit undefined values just in case (defence-in-depth)
+  for (const [k, v] of Object.entries(body)) {
+    if (v === undefined) delete body[k];
+  }
+  return body;
+}
+
+/**
  * v0.9.7 — Build a "clone of the proven-working connection" for a NEW user.
  *
+ * v0.9.11 — REWRITTEN to copy EVERYTHING from the template (every field
+ * Telnyx returns on GET /v2/credential_connections/:id), not just a handful.
+ * Previously we were silently dropping sip_uri_calling_preference,
+ * outbound.encrypted_media, outbound.localization, rtcp_settings, dtmf_type,
+ * and a dozen other fields — which is why invited users were missing
+ * "Receive SIP URI calls" + "Outbound encrypted media" + Caller ID Override
+ * tabs in their Telnyx config.
+ *
  * Pipeline:
- *   1. Fetch the template connection's full config (the +17322001305 / Abdulla
- *      connection has the right outbound voice profile, anchorsite, codecs,
- *      channel limits — all the bits a new user needs to actually PLACE calls).
- *   2. POST a new connection with the template's outbound_voice_profile_id +
- *      anchorsite + encrypted_media (POST-acceptable fields).
- *   3. PATCH the new connection to apply inbound.codecs, inbound.channel_limit,
- *      and outbound.channel_limit (POST-rejected fields).
+ *   1. Fetch the template connection's full config.
+ *   2. POST a new connection with the SAME identity-free body shape as the
+ *      template (Telnyx accepts the full clone body at create time except
+ *      for active/sip_uri_calling_preference on some account tiers — those
+ *      are re-applied via PATCH).
+ *   3. PATCH the new connection with the FULL clone body so any field the
+ *      POST silently dropped gets re-stamped.
  *
  * If the template fetch fails, the caller should fall back to a plain
  * createCredentialConnection() and log a warning — never block the invite.
+ *
+ * NOTE: ani_override (Caller ID Override) is NOT set by this function. The
+ * caller MUST follow up with setConnectionCallerIdOverride() once the
+ * user's DID is known — that's the only field whose value depends on per-
+ * user state (the user's DID), not on the template.
  */
 export interface CreateConnectionFromTemplateInput {
   connectionName: string;
@@ -475,16 +732,36 @@ export async function createConnectionFromTemplate(
   }
   const tpl = tplRes.data.data;
 
-  // Step 2 — POST new connection with the bits Telnyx accepts at create time.
-  const createRes = await createCredentialConnection({
-    connectionName: input.connectionName,
-    userName: input.userName,
-    password: input.password,
-    outboundVoiceProfileId: tpl.outbound?.outbound_voice_profile_id,
-    anchorsiteOverride: tpl.anchorsite_override,
-    encryptedMedia: tpl.encrypted_media,
-    webhookEventUrl: tpl.webhook_event_url,
-  });
+  // Step 2 — POST new connection. Telnyx accepts most clone fields at create
+  // time. We deliberately DO NOT set ani_override here (no per-user DID yet)
+  // and we DO NOT set `active: false` even if the template is inactive
+  // (a new connection should default to active=true so the user can REGISTER
+  // immediately — admin can flip it off later if needed).
+  //
+  // Identity fields (connection_name, user_name, password) are set
+  // separately. Everything else mirrors the template via the clone-body
+  // helpers so we never silently drop a field.
+  const password = input.password ?? generateSipPassword();
+  const cloneBody = buildTemplateCloneBody(tpl);
+  // POST must include identity fields. We also explicitly default
+  // active=true so a deactivated template doesn't spawn deactivated users.
+  const createBody: Record<string, unknown> = {
+    ...cloneBody,
+    connection_name: input.connectionName,
+    user_name: input.userName,
+    password,
+    active: true,
+  };
+  // Telnyx requires webhook_api_version=2 if webhook_event_url is set;
+  // belt-and-suspenders in case template lacked it.
+  if (createBody.webhook_event_url && !createBody.webhook_api_version) {
+    createBody.webhook_api_version = '2';
+  }
+
+  const createRes = await call<SingleResponse<CredentialConnection>>(
+    '/credential_connections',
+    { method: 'POST', body: JSON.stringify(createBody) },
+  );
   if (!createRes.ok || !createRes.data) {
     return {
       ok: false,
@@ -495,34 +772,12 @@ export async function createConnectionFromTemplate(
   }
   const newConn = createRes.data.data;
 
-  // Step 3 — PATCH to mirror the inbound/outbound sub-object settings
-  // Telnyx wouldn't accept in the POST body.
-  const patchBody: Record<string, unknown> = {};
-  const inboundPatch: Record<string, unknown> = {};
-  if (tpl.inbound?.codecs && tpl.inbound.codecs.length > 0) {
-    inboundPatch.codecs = tpl.inbound.codecs;
-  }
-  if (typeof tpl.inbound?.channel_limit === 'number') {
-    inboundPatch.channel_limit = tpl.inbound.channel_limit;
-  }
-  if (typeof tpl.inbound?.sip_subdomain === 'string') {
-    inboundPatch.sip_subdomain = tpl.inbound.sip_subdomain;
-  }
-  if (tpl.inbound?.sip_subdomain_receive_settings) {
-    inboundPatch.sip_subdomain_receive_settings = tpl.inbound.sip_subdomain_receive_settings;
-  }
-  if (Object.keys(inboundPatch).length > 0) patchBody.inbound = inboundPatch;
-
-  const outboundPatch: Record<string, unknown> = {};
-  if (typeof tpl.outbound?.channel_limit === 'number') {
-    outboundPatch.channel_limit = tpl.outbound.channel_limit;
-  }
-  if (tpl.outbound?.outbound_voice_profile_id) {
-    // re-stamp in case POST silently dropped it
-    outboundPatch.outbound_voice_profile_id = tpl.outbound.outbound_voice_profile_id;
-  }
-  if (Object.keys(outboundPatch).length > 0) patchBody.outbound = outboundPatch;
-
+  // Step 3 — PATCH to re-stamp every clone field. Telnyx silently drops a
+  // handful of sub-object fields from the POST body (varies by account
+  // tier + API version); the PATCH catches the rest. We send the exact
+  // same body shape as the POST (sans identity fields) so anything missed
+  // gets corrected.
+  const patchBody = buildTemplateCloneBody(tpl);
   let templateApplied = false;
   if (Object.keys(patchBody).length > 0) {
     const patchRes = await patchCredentialConnection(newConn.id, patchBody);
@@ -537,6 +792,33 @@ export async function createConnectionFromTemplate(
   }
 
   return { ok: true, connection: newConn, templateApplied, warnings };
+}
+
+/**
+ * v0.9.11 — Set the Caller ID Override on a Credential Connection.
+ *
+ * The "Caller ID Override" field in the Telnyx Portal's Outbound tab maps
+ * to `outbound.ani_override` on the connection (NOT to a field on the DID
+ * itself — `PATCH /v2/phone_numbers/:id` does not accept caller_id_override
+ * for credential connections).
+ *
+ * For ACE invited users we want the user's OWN DID to always be presented
+ * as the caller ID on outbound calls placed via the WebRTC dialer, so:
+ *   outbound.ani_override      = the user's E.164 DID (e.g. "+17325551234")
+ *   outbound.ani_override_type = "always"
+ *
+ * Returns the Telnyx PATCH result so the caller can log success / error.
+ */
+export function setConnectionCallerIdOverride(
+  connectionId: string,
+  callerIdE164: string,
+): Promise<TelnyxResult<SingleResponse<FullCredentialConnection>>> {
+  return patchCredentialConnection(connectionId, {
+    outbound: {
+      ani_override: callerIdE164,
+      ani_override_type: 'always',
+    },
+  });
 }
 
 // ─────────────────── 7. Repoint a connection's webhook URL ──────────────────

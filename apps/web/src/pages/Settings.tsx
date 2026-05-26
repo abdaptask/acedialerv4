@@ -2143,8 +2143,10 @@ function HardDeleteUserModal({
               </ul>
               <p className="pending-delete-warn">
                 If this user has call, SMS, or voicemail history, Postgres FK constraints
-                will block the User delete — we'll fall back to <strong>soft deactivation</strong>{' '}
-                (isActive=false, SIP creds + DID cleared) and surface a warning here.
+                will block the User delete — we'll fall back to <strong>anonymize</strong>{' '}
+                (email tombstoned, name + SIP creds + DID + SSO link cleared). The empty
+                row stays attached to the historical records, but the email becomes free
+                to re-invite cleanly.
               </p>
               <p style={{ marginTop: '0.75rem', fontSize: '0.88rem' }}>
                 Type <code>DELETE</code> to confirm:
@@ -2163,7 +2165,7 @@ function HardDeleteUserModal({
               <p style={{ margin: '0 0 12px', fontWeight: 600 }}>
                 {result.deletedHard
                   ? `User ${target.email} fully removed.`
-                  : `User ${target.email} was soft-deactivated.`}
+                  : `User ${target.email} was anonymized (email is now free to re-invite).`}
               </p>
               {!result.deletedHard && (
                 <p className="pending-delete-warn">
@@ -2752,6 +2754,8 @@ function AuditLogSection() {
       case 'user.demoted': return 'demoted';
       case 'user.activated': return 'reactivated';
       case 'user.deactivated': return 'deactivated';
+      case 'user.hard_deleted': return 'hard-deleted';
+      case 'user.anonymized': return 'anonymized (history kept)';
       case 'user.password_reset': return 'reset password for';
       case 'user.updated': return 'updated';
       case 'user.sso_first_signin': return 'first SSO sign-in for';

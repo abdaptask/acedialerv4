@@ -12,6 +12,19 @@ on:
       - 'apps/desktop/**'
       - 'apps/web/**'
       - '.github/workflows/build-desktop.yml'
+      # v0.9.12 — also rebuild when only the API or DB changed but a version
+      # bump was committed. This catches cases where we ship an API-only fix
+      # via `npm version` (which bumps every package.json including
+      # apps/web + apps/desktop) and want the desktop installer to also
+      # advance. Without this, desktop users get stuck on an older version
+      # while web/API auto-deploys to Render with newer code.
+      - 'package.json'
+      - '**/package.json'
+    # v0.9.12 — ALSO trigger on any tag push starting with `v`. Releases
+    # are tagged from PowerShell (git tag vX.Y.Z + git push origin vX.Y.Z),
+    # so a tag push is a strong signal that we want a fresh installer.
+    tags:
+      - 'v*'
   workflow_dispatch: # allow manual trigger from GitHub UI
 
 # Build the .dmg (macOS) and .exe (Windows) installers in parallel.

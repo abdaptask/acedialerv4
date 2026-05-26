@@ -188,6 +188,14 @@ export async function adminRoutes(app: FastifyInstance) {
     { onRequest: [app.authenticate, requireAdmin] },
     async () => {
       const rows = await prisma.user.findMany({
+        // v0.9.12 — hide tombstoned rows from the admin Users list. When a
+        // hard-delete falls back to anonymize (FK history), the email is
+        // rewritten to `deleted-{id}@deleted.ace.local`. These rows only
+        // exist to keep call/SMS/voicemail FK references valid for audit
+        // history; they have no PII and there's nothing useful an admin
+        // can do with them, so we exclude them from both the default view
+        // and the "Show deactivated" toggle.
+        where: { email: { not: { endsWith: '@deleted.ace.local' } } },
         orderBy: [{ isActive: 'desc' }, { createdAt: 'desc' }],
         select: {
           id: true,
@@ -445,6 +453,32 @@ export async function adminRoutes(app: FastifyInstance) {
       } else {
         step('bind messaging profile', false,
           'Skipped: TELNYX_MESSAGING_PROFILE_ID env var not set');
+      }
+
+      // 4.5) v0.9.11 — Set Caller ID Override = the user's OWN DID so calls
+      // placed from the WebRTC dialer present THIS user's number as the
+      // caller ID (not the template's). Maps to outbound.ani_override on
+      // the Credential Connection with ani_override_type="always".
+      // Done AFTER DID purchase/assign so we have a real E.164 to set.
+      if (connectionId && targetDid) {
+        const didDigits = targetDid.replace(/[^\d]/g, '');
+        const didE164ForOverride = targetDid.startsWith('+')
+          ? targetDid
+          : didDigits.length === 11 && didDigits.startsWith('1')
+            ? `+${didDigits}`
+            : didDigits.length === 10
+              ? `+1${didDigits}`
+              : `+${didDigits}`;
+        const override = await telnyx.setConnectionCallerIdOverride(
+          connectionId,
+          didE164ForOverride,
+        );
+        if (override.ok) {
+          step(`set Caller ID Override = ${didE164ForOverride}`, true);
+        } else {
+          step(`set Caller ID Override = ${didE164ForOverride}`, false,
+            JSON.stringify(override.error));
+        }
       }
 
       // 5) Create OR recycle the User row.
@@ -796,7 +830,18 @@ export async function adminRoutes(app: FastifyInstance) {
         }
       }
 
-      // 4) Try the hard delete on the User row. On FK failure, soft-deactivate.
+      // 4) Try the hard delete on the User row. On FK failure, ANONYMIZE
+      //    in place. v0.9.12 — the user explicitly asked: "i want the user
+      //    details to be deleted so that next time i send them an email
+      //    there is no confusion or wont be used. you can keep the other
+      //    history for integrity." So when the FK constraint keeps the row
+      //    alive (call/SMS/voicemail history), we strip every piece of PII
+      //    that could collide on re-invite (email, azureOid) and every
+      //    piece that could leak who this once was (firstName, lastName,
+      //    didNumber, sipUsername, sipPassword, passwordHash, telnyxNumberId,
+      //    phoneExtension, jobDivaUserId, forwarding settings, voicemail
+      //    greeting). Keep id + createdAt + updatedAt so the FK rows stay
+      //    valid for audit/history but point at a tombstone.
       let deletedHard = false;
       try {
         await prisma.user.delete({ where: { id } });
@@ -809,30 +854,56 @@ export async function adminRoutes(app: FastifyInstance) {
           await prisma.user.update({
             where: { id },
             data: {
-              isActive: false,
+              // Tombstone the email so the unique constraint frees the
+              // original — admin can re-invite the same person and we'll
+              // create a fresh User row (no recycle hit because the email
+              // no longer maps to this row).
+              email: `deleted-${id}@deleted.ace.local`,
+              // Wipe PII.
+              firstName: null,
+              lastName: null,
+              phoneExtension: null,
+              jobDivaUserId: null,
+              // Wipe SIP + Telnyx identifiers.
               sipUsername: null,
-              didNumber: null,
               sipPassword: null,
+              didNumber: null,
+              telnyxNumberId: null,
+              // Wipe call-routing prefs.
+              forwardingEnabled: false,
+              forwardingNumber: null,
+              forwardingMode: null,
+              voicemailGreetingUrl: null,
+              voicemailGreetingFilename: null,
+              // Break the SSO link so signing in with the same Microsoft
+              // account doesn't resurrect this row — re-invite path will
+              // create a fresh User instead.
+              azureOid: null,
+              passwordHash: null,
+              // Mark inactive (login + dialer registration both refuse).
+              isActive: false,
+              isAdmin: false,
             },
           });
           step(
-            `User #${id} had history — deactivated instead of deleted (isActive=false, SIP creds + DID cleared)`,
+            `User #${id} had history — anonymized (email tombstoned, PII + SIP creds + DID + SSO link cleared; history rows retained)`,
             true,
           );
         } catch (e2) {
-          step(`deactivate User #${id} (fallback)`, false,
+          step(`anonymize User #${id} (fallback)`, false,
             e2 instanceof Error ? e2.message : String(e2));
         }
       }
 
       await recordAudit(
         actor.sub,
-        deletedHard ? 'user.hard_deleted' : 'user.soft_deactivated',
+        deletedHard ? 'user.hard_deleted' : 'user.anonymized',
         // Don't reference the User row in the audit log if we just deleted it
-        // (would FK-fail). For soft-deactivate it's safe to point at it.
+        // (would FK-fail). For anonymize it's safe to point at it — the row
+        // still exists, just stripped of PII.
         deletedHard ? null : id,
         {
-          email: target.email,
+          originalEmail: target.email,
           deletedHard,
           didReleased,
           connectionDeleted,
@@ -844,10 +915,10 @@ export async function adminRoutes(app: FastifyInstance) {
       return {
         ok: true,
         deletedHard,
-        status: deletedHard ? 'deleted' : 'deactivated',
+        status: deletedHard ? 'deleted' : 'anonymized',
         message: deletedHard
           ? 'User and Telnyx resources fully removed.'
-          : "User had call/SMS history — soft-deactivated instead. Row remains for history integrity but is no longer usable.",
+          : "User had call/SMS history — anonymized instead of deleted. Personal details (email, name, SIP creds, DID, SSO link) were cleared. The empty row stays attached to the historical call/SMS records for audit integrity, but the email is now free to re-invite.",
         didReleased,
         connectionDeleted,
         pendingDeleted,
@@ -2370,6 +2441,52 @@ export async function adminRoutes(app: FastifyInstance) {
           'Skipped: TELNYX_MESSAGING_PROFILE_ID env var not set');
       }
 
+      // ── Step 2.75: Caller ID Override (v0.9.11) ─────────────────────
+      // Set outbound.ani_override on the user's connection to their OWN DID
+      // so outbound calls from the WebRTC dialer present THIS user's number
+      // (not the template's +17322001305). Without this, the previous
+      // "template clone" was inheriting Abdulla's DID as the caller ID for
+      // every new user — wrong number on every call.
+      //
+      // Target connection:
+      //   - credsMode === 'new'      → the freshly-created connection
+      //   - credsMode === 'existing' → the user's existing Pulse connection
+      //     (resolved via the DID's connection_id since the DID is bound to
+      //     it after step 2)
+      if (didNumber) {
+        const didDigits = didNumber.replace(/[^\d]/g, '');
+        const didE164ForOverride = didNumber.startsWith('+')
+          ? didNumber
+          : didDigits.length === 11 && didDigits.startsWith('1')
+            ? `+${didDigits}`
+            : didDigits.length === 10
+              ? `+1${didDigits}`
+              : `+${didDigits}`;
+        let overrideConnId: string | null = newConnectionId;
+        if (!overrideConnId) {
+          // Resolve via the DID for the credsMode=existing path.
+          const probe = await telnyx.findNumberByE164(didE164ForOverride);
+          if (probe.ok && probe.data?.connection_id) {
+            overrideConnId = probe.data.connection_id;
+          }
+        }
+        if (overrideConnId) {
+          const override = await telnyx.setConnectionCallerIdOverride(
+            overrideConnId,
+            didE164ForOverride,
+          );
+          if (override.ok) {
+            step(`set Caller ID Override = ${didE164ForOverride}`, true);
+          } else {
+            step(`set Caller ID Override = ${didE164ForOverride}`, false,
+              JSON.stringify(override.error));
+          }
+        } else {
+          step('set Caller ID Override', false,
+            'Could not resolve a target connection id (no newConnectionId and DID has no connection_id)');
+        }
+      }
+
       // ── Step 3: Repoint webhook ─────────────────────────────────────
       // Only meaningful when we're keeping the user's existing Pulse
       // connection (credsMode=existing). If credsMode=new, the new
@@ -2670,10 +2787,13 @@ export async function adminRoutes(app: FastifyInstance) {
         //    are plain (no cascade) and will block delete with an FK error.
         //    Behaviour:
         //      - Try the hard delete first.
-        //      - On FK failure: soft-deactivate the User so the row stops
-        //        being usable (isActive=false; clear sipUsername+didNumber
-        //        so the dialer can't register and the DID can be re-assigned
-        //        to someone else without a unique-constraint collision).
+        //      - On FK failure: ANONYMIZE the User in place. v0.9.12 — admin
+        //        explicitly asked that deletes free the email for re-invite
+        //        and strip every piece of PII while keeping FK-bound history
+        //        rows (calls/SMS/voicemails) for audit integrity. The
+        //        tombstoned email also frees the unique-constraint slot so
+        //        a fresh re-invite creates a brand-new User row instead of
+        //        recycling this one.
         //    Either way we still drop the PendingUser row below so admin can
         //    re-import + re-invite cleanly.
         try {
@@ -2683,22 +2803,38 @@ export async function adminRoutes(app: FastifyInstance) {
         } catch (e) {
           const msg = e instanceof Error ? e.message : String(e);
           step(`delete User row #${user.id}`, false, msg);
-          // Soft-deactivate fallback so admin doesn't see a ghost user.
+          // Anonymize fallback so admin doesn't see a ghost user AND can
+          // re-invite the same email later without a unique-constraint hit.
           try {
             await prisma.user.update({
               where: { id: user.id },
               data: {
-                isActive: false,
+                email: `deleted-${user.id}@deleted.ace.local`,
+                firstName: null,
+                lastName: null,
+                phoneExtension: null,
+                jobDivaUserId: null,
                 sipUsername: null,
+                sipPassword: null,
                 didNumber: null,
+                telnyxNumberId: null,
+                forwardingEnabled: false,
+                forwardingNumber: null,
+                forwardingMode: null,
+                voicemailGreetingUrl: null,
+                voicemailGreetingFilename: null,
+                azureOid: null,
+                passwordHash: null,
+                isActive: false,
+                isAdmin: false,
               },
             });
             step(
-              `User #${user.id} had history — deactivated instead of deleted (isActive=false, sipUsername+didNumber cleared)`,
+              `User #${user.id} had history — anonymized (email tombstoned, PII + SIP creds + DID + SSO link cleared; history rows retained)`,
               true,
             );
           } catch (e2) {
-            step(`deactivate User #${user.id} (fallback)`, false,
+            step(`anonymize User #${user.id} (fallback)`, false,
               e2 instanceof Error ? e2.message : String(e2));
           }
         }
@@ -3019,34 +3155,39 @@ export async function adminRoutes(app: FastifyInstance) {
         });
       }
 
-      // 3) PATCH the user's connection to mirror template settings.
-      const patchBody: Record<string, unknown> = {};
-      if (tpl.anchorsite_override) patchBody.anchorsite_override = tpl.anchorsite_override;
-      if (tpl.encrypted_media !== undefined) patchBody.encrypted_media = tpl.encrypted_media;
-      if (tpl.webhook_event_url) {
-        patchBody.webhook_event_url = tpl.webhook_event_url;
-        patchBody.webhook_api_version = tpl.webhook_api_version ?? '2';
-      }
-      const inb: Record<string, unknown> = {};
-      if (tpl.inbound?.codecs && tpl.inbound.codecs.length > 0) inb.codecs = tpl.inbound.codecs;
-      if (typeof tpl.inbound?.channel_limit === 'number') inb.channel_limit = tpl.inbound.channel_limit;
-      if (Object.keys(inb).length > 0) patchBody.inbound = inb;
-      const out: Record<string, unknown> = {};
-      if (tpl.outbound?.outbound_voice_profile_id) {
-        out.outbound_voice_profile_id = tpl.outbound.outbound_voice_profile_id;
-      }
-      if (typeof tpl.outbound?.channel_limit === 'number') out.channel_limit = tpl.outbound.channel_limit;
-      if (Object.keys(out).length > 0) patchBody.outbound = out;
+      // 3) PATCH the user's connection to mirror EVERY template setting
+      // (v0.9.11). Previously this only copied anchorsite + encrypted_media +
+      // outbound_voice_profile_id + a couple of channel limits — silently
+      // skipping sip_uri_calling_preference, outbound.encrypted_media,
+      // outbound.localization, rtcp_settings, dtmf_type, and a dozen others.
+      // Use the shared buildTemplateCloneBody helper so verify ↔ invite
+      // stay in sync: anything new added to the helper applies to BOTH paths.
+      //
+      // We pass aniOverride = didE164 so the user's OWN DID is set as the
+      // Caller ID Override (instead of inheriting the template's DID).
+      const patchBody = telnyx.buildTemplateCloneBody(tpl, { aniOverride: didE164 });
 
       if (Object.keys(patchBody).length > 0) {
         const patchRes = await telnyx.patchCredentialConnection(userConn.id, patchBody);
         if (patchRes.ok) {
-          step('PATCH user connection to match template (outbound voice profile + limits)', true);
+          step('PATCH user connection to match template (full clone — every field)', true);
         } else {
           step('PATCH user connection to match template', false, JSON.stringify(patchRes.error));
         }
       } else {
         step('PATCH user connection — nothing to apply', true);
+      }
+
+      // 3.5) Explicit Caller ID Override step (v0.9.11). Even if the
+      // template-clone PATCH above already wrote outbound.ani_override,
+      // we re-stamp it here so (a) the step log shows it as a distinct
+      // success line and (b) we have a fallback if a future change to
+      // buildTemplateCloneBody ever drops that field.
+      const overrideRes = await telnyx.setConnectionCallerIdOverride(userConn.id, didE164);
+      if (overrideRes.ok) {
+        step(`set Caller ID Override = ${didE164}`, true);
+      } else {
+        step(`set Caller ID Override = ${didE164}`, false, JSON.stringify(overrideRes.error));
       }
 
       // 4) Re-bind DID's connection_id to user's connection.

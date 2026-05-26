@@ -1059,11 +1059,14 @@ export async function updateAdminUser(
 /// v0.9.8 — Hard-delete a User row with full Telnyx cleanup (un-assign DID,
 /// delete Credential Connection, delete any linked PendingUser). If the User
 /// has call/SMS/voicemail history, Postgres FK constraints block the row
-/// delete and we soft-deactivate instead — `deletedHard=false` in the response.
+/// delete and we ANONYMIZE instead (v0.9.12): the email is tombstoned to
+/// `deleted-{id}@deleted.ace.local` so the unique-constraint slot frees up
+/// for re-invite, and every piece of PII (name, SIP creds, DID, SSO link)
+/// is cleared. `deletedHard=false` and `status='anonymized'` signal that path.
 export interface DeleteUserHardResult {
   ok: boolean;
   deletedHard: boolean;
-  status: 'deleted' | 'deactivated';
+  status: 'deleted' | 'anonymized';
   message: string;
   didReleased?: string | null;
   connectionDeleted?: string | null;
@@ -1086,7 +1089,7 @@ export async function deleteUserHard(
     return {
       ok: false,
       deletedHard: false,
-      status: 'deactivated',
+      status: 'anonymized',
       message: body.error || `HTTP ${res.status}`,
       steps: body.steps,
       error: body.error || `HTTP ${res.status}`,
