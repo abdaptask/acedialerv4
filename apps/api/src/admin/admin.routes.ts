@@ -601,6 +601,223 @@ export async function adminRoutes(app: FastifyInstance) {
     },
   );
 
+  // ───────────────────────── DELETE /admin/users/:id (v0.9.8) ─────────
+  // Hard-delete a user with full Telnyx cleanup. Mirrors the pending-users
+  // cleanup pipeline (un-assign DID → delete Credential Connection → delete
+  // User row → cascade-delete linked PendingUser).
+  //
+  // Safeguards:
+  //  - 403 if target is the only active admin (would lock everyone out).
+  //  - 403 if target is the actor (don't let admins nuke themselves).
+  //
+  // FK-failure path: if Postgres refuses the User delete because of call/SMS/
+  // voicemail history, we soft-deactivate instead (isActive=false; clear
+  // sipUsername/didNumber/sipPassword so the row stops being usable). Returns
+  // 200 with deletedHard=false so the UI can show a warning.
+  app.delete<{ Params: { id: string } }>(
+    '/admin/users/:id',
+    { onRequest: [app.authenticate, requireAdmin] },
+    async (request, reply) => {
+      const actor = request.user as JwtPayload;
+      const id = Number(request.params.id);
+      if (!Number.isFinite(id)) return reply.code(400).send({ error: 'Invalid id' });
+
+      const target = await prisma.user.findUnique({
+        where: { id },
+        select: {
+          id: true, email: true, isAdmin: true, isActive: true,
+          sipUsername: true, didNumber: true,
+        },
+      });
+      if (!target) return reply.code(404).send({ error: 'User not found' });
+
+      // Self-protection.
+      if (id === actor.sub) {
+        return reply.code(403).send({
+          error: "You can't delete your own account. Ask another admin.",
+        });
+      }
+
+      // Last-admin protection: don't leave the system with zero active admins.
+      if (target.isAdmin && target.isActive) {
+        const remainingAdmins = await prisma.user.count({
+          where: { isAdmin: true, isActive: true, id: { not: id } },
+        });
+        if (remainingAdmins < 1) {
+          return reply.code(403).send({
+            error:
+              "Can't delete the last active admin. Promote someone else first.",
+          });
+        }
+      }
+
+      type StepLog = { step: string; ok: boolean; error?: string };
+      const steps: StepLog[] = [];
+      const step = (name: string, ok: boolean, error?: string) => {
+        steps.push({ step: name, ok, ...(error ? { error } : {}) });
+      };
+
+      let didReleased: string | null = null;
+      let connectionDeleted: string | null = null;
+      let pendingDeleted: number | null = null;
+
+      // 1) Un-assign DID (clears voice connection_id + messaging_profile_id)
+      //    and capture connection_id for step 2.
+      let connIdFromDid: string | null = null;
+      if (target.didNumber) {
+        const lookup = await telnyx.findNumberByE164(target.didNumber);
+        if (!lookup.ok) {
+          step(`look up DID ${target.didNumber}`, false, JSON.stringify(lookup.error));
+        } else if (!lookup.data) {
+          step(`look up DID ${target.didNumber}`, false, 'Number not found (already released?)');
+        } else {
+          connIdFromDid = lookup.data.connection_id ?? null;
+          const un = await telnyx.unassignNumber(lookup.data.id);
+          if (un.ok) {
+            didReleased = target.didNumber;
+            step(`un-assign DID ${target.didNumber} (back to inventory)`, true);
+          } else {
+            step(`un-assign DID ${target.didNumber}`, false, JSON.stringify(un.error));
+          }
+        }
+      } else {
+        step('un-assign DID (none on user)', true);
+      }
+
+      // 2) Delete Credential Connection. Preferred: connection_id from DID.
+      //    Fallback: paginated scan by user_name (Telnyx filter[user_name]
+      //    on /credential_connections is broken — it returns everything).
+      let connToDelete: string | null = connIdFromDid;
+      if (!connToDelete && target.sipUsername) {
+        const MAX_PAGES = 5;
+        const PAGE_SIZE = 250;
+        for (let pageNum = 1; pageNum <= MAX_PAGES && !connToDelete; pageNum += 1) {
+          const qs = new URLSearchParams({
+            'page[number]': String(pageNum),
+            'page[size]': String(PAGE_SIZE),
+          });
+          const listRes = await fetch(
+            `https://api.telnyx.com/v2/credential_connections?${qs.toString()}`,
+            {
+              method: 'GET',
+              headers: {
+                Authorization: `Bearer ${config.telnyxApiKey}`,
+                'Content-Type': 'application/json',
+              },
+            },
+          );
+          const listBody = (await listRes.json().catch(() => ({}))) as {
+            data?: Array<{ id: string; user_name: string }>;
+            meta?: { total_pages?: number };
+          };
+          const items = listBody.data ?? [];
+          const match = items.find((c) => c.user_name === target.sipUsername);
+          if (match) {
+            connToDelete = match.id;
+            step(`find user's Telnyx connection via paginated scan (page ${pageNum})`, true);
+            break;
+          }
+          const totalPages = listBody.meta?.total_pages ?? pageNum;
+          if (items.length < PAGE_SIZE || pageNum >= totalPages) break;
+        }
+      }
+
+      if (connToDelete) {
+        const del = await telnyx.deleteCredentialConnection(connToDelete);
+        if (del.ok) {
+          connectionDeleted = connToDelete;
+          step(`delete Credential Connection ${connToDelete}`, true);
+        } else {
+          step(`delete Credential Connection ${connToDelete}`, false, JSON.stringify(del.error));
+        }
+      } else if (target.sipUsername) {
+        step(`find connection for sipUsername ${target.sipUsername}`, false,
+          'No matching connection via DID + paginated scan');
+      } else {
+        step('delete Credential Connection (no sipUsername on user)', true);
+      }
+
+      // 3) Best-effort: drop any linked PendingUser row first so the staging
+      //    table stays consistent with the actual user list. PendingUser.
+      //    invitedUserId is a plain Int? (no relation), so this isn't strictly
+      //    required for the User.delete below to succeed — but it stops the
+      //    Pending Users tab from showing a "ghost" staged row pointing at a
+      //    user that no longer exists.
+      const linkedPending = await prisma.pendingUser.findFirst({
+        where: { invitedUserId: id },
+        select: { id: true },
+      });
+      if (linkedPending) {
+        try {
+          await prisma.pendingUser.delete({ where: { id: linkedPending.id } });
+          pendingDeleted = linkedPending.id;
+          step(`delete linked PendingUser row #${linkedPending.id}`, true);
+        } catch (e) {
+          step(`delete linked PendingUser row #${linkedPending.id}`, false,
+            e instanceof Error ? e.message : String(e));
+        }
+      }
+
+      // 4) Try the hard delete on the User row. On FK failure, soft-deactivate.
+      let deletedHard = false;
+      try {
+        await prisma.user.delete({ where: { id } });
+        deletedHard = true;
+        step(`delete User row #${id}`, true);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        step(`delete User row #${id}`, false, msg);
+        try {
+          await prisma.user.update({
+            where: { id },
+            data: {
+              isActive: false,
+              sipUsername: null,
+              didNumber: null,
+              sipPassword: null,
+            },
+          });
+          step(
+            `User #${id} had history — deactivated instead of deleted (isActive=false, SIP creds + DID cleared)`,
+            true,
+          );
+        } catch (e2) {
+          step(`deactivate User #${id} (fallback)`, false,
+            e2 instanceof Error ? e2.message : String(e2));
+        }
+      }
+
+      await recordAudit(
+        actor.sub,
+        deletedHard ? 'user.hard_deleted' : 'user.soft_deactivated',
+        // Don't reference the User row in the audit log if we just deleted it
+        // (would FK-fail). For soft-deactivate it's safe to point at it.
+        deletedHard ? null : id,
+        {
+          email: target.email,
+          deletedHard,
+          didReleased,
+          connectionDeleted,
+          pendingDeleted,
+          steps,
+        },
+      );
+
+      return {
+        ok: true,
+        deletedHard,
+        status: deletedHard ? 'deleted' : 'deactivated',
+        message: deletedHard
+          ? 'User and Telnyx resources fully removed.'
+          : "User had call/SMS history — soft-deactivated instead. Row remains for history integrity but is no longer usable.",
+        didReleased,
+        connectionDeleted,
+        pendingDeleted,
+        steps,
+      };
+    },
+  );
+
   // ───────────────────────── GET /admin/audit-logs ────────────────────
   app.get<{ Querystring: { limit?: string; cursor?: string } }>(
     '/admin/audit-logs',
@@ -2283,6 +2500,13 @@ export async function adminRoutes(app: FastifyInstance) {
         : null;
 
       if (user) {
+        // We use the DID-based lookup pattern (same as the verify endpoint):
+        //  - DID → number record → connection_id → connection
+        // This avoids Telnyx's broken filter[user_name] (it ignores it and
+        // returns all connections), and gives us a connection_id we can
+        // confidently delete.
+        let connIdFromDid: string | null = null;
+
         // 1) Un-assign DID → returns it to the unassigned pool (clears both
         //    connection_id + messaging_profile_id).
         if (user.didNumber) {
@@ -2292,6 +2516,10 @@ export async function adminRoutes(app: FastifyInstance) {
           } else if (!lookup.data) {
             step(`look up DID ${user.didNumber}`, false, 'Number not found (already released?)');
           } else {
+            // Capture the connection_id BEFORE we unassign — once we unassign,
+            // the number's connection_id will be null and we'd lose the trail
+            // to the credential connection.
+            connIdFromDid = lookup.data.connection_id ?? null;
             const un = await telnyx.unassignNumber(lookup.data.id);
             if (un.ok) {
               didReleased = user.didNumber;
@@ -2304,63 +2532,96 @@ export async function adminRoutes(app: FastifyInstance) {
           step('un-assign DID', true, undefined);
         }
 
-        // 2) Delete the Credential Connection (looked up by user_name = sipUsername).
-        //    Telnyx requires the DID to be unassigned first; if step 1 failed,
-        //    this PATCH-then-DELETE will still try (logs the failure).
-        if (user.sipUsername) {
-          // user_name filter: Telnyx /credential_connections lets us filter by
-          // user_name; we re-use findConnectionByName for connection_name match
-          // OR fall back to a user_name filter via the API.
-          const qs = new URLSearchParams({
-            'filter[user_name]': user.sipUsername,
-            'page[size]': '5',
-          });
-          // Reuse the underlying call() via fetchCredentialConnection? No —
-          // that takes an id. Use findConnectionByName as a best-effort, but
-          // the connection_name doesn't always match sipUsername. Try direct
-          // list-by-user_name:
-          const listRes = await fetch(
-            `https://api.telnyx.com/v2/credential_connections?${qs.toString()}`,
-            {
-              method: 'GET',
-              headers: {
-                Authorization: `Bearer ${config.telnyxApiKey}`,
-                'Content-Type': 'application/json',
+        // 2) Delete the Credential Connection. Telnyx requires the DID to be
+        //    unassigned first (done in step 1).
+        //    Preferred lookup: connection_id from the DID record.
+        //    Fallback: paginated scan filtered client-side by user_name
+        //    (since /credential_connections does NOT support filter[user_name]).
+        let connToDelete: string | null = connIdFromDid;
+        if (!connToDelete && user.sipUsername) {
+          const MAX_PAGES = 5;
+          const PAGE_SIZE = 250;
+          for (let pageNum = 1; pageNum <= MAX_PAGES && !connToDelete; pageNum += 1) {
+            const qs = new URLSearchParams({
+              'page[number]': String(pageNum),
+              'page[size]': String(PAGE_SIZE),
+            });
+            const listRes = await fetch(
+              `https://api.telnyx.com/v2/credential_connections?${qs.toString()}`,
+              {
+                method: 'GET',
+                headers: {
+                  Authorization: `Bearer ${config.telnyxApiKey}`,
+                  'Content-Type': 'application/json',
+                },
               },
-            },
-          );
-          const listBody = (await listRes.json().catch(() => ({}))) as {
-            data?: Array<{ id: string; user_name: string }>;
-          };
-          const match = (listBody.data ?? []).find((c) => c.user_name === user.sipUsername);
-          if (!match) {
-            step(`look up connection for sipUsername ${user.sipUsername}`, false, 'No matching connection found');
-          } else {
-            const del = await telnyx.deleteCredentialConnection(match.id);
-            if (del.ok) {
-              connectionDeleted = match.id;
-              step(`delete Credential Connection ${match.id}`, true);
-            } else {
-              step(`delete Credential Connection ${match.id}`, false, JSON.stringify(del.error));
+            );
+            const listBody = (await listRes.json().catch(() => ({}))) as {
+              data?: Array<{ id: string; user_name: string }>;
+              meta?: { total_pages?: number };
+            };
+            const items = listBody.data ?? [];
+            const match = items.find((c) => c.user_name === user.sipUsername);
+            if (match) {
+              connToDelete = match.id;
+              step(`find user's Telnyx connection via paginated scan (page ${pageNum})`, true);
+              break;
             }
+            const totalPages = listBody.meta?.total_pages ?? pageNum;
+            if (items.length < PAGE_SIZE || pageNum >= totalPages) break;
           }
+        }
+
+        if (connToDelete) {
+          const del = await telnyx.deleteCredentialConnection(connToDelete);
+          if (del.ok) {
+            connectionDeleted = connToDelete;
+            step(`delete Credential Connection ${connToDelete}`, true);
+          } else {
+            step(`delete Credential Connection ${connToDelete}`, false, JSON.stringify(del.error));
+          }
+        } else if (user.sipUsername) {
+          step(`find connection for sipUsername ${user.sipUsername}`, false,
+            'No matching connection via DID + paginated scan');
         } else {
           step('delete Credential Connection', true, undefined);
         }
 
-        // 3) Delete the User row. Prisma onDelete on schema: Favorite is
-        //    Cascade; other relations (Call, Conversation, etc.) are plain
-        //    relations and may block. We use a transactional approach:
-        //    swallow FK errors with a clear message rather than corrupting state.
+        // 3) Delete the User row. Schema relations like Call/Message/Voicemail
+        //    are plain (no cascade) and will block delete with an FK error.
+        //    Behaviour:
+        //      - Try the hard delete first.
+        //      - On FK failure: soft-deactivate the User so the row stops
+        //        being usable (isActive=false; clear sipUsername+didNumber
+        //        so the dialer can't register and the DID can be re-assigned
+        //        to someone else without a unique-constraint collision).
+        //    Either way we still drop the PendingUser row below so admin can
+        //    re-import + re-invite cleanly.
         try {
           await prisma.user.delete({ where: { id: user.id } });
           deletedUserId = user.id;
           step(`delete User row #${user.id}`, true);
         } catch (e) {
-          step(`delete User row #${user.id}`, false, e instanceof Error ? e.message : String(e));
-          // Don't bail — still try to drop the PendingUser row so admin can
-          // re-import. The User may have call/SMS history blocking the FK; in
-          // that case the admin can deactivate via Admin → Users instead.
+          const msg = e instanceof Error ? e.message : String(e);
+          step(`delete User row #${user.id}`, false, msg);
+          // Soft-deactivate fallback so admin doesn't see a ghost user.
+          try {
+            await prisma.user.update({
+              where: { id: user.id },
+              data: {
+                isActive: false,
+                sipUsername: null,
+                didNumber: null,
+              },
+            });
+            step(
+              `User #${user.id} had history — deactivated instead of deleted (isActive=false, sipUsername+didNumber cleared)`,
+              true,
+            );
+          } catch (e2) {
+            step(`deactivate User #${user.id} (fallback)`, false,
+              e2 instanceof Error ? e2.message : String(e2));
+          }
         }
       } else if (pending.invitedUserId) {
         step(`look up User #${pending.invitedUserId}`, false, 'Linked User not found (already deleted?)');
@@ -2576,7 +2837,7 @@ export async function adminRoutes(app: FastifyInstance) {
       }
       step(`resolve template connection (${tplId})`, true);
 
-      // 2) Fetch template + find the user's existing connection by user_name.
+      // 2) Fetch template + find the user's existing connection.
       const tplRes = await telnyx.fetchCredentialConnection(tplId);
       if (!tplRes.ok || !tplRes.data) {
         step('fetch template connection', false, JSON.stringify(tplRes.error));
@@ -2585,30 +2846,99 @@ export async function adminRoutes(app: FastifyInstance) {
       const tpl = tplRes.data.data;
       step('fetch template connection config', true);
 
-      // Find user's connection by sipUsername (user_name filter).
-      const qs = new URLSearchParams({
-        'filter[user_name]': user.sipUsername,
-        'page[size]': '5',
-      });
-      const listRes = await fetch(
-        `https://api.telnyx.com/v2/credential_connections?${qs.toString()}`,
-        {
-          method: 'GET',
-          headers: {
-            Authorization: `Bearer ${config.telnyxApiKey}`,
-            'Content-Type': 'application/json',
-          },
-        },
-      );
-      const listBody = (await listRes.json().catch(() => ({}))) as {
-        data?: Array<{ id: string; user_name: string }>;
-      };
-      const userConn = (listBody.data ?? []).find((c) => c.user_name === user.sipUsername);
-      if (!userConn) {
-        step(`find user's Credential Connection (user_name=${user.sipUsername})`, false, 'No connection found');
-        return reply.code(404).send({ error: "User's Telnyx connection not found", steps });
+      // Normalize DID up-front (used both for connection lookup and re-bind below).
+      const userDidDigits = user.didNumber.replace(/[^\d]/g, '');
+      const didE164 = user.didNumber.startsWith('+')
+        ? user.didNumber
+        : userDidDigits.length === 11 && userDidDigits.startsWith('1')
+          ? `+${userDidDigits}`
+          : userDidDigits.length === 10
+            ? `+1${userDidDigits}`
+            : `+${userDidDigits}`;
+
+      // Find user's connection. Telnyx /v2/credential_connections does NOT
+      // support filter[user_name]; it only supports filter[connection_name].
+      // Strategy: look up the DID → read its connection_id → fetch that
+      // connection. Fall back to a paginated scan filtered client-side by
+      // user_name if the DID can't tell us.
+      //
+      // Reusable lookup for the cleanup paths below too.
+      let userConn: { id: string; user_name?: string } | null = null;
+      let preFetchedFullConn: telnyx.FullCredentialConnection | null = null;
+
+      // ── Preferred path: via the DID ──
+      const didProbe = await telnyx.findNumberByE164(didE164);
+      if (!didProbe.ok) {
+        step(`find user's Telnyx connection via DID ${didE164}`, false,
+          JSON.stringify(didProbe.error));
+      } else if (!didProbe.data) {
+        step(`find user's Telnyx connection via DID ${didE164}`, false,
+          'DID not in Telnyx account');
+      } else if (!didProbe.data.connection_id) {
+        step(`find user's Telnyx connection via DID ${didE164}`, false,
+          'Number has no connection_id');
+      } else {
+        const connId = didProbe.data.connection_id;
+        const fullRes = await telnyx.fetchCredentialConnection(connId);
+        if (!fullRes.ok || !fullRes.data) {
+          step(`fetch user's connection ${connId}`, false, JSON.stringify(fullRes.error));
+        } else {
+          preFetchedFullConn = fullRes.data.data;
+          userConn = { id: preFetchedFullConn.id, user_name: preFetchedFullConn.user_name };
+          step(`find user's Telnyx connection via DID ${didE164} (${connId})`, true);
+          if (preFetchedFullConn.user_name !== user.sipUsername) {
+            step(
+              `sanity-check: connection.user_name=${preFetchedFullConn.user_name} ≠ sipUsername=${user.sipUsername} (proceeding)`,
+              true,
+            );
+          }
+        }
       }
-      step(`find user's Credential Connection (${userConn.id})`, true);
+
+      // ── Fallback: paginated scan of /credential_connections ──
+      // Used only if the DID path didn't yield a connection.
+      if (!userConn) {
+        const MAX_PAGES = 5;
+        const PAGE_SIZE = 250;
+        for (let pageNum = 1; pageNum <= MAX_PAGES && !userConn; pageNum += 1) {
+          const qs = new URLSearchParams({
+            'page[number]': String(pageNum),
+            'page[size]': String(PAGE_SIZE),
+          });
+          const listRes = await fetch(
+            `https://api.telnyx.com/v2/credential_connections?${qs.toString()}`,
+            {
+              method: 'GET',
+              headers: {
+                Authorization: `Bearer ${config.telnyxApiKey}`,
+                'Content-Type': 'application/json',
+              },
+            },
+          );
+          const listBody = (await listRes.json().catch(() => ({}))) as {
+            data?: Array<{ id: string; user_name: string }>;
+            meta?: { total_pages?: number };
+          };
+          const items = listBody.data ?? [];
+          const match = items.find((c) => c.user_name === user.sipUsername);
+          if (match) {
+            userConn = match;
+            step(`find user's Telnyx connection via paginated scan (page ${pageNum}, ${match.id})`, true);
+            break;
+          }
+          const totalPages = listBody.meta?.total_pages ?? pageNum;
+          if (items.length < PAGE_SIZE || pageNum >= totalPages) break;
+        }
+      }
+
+      if (!userConn) {
+        step(`find user's Telnyx connection (sipUsername=${user.sipUsername})`, false,
+          'No matching connection in DID + paginated scan');
+        return reply.code(502).send({
+          error: "Couldn't locate user's Telnyx credential connection",
+          steps,
+        });
+      }
 
       // 3) PATCH the user's connection to mirror template settings.
       const patchBody: Record<string, unknown> = {};
@@ -2641,15 +2971,10 @@ export async function adminRoutes(app: FastifyInstance) {
       }
 
       // 4) Re-bind DID's connection_id to user's connection.
-      const digits = user.didNumber.replace(/[^\d]/g, '');
-      const didE164 = user.didNumber.startsWith('+')
-        ? user.didNumber
-        : digits.length === 11 && digits.startsWith('1')
-          ? `+${digits}`
-          : digits.length === 10
-            ? `+1${digits}`
-            : `+${digits}`;
-      const numLookup = await telnyx.findNumberByE164(didE164);
+      // Reuse the lookup from step 2 if it succeeded; otherwise re-probe.
+      const numLookup = (didProbe.ok && didProbe.data)
+        ? didProbe
+        : await telnyx.findNumberByE164(didE164);
       if (!numLookup.ok || !numLookup.data) {
         step(`look up DID ${didE164}`, false,
           numLookup.ok ? 'Not found' : JSON.stringify(numLookup.error));

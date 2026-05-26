@@ -49,6 +49,9 @@ import {
   DollarSign,
   Target,
   Siren,
+  X,
+  Loader2,
+  AlertCircle,
 } from 'lucide-react';
 import {
   getMe,
@@ -67,6 +70,8 @@ import {
   type InviteNewUserResult,
   type UnassignedTelnyxNumber,
   updateAdminUser,
+  deleteUserHard,
+  type DeleteUserHardResult,
   listAuditLogs,
   bulkImportUsers,
   getLiveOpsReport,
@@ -108,6 +113,7 @@ import {
   HOLD_MUSIC_MAX_BYTES,
 } from '../lib/userPrefs';
 import PendingUsersSection from '../components/PendingUsersSection';
+import { formatPhone } from '../lib/phone';
 
 interface AudioDevice {
   deviceId: string;
@@ -1680,6 +1686,8 @@ function UsersAdminSection() {
   const [showAutoProvision, setShowAutoProvision] = useState(false);
   const [openMenuId, setOpenMenuId] = useState<number | null>(null);
   const [search, setSearch] = useState('');
+  // v0.9.8 — Hard-delete modal target. null = closed.
+  const [hardDeleteTarget, setHardDeleteTarget] = useState<AdminUserRow | null>(null);
 
   function load() {
     const token = sessionStorage.getItem('ace_token');
@@ -1920,6 +1928,31 @@ function UsersAdminSection() {
                         {r.isActive ? 'Deactivate' : 'Reactivate'}
                       </button>
 
+                      {/* v0.9.8 — Hard delete: full cleanup (DID + Telnyx connection +
+                          User row + linked pending invite). FK-fall-back to soft deactivate
+                          if call/SMS history blocks the delete. */}
+                      <button
+                        type="button"
+                        disabled={
+                          isSelf ||
+                          (r.isAdmin && r.isActive && lastDeactivateWouldStrand)
+                        }
+                        title={
+                          isSelf
+                            ? "You can't delete your own account"
+                            : r.isAdmin && r.isActive && lastDeactivateWouldStrand
+                              ? "Promote someone else first — this is the only active admin"
+                              : 'Full cleanup: un-assign DID, delete Telnyx connection, delete User row'
+                        }
+                        onClick={() => {
+                          setOpenMenuId(null);
+                          setHardDeleteTarget(r);
+                        }}
+                      >
+                        <Trash2 size={14} />
+                        Hard delete
+                      </button>
+
                       {/* Set SIP password â€” for users imported without a password */}
                       <button
                         type="button"
@@ -1997,6 +2030,179 @@ function UsersAdminSection() {
           }}
         />
       )}
+
+      {hardDeleteTarget && (
+        <HardDeleteUserModal
+          target={hardDeleteTarget}
+          onClose={() => setHardDeleteTarget(null)}
+          onDone={() => {
+            setHardDeleteTarget(null);
+            load();
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+// ─────────────────── Hard Delete User Modal (v0.9.8) ────────────────────
+//
+// Replicates the DELETE-confirmation pattern from PendingUsersSection.
+// Two-step: must type "DELETE" before the destructive button arms. Shows
+// the result steps from the backend (deletedHard true = full cleanup,
+// false = soft-deactivate fallback because of FK constraints).
+function HardDeleteUserModal({
+  target,
+  onClose,
+  onDone,
+}: {
+  target: AdminUserRow;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const [confirmText, setConfirmText] = useState('');
+  const [deleting, setDeleting] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [result, setResult] = useState<DeleteUserHardResult | null>(null);
+  const canDelete = confirmText === 'DELETE';
+  const niceDid = target.didNumber ? formatPhone(target.didNumber) : null;
+  const niceName =
+    [target.firstName, target.lastName].filter(Boolean).join(' ').trim() || target.email;
+
+  async function doDelete() {
+    const token = sessionStorage.getItem('ace_token');
+    if (!token) return;
+    setDeleting(true);
+    setErr(null);
+    try {
+      const r = await deleteUserHard(token, target.id);
+      setResult(r);
+      if (!r.ok && r.error) setErr(r.error);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Delete failed');
+    } finally {
+      setDeleting(false);
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" onClick={deleting ? undefined : onClose}>
+      <div className="modal pending-delete-modal" onClick={(e) => e.stopPropagation()}>
+        <header className="modal-header">
+          <h3>Hard delete {target.email}</h3>
+          <button
+            type="button"
+            className="modal-close"
+            onClick={result ? onDone : onClose}
+            disabled={deleting}
+            aria-label="Close"
+          >
+            <X size={18} />
+          </button>
+        </header>
+        <div className="modal-body">
+          {!result ? (
+            <>
+              <p>
+                This will permanently remove <strong>{niceName}</strong> from ACE and Telnyx:
+              </p>
+              <ul className="pending-delete-bullets">
+                {niceDid ? (
+                  <li>Un-assign DID <strong>{niceDid}</strong> back to inventory</li>
+                ) : (
+                  <li>No DID on this user — skip DID step</li>
+                )}
+                <li>Delete the SIP credential connection (Telnyx)</li>
+                <li>Delete the User row <strong>#{target.id}</strong></li>
+                <li>Delete any linked staged invite (Pending Users row)</li>
+              </ul>
+              <p className="pending-delete-warn">
+                If this user has call, SMS, or voicemail history, Postgres FK constraints
+                will block the User delete — we'll fall back to <strong>soft deactivation</strong>{' '}
+                (isActive=false, SIP creds + DID cleared) and surface a warning here.
+              </p>
+              <p style={{ marginTop: '0.75rem', fontSize: '0.88rem' }}>
+                Type <code>DELETE</code> to confirm:
+              </p>
+              <input
+                type="text"
+                value={confirmText}
+                onChange={(e) => setConfirmText(e.target.value)}
+                className="pending-delete-confirm-input"
+                placeholder="DELETE"
+                autoFocus
+              />
+            </>
+          ) : (
+            <>
+              <p style={{ margin: '0 0 12px', fontWeight: 600 }}>
+                {result.deletedHard
+                  ? `User ${target.email} fully removed.`
+                  : `User ${target.email} was soft-deactivated.`}
+              </p>
+              {!result.deletedHard && (
+                <p className="pending-delete-warn">
+                  {result.message}
+                </p>
+              )}
+              {result.steps && result.steps.length > 0 && (
+                <ul style={{ margin: '0 0 0 0', paddingLeft: 20, fontSize: 14 }}>
+                  {result.steps.map((s, i) => (
+                    <li key={i} style={{ marginBottom: 4 }}>
+                      {s.ok ? '✓' : '✗'} {s.step}
+                      {s.error && (
+                        <span className="muted small" style={{ marginLeft: 6 }}>
+                          — {s.error}
+                        </span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </>
+          )}
+
+          {err && (
+            <div className="pending-error" style={{ marginTop: '0.75rem' }}>
+              <AlertCircle size={14} /> {err}
+            </div>
+          )}
+        </div>
+        <footer className="modal-footer">
+          {!result ? (
+            <>
+              <button
+                type="button"
+                className="settings-btn-secondary"
+                onClick={onClose}
+                disabled={deleting}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="settings-btn pending-delete-confirm-btn"
+                onClick={() => void doDelete()}
+                disabled={!canDelete || deleting}
+              >
+                {deleting ? (
+                  <><Loader2 size={14} className="spin" /> Deleting…</>
+                ) : (
+                  <><Trash2 size={14} /> Delete &amp; clean up</>
+                )}
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              className="settings-btn"
+              onClick={onDone}
+            >
+              Close
+            </button>
+          )}
+        </footer>
+      </div>
     </div>
   );
 }

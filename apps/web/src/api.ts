@@ -1056,6 +1056,45 @@ export async function updateAdminUser(
   return (await res.json()) as AdminUserRow;
 }
 
+/// v0.9.8 — Hard-delete a User row with full Telnyx cleanup (un-assign DID,
+/// delete Credential Connection, delete any linked PendingUser). If the User
+/// has call/SMS/voicemail history, Postgres FK constraints block the row
+/// delete and we soft-deactivate instead — `deletedHard=false` in the response.
+export interface DeleteUserHardResult {
+  ok: boolean;
+  deletedHard: boolean;
+  status: 'deleted' | 'deactivated';
+  message: string;
+  didReleased?: string | null;
+  connectionDeleted?: string | null;
+  pendingDeleted?: number | null;
+  steps?: Array<{ step: string; ok: boolean; error?: string }>;
+  error?: string;
+}
+export async function deleteUserHard(
+  token: string,
+  id: number,
+): Promise<DeleteUserHardResult> {
+  const res = await fetch(`${API_URL}/admin/users/${id}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const body = (await res.json().catch(() => ({}))) as Partial<DeleteUserHardResult> & {
+    error?: string;
+  };
+  if (!res.ok) {
+    return {
+      ok: false,
+      deletedHard: false,
+      status: 'deactivated',
+      message: body.error || `HTTP ${res.status}`,
+      steps: body.steps,
+      error: body.error || `HTTP ${res.status}`,
+    };
+  }
+  return body as DeleteUserHardResult;
+}
+
 export interface AuditLogEntry {
   id: number;
   action: string;
