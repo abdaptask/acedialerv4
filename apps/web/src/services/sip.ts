@@ -267,15 +267,68 @@ export class SipService {
     });
     this.ua.on('registered', () => {
       console.log('[sip] registered');
+      // Successful REGISTER — clear the first-login retry counter so a
+      // later daytime hiccup gets the full 3-retry budget again.
+      this.regFailCount = 0;
+      if (this.regRetryTimer) {
+        clearTimeout(this.regRetryTimer);
+        this.regRetryTimer = null;
+      }
       this.emit<SipState>('state', 'registered');
     });
     this.ua.on('unregistered', () => {
       console.log('[sip] unregistered');
       this.emit<SipState>('state', 'disconnected');
     });
+    // v0.9.13 — auto-retry on registrationFailed.
+    //
+    // Symptom this fixes: brand-new user signs in via the welcome email
+    // within seconds of admin pressing Invite. Telnyx's /credential_connections
+    // provisioning API returns 201 instantly, but their SIP registrar is a
+    // separate distributed service that takes ~5-15s to replicate the new
+    // credential. The very first REGISTER hits the registrar before
+    // replication completes, returns 401/403, JsSIP fires registrationFailed
+    // exactly once, and we used to flip to 'failed' state and sit there
+    // forever — user had to Ctrl+Shift+R to get online.
+    //
+    // Fix: exponential backoff retry. 2s → 4s → 8s (14s total window,
+    // comfortably covers the Telnyx propagation delay). After 3 failures
+    // we give up and surface 'failed' so the user sees Disconnected and
+    // can investigate (genuinely bad creds shouldn't auto-retry forever
+    // — that just hammers Telnyx). Counter resets on 'registered' so a
+    // later transient failure gets the full 3-retry budget.
+    //
+    // We stay in 'connecting' state during the retry window so the UI
+    // shows a smooth Connecting → Online transition instead of a red
+    // Disconnected flashing back to green.
     this.ua.on('registrationFailed', (e: { cause?: string }) => {
-      console.warn('[sip] registrationFailed', e.cause);
-      this.emit<SipState>('state', 'failed');
+      this.regFailCount += 1;
+      console.warn(
+        `[sip] registrationFailed (attempt ${this.regFailCount}/${SipService.MAX_REG_RETRIES})`,
+        e.cause,
+      );
+      if (this.regFailCount >= SipService.MAX_REG_RETRIES) {
+        console.warn('[sip] giving up after', this.regFailCount, 'failed registrations');
+        this.emit<SipState>('state', 'failed');
+        return;
+      }
+      // 2s, 4s, 8s — exponential backoff.
+      const backoffMs = 2_000 * Math.pow(2, this.regFailCount - 1);
+      console.log(`[sip] retrying registration in ${backoffMs}ms…`);
+      // Keep showing 'connecting' to the UI — smoother UX than failed→connecting→registered flicker.
+      this.emit<SipState>('state', 'connecting');
+      if (this.regRetryTimer) clearTimeout(this.regRetryTimer);
+      this.regRetryTimer = setTimeout(() => {
+        this.regRetryTimer = null;
+        if (!this.lastConfig) {
+          console.warn('[sip] retry: no saved config — cannot reconnect');
+          this.emit<SipState>('state', 'failed');
+          return;
+        }
+        // reconnect() tears down the UA + does wildcard unregister so
+        // Telnyx evicts any half-state Contact, then connect()s fresh.
+        this.reconnect();
+      }, backoffMs);
     });
 
     // Each new outgoing or incoming call is a "newRTCSession" event.
@@ -297,6 +350,17 @@ export class SipService {
 
   /** Saved connect() config, used by reconnect() to rebuild the UA. */
   private lastConfig: SipConfig | null = null;
+
+  /**
+   * v0.9.13 — first-login registration-retry state. Survives across
+   * reconnect() calls because both fields are on `this` (not on the UA
+   * instance, which we throw away on every reconnect). regFailCount
+   * resets to 0 on a successful 'registered' event so a later daytime
+   * hiccup gets the full retry budget.
+   */
+  private regFailCount = 0;
+  private regRetryTimer: ReturnType<typeof setTimeout> | null = null;
+  private static readonly MAX_REG_RETRIES = 3;
   private saveConfigForReconnect(config: SipConfig): void {
     this.lastConfig = config;
   }
@@ -1757,6 +1821,14 @@ export class SipService {
       clearInterval(this.heartbeatTimer);
       this.heartbeatTimer = null;
     }
+    // v0.9.13 — also cancel any pending first-login retry so a logout/
+    // page-close during the 2-8s backoff window doesn't fire a stray
+    // reconnect() against a torn-down service.
+    if (this.regRetryTimer) {
+      clearTimeout(this.regRetryTimer);
+      this.regRetryTimer = null;
+    }
+    this.regFailCount = 0;
     if (this.ua) {
       // Wildcard unregister BEFORE close so Telnyx evicts our Contact
       // right now instead of leaving an orphan to linger for up to 600s
