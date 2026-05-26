@@ -259,7 +259,20 @@ export default function Settings() {
   const { section } = useParams<{ section?: string }>();
   const navigate = useNavigate();
 
-  // Redirect /settings â†’ /settings/<default>
+  // Reset scroll to top whenever the user switches sections. Without this,
+  // React Router preserves the previous section's scroll offset, which
+  // makes the new section's content look blank (because the user is
+  // scrolled past the header). Resets both the inner pane-body AND the
+  // window in case the dialer is in a vertical-overflow state.
+  const paneBodyRef = useRef<HTMLDivElement | null>(null);
+  const paneRef = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    paneBodyRef.current?.scrollTo({ top: 0, left: 0 });
+    paneRef.current?.scrollTo({ top: 0, left: 0 });
+    window.scrollTo({ top: 0, left: 0 });
+  }, [section]);
+
+  // Redirect /settings → /settings/<default>
   if (!section) return <Navigate to={`/settings/${DEFAULT_SECTION}`} replace />;
   const active = SECTIONS.find((s) => s.key === section);
   if (!active) return <Navigate to={`/settings/${DEFAULT_SECTION}`} replace />;
@@ -281,12 +294,12 @@ export default function Settings() {
         <SettingsNav activeCategory={active.category} />
       </aside>
 
-      <main className="settings-pane">
+      <main className="settings-pane" ref={paneRef}>
         <header className="settings-pane-header">
           <span className="settings-pane-icon"><active.icon size={20} /></span>
           <h2>{active.label}</h2>
         </header>
-        <div className="settings-pane-body">
+        <div className="settings-pane-body" ref={paneBodyRef}>
           <ActiveComponent />
         </div>
       </main>
@@ -2185,10 +2198,20 @@ function AutoProvisionUserModal({
                               value={pickedUnassignedDid}
                               onChange={(e) => setPickedUnassignedDid(e.target.value)}
                               className="fav-modal-input"
-                              style={{ maxWidth: 320 }}
+                              // colorScheme tells the browser to render the
+                              // native dropdown panel using OS dark/light mode,
+                              // which fixes the white-on-white option list bug.
+                              style={{ maxWidth: 320, colorScheme: 'light dark' }}
                             >
                               {unassigned.map((n) => (
-                                <option key={n.id} value={n.phoneNumber}>
+                                <option
+                                  key={n.id}
+                                  value={n.phoneNumber}
+                                  // Belt and suspenders: explicit option colors
+                                  // for browsers that don't respect colorScheme
+                                  // on <option> elements.
+                                  style={{ color: '#1a1a1a', background: '#fff' }}
+                                >
                                   {n.phoneNumber}
                                   {n.regionLabel ? ` — ${n.regionLabel}` : ''}
                                   {n.areaCode ? ` (${n.areaCode})` : ''}
@@ -2206,19 +2229,23 @@ function AutoProvisionUserModal({
                 </label>
               </fieldset>
 
-              <label className="fav-modal-field" style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12 }}>
+              {/* Don't use .fav-modal-field here — it forces flex-column which
+                  stacks the checkbox above the label. Use plain inline flex. */}
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 14, cursor: 'pointer' }}>
                 <input
                   type="checkbox"
                   checked={makeAdmin}
                   onChange={(e) => setMakeAdmin(e.target.checked)}
+                  style={{ margin: 0 }}
                 />
                 <span>Grant admin role</span>
               </label>
-              <label className="fav-modal-field" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6, cursor: 'pointer' }}>
                 <input
                   type="checkbox"
                   checked={sendEmail}
                   onChange={(e) => setSendEmail(e.target.checked)}
+                  style={{ margin: 0 }}
                 />
                 <span>Send welcome email after provisioning</span>
               </label>
