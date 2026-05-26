@@ -330,10 +330,13 @@ export async function adminRoutes(app: FastifyInstance) {
       // v0.9.7 — template-clone path. If the template DID/ID resolves, clone
       // its outbound voice profile + channel limits + codecs onto the new
       // connection so the user can actually PLACE calls from minute one.
-      // Fall back to plain create if anything goes wrong.
-      let sipUsername: string;
-      let sipPassword: string;
-      let connectionId: string;
+      // Fall back to plain create if anything goes wrong. Initialize to
+      // empty so TypeScript's flow analysis sees a definite assignment
+      // (both branches below assign, but TS can't prove that across two
+      // separate `if` blocks).
+      let sipUsername = '';
+      let sipPassword = '';
+      let connectionId = '';
       const tplIdRes = await telnyx.resolveTemplateConnectionId();
       const tplId = tplIdRes.ok ? tplIdRes.data : null;
       let usedTemplate = false;
