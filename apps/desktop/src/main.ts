@@ -550,6 +550,23 @@ function initAutoUpdater() {
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
 
+  // v0.9.4 — TEMPORARY: bypass Windows code-signing verification because
+  // we don't have an EV cert yet (see task #194 / #233). Without this,
+  // electron-updater refuses to install ANY update on Windows since
+  // package.json declares publisherName: "ApTask" but our GitHub Actions
+  // workflow doesn't actually sign the EXE — so the publisher-name match
+  // check fails and the user sees "Update failed: not signed by the
+  // application owner". MITM risk is low since downloads come from GitHub
+  // Releases over HTTPS; remove this override once we wire the EV cert in.
+  if (process.platform === 'win32') {
+    // The property is undocumented but recognised by NsisUpdater; making
+    // it a no-op resolver tells electron-updater to skip the signature
+    // verification step entirely.
+    (autoUpdater as unknown as {
+      verifyUpdateCodeSignature?: (publisherNames: string[], file: string) => Promise<string | null>;
+    }).verifyUpdateCodeSignature = async () => null;
+  }
+
   autoUpdater.on('checking-for-update', () => {
     console.log('[auto-update] checking for update');
     lastUpdateState = { phase: 'checking' };

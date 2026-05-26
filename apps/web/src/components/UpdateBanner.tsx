@@ -178,11 +178,49 @@ export default function UpdateBanner() {
     void ace.installUpdate().catch(() => setInstalling(false));
   }
 
-  function handleOpenReleases() {
+  // Open the platform-specific installer directly instead of dumping the
+  // user on the GitHub Releases page (which lists .exe, .dmg, .blockmap,
+  // .yml, source tarballs, etc. — confusing). We hit the GitHub API at
+  // click time, pick the right asset for the current OS, and open its
+  // direct download URL. Falls back to the releases page if the API call
+  // fails or no platform-matching asset is found.
+  async function handleOpenReleases() {
+    const ua = navigator.userAgent.toLowerCase();
+    // crude but reliable: Windows asks for the .exe, everything else
+    // (Mac and the rare Linux user) gets the .dmg / .AppImage / .deb.
+    const wantExt = ua.includes('windows') || ua.includes('win64')
+      ? '.exe'
+      : ua.includes('mac') || ua.includes('darwin')
+        ? '.dmg'
+        : null;
+    let directUrl: string | null = null;
+    if (wantExt) {
+      try {
+        const apiUrl = 'https://api.github.com/repos/abdaptask/acedialerv4/releases/latest';
+        const res = await fetch(apiUrl, { headers: { Accept: 'application/vnd.github+json' } });
+        if (res.ok) {
+          const data: { assets?: Array<{ name?: string; browser_download_url?: string }> } = await res.json();
+          // Filter out blockmap / latest.yml / source archives — match
+          // only the installer file the user actually wants. Take the
+          // first hit whose name ends in the extension AND doesn't
+          // contain 'blockmap'.
+          const asset = data.assets?.find(
+            (a) =>
+              typeof a.name === 'string' &&
+              a.name.toLowerCase().endsWith(wantExt) &&
+              !a.name.toLowerCase().includes('blockmap'),
+          );
+          if (asset?.browser_download_url) directUrl = asset.browser_download_url;
+        }
+      } catch {
+        /* network/API error — fall back to the releases page */
+      }
+    }
+    const target = directUrl ?? RELEASES_URL;
     if (isElectron && ace?.openExternal) {
-      void ace.openExternal(RELEASES_URL);
+      void ace.openExternal(target);
     } else {
-      window.open(RELEASES_URL, '_blank', 'noopener,noreferrer');
+      window.open(target, '_blank', 'noopener,noreferrer');
     }
   }
 
