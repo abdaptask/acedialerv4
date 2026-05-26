@@ -23,7 +23,7 @@
 // Dismissal is keyed by candidate version so the banner reappears on the
 // NEXT release even if the user dismissed the previous one.
 import { useEffect, useState } from 'react';
-import { Download, X, RefreshCcw } from 'lucide-react';
+import { Download, X, RefreshCcw, AlertTriangle } from 'lucide-react';
 import { getApiVersion } from '../api';
 
 const RELEASES_URL = 'https://github.com/abdaptask/acedialerv4/releases/latest';
@@ -54,6 +54,7 @@ type UpdateState =
   | { phase: 'available'; version: string | null }
   | { phase: 'downloading'; version: string | null; percent: number }
   | { phase: 'downloaded'; version: string | null }
+  | { phase: 'error'; version: string | null; message: string } // v0.9.1 — failed download / install
   | { phase: 'server-ahead'; version: string }; // fallback path (web or legacy electron)
 
 export default function UpdateBanner() {
@@ -87,6 +88,17 @@ export default function UpdateBanner() {
     const unsubDone = ace!.onUpdateDownloaded!((info) => {
       setState({ phase: 'downloaded', version: info.version });
     });
+    // v0.9.1 — also subscribe to errors. Without this, a failed download
+    // (or, on Windows, an installer rejected for being unsigned) left the
+    // banner stuck at "Downloading 100%" with no indication anything went
+    // wrong. We carry forward whatever version we previously knew about
+    // so the message still tells the user WHICH update failed.
+    const unsubErr = ace!.onUpdateError?.((info) => {
+      setState((prev) => {
+        const version = ('version' in prev) ? prev.version ?? null : null;
+        return { phase: 'error', version, message: info.message };
+      });
+    });
 
     // v0.8.8 — Rehydrate from the main process's state-mirror on mount.
     // electron-updater fires 'update-downloaded' exactly once. If this
@@ -95,15 +107,21 @@ export default function UpdateBanner() {
     // the event was lost forever and the banner stayed stuck at
     // "Downloading 100%". Querying the mirror on mount guarantees we
     // surface "Restart to install" no matter when we appeared.
+    //
+    // v0.9.1 — also rehydrate the 'error' phase. Previously we bailed
+    // out when the mirror said 'error', which meant a download that
+    // failed BEFORE the banner mounted was invisible forever.
     if (typeof ace!.getUpdateState === 'function') {
       void ace!.getUpdateState().then((s) => {
-        if (!s || s.phase === 'idle' || s.phase === 'checking' || s.phase === 'error') return;
+        if (!s || s.phase === 'idle' || s.phase === 'checking') return;
         if (s.phase === 'downloaded') {
           setState({ phase: 'downloaded', version: s.version ?? null });
         } else if (s.phase === 'downloading') {
           setState({ phase: 'downloading', version: s.version ?? null, percent: s.percent ?? 0 });
         } else if (s.phase === 'available') {
           setState({ phase: 'available', version: s.version ?? null });
+        } else if (s.phase === 'error') {
+          setState({ phase: 'error', version: s.version ?? null, message: s.message ?? 'Update failed' });
         }
       }).catch(() => { /* main process not ready yet — events will catch up */ });
     }
@@ -112,6 +130,7 @@ export default function UpdateBanner() {
       unsubAvail?.();
       unsubProg?.();
       unsubDone?.();
+      unsubErr?.();
     };
   }, [hasAutoUpdater, ace]);
 
@@ -171,20 +190,38 @@ export default function UpdateBanner() {
     window.location.reload();
   }
 
+  async function handleRetry() {
+    if (!ace?.checkForUpdates) return;
+    // Reset the banner so the user sees fresh feedback. The main process
+    // will fire 'update-available' → 'download-progress' → 'downloaded'
+    // (or another 'error') as usual, and our subscribers will update state.
+    setState({ phase: 'idle' });
+    try {
+      await ace.checkForUpdates();
+    } catch {
+      /* main returns an error object instead of throwing; the auto-updater
+         'error' event (if any) will fire separately and re-populate state. */
+    }
+  }
+
   function handleDismiss() {
     const v =
       state.phase === 'available' || state.phase === 'downloading' || state.phase === 'downloaded' ? state.version
       : state.phase === 'server-ahead' ? state.version
+      : state.phase === 'error' ? state.version
       : null;
-    if (!v) return;
-    sessionStorage.setItem(DISMISS_KEY_PREFIX + v, '1');
+    if (v) {
+      sessionStorage.setItem(DISMISS_KEY_PREFIX + v, '1');
+    }
+    // For errors with no known version we still dismiss in-memory for the
+    // session; the banner reappears on next launch / next failure.
     setDismissed(true);
   }
 
   // ------- Render -------
   const candidate =
     state.phase === 'server-ahead' ? state.version
-    : (state.phase === 'available' || state.phase === 'downloading' || state.phase === 'downloaded') ? (state.version ?? '')
+    : (state.phase === 'available' || state.phase === 'downloading' || state.phase === 'downloaded' || state.phase === 'error') ? (state.version ?? '')
     : '';
 
   let title = 'Update available';
@@ -221,6 +258,41 @@ export default function UpdateBanner() {
           <Download size={14} />
           {installing ? 'Restarting…' : 'Restart to install'}
         </button>
+      </>
+    );
+  } else if (state.phase === 'error') {
+    // v0.9.1 — the previously-silent failure path. We tell the user the
+    // auto-update couldn't finish, show the underlying message, and offer
+    // a manual fallback (download the installer from GitHub Releases)
+    // plus a Retry that re-kicks the electron-updater check.
+    title = candidate
+      ? `Update to v${candidate} failed`
+      : 'Update failed';
+    actions = (
+      <>
+        <span className="update-banner-versions" title={state.message}>
+          {state.message.length > 80 ? state.message.slice(0, 77) + '…' : state.message}
+        </span>
+        <button
+          type="button"
+          className="update-banner-cta"
+          onClick={handleOpenReleases}
+          title={`Open ${RELEASES_URL}`}
+        >
+          <Download size={14} />
+          Download installer
+        </button>
+        {ace?.checkForUpdates ? (
+          <button
+            type="button"
+            className="update-banner-cta-secondary"
+            onClick={() => void handleRetry()}
+            title="Try the auto-update again"
+          >
+            <RefreshCcw size={14} />
+            Retry
+          </button>
+        ) : null}
       </>
     );
   } else if (state.phase === 'server-ahead') {
@@ -266,9 +338,13 @@ export default function UpdateBanner() {
   }
 
   return (
-    <div className="update-banner" role="status" aria-live="polite">
+    <div
+      className={state.phase === 'error' ? 'update-banner update-banner--error' : 'update-banner'}
+      role={state.phase === 'error' ? 'alert' : 'status'}
+      aria-live={state.phase === 'error' ? 'assertive' : 'polite'}
+    >
       <span className="update-banner-icon" aria-hidden="true">
-        <Download size={16} />
+        {state.phase === 'error' ? <AlertTriangle size={16} /> : <Download size={16} />}
       </span>
       <span className="update-banner-text">
         <strong>{title}</strong>
