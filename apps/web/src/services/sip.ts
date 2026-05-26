@@ -309,7 +309,34 @@ export class SipService {
     // We stay in 'connecting' state during the retry window so the UI
     // shows a smooth Connecting → Online transition instead of a red
     // Disconnected flashing back to green.
+    //
+    // v0.9.14 — CRITICAL guard against tearing down active calls.
+    // v0.9.13's retry was too aggressive: when a routine REGISTER refresh
+    // failed mid-call (common on flaky India ↔ US links), we called
+    // reconnect() which destroys the UA + every in-flight session. The
+    // caller's dialer showed the call drop, they immediately redialed,
+    // and the recipient's cell phone rang again. From the recipient's
+    // perspective this looked like "constantly ringing even while on a
+    // call with him" because each successful call only lasted as long
+    // as the next REGISTER heartbeat. The guard: skip the teardown if
+    // any RTCSession is active. JsSIP's own registrar will keep retrying
+    // the REGISTER refresh on its existing 600s expiry window — no need
+    // for us to kill the UA. We still apply the retry for cold-start
+    // failures (no active call → safe to tear down).
     this.ua.on('registrationFailed', (e: { cause?: string }) => {
+      const hasActiveCall = this.calls.size > 0 || this.incomingCallId !== null;
+      if (hasActiveCall) {
+        console.warn(
+          `[sip] registrationFailed during active call (calls=${this.calls.size}, incoming=${this.incomingCallId ? 'yes' : 'no'}) — skipping retry, letting JsSIP handle refresh internally`,
+          e.cause,
+        );
+        // Don't increment regFailCount, don't tear down. The existing
+        // registration (TTL up to 600s) keeps the call's SIP routing alive
+        // long enough for the conversation to finish, and JsSIP retries
+        // REGISTER refreshes on its own timer.
+        return;
+      }
+
       this.regFailCount += 1;
       console.warn(
         `[sip] registrationFailed (attempt ${this.regFailCount}/${SipService.MAX_REG_RETRIES})`,
@@ -331,6 +358,13 @@ export class SipService {
         if (!this.lastConfig) {
           console.warn('[sip] retry: no saved config — cannot reconnect');
           this.emit<SipState>('state', 'failed');
+          return;
+        }
+        // Re-check active-call guard at the moment of teardown — a call
+        // could have arrived during the 2-8s backoff window.
+        const stillSafe = this.calls.size === 0 && this.incomingCallId === null;
+        if (!stillSafe) {
+          console.warn('[sip] retry-time check: active call appeared during backoff, skipping teardown');
           return;
         }
         // reconnect() tears down the UA + does wildcard unregister so
