@@ -557,6 +557,25 @@ app.post('/webhooks/telnyx/calls', async (request) => {
           // (we don't pay them for it, but if it's there, use it as a head-
           // start before our Deepgram call returns).
           const telnyxText: string | null = payload.transcription_text ?? null;
+          // v0.10.0 — Dedup by telnyx_call_id. Telnyx fires both
+          // `calls.voicemail.completed` (Telnyx Hosted Voicemail flow)
+          // AND `call.recording.saved` with client_state='voicemail' (the
+          // legacy /webhooks/telnyx/voicemail path below) for the same
+          // call. Without this check we'd create two Voicemail rows for
+          // a single message — which is exactly what the user just saw.
+          const dupCheck = callId
+            ? await prisma.voicemail.findFirst({
+                where: { telnyxCallId: callId },
+                select: { id: true },
+              })
+            : null;
+          if (dupCheck) {
+            app.log.info(
+              { telnyxCallId: callId, existingVoicemailId: dupCheck.id },
+              '[vm] dedup: voicemail with this telnyxCallId already exists, skipping create',
+            );
+            break;
+          }
           const created = await prisma.voicemail.create({
             data: {
               userId: ownerUserId,
@@ -940,6 +959,24 @@ app.post('/webhooks/telnyx/voicemail', async (request) => {
         '[blocked] voicemail from blocked number - dropping',
       );
       return { received: true };
+    }
+
+    // v0.10.0 — Dedup by telnyx_call_id. The Telnyx Hosted Voicemail
+    // handler above ALSO writes to this table; if Telnyx fires both
+    // event types for the same call, we'd produce two rows. Skip
+    // creation if a row with this telnyxCallId already exists.
+    if (telnyxCallId) {
+      const dupCheck = await prisma.voicemail.findFirst({
+        where: { telnyxCallId },
+        select: { id: true },
+      });
+      if (dupCheck) {
+        app.log.info(
+          { telnyxCallId, existingVoicemailId: dupCheck.id },
+          '[telnyx] legacy voicemail dedup: row with this telnyxCallId already exists, skipping',
+        );
+        return { received: true };
+      }
     }
 
     await prisma.voicemail.create({

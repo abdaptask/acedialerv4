@@ -311,22 +311,26 @@ body {
   top: calc(100% + 6px);
   left: 0;
   right: auto;
-  min-width: max(220px, 100%);
-  max-width: 320px;
-  background: var(--surface, #1a2233);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 10px;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  min-width: max(260px, 100%);
+  max-width: 360px;
+  /* IMPORTANT: solid opaque background. --surface in this project is
+     defined as rgba(118, 118, 128, 0.18) — a translucent gray — so any
+     dropdown using var(--surface) shows page content bleeding through.
+     Use an explicit hex value here. Match the lines-modal palette
+     (#0f172a / #1a2233 family). */
+  background: #0f172a;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 12px;
+  box-shadow:
+    0 20px 50px rgba(0, 0, 0, 0.55),
+    0 4px 12px rgba(0, 0, 0, 0.35);
   list-style: none;
   margin: 0;
-  padding: 4px;
-  /* z-index 700 puts the dropdown above page content (header + body)
-     but still below modal backdrops at z-index 800 (compose-modal).
-     Original z-index 50 was too low — Settings table buttons and other
-     ui elements with their own stacking contexts could overlay on top
-     of it. */
+  padding: 6px;
+  /* z-index 700 sits above page content (header + body) but below
+     modal backdrops (compose-modal at 800). */
   z-index: 700;
-  animation: did-menu-fade 0.12s ease-out;
+  animation: did-menu-fade 0.14s ease-out;
 }
 @keyframes did-menu-fade {
   from { opacity: 0; transform: translateY(-4px); }
@@ -341,41 +345,53 @@ body {
   width: 100%;
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 8px 10px;
+  gap: 12px;
+  padding: 10px 12px;
   background: none;
-  border: none;
-  color: rgba(235, 235, 245, 0.92);
+  border: 1px solid transparent;
+  color: rgba(235, 235, 245, 0.94);
   cursor: pointer;
-  border-radius: 6px;
+  border-radius: 9px;
   text-align: left;
-  font-size: 0.85rem;
-  transition: background 0.1s ease;
+  font-size: 0.88rem;
+  transition: background 0.12s ease, border-color 0.12s ease;
 }
 .did-switcher-option-btn:hover {
-  background: rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.07);
+  border-color: rgba(255, 255, 255, 0.05);
 }
 .did-switcher-option-btn:disabled {
   opacity: 0.55;
   cursor: not-allowed;
 }
 .did-switcher-option.active .did-switcher-option-btn {
-  background: rgba(59, 130, 246, 0.12);
+  background: rgba(59, 130, 246, 0.16);
+  border-color: rgba(59, 130, 246, 0.32);
+}
+.did-switcher-option .did-color-swatch {
+  /* Slightly bigger inside the menu rows for legibility (8px → 11px). */
+  width: 11px;
+  height: 11px;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.08);
 }
 .did-switcher-option-text {
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  gap: 2px;
   flex: 1 1 auto;
   min-width: 0;
+  line-height: 1.25;
 }
 .did-switcher-option-label {
   font-weight: 600;
+  font-size: 0.92rem;
+  color: #ffffff;
 }
 .did-switcher-option-number {
   font-size: 0.78rem;
-  opacity: 0.75;
+  color: rgba(255, 255, 255, 0.6);
   font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
 }
 .did-switcher-option-check {
   color: #4ea1ff;
@@ -499,7 +515,9 @@ body {
    number or buying a fresh one.
    ============================================================================ */
 .lines-modal {
-  background: var(--surface, #11192a);
+  /* Explicit solid background — var(--surface) is rgba(118,118,128,0.18)
+     which is translucent and lets the page bleed through. */
+  background: #0f172a;
   border-radius: 14px;
   width: min(560px, 92vw);
   max-height: 80vh;
@@ -510,7 +528,7 @@ body {
   animation: lines-modal-fade 0.14s ease-out;
 }
 .lines-add-modal {
-  background: var(--surface, #11192a);
+  background: #0f172a;
   border-radius: 14px;
   width: min(480px, 92vw);
   max-height: 80vh;
