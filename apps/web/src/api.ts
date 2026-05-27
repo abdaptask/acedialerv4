@@ -43,6 +43,16 @@ export interface LoginResponse {
   user: User;
 }
 
+// v0.10.0 Task 5 — Line-badge data shape attached to Call/Message/Voicemail
+// rows so the UI can render a colored "Main / Sales / Personal" pill
+// showing which of the user's DIDs the interaction landed on.
+export interface RowUserDid {
+  id: number;
+  label: string;
+  colorHex: string;
+  didNumber: string | null;
+}
+
 export interface CallRecord {
   id: number;
   telnyxCallId: string;
@@ -56,6 +66,7 @@ export interface CallRecord {
   durationSeconds: number;
   hangupCause: string | null;
   recordingUrl: string | null;
+  userDid?: RowUserDid | null;
 }
 
 export async function login(email: string, password: string): Promise<LoginResponse> {
@@ -370,6 +381,7 @@ export interface VoicemailRecord {
   transcription: string | null;
   receivedAt: string;
   listenedAt: string | null;
+  userDid?: RowUserDid | null;
 }
 
 export async function getVoicemails(token: string): Promise<VoicemailRecord[]> {
@@ -547,6 +559,7 @@ export interface MessageRecord {
   sentAt: string | null;
   deliveredAt: string | null;
   createdAt: string;
+  userDid?: RowUserDid | null;
 }
 
 export interface ThreadSummary {
@@ -559,6 +572,7 @@ export interface ThreadSummary {
   mediaUrls: string[];
   status: string;
   createdAt: string;
+  userDid?: RowUserDid | null;
 }
 
 export async function getThreads(token: string): Promise<ThreadSummary[]> {

@@ -51,6 +51,10 @@ export default function DidSwitcher({ onSwitch }: Props) {
     try {
       const rows = await getMyDids(token);
       setDids(rows);
+      // v0.10.0 Task 5 — share the DID count globally so LineBadge can
+      // decide whether to render. Single-DID users get no value from a
+      // badge that always shows "Main" on every row.
+      window.__aceUserDidCount = rows.length;
     } catch {
       // Silently swallow — single-DID users see static fallback; multi-DID
       // users see nothing different on transient failure. Next reload tick

@@ -60,6 +60,9 @@ export async function messagesRoutes(app: FastifyInstance) {
       // Raw SQL is the cleanest way to get the most-recent message per threadKey.
       // We DISTINCT ON the thread_key after ordering by createdAt desc.
       // (Prisma's aggregations don't natively cover this in a single query.)
+      // v0.10.0 Task 5 — LEFT JOIN user_dids to attach the line-badge fields
+      // (label + colorHex). Done in-SQL rather than a follow-up Prisma query
+      // since the messages-threads list is hit on every Messages tab open.
       const rows = await prisma.$queryRawUnsafe<
         Array<{
           id: number;
@@ -71,14 +74,22 @@ export async function messagesRoutes(app: FastifyInstance) {
           media_urls: string[] | null;
           status: string;
           created_at: Date;
+          user_did_id: number | null;
+          ud_label: string | null;
+          ud_color_hex: string | null;
+          ud_did_number: string | null;
         }>
       >(
-        `SELECT DISTINCT ON (thread_key)
-            id, thread_key, direction, from_number, to_number, body,
-            media_urls, status, created_at
-          FROM messages
-          WHERE user_id = $1
-          ORDER BY thread_key, created_at DESC`,
+        `SELECT DISTINCT ON (m.thread_key)
+            m.id, m.thread_key, m.direction, m.from_number, m.to_number,
+            m.body, m.media_urls, m.status, m.created_at, m.user_did_id,
+            ud.label    AS ud_label,
+            ud.color_hex AS ud_color_hex,
+            ud.did_number AS ud_did_number
+          FROM messages m
+          LEFT JOIN user_dids ud ON ud.id = m.user_did_id
+          WHERE m.user_id = $1
+          ORDER BY m.thread_key, m.created_at DESC`,
         user.sub
       );
 
@@ -94,6 +105,17 @@ export async function messagesRoutes(app: FastifyInstance) {
         mediaUrls: r.media_urls ?? [],
         status: r.status,
         createdAt: r.created_at,
+        // v0.10.0 Task 5 — flattened UserDid for the line badge.
+        // Null when this message was sent/received before the backfill
+        // tagged it, or when the matched DID has since been deleted.
+        userDid: r.user_did_id !== null && r.ud_label !== null
+          ? {
+              id: r.user_did_id,
+              label: r.ud_label,
+              colorHex: r.ud_color_hex,
+              didNumber: r.ud_did_number,
+            }
+          : null,
       }));
     }
   );
@@ -109,6 +131,12 @@ export async function messagesRoutes(app: FastifyInstance) {
       const msgs = await prisma.message.findMany({
         where: { userId: user.sub, threadKey },
         orderBy: { createdAt: 'asc' },
+        // v0.10.0 Task 5 — UserDid for the line-badge tag.
+        include: {
+          userDid: {
+            select: { id: true, label: true, colorHex: true, didNumber: true },
+          },
+        },
       });
       return msgs;
     }
@@ -159,14 +187,22 @@ export async function messagesRoutes(app: FastifyInstance) {
         },
       });
       let fromNumber: string | null = null;
+      // v0.10.0 Task 5 — also capture the matched UserDid id so we can
+      // stamp it on the outbound Message row. The Recents/Messages UI
+      // reads this to render the line badge.
+      let fromUserDidId: number | null = null;
       if (dbUser?.activeUserDidId) {
         const active = dbUser.userDids.find((d) => d.id === dbUser.activeUserDidId);
-        if (active) fromNumber = active.didNumber;
+        if (active) {
+          fromNumber = active.didNumber;
+          fromUserDidId = active.id;
+        }
       }
       if (!fromNumber && dbUser?.userDids?.length) {
         // No active pointer set (or it pointed at a deleted row) — fall
         // back to the default UserDid, which is the first row by sort.
         fromNumber = dbUser.userDids[0].didNumber;
+        fromUserDidId = dbUser.userDids[0].id;
       }
       if (!fromNumber) {
         app.log.warn(
@@ -229,6 +265,8 @@ export async function messagesRoutes(app: FastifyInstance) {
           body: text,
           mediaUrls,
           status: telnyxResponse.status ?? 'queued',
+          // v0.10.0 Task 5 — line badge tag for the Messages UI.
+          userDidId: fromUserDidId,
           sentAt: new Date(),
         },
       });
