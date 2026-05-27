@@ -264,6 +264,16 @@ export class SipService {
 
     this.ua.on('connecting', () => {
       console.log('[sip] connecting');
+      // v0.10.0 — suppress status flips while a call is in flight.
+      // Telnyx's WSS does internal pings + REGISTER refreshes that briefly
+      // re-enter the 'connecting' state even though the active call's
+      // SIP+RTP path is fully alive. Showing 'Connecting...' in the
+      // header mid-call alarms users into thinking the call will drop.
+      // Stay on 'registered' visually as long as a call session exists.
+      if (this.calls.size > 0 || this.incomingCallId !== null) {
+        console.log('[sip] (suppressed connecting state — call active)');
+        return;
+      }
       this.emit<SipState>('state', 'connecting');
     });
     this.ua.on('connected', () => {
@@ -271,6 +281,17 @@ export class SipService {
     });
     this.ua.on('disconnected', () => {
       console.log('[sip] socket disconnected');
+      // v0.10.0 — same suppression as 'connecting'. JsSIP fires
+      // 'disconnected' when the WSS layer reconnects after a routine
+      // ping timeout or after a REGISTER refresh failure; in both cases
+      // any active call keeps flowing audio over the WSS that JsSIP is
+      // simultaneously re-establishing. Showing 'Disconnected' in the
+      // header would alarm users mid-conversation even though the call
+      // itself is fine. Suppress while a call exists.
+      if (this.calls.size > 0 || this.incomingCallId !== null) {
+        console.log('[sip] (suppressed disconnected state — call active)');
+        return;
+      }
       this.emit<SipState>('state', 'disconnected');
     });
     this.ua.on('registered', () => {
@@ -1877,9 +1898,19 @@ export class SipService {
     const jms = jitter * 1000;
     const lossPct = loss * 100;
     const rttMs = rtt !== null ? rtt * 1000 : 0;
+    // v0.10.0 — quality thresholds calibrated for international calls.
+    // Old thresholds tripped "fair" at 200ms RTT — unrealistic for
+    // India↔US which has a physical-distance floor of ~200ms RTT and
+    // is fine for voice. Industry standard VoIP grading:
+    //   < 150ms RTT  : excellent (we call this 'good')
+    //   150-300ms    : acceptable / good
+    //   300-500ms    : fair (noticeable lag)
+    //   > 500ms      : poor (talker overlap)
+    // Jitter + loss are still tight because those degrade audio
+    // QUALITY rather than just latency; even 1% loss is audible.
     let level: CallQualityLevel = 'good';
-    if (jms >= 60 || lossPct >= 5 || (rtt !== null && rttMs >= 400)) level = 'poor';
-    else if (jms >= 30 || lossPct >= 1 || (rtt !== null && rttMs >= 200)) level = 'fair';
+    if (jms >= 60 || lossPct >= 5 || (rtt !== null && rttMs >= 500)) level = 'poor';
+    else if (jms >= 30 || lossPct >= 1 || (rtt !== null && rttMs >= 300)) level = 'fair';
     this.emit<CallQuality>('quality', { level, jitter, loss, rtt });
   }
 
