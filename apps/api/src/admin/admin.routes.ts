@@ -25,6 +25,7 @@ import { config } from '../config.js';
 import * as telnyx from '../telnyx/numbers.js';
 import { sendWelcomeEmail } from '../email/sendgrid.js';
 import { recordAudit } from '../lib/audit.js';
+import { ensureUserDid } from '../lib/userDid.js';
 
 interface JwtPayload {
   sub: number;
@@ -237,6 +238,18 @@ export async function adminRoutes(app: FastifyInstance) {
           sipUsername: true, didNumber: true, lastLoginAt: true, createdAt: true,
         },
       });
+
+      // v0.10.0 — Ensure UserDid row when the invite includes a DID.
+      // Without this, the new user has User.didNumber populated but no
+      // UserDid row, which breaks DidSwitcher + SMS + line badges. See
+      // apps/api/src/lib/userDid.ts for the full rationale.
+      if (didNumber) {
+        await ensureUserDid({
+          userId: created.id,
+          didNumber,
+          isDefault: true,
+        });
+      }
 
       await recordAudit(u.sub, 'user.invited', created.id, {
         email: normEmail,
@@ -511,6 +524,22 @@ export async function adminRoutes(app: FastifyInstance) {
           : 'create User row in database',
         true,
       );
+
+      // v0.10.0 — ALSO create a matching UserDid row + point the user's
+      // activeUserDidId at it. See apps/api/src/lib/userDid.ts for why —
+      // without this, new users have User.didNumber populated but no
+      // UserDid row, which breaks DidSwitcher / SMS / line badges.
+      const linked = await ensureUserDid({
+        userId: created.id,
+        didNumber: targetDid,
+        connectionId,
+        isDefault: true,
+      });
+      if (linked.ok) {
+        step('create UserDid row + set as default outbound line', true);
+      } else {
+        step('create UserDid row', false, linked.error ?? 'unknown error');
+      }
 
       await recordAudit(actor.sub, 'user.auto_provisioned', created.id, {
         email: normEmail,
@@ -1060,6 +1089,15 @@ export async function adminRoutes(app: FastifyInstance) {
               },
               select: { id: true },
             });
+            // v0.10.0 — Ensure matching UserDid row (see lib/userDid.ts).
+            const bulkDid = row.didNumber?.trim();
+            if (bulkDid) {
+              await ensureUserDid({
+                userId: created.id,
+                didNumber: bulkDid,
+                isDefault: true,
+              });
+            }
             results.push({
               row: rowNum,
               email,
@@ -3004,6 +3042,23 @@ export async function adminRoutes(app: FastifyInstance) {
           error: 'User creation failed (likely duplicate email or sipUsername)',
           steps,
         });
+      }
+
+      // v0.10.0 — Ensure matching UserDid row (see lib/userDid.ts). Done
+      // here regardless of recycle vs create so the activeUserDidId
+      // pointer and UserDid row exist for the SMS path + DidSwitcher.
+      // connectionId is the Telnyx connection we just created/cloned above
+      // — re-using the variable from the credential-clone step.
+      const pendingInviteLinked = await ensureUserDid({
+        userId: createdUser.id,
+        didNumber: didE164,
+        connectionId,
+        isDefault: true,
+      });
+      if (pendingInviteLinked.ok) {
+        step('link UserDid row + set as default outbound line', true);
+      } else {
+        step('link UserDid row', false, pendingInviteLinked.error ?? 'unknown error');
       }
 
       // ── Step 5: Mark PendingUser as invited ─────────────────────────

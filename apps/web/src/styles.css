@@ -132,11 +132,15 @@ body {
   color: #fff;
 }
 .app-header {
-  display: grid;
-  grid-template-columns: 1fr auto 1fr;
+  /* v0.10.0 — flex layout (was grid 1fr auto 1fr which made huge empty
+     gaps at 1366×768). Three children justified space-between, center
+     wrapper allowed to flex naturally. Caps total content width so on
+     ultra-wide monitors the user-chip doesn't drift to the edge. */
+  display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 1rem;
-  padding: 0.5rem 1rem;
+  padding: 0.5rem 1.25rem;
   border-bottom: 0.5px solid var(--border);
   background:
     linear-gradient(180deg, rgba(0, 0, 0, 0.92), rgba(0, 0, 0, 0.82)),
@@ -144,27 +148,40 @@ body {
   -webkit-backdrop-filter: blur(20px);
   backdrop-filter: blur(20px);
   font-size: 0.9rem;
+  /* Cap content width on very wide screens; min-height keeps a stable
+     row regardless of which children render. */
+  min-height: 56px;
 }
 
 /* v0.10.0 — Center column wrapper. SIP-status pill + DidSwitcher live
-   inside one flex container so they share the middle grid track.
-   Without this wrapper, adding DidSwitcher as a fourth direct child of
-   .app-header pushed the user-chip into an implicit second grid row. */
+   inside one flex container that takes the middle of the header.
+   Now that .app-header is flex (not grid), justify-self isn't needed;
+   flex's space-between handles positioning naturally. */
 .app-header-center {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  justify-self: center;
+  gap: 0.6rem;
   min-width: 0;
-}
-.app-header-center > .sip-status-pill {
-  justify-self: auto;
+  flex: 0 1 auto;
 }
 /* Mobile: tighten the gap a touch when the header gets narrow so the
    user-chip on the right still has room. */
 @media (max-width: 700px) {
   .app-header-center {
     gap: 0.3rem;
+  }
+}
+/* App body area gets a max-width on wide screens so the table + content
+   don't sprawl to the screen edges. The Settings page already has its
+   own layout so it overrides this. */
+.app-content {
+  max-width: 1280px;
+  margin: 0 auto;
+  width: 100%;
+}
+@media (max-width: 900px) {
+  .app-content {
+    max-width: 100%;
   }
 }
 .app-header .brand {
