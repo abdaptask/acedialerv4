@@ -3047,12 +3047,18 @@ export async function adminRoutes(app: FastifyInstance) {
       // v0.10.0 — Ensure matching UserDid row (see lib/userDid.ts). Done
       // here regardless of recycle vs create so the activeUserDidId
       // pointer and UserDid row exist for the SMS path + DidSwitcher.
-      // connectionId is the Telnyx connection we just created/cloned above
-      // — re-using the variable from the credential-clone step.
+      //
+      // The variable holding the Telnyx connection id in this scope is
+      // `newConnectionId` (set when we cloned a Credential Connection in
+      // Step 1 with credsMode='new'). For credsMode='existing' it stays
+      // null — that's fine; ensureUserDid tolerates a null connectionId
+      // and the DID itself is still routed correctly via Telnyx-side
+      // connection_id binding. Hot-fix: this previously referenced an
+      // unscoped `connectionId` and broke the Render build.
       const pendingInviteLinked = await ensureUserDid({
         userId: createdUser.id,
         didNumber: didE164,
-        connectionId,
+        connectionId: newConnectionId,
         isDefault: true,
       });
       if (pendingInviteLinked.ok) {
