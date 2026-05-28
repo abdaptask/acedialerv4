@@ -2146,13 +2146,44 @@ export async function adminRoutes(app: FastifyInstance) {
 
       // Find the user's Credential Connection — needed for routing the
       // new DID. We pull it from the user's default UserDid.
+      //
+      // v0.10.7 fix — the v0.10.0 migration backfilled UserDid rows from
+      // the legacy User.didNumber column but didn't populate
+      // connection_id (the legacy User row never tracked it locally).
+      // Result: every pre-v0.10.0 user has a default UserDid with
+      // connectionId=NULL, and "Add line" hard-errored 409 with a
+      // misleading "Complete the invite flow first" message even
+      // though the user IS using the dialer fine. Fix: when local
+      // connectionId is NULL, look it up via Telnyx's findNumberByE164.
+      // If found, patch the UserDid row so future lookups are local.
       const defaultDid = target.userDids.find((d) => d.isDefault) ?? target.userDids[0];
-      if (!defaultDid?.connectionId) {
+      if (!defaultDid) {
         return reply.code(409).send({
-          error: 'User has no existing Telnyx Credential Connection. Complete the invite flow first so a connection exists, then add additional DIDs.',
+          error: 'User has no DIDs assigned yet. Complete the invite flow first.',
         });
       }
-      const connectionId = defaultDid.connectionId;
+      let connectionId = defaultDid.connectionId;
+      if (!connectionId) {
+        const probe = await telnyx.findNumberByE164(defaultDid.didNumber);
+        if (probe.ok && probe.data?.connection_id) {
+          connectionId = probe.data.connection_id;
+          // Backfill the local row so subsequent calls don't need
+          // to round-trip Telnyx.
+          await prisma.userDid.update({
+            where: { id: defaultDid.id },
+            data: { connectionId },
+          });
+          request.log.info(
+            { userId: target.id, userDidId: defaultDid.id, connectionId },
+            '[admin/manage-lines] backfilled connectionId from Telnyx',
+          );
+        }
+      }
+      if (!connectionId) {
+        return reply.code(409).send({
+          error: 'Cannot resolve user\'s Telnyx connection. Their default DID has no connection_id in Telnyx either — check that the number is bound to a Credential Connection in the Telnyx portal.',
+        });
+      }
 
       // Resolve { e164, telnyxNumberId } based on which mode we're in.
       let e164: string;

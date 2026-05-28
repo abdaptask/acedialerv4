@@ -30,10 +30,16 @@
   --surface-strong: rgba(120, 120, 128, 0.24);
   --surface-hover: rgba(120, 120, 128, 0.2);
   --text: #1c1c1e;
-  --text-dim: rgba(60, 60, 67, 0.7);
-  --text-muted: rgba(60, 60, 67, 0.55);
-  --border: rgba(60, 60, 67, 0.1);
-  --border-strong: rgba(60, 60, 67, 0.2);
+  /* v0.10.8 — Light-mode contrast fix. Previous --text-dim (0.7 alpha
+     of a medium gray) and --text-muted (0.55 alpha) rendered as
+     ~4.7:1 and ~3.3:1 contrast on the light background — borderline
+     AA at best for body text. Replaced with solid darker grays for
+     proper readability. Numbers picked from iOS labelColor /
+     secondaryLabelColor reference set, but at higher opacity. */
+  --text-dim: #3a3a3c;
+  --text-muted: #545458;
+  --border: rgba(60, 60, 67, 0.14);
+  --border-strong: rgba(60, 60, 67, 0.24);
   --accent: #0a84ff;
   --accent-blue: #007aff;
   --green: #34c759;
@@ -2278,7 +2284,10 @@ body {
   white-space: nowrap;
   margin-right: 0.5rem;
 }
-.muted.small { font-size: 0.8rem; color: rgba(255,255,255,0.4); }
+/* v0.10.8 — was hardcoded rgba(255,255,255,0.4) which on light bg
+   rendered as invisible (white at 40% opacity on near-white). Use
+   the themed --text-muted token so the color adapts properly. */
+.muted.small { font-size: 0.8rem; color: var(--text-muted); }
 .device-actions {
   display: flex;
   gap: 0.5rem;
@@ -3806,9 +3815,25 @@ body {
   padding: 14px 20px;
   gap: 12px;
   cursor: pointer;
+  /* v0.10.8 — explicit border reset. thread-row was migrated from <li>
+     to <button> for keyboard a11y, but without resetting the browser's
+     default <button> chrome, light mode rendered thick black borders
+     around every row (chat list looked "straight out of 1990s"). */
+  background: transparent;
+  border: none;
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  font: inherit;
+  color: inherit;
+  width: 100%;
+  text-align: left;
+  appearance: none;
+  -webkit-appearance: none;
 }
 .thread-row:hover { background: rgba(255, 255, 255, 0.04); }
+[data-theme="light"] .thread-row {
+  border-bottom: 1px solid rgba(60, 60, 67, 0.12);
+}
+[data-theme="light"] .thread-row:hover { background: rgba(0, 0, 0, 0.04); }
 .thread-text { flex: 1; min-width: 0; }
 .thread-name { font-size: 15px; font-weight: 600; }
 .thread-preview {
@@ -6162,21 +6187,33 @@ body::-webkit-scrollbar { display: none; }
   flex: 1 1 auto; min-width: 240px;
 }
 .settings-section-actions { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
-.settings-section-actions .settings-btn,
-.settings-section-actions .settings-btn-secondary {
+
+/* v0.10.8 — promoted .settings-btn / .settings-btn-secondary to global
+   styles. Previously they were only styled when nested under
+   .settings-section-actions or .pending-*-modal .modal-footer, so any
+   modal that reused these class names (Manage Lines, Teams settings,
+   etc.) rendered with browser-default button chrome — chunky borders,
+   gray fill, looked like 1990s. Now they look consistent everywhere. */
+.settings-btn,
+.settings-btn-secondary {
   display: inline-flex; align-items: center; gap: 0.45rem;
   padding: 0.55rem 1rem; border-radius: 8px;
   font-size: 0.86rem; font-weight: 600; cursor: pointer; line-height: 1;
-  transition: background 0.12s, border-color 0.12s;
+  font-family: inherit;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+  appearance: none;
+  -webkit-appearance: none;
 }
-.settings-section-actions .settings-btn { background: #0a84ff; color: #fff; border: 1px solid #0a84ff; }
-.settings-section-actions .settings-btn:hover { background: #0c6fd6; border-color: #0c6fd6; }
-.settings-section-actions .settings-btn-secondary {
+.settings-btn { background: #0a84ff; color: #fff; border: 1px solid #0a84ff; }
+.settings-btn:hover { background: #0c6fd6; border-color: #0c6fd6; }
+.settings-btn-secondary {
   background: transparent; color: var(--text, #1a1a1a); border: 1px solid rgba(0,0,0,0.18);
 }
-.settings-section-actions .settings-btn-secondary:hover { background: rgba(0,0,0,0.04); }
-[data-theme="dark"] .settings-section-actions .settings-btn-secondary { color: #fff; border-color: rgba(255,255,255,0.18); }
-[data-theme="dark"] .settings-section-actions .settings-btn-secondary:hover { background: rgba(255,255,255,0.06); }
+.settings-btn-secondary:hover { background: rgba(0,0,0,0.04); }
+[data-theme="dark"] .settings-btn-secondary { color: #fff; border-color: rgba(255,255,255,0.18); }
+[data-theme="dark"] .settings-btn-secondary:hover { background: rgba(255,255,255,0.06); }
+.settings-btn:disabled,
+.settings-btn-secondary:disabled { opacity: 0.5; cursor: not-allowed; }
 .settings-section-actions button:disabled { opacity: 0.5; cursor: not-allowed; }
 
 /* -------- Filter chips -------- */
