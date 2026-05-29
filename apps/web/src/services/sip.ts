@@ -368,8 +368,11 @@ export class SipService {
         this.emit<SipState>('state', 'failed');
         return;
       }
-      // 2s, 4s, 8s — exponential backoff.
-      const backoffMs = 2_000 * Math.pow(2, this.regFailCount - 1);
+      // Exponential backoff: 2s, 4s, 8s, 16s, 32s, 60s (capped).
+      const backoffMs = Math.min(
+        2_000 * Math.pow(2, this.regFailCount - 1),
+        SipService.BACKOFF_MS_MAX,
+      );
       console.log(`[sip] retrying registration in ${backoffMs}ms…`);
       // Keep showing 'connecting' to the UI — smoother UX than failed→connecting→registered flicker.
       this.emit<SipState>('state', 'connecting');
@@ -489,7 +492,16 @@ export class SipService {
    */
   private regFailCount = 0;
   private regRetryTimer: ReturnType<typeof setTimeout> | null = null;
-  private static readonly MAX_REG_RETRIES = 3;
+  // v0.10.10 — bumped from 3 to 6. Old: 2s+4s+8s = ~14s of retries
+  // before declaring failed. With backoff capped at 60s, new sequence
+  // is 2s+4s+8s+16s+32s+60s = ~2min of retry budget. Combined with
+  // the 90s watchdog grace, transient network issues up to ~3.5min
+  // recover automatically instead of kicking the user to /login.
+  private static readonly MAX_REG_RETRIES = 6;
+  // v0.10.10 — cap exponential backoff at 60s. Without the cap, the
+  // sequence becomes 2/4/8/16/32/64/128/256s — too long to wait on
+  // attempts 7+. Cap = keep retrying often enough to catch a recovery.
+  private static readonly BACKOFF_MS_MAX = 60_000;
   private saveConfigForReconnect(config: SipConfig): void {
     this.lastConfig = config;
   }

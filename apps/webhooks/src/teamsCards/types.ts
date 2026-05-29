@@ -123,39 +123,40 @@ export function formatTimeForDisplay(d: Date | string | number): string {
   }) + ' ET';
 }
 
-/** v0.10.4 — Build call / SMS action URLs for Teams card buttons.
+/** v0.10.10 — Build call / SMS action URLs for Teams card buttons.
  *
- * Earlier these returned `ace-dialer://...` deep links, which only
- * worked on desktop machines with the Electron app installed AND
- * the OS protocol handler registered. Teams Web (browser) didn't
- * fire them, mobile Teams ignored them entirely, and even desktop
- * Teams sometimes blocked the protocol.
+ * v0.10.5: web /auto/call → protocol attempt → web fallback.
+ *   Problem: too many users dismissed the browser prompt or had Chrome
+ *   silently block the protocol, ending up on the web dialer instead
+ *   of their installed desktop app.
  *
- * New approach: return web URLs pointing at /auto/call and /auto/sms.
- * Those pages (apps/web/src/pages/AutoRoute.tsx) try the
- * `ace-dialer://` protocol via a hidden iframe — on desktop with the
- * app installed this hands off the action — and after ~1.2s fall
- * back to the in-browser dialer / composer. Result: card buttons
- * Just Work everywhere (desktop with app, desktop browser, mobile).
+ * v0.10.10: emit `ace-dialer://` URLs directly. Microsoft Teams
+ *   supports custom-protocol URLs in Action.OpenUrl; clicking the
+ *   card button hands off straight to the OS protocol handler, which
+ *   launches / focuses the desktop ACE Dialer. No intermediate
+ *   browser tab.
  *
- * `WEB_BASE_URL` is the public Vercel origin. Fall back to a
- * sensible default; production env MUST set it correctly. */
+ * Voicemail playback URL stays as a web URL — it intentionally opens
+ * a browser page (the audio playback view).
+ *
+ * `WEB_BASE_URL` is the Vercel origin used for voicemail playback. */
 function webBase(): string {
   return (process.env.WEB_BASE_URL ?? 'https://ace-dialer.vercel.app').replace(/\/+$/, '');
 }
 
 export function buildCallDeepLink(toNumber: string): string {
   const cleaned = encodeURIComponent(toNumber.trim());
-  return `${webBase()}/auto/call?to=${cleaned}`;
+  return `ace-dialer://call?to=${cleaned}`;
 }
 
 export function buildSmsDeepLink(toNumber: string, prefillText?: string): string {
   const cleaned = encodeURIComponent(toNumber.trim());
   const t = prefillText ? `&body=${encodeURIComponent(prefillText)}` : '';
-  return `${webBase()}/auto/sms?to=${cleaned}${t}`;
+  return `ace-dialer://sms?to=${cleaned}${t}`;
 }
 
-/** Voicemail playback URL — already a web route. Same base. */
+/** Voicemail playback URL — stays as a web route (audio playback is
+ *  a browser-rendered page, not a desktop action). */
 export function buildVoicemailPlaybackUrl(voicemailId: number): string {
   return `${webBase()}/voicemail/${voicemailId}/play`;
 }
