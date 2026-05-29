@@ -45,19 +45,30 @@ export interface EnsureUserDidResult {
 export async function ensureUserDid(input: EnsureUserDidInput): Promise<EnsureUserDidResult> {
   try {
     let telnyxNumberId = input.telnyxNumberId ?? null;
-    // Look up Telnyx's internal id if the caller didn't supply one.
-    // Saves a Telnyx round-trip when the caller already knows it.
-    if (!telnyxNumberId) {
+    // v0.10.14 — Look up BOTH the Telnyx number-id AND the bound
+    // connection_id from Telnyx if either is missing. Previously we
+    // only looked up the number-id. Result: invite paths that didn't
+    // pass connectionId (regular invite, bulk import) created UserDid
+    // rows with connectionId=NULL → inbound TexML routing fell back to
+    // the pilot connection → every user except whoever owned the pilot
+    // had their calls misrouted with a 366ms hangup.
+    //
+    // Doing both lookups in one Telnyx call (findNumberByE164 already
+    // returns both fields) is essentially free. The connectionId is the
+    // critical field for inbound voice routing.
+    let connectionId: string | null = input.connectionId ?? null;
+    if (!telnyxNumberId || !connectionId) {
       const lookup = await telnyx.findNumberByE164(input.didNumber);
       if (lookup.ok && lookup.data) {
-        telnyxNumberId = lookup.data.id;
+        if (!telnyxNumberId) telnyxNumberId = lookup.data.id;
+        if (!connectionId) connectionId = lookup.data.connection_id ?? null;
       }
     }
 
     const data = {
       didNumber: input.didNumber,
       telnyxNumberId,
-      connectionId: input.connectionId ?? null,
+      connectionId,
       label: input.label ?? 'Main',
       colorHex: input.colorHex ?? '#3b82f6',
       isDefault: input.isDefault ?? true,

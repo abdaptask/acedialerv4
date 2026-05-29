@@ -874,17 +874,143 @@ function xmlEscape(s: string): string {
     .replace(/'/g, '&apos;');
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const texmlHandler = (request: any): string => {
-  const sipUser = process.env.PILOT_SIP_USERNAME ?? '';
-  // Phase 6.7 - per Telnyx Support: the TexML <Sip> URI must include the
-  // SIP Connection name as a subdomain so Telnyx can locate the registered
-  // Credentials Connection endpoint. Just `sip.telnyx.com` returns busy.
-  // Example: sip:userabdulla74993@ace-dialer.sip.telnyx.com
-  const sipConnectionId = process.env.PILOT_SIP_CONNECTION_ID ?? '2960617014202206103';
-  if (!sipUser) {
-    app.log.warn('[texml] PILOT_SIP_USERNAME not set; returning hangup-only flow');
+// v0.10.14 — Look up the called DID's owner so we can dial THEIR
+// Credential Connection. Without this, every user except whoever owns
+// PILOT_SIP_CONNECTION_ID gets inbound calls misrouted (Telnyx
+// rejects in <500ms because the wrong connection has no matching SIP
+// user registered → 366ms call.hangup → caller hears nothing).
+//
+// Telnyx posts the called DID as `To` in the TexML callback body
+// (or query string for GET). Last-10-digit match tolerates
+// formatting drift. If we can't find an owner, we fall through to
+// the env-var pilot connection (legacy behaviour, used for any
+// orphan DID not yet bound to a user).
+//
+// v0.10.14 + self-heal — UserDid.connectionId can be NULL for two
+// reasons:
+//   1. Pre-v0.10.0 users got backfilled UserDid rows from User.didNumber
+//      but the legacy User row never tracked connection_id locally.
+//   2. The regular-invite + bulk-import code paths in admin.routes.ts
+//      don't pass connectionId to ensureUserDid (only auto-provision +
+//      pending-invite do).
+// To make per-DID TexML routing work universally without a separate
+// backfill migration, this function now lazily looks up the
+// connection_id from Telnyx when UserDid.connectionId is NULL, and
+// persists the result back to the UserDid row. First inbound call
+// for an affected user pays the round-trip; every subsequent call is
+// served from the local row.
+async function resolveCalledConnection(
+  request: { body?: unknown; query?: unknown },
+): Promise<{ connectionId: string | null; userId: number | null }> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const body = (request.body ?? {}) as any;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const query = (request.query ?? {}) as any;
+  const to: string =
+    (typeof body.To === 'string' && body.To) ||
+    (typeof query.To === 'string' && query.To) ||
+    (typeof body.to === 'string' && body.to) ||
+    (typeof query.to === 'string' && query.to) ||
+    '';
+  if (!to) return { connectionId: null, userId: null };
+  const last10 = to.replace(/[^\d]/g, '').slice(-10);
+  if (last10.length !== 10) return { connectionId: null, userId: null };
+  try {
+    const all = await prisma.userDid.findMany({
+      select: { id: true, didNumber: true, connectionId: true, userId: true },
+    });
+    const match = all.find(
+      (d) => d.didNumber.replace(/[^\d]/g, '').slice(-10) === last10,
+    );
+    if (!match) return { connectionId: null, userId: null };
+
+    // Happy path: row has the connection_id locally.
+    if (match.connectionId) {
+      return { connectionId: match.connectionId, userId: match.userId };
+    }
+
+    // Lazy backfill: look up Telnyx for the actual DID → connection
+    // binding, persist back to the row so we never round-trip again.
+    if (!TELNYX_API_KEY) {
+      app.log.warn(
+        { didNumber: match.didNumber, userId: match.userId },
+        '[texml] UserDid.connectionId is NULL and TELNYX_API_KEY not set — falling back to pilot',
+      );
+      return { connectionId: null, userId: match.userId };
+    }
+    try {
+      const lookupRes = await fetch(
+        `https://api.telnyx.com/v2/phone_numbers?filter[phone_number]=${encodeURIComponent(match.didNumber)}`,
+        { headers: { Authorization: `Bearer ${TELNYX_API_KEY}` } },
+      );
+      if (!lookupRes.ok) {
+        app.log.warn(
+          { didNumber: match.didNumber, status: lookupRes.status },
+          '[texml] Telnyx lookup for backfill failed',
+        );
+        return { connectionId: null, userId: match.userId };
+      }
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const lookupBody = (await lookupRes.json()) as any;
+      const numberInfo = lookupBody?.data?.[0];
+      const fetchedConnectionId: string | undefined = numberInfo?.connection_id;
+      if (!fetchedConnectionId) {
+        app.log.warn(
+          { didNumber: match.didNumber },
+          '[texml] Telnyx returned no connection_id for DID — falling back to pilot',
+        );
+        return { connectionId: null, userId: match.userId };
+      }
+      // Persist back so future calls (any user, any DID) don't re-round-trip.
+      await prisma.userDid.update({
+        where: { id: match.id },
+        data: { connectionId: fetchedConnectionId },
+      });
+      app.log.info(
+        {
+          userDidId: match.id,
+          userId: match.userId,
+          didNumber: match.didNumber,
+          connectionId: fetchedConnectionId,
+        },
+        '[texml] backfilled UserDid.connectionId from Telnyx',
+      );
+      return { connectionId: fetchedConnectionId, userId: match.userId };
+    } catch (e) {
+      app.log.warn(
+        { err: e instanceof Error ? e.message : String(e), didNumber: match.didNumber },
+        '[texml] Telnyx lookup threw — falling back to pilot',
+      );
+      return { connectionId: null, userId: match.userId };
+    }
+  } catch (e) {
+    app.log.warn(
+      { err: e instanceof Error ? e.message : String(e) },
+      '[texml] resolveCalledConnection lookup failed',
+    );
+    return { connectionId: null, userId: null };
   }
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const texmlHandler = async (request: any): Promise<string> => {
+  // v0.10.14 — try to resolve the called DID's owner first. Fall back
+  // to the env-var pilot connection if we can't (legacy behaviour for
+  // orphan / unassigned DIDs).
+  const resolved = await resolveCalledConnection(request);
+  const sipConnectionId =
+    resolved.connectionId ||
+    process.env.PILOT_SIP_CONNECTION_ID ||
+    '2960617014202206103';
+  app.log.info(
+    {
+      resolvedConnectionId: resolved.connectionId,
+      resolvedUserId: resolved.userId,
+      chose: sipConnectionId,
+      fellBackToPilot: !resolved.connectionId,
+    },
+    '[texml] routing decision',
+  );
 
   // Build an ABSOLUTE URL for the Dial action - Telnyx requires absolute URLs.
   const proto = (request?.headers?.['x-forwarded-proto'] as string) ?? 'https';
@@ -904,7 +1030,7 @@ const texmlHandler = (request: any): string => {
   // DialCallStatus - busy -> polite hangup, no-answer/failed -> voicemail,
   // completed -> nothing. Timeout bumped to 45s so the user has room to
   // see the IncomingCall UI and tap Hold & Accept.
-  const xml = sipUser
+  const xml = sipConnectionId
     ? `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Dial timeout="45" action="${xmlEscape(dialStatusAction)}" method="POST">
@@ -965,13 +1091,13 @@ const dialStatusHandler = (request: any): string => {
 };
 
 app.get('/texml/inbound', async (request, reply) => {
-  const xml = texmlHandler(request);
-  app.log.info({ length: xml.length, sipUser: Boolean(process.env.PILOT_SIP_USERNAME) }, '[texml] inbound served');
+  const xml = await texmlHandler(request);
+  app.log.info({ length: xml.length }, '[texml] inbound served');
   reply.type('application/xml; charset=utf-8').send(xml);
 });
 app.post('/texml/inbound', async (request, reply) => {
-  const xml = texmlHandler(request);
-  app.log.info({ length: xml.length, sipUser: Boolean(process.env.PILOT_SIP_USERNAME) }, '[texml] inbound served');
+  const xml = await texmlHandler(request);
+  app.log.info({ length: xml.length }, '[texml] inbound served');
   reply.type('application/xml; charset=utf-8').send(xml);
 });
 
