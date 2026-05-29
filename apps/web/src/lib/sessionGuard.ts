@@ -27,7 +27,13 @@ const TOKEN_KEY = 'ace_token';
  *  and ask the user to log back in. 30s is enough to ride out a brief
  *  network hiccup but short enough that the user isn't stuck staring
  *  at a dead dialer for minutes. */
-const SIP_FAILED_GRACE_MS = 30_000;
+// v0.10.10 — extended from 30s to 90s. Network blips on India-US
+// connections (the majority of our users) can run 30-60s during ISP
+// route flaps; the previous 30s threshold was kicking users to
+// /login during recoverable transients. With the v0.10.10 SIP retry
+// covering ~2min of attempts, 90s here gives the retry path enough
+// time to succeed before we declare the session dead.
+const SIP_FAILED_GRACE_MS = 90_000;
 
 let installed = false;
 
