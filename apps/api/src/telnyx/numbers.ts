@@ -925,3 +925,66 @@ export async function listUnassignedNumbers(): Promise<TelnyxResult<UnassignedNu
   out.sort((a, b) => (a.areaCode ?? 'zzz').localeCompare(b.areaCode ?? 'zzz'));
   return { ok: true, status: 200, data: out };
 }
+
+// v0.10.20 — "Migrate Existing User to New Dialer" flow.
+//
+// MigrationCandidate is a Telnyx DID that:
+//   • HAS a connection_id set (currently routed somewhere — usually Pulse)
+//   • Is NOT yet in ACE's UserDid table (caller filters that)
+//
+// The admin route GET /admin/telnyx/migration-candidates calls this, then
+// cross-references against the local DB to drop any already-claimed DIDs.
+export interface MigrationCandidate {
+  id: string;                       // Telnyx number id (for PATCH later)
+  phoneNumber: string;              // E.164
+  areaCode: string | null;
+  status: string;                   // "active" | "pending" | ...
+  sourceConnectionId: string;       // The current connection — likely Pulse.
+  messagingProfileId: string | null;
+  regionLabel: string | null;
+}
+
+export async function listMigrationCandidates(): Promise<TelnyxResult<MigrationCandidate[]>> {
+  const out: MigrationCandidate[] = [];
+  let page = 1;
+  const pageSize = 250;
+  const MAX_PAGES = 8;
+
+  while (page <= MAX_PAGES) {
+    const qs = new URLSearchParams({
+      'page[number]': String(page),
+      'page[size]': String(pageSize),
+    });
+    const res = await call<ListResponse<PhoneNumber>>(
+      `/phone_numbers?${qs.toString()}`,
+      { method: 'GET' },
+    );
+    if (!res.ok) return { ok: false, status: res.status, error: res.error };
+    const batch = res.data?.data ?? [];
+
+    for (const n of batch) {
+      // Migration candidates: DIDs currently routed to ANY connection.
+      // We don't try to identify "Pulse vs ACE" at this layer — admin route
+      // strips out connection_ids that ACE already owns by checking the
+      // local UserDid table.
+      if (n.connection_id) {
+        out.push({
+          id: n.id,
+          phoneNumber: n.phone_number,
+          areaCode: extractUsAreaCode(n.phone_number),
+          status: n.status,
+          sourceConnectionId: n.connection_id,
+          messagingProfileId: n.messaging_profile_id ?? null,
+          regionLabel: n.region_information?.[0]?.region_name ?? null,
+        });
+      }
+    }
+
+    const totalPages = res.data?.meta?.total_pages ?? page;
+    if (batch.length < pageSize || page >= totalPages) break;
+    page += 1;
+  }
+
+  out.sort((a, b) => (a.areaCode ?? 'zzz').localeCompare(b.areaCode ?? 'zzz'));
+  return { ok: true, status: 200, data: out };
+}

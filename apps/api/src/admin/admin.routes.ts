@@ -2031,6 +2031,39 @@ export async function adminRoutes(app: FastifyInstance) {
     },
   );
 
+  // ── GET /admin/telnyx/migration-candidates ──────────────────────────────
+  // v0.10.20 — Powers the "Migrate Existing User to New Dialer" picker.
+  // Returns Telnyx DIDs that ARE currently bound to a connection (usually
+  // Pulse) but NOT yet in ACE's UserDid table. Admin picks one and we
+  // re-bind it to the target user's ACE connection.
+  app.get(
+    '/admin/telnyx/migration-candidates',
+    { onRequest: [app.authenticate, requireAdmin] },
+    async (_request, reply) => {
+      const res = await telnyx.listMigrationCandidates();
+      if (!res.ok) {
+        return reply.code(502).send({
+          error: 'Failed to fetch migration candidates from Telnyx',
+          detail: res.error,
+        });
+      }
+      // Strip any DIDs that ACE already owns (by last-10 match against
+      // the local UserDid table). Migrating an already-claimed DID would
+      // just re-bind it to itself and confuse the audit log.
+      const aceOwnedDids = await prisma.userDid.findMany({
+        select: { didNumber: true },
+      });
+      const aceOwnedLast10 = new Set(
+        aceOwnedDids.map((d) => d.didNumber.replace(/\D/g, '').slice(-10)),
+      );
+      const items = (res.data ?? []).filter((c) => {
+        const last10 = c.phoneNumber.replace(/\D/g, '').slice(-10);
+        return !aceOwnedLast10.has(last10);
+      });
+      return { items };
+    },
+  );
+
   // ═══════════════════════════════════════════════════════════════════════
   // v0.10.0 Task 27 — Per-user DID management (additional lines).
   //
@@ -2355,6 +2388,182 @@ export async function adminRoutes(app: FastifyInstance) {
         purchased,
         purchasedNumber,
       };
+    },
+  );
+
+  // ── POST /admin/users/:id/dids/migrate ──────────────────────────────────
+  // v0.10.20 — "Migrate Existing User to New Dialer".
+  //
+  // Takes a Telnyx DID that's currently bound to ANOTHER connection (likely
+  // Pulse) and re-binds it to THIS user's ACE Credential Connection. The
+  // phone number stays the same — only the SIP routing changes. After this
+  // call:
+  //   • The old connection (Pulse) stops receiving calls/SMS for the DID
+  //   • The new connection (this user's ACE creds) starts receiving them
+  //   • A UserDid row exists locally so ACE recognises the DID
+  //
+  // This is a DESTRUCTIVE operation for the old dialer. Audited.
+  const MigrateDidSchema = z.object({
+    didNumber: z.string().min(8).max(20),
+    label: z.string().min(1).max(40).default('Migrated'),
+    colorHex: z.string().regex(/^#[0-9a-fA-F]{6}$/).default('#a855f7'),
+    isDefault: z.boolean().optional().default(false),
+  });
+  app.post<{ Params: { id: string } }>(
+    '/admin/users/:id/dids/migrate',
+    { onRequest: [app.authenticate, requireAdmin] },
+    async (request, reply) => {
+      const actor = request.user as JwtPayload;
+      const userId = Number(request.params.id);
+      if (!Number.isFinite(userId)) {
+        return reply.code(400).send({ error: 'Invalid user id' });
+      }
+      const parsed = MigrateDidSchema.safeParse(request.body);
+      if (!parsed.success) {
+        return reply.code(400).send({ error: 'Invalid input', details: parsed.error.flatten() });
+      }
+      const { didNumber, label, colorHex, isDefault } = parsed.data;
+
+      // 1. Verify user exists and has a connection we can re-bind TO.
+      const target = await prisma.user.findUnique({
+        where: { id: userId },
+        select: {
+          id: true,
+          email: true,
+          userDids: {
+            select: { id: true, didNumber: true, connectionId: true, isDefault: true },
+          },
+        },
+      });
+      if (!target) return reply.code(404).send({ error: 'User not found' });
+
+      const defaultDid = target.userDids.find((d) => d.isDefault) ?? target.userDids[0];
+      if (!defaultDid) {
+        return reply.code(409).send({
+          error: 'User has no existing DIDs to inherit a connection from. Complete the invite flow first.',
+        });
+      }
+      let connectionId = defaultDid.connectionId;
+      if (!connectionId) {
+        const probe = await telnyx.findNumberByE164(defaultDid.didNumber);
+        if (probe.ok && probe.data?.connection_id) {
+          connectionId = probe.data.connection_id;
+          await prisma.userDid.update({
+            where: { id: defaultDid.id },
+            data: { connectionId },
+          });
+        }
+      }
+      if (!connectionId) {
+        return reply.code(409).send({
+          error: 'Cannot resolve target user\'s ACE connection. Their default DID has no connection_id in Telnyx either.',
+        });
+      }
+
+      // 2. Normalise E.164.
+      const digits = didNumber.replace(/\D/g, '');
+      const e164 = digits.startsWith('1') && digits.length === 11
+        ? `+${digits}`
+        : digits.length === 10
+          ? `+1${digits}`
+          : didNumber.startsWith('+') ? didNumber : `+${digits}`;
+
+      // 3. Refuse if already in ACE.
+      const existing = await prisma.userDid.findUnique({
+        where: { didNumber: e164 },
+        select: { id: true, userId: true },
+      });
+      if (existing) {
+        return reply.code(409).send({
+          error: existing.userId === userId
+            ? 'This DID is already assigned to this user.'
+            : 'This DID is already assigned to another user in ACE.',
+        });
+      }
+
+      // 4. Look up the DID on Telnyx.
+      const tn = await telnyx.findNumberByE164(e164);
+      if (!tn.ok) {
+        return reply.code(502).send({ error: 'Telnyx lookup failed', detail: tn.error });
+      }
+      if (!tn.data) {
+        return reply.code(404).send({
+          error: `Telnyx doesn't recognize ${e164}. Confirm we own this number.`,
+        });
+      }
+      if (!tn.data.connection_id) {
+        return reply.code(409).send({
+          error: 'This DID has no current connection on Telnyx — it\'s already unassigned, so use the regular "Add an available number from Telnyx" flow instead.',
+        });
+      }
+
+      const previousConnectionId = tn.data.connection_id;
+      const previousMessagingProfileId = tn.data.messaging_profile_id ?? null;
+      const telnyxNumberId = tn.data.id;
+
+      // 5. Re-bind voice to the user's ACE connection.
+      const assign = await telnyx.assignDidToConnection(telnyxNumberId, connectionId);
+      if (!assign.ok) {
+        return reply.code(502).send({
+          error: 'Failed to re-bind DID to user\'s ACE connection on Telnyx',
+          detail: assign.error,
+        });
+      }
+
+      // 6. Bind to ACE's messaging profile (inbound SMS routing).
+      if (config.telnyxMessagingProfileId) {
+        const msg = await telnyx.assignNumberMessagingProfile(
+          telnyxNumberId,
+          config.telnyxMessagingProfileId,
+        );
+        if (!msg.ok) {
+          request.log.warn(
+            { numberId: telnyxNumberId, error: msg.error },
+            '[admin.user_dids.migrate] messaging profile assignment failed',
+          );
+        }
+      }
+
+      // 7. If this is now the user's default, unset isDefault on others.
+      if (isDefault) {
+        await prisma.userDid.updateMany({
+          where: { userId },
+          data: { isDefault: false },
+        });
+      }
+      const created = await prisma.userDid.create({
+        data: {
+          userId,
+          didNumber: e164,
+          telnyxNumberId,
+          connectionId,
+          label,
+          colorHex,
+          isDefault,
+        },
+        select: {
+          id: true, didNumber: true, label: true, colorHex: true, isDefault: true,
+        },
+      });
+      if (isDefault) {
+        await prisma.user.update({
+          where: { id: userId },
+          data: { activeUserDidId: created.id },
+        });
+      }
+
+      await recordAudit(actor.sub, 'user_did.migrated', userId, {
+        didNumber: e164,
+        label,
+        colorHex,
+        isDefault,
+        userDidId: created.id,
+        previousConnectionId,                  // Pulse connection we took the DID from
+        previousMessagingProfileId,
+        newConnectionId: connectionId,         // ACE connection we re-bound to
+      });
+
+      return { ok: true, userDid: created, previousConnectionId };
     },
   );
 

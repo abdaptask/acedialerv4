@@ -1807,6 +1807,67 @@ export async function listUnassignedTelnyxNumbers(
   return body.items ?? [];
 }
 
+// v0.10.20 — "Migrate Existing User to New Dialer" flow.
+//
+// MigrationCandidate is a Telnyx DID currently bound to ANOTHER connection
+// (likely Pulse). Admin re-binds it to a target ACE user via migrateDidToUser.
+export interface MigrationCandidate {
+  id: string;
+  phoneNumber: string;              // E.164
+  areaCode: string | null;
+  status: string;
+  sourceConnectionId: string;       // Connection it's currently on (Pulse).
+  messagingProfileId: string | null;
+  regionLabel: string | null;
+}
+export async function listMigrationCandidates(
+  token: string,
+): Promise<MigrationCandidate[]> {
+  const res = await fetch(`${API_URL}/admin/telnyx/migration-candidates`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const body = (await res.json()) as { items: MigrationCandidate[] };
+  return body.items ?? [];
+}
+
+export interface MigrateDidResult {
+  ok: boolean;
+  userDid?: {
+    id: number;
+    didNumber: string;
+    label: string;
+    colorHex: string;
+    isDefault: boolean;
+  };
+  previousConnectionId?: string;
+  error?: string;
+}
+export async function migrateDidToUser(
+  token: string,
+  userId: number,
+  input: {
+    didNumber: string;
+    label: string;
+    colorHex: string;
+    isDefault?: boolean;
+  },
+): Promise<MigrateDidResult> {
+  const res = await fetch(`${API_URL}/admin/users/${userId}/dids/migrate`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(input),
+  });
+  const body = (await res.json().catch(() => ({}))) as MigrateDidResult;
+  if (!res.ok) {
+    return { ok: false, error: body.error ?? `HTTP ${res.status}` };
+  }
+  return { ok: true, ...body };
+}
+
 export interface InvitePendingResult {
   ok: boolean;
   userId?: number;
