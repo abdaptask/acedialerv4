@@ -15,7 +15,7 @@
 // seeing the actual form.
 
 import { useEffect, useRef, useState } from 'react';
-import { X, Plus, Trash2, Pencil, Check, ShoppingCart, ListChecks, Star, AlertCircle } from 'lucide-react';
+import { X, Plus, Trash2, Pencil, Check, ShoppingCart, ListChecks, Star, AlertCircle, ArrowRightLeft } from 'lucide-react';
 import {
   getAdminUserDids,
   addUserDid,
@@ -354,7 +354,12 @@ function AddLineSubModal({ userId, onClose, onAdded }: AddLineProps) {
   // The first thing the admin sees is the mode picker (per user request:
   // "ask if I want to add it from an existing number or buy a new number").
   // Once they pick, we show the matching form.
-  const [mode, setMode] = useState<'pick' | 'unassigned' | 'purchase'>('pick');
+  // v0.10.17 — added 'migrate' mode for taking over a Pulse-side DID.
+  // 'unassigned' (renamed in UI to "Add an available number from Telnyx")
+  // still picks from unassigned DIDs; 'migrate' picks from DIDs that ARE
+  // currently bound to another connection (Pulse) and re-binds them to
+  // this ACE user's connection without losing the phone number.
+  const [mode, setMode] = useState<'pick' | 'unassigned' | 'purchase' | 'migrate'>('pick');
   const [unassigned, setUnassigned] = useState<UnassignedTelnyxNumber[]>([]);
   const [loadingUnassigned, setLoadingUnassigned] = useState(false);
 
@@ -452,7 +457,7 @@ function AddLineSubModal({ userId, onClose, onAdded }: AddLineProps) {
               >
                 <ListChecks size={20} className="lines-mode-icon" />
                 <div className="lines-mode-text">
-                  <div className="lines-mode-title">Use an existing number</div>
+                  <div className="lines-mode-title">Add an available number from Telnyx</div>
                   <div className="lines-mode-desc">
                     Pick from numbers we already own that aren't currently assigned to a user.
                     No new billing.
@@ -470,6 +475,27 @@ function AddLineSubModal({ userId, onClose, onAdded }: AddLineProps) {
                   <div className="lines-mode-desc">
                     Search Telnyx for a fresh DID in a US area code and purchase it now.
                     Adds a monthly fee to your Telnyx bill.
+                  </div>
+                </div>
+              </button>
+              {/* v0.10.17 — Migrate Existing User to New Dialer.
+                  Picks from Telnyx DIDs that ARE currently bound to a
+                  Credential Connection (likely Pulse) but haven't been
+                  claimed by ACE yet. Re-binds the DID to this ACE user's
+                  Credential Connection, so calls now route through ACE
+                  without the user losing their phone number. Pulse stops
+                  receiving calls for that number immediately. */}
+              <button
+                type="button"
+                className="lines-mode-option"
+                onClick={() => setMode('migrate')}
+              >
+                <ArrowRightLeft size={20} className="lines-mode-icon" />
+                <div className="lines-mode-text">
+                  <div className="lines-mode-title">Migrate Existing User to New Dialer</div>
+                  <div className="lines-mode-desc">
+                    Take over a number that's currently working on the old dialer (Pulse).
+                    Re-binds it to this user's ACE connection without changing the phone number.
                   </div>
                 </div>
               </button>
@@ -536,6 +562,35 @@ function AddLineSubModal({ userId, onClose, onAdded }: AddLineProps) {
                 >
                   {submitting ? 'Adding…' : 'Add line'}
                 </button>
+              </div>
+            </div>
+          )}
+
+          {mode === 'migrate' && (
+            <div className="lines-form">
+              <button
+                type="button"
+                className="lines-back-link"
+                onClick={() => setMode('pick')}
+              >
+                ← Change how to add
+              </button>
+              {/* v0.10.17 — Migrate flow body. Backend endpoint not yet
+                  built (lands in v0.10.18). When ready, this becomes a
+                  picker of Telnyx DIDs that have a connection_id but
+                  aren't yet in ACE's UserDid table, with the bound SIP
+                  username shown for identification. Selecting one re-binds
+                  the DID to THIS user's ACE Credential Connection via
+                  Telnyx PATCH /phone_numbers/{id} + creates a UserDid row.
+                  Pulse stops receiving for that number immediately. */}
+              <div className="pending-error" role="status" style={{ marginTop: '0.75rem' }}>
+                <AlertCircle size={14} />
+                <span>
+                  Migration backend ships in v0.10.18 (next push). For
+                  now this option is a placeholder — the picker + Telnyx
+                  re-binding logic isn't wired up yet. Use one of the
+                  other two options.
+                </span>
               </div>
             </div>
           )}
