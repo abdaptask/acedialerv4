@@ -883,6 +883,69 @@ export interface UnassignedNumber {
   regionLabel: string | null;
 }
 
+// ─────────── Migration candidates: numbers currently bound to a connection ─────────────
+/**
+ * Returns Telnyx phone numbers that ARE currently bound to a Credential
+ * Connection (i.e., connection_id is set). These are candidates for the
+ * "Migrate Existing User to New Dialer" flow: a DID that's currently
+ * working on the old dialer (Pulse) can be re-bound to an ACE user's
+ * Credential Connection via assignDidToConnection() — re-routing inbound
+ * voice to ACE without changing the phone number.
+ *
+ * Returns same shape as UnassignedNumber but with the source connection_id
+ * exposed so the admin UI can show which Pulse-side connection it's
+ * currently on. The caller (admin endpoint) then filters out any number
+ * that ACE has already claimed in its UserDid table.
+ */
+export interface MigrationCandidate {
+  id: string;
+  phoneNumber: string;
+  areaCode: string | null;
+  sourceConnectionId: string;
+  status: string;
+}
+
+export async function listMigrationCandidates(): Promise<TelnyxResult<MigrationCandidate[]>> {
+  const out: MigrationCandidate[] = [];
+  let page = 1;
+  const pageSize = 250;
+  const MAX_PAGES = 8;
+
+  while (page <= MAX_PAGES) {
+    const qs = new URLSearchParams({
+      'page[number]': String(page),
+      'page[size]': String(pageSize),
+    });
+    const res = await call<ListResponse<PhoneNumber>>(
+      `/phone_numbers?${qs.toString()}`,
+      { method: 'GET' },
+    );
+    if (!res.ok) return { ok: false, status: res.status, error: res.error };
+    const batch = res.data?.data ?? [];
+
+    for (const n of batch) {
+      // Candidates: HAS a connection_id (currently working somewhere) AND
+      // wasn't filtered out in some other way.
+      if (n.connection_id) {
+        out.push({
+          id: n.id,
+          phoneNumber: n.phone_number,
+          areaCode: extractUsAreaCode(n.phone_number),
+          sourceConnectionId: n.connection_id,
+          status: n.status,
+        });
+      }
+    }
+
+    const totalPages = res.data?.meta?.total_pages ?? page;
+    if (batch.length < pageSize || page >= totalPages) break;
+    page += 1;
+  }
+
+  out.sort((a, b) => a.phoneNumber.localeCompare(b.phoneNumber));
+  return { ok: true, status: 200, data: out };
+}
+
 export async function listUnassignedNumbers(): Promise<TelnyxResult<UnassignedNumber[]>> {
   const out: UnassignedNumber[] = [];
   let page = 1;

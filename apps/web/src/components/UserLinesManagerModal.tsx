@@ -22,8 +22,12 @@ import {
   patchUserDid,
   removeUserDid,
   listUnassignedTelnyxNumbers,
+  // v0.10.19 — Migrate Existing User to New Dialer flow.
+  listMigrationCandidates,
+  migrateDidToUser,
   type AdminUserDidRow,
   type UnassignedTelnyxNumber,
+  type MigrationCandidate,
 } from '../api';
 import { formatPhone } from '../lib/phone';
 
@@ -362,6 +366,11 @@ function AddLineSubModal({ userId, onClose, onAdded }: AddLineProps) {
   const [mode, setMode] = useState<'pick' | 'unassigned' | 'purchase' | 'migrate'>('pick');
   const [unassigned, setUnassigned] = useState<UnassignedTelnyxNumber[]>([]);
   const [loadingUnassigned, setLoadingUnassigned] = useState(false);
+  // v0.10.19 — migration candidate list (DIDs in Telnyx with a
+  // connection but not yet in ACE). Lazy-loaded when mode === 'migrate'.
+  const [migrationCandidates, setMigrationCandidates] = useState<MigrationCandidate[]>([]);
+  const [loadingCandidates, setLoadingCandidates] = useState(false);
+  const [pickedMigrationDid, setPickedMigrationDid] = useState<string>('');
 
   // Form state (shared between modes — only some fields apply per mode).
   const [pickedNumber, setPickedNumber] = useState<string>('');
@@ -400,6 +409,19 @@ function AddLineSubModal({ userId, onClose, onAdded }: AddLineProps) {
       .finally(() => setLoadingUnassigned(false));
   }, [mode]);
 
+  // v0.10.19 — Lazy-load migration candidates when admin enters migrate mode.
+  useEffect(() => {
+    if (mode !== 'migrate') return;
+    const token = sessionStorage.getItem('ace_token');
+    if (!token) return;
+    setLoadingCandidates(true);
+    setError(null);
+    listMigrationCandidates(token)
+      .then(setMigrationCandidates)
+      .catch((e) => setError((e as Error).message ?? 'Failed to load migration candidates'))
+      .finally(() => setLoadingCandidates(false));
+  }, [mode]);
+
   async function handleSubmit() {
     const token = sessionStorage.getItem('ace_token');
     if (!token) return;
@@ -420,6 +442,29 @@ function AddLineSubModal({ userId, onClose, onAdded }: AddLineProps) {
     if (res.purchased) {
       // Surface what we billed for.
       window.alert(`Purchased ${res.purchasedNumber} from Telnyx and assigned to user.`);
+    }
+    onAdded();
+  }
+
+  // v0.10.19 — Migrate flow submit. Different endpoint, different fields
+  // than the regular Add-Line submit. POSTs to /admin/users/:id/dids/migrate
+  // which re-binds the picked Telnyx DID's connection_id to this user's
+  // ACE connection (Pulse stops receiving), then creates a UserDid row.
+  async function handleMigrateSubmit() {
+    const token = sessionStorage.getItem('ace_token');
+    if (!token) return;
+    setError(null);
+    setSubmitting(true);
+    const res = await migrateDidToUser(token, userId, {
+      didNumber: pickedMigrationDid,
+      label,
+      colorHex: color,
+      isDefault,
+    });
+    setSubmitting(false);
+    if (!res.ok) {
+      setError(res.error ?? 'Migration failed');
+      return;
     }
     onAdded();
   }
@@ -575,22 +620,104 @@ function AddLineSubModal({ userId, onClose, onAdded }: AddLineProps) {
               >
                 ← Change how to add
               </button>
-              {/* v0.10.17 — Migrate flow body. Backend endpoint not yet
-                  built (lands in v0.10.18). When ready, this becomes a
-                  picker of Telnyx DIDs that have a connection_id but
-                  aren't yet in ACE's UserDid table, with the bound SIP
-                  username shown for identification. Selecting one re-binds
-                  the DID to THIS user's ACE Credential Connection via
-                  Telnyx PATCH /phone_numbers/{id} + creates a UserDid row.
-                  Pulse stops receiving for that number immediately. */}
-              <div className="pending-error" role="status" style={{ marginTop: '0.75rem' }}>
+
+              <p className="muted" style={{ marginTop: '0.5rem', fontSize: '0.85rem' }}>
+                Picks a phone number that's currently bound to another
+                connection in Telnyx (usually the old dialer) and re-binds
+                it to this user's ACE connection. The number stays the
+                same; the old dialer stops receiving calls for it
+                immediately.
+              </p>
+
+              <label className="lines-field">
+                <span>Pick a number to migrate</span>
+                {loadingCandidates ? (
+                  <p className="muted">Loading numbers from Telnyx…</p>
+                ) : migrationCandidates.length === 0 ? (
+                  <p className="muted">
+                    No numbers found that are currently bound to another
+                    connection. Either all your DIDs are already in ACE,
+                    or none are bound to anything in Telnyx yet.
+                  </p>
+                ) : (
+                  <select
+                    value={pickedMigrationDid}
+                    onChange={(e) => setPickedMigrationDid(e.target.value)}
+                  >
+                    <option value="">— Select a number —</option>
+                    {migrationCandidates.map((c) => (
+                      <option key={c.phoneNumber} value={c.phoneNumber}>
+                        {formatPhone(c.phoneNumber)} — currently on connection {c.sourceConnectionId}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </label>
+
+              <label className="lines-field">
+                <span>Label</span>
+                <input
+                  type="text"
+                  placeholder="Migrated"
+                  value={label}
+                  onChange={(e) => setLabel(e.target.value)}
+                  maxLength={32}
+                />
+              </label>
+
+              <label className="lines-field">
+                <span>Color</span>
+                <div className="lines-color-row">
+                  {COLOR_PALETTE.map((c) => (
+                    <button
+                      key={c}
+                      type="button"
+                      className={`lines-color-swatch${c === color ? ' active' : ''}`}
+                      style={{ background: c }}
+                      onClick={() => setColor(c)}
+                      aria-label={`Pick ${c}`}
+                    >
+                      {c === color && <Check size={12} />}
+                    </button>
+                  ))}
+                </div>
+              </label>
+
+              <label className="lines-field-checkbox">
+                <input
+                  type="checkbox"
+                  checked={isDefault}
+                  onChange={(e) => setIsDefault(e.target.checked)}
+                />
+                <span>Set as user's default outbound line</span>
+              </label>
+
+              <div className="pending-error" role="status" style={{ marginTop: '0.5rem', background: 'rgba(168, 85, 247, 0.1)', color: 'inherit' }}>
                 <AlertCircle size={14} />
                 <span>
-                  Migration backend ships in v0.10.18 (next push). For
-                  now this option is a placeholder — the picker + Telnyx
-                  re-binding logic isn't wired up yet. Use one of the
-                  other two options.
+                  Heads-up: migrating will stop the old dialer from
+                  receiving calls on this number. Only the new dialer
+                  will ring after migration.
                 </span>
+              </div>
+
+              <div className="lines-form-actions">
+                <button
+                  type="button"
+                  className="settings-btn-secondary"
+                  onClick={onClose}
+                  disabled={submitting}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="settings-btn"
+                  onClick={handleMigrateSubmit}
+                  disabled={submitting || !pickedMigrationDid || !label}
+                >
+                  {submitting ? 'Migrating…' : 'Migrate number'}
+                </button>
               </div>
             </div>
           )}

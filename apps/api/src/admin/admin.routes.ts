@@ -2031,6 +2031,41 @@ export async function adminRoutes(app: FastifyInstance) {
     },
   );
 
+  // ── GET /admin/telnyx/migration-candidates ──────────────────────────────
+  // v0.10.19 — Powers the "Migrate Existing User to New Dialer" picker
+  // in the Add-Line modal. Returns Telnyx phone numbers that HAVE a
+  // connection_id (currently bound to some Credential Connection, almost
+  // always Pulse's) AND haven't been claimed yet by any UserDid row in
+  // our DB. Admin picks one; we re-bind it to their ACE user's
+  // connection via /migrate POST below.
+  app.get(
+    '/admin/telnyx/migration-candidates',
+    { onRequest: [app.authenticate, requireAdmin] },
+    async (_request, reply) => {
+      const res = await telnyx.listMigrationCandidates();
+      if (!res.ok) {
+        return reply.code(502).send({
+          error: 'Failed to fetch migration candidates from Telnyx',
+          detail: res.error,
+        });
+      }
+      // Filter out any DID already claimed by ACE. Last-10-digit match
+      // tolerates format drift (Telnyx returns E.164, our DB also stores
+      // E.164 but historical rows may vary).
+      const aceDids = await prisma.userDid.findMany({
+        select: { didNumber: true },
+      });
+      const aceLast10 = new Set(
+        aceDids.map((d) => d.didNumber.replace(/[^\d]/g, '').slice(-10)),
+      );
+      const items = (res.data ?? []).filter((c) => {
+        const l10 = c.phoneNumber.replace(/[^\d]/g, '').slice(-10);
+        return l10.length === 10 && !aceLast10.has(l10);
+      });
+      return { items };
+    },
+  );
+
   // ═══════════════════════════════════════════════════════════════════════
   // v0.10.0 Task 27 — Per-user DID management (additional lines).
   //
@@ -2354,6 +2389,199 @@ export async function adminRoutes(app: FastifyInstance) {
         userDid: created,
         purchased,
         purchasedNumber,
+      };
+    },
+  );
+
+  // ── POST /admin/users/:id/dids/migrate ──────────────────────────────────
+  // v0.10.19 — Migrate Existing User to New Dialer.
+  //
+  // Re-binds a Telnyx DID that's currently working on the OLD dialer
+  // (Pulse) over to the specified ACE user's Credential Connection,
+  // so inbound voice now routes through ACE without changing the
+  // phone number. Pulse stops receiving calls for that number
+  // immediately (Telnyx only routes through ONE connection at a time
+  // per DID).
+  //
+  // Inputs: { didNumber: '+1...' }. The DID must already exist in
+  // Telnyx with a connection_id set (otherwise it's a candidate for
+  // the "unassigned" path, not migration).
+  //
+  // Steps:
+  //   1. Validate the user has an existing connection_id (their own
+  //      ACE Credential Connection, from their default UserDid).
+  //   2. Look up the DID in Telnyx → confirm it has a connection_id
+  //      (otherwise refuse — caller should use Add-Available path).
+  //   3. Refuse if the DID is already in ACE's UserDid table.
+  //   4. PATCH the DID's connection_id to the user's ACE connection.
+  //   5. Bind the DID to ACE's messaging profile (SMS routing).
+  //   6. Create a UserDid row with label/color/default flags.
+  //   7. Audit log.
+  const MigrateDidSchema = z.object({
+    didNumber: z.string().min(8).max(20),
+    label: z.string().min(1).max(40).default('Migrated'),
+    colorHex: z.string().regex(/^#[0-9a-fA-F]{6}$/).default('#a855f7'),
+    isDefault: z.boolean().optional().default(false),
+  });
+  app.post<{ Params: { id: string } }>(
+    '/admin/users/:id/dids/migrate',
+    { onRequest: [app.authenticate, requireAdmin] },
+    async (request, reply) => {
+      const actor = request.user as JwtPayload;
+      const userId = Number(request.params.id);
+      if (!Number.isFinite(userId)) {
+        return reply.code(400).send({ error: 'Invalid user id' });
+      }
+      const parsed = MigrateDidSchema.safeParse(request.body);
+      if (!parsed.success) {
+        return reply.code(400).send({ error: 'Invalid input', details: parsed.error.flatten() });
+      }
+      const { didNumber, label, colorHex, isDefault } = parsed.data;
+
+      const target = await prisma.user.findUnique({
+        where: { id: userId },
+        select: {
+          id: true,
+          userDids: {
+            select: { id: true, didNumber: true, connectionId: true, isDefault: true },
+          },
+        },
+      });
+      if (!target) return reply.code(404).send({ error: 'User not found' });
+
+      // 1. Resolve the user's ACE connection_id (same pattern as the
+      // unassigned path — fall back to Telnyx lookup if local row has
+      // NULL, then backfill).
+      const defaultDid = target.userDids.find((d) => d.isDefault) ?? target.userDids[0];
+      if (!defaultDid) {
+        return reply.code(409).send({
+          error: 'User has no DIDs assigned yet. Complete the invite flow first to create their ACE connection.',
+        });
+      }
+      let userConnectionId = defaultDid.connectionId;
+      if (!userConnectionId) {
+        const probe = await telnyx.findNumberByE164(defaultDid.didNumber);
+        if (probe.ok && probe.data?.connection_id) {
+          userConnectionId = probe.data.connection_id;
+          await prisma.userDid.update({
+            where: { id: defaultDid.id },
+            data: { connectionId: userConnectionId },
+          });
+        }
+      }
+      if (!userConnectionId) {
+        return reply.code(409).send({
+          error: 'Cannot resolve user\'s ACE Credential Connection. Ensure their default DID has a connection_id in Telnyx.',
+        });
+      }
+
+      // 3. Refuse if this DID is already in ACE.
+      const last10 = didNumber.replace(/[^\d]/g, '').slice(-10);
+      const existing = await prisma.userDid.findFirst({
+        where: { didNumber: { contains: last10 } },
+        select: { id: true, userId: true },
+      });
+      if (existing) {
+        return reply.code(409).send({
+          error: `That number is already assigned to user #${existing.userId} in ACE. Remove it first if you want to re-assign.`,
+        });
+      }
+
+      // 2. Look up the DID in Telnyx — must exist AND have a current
+      // connection_id (otherwise this isn't a migration, it's unassigned).
+      const lookup = await telnyx.findNumberByE164(didNumber);
+      if (!lookup.ok || !lookup.data) {
+        return reply.code(404).send({
+          error: `DID ${didNumber} not found in your Telnyx account.`,
+        });
+      }
+      const telnyxNumberId = lookup.data.id;
+      const sourceConnectionId = lookup.data.connection_id;
+      if (!sourceConnectionId) {
+        return reply.code(409).send({
+          error: `DID ${didNumber} has no current connection in Telnyx. Use the "Add an available number from Telnyx" option instead.`,
+        });
+      }
+      if (sourceConnectionId === userConnectionId) {
+        return reply.code(409).send({
+          error: `DID ${didNumber} is already on this user's connection. Use "Add an available number from Telnyx" instead.`,
+        });
+      }
+
+      // 4. Re-bind to the user's ACE connection.
+      const assign = await telnyx.assignDidToConnection(telnyxNumberId, userConnectionId);
+      if (!assign.ok) {
+        return reply.code(502).send({
+          error: `Failed to re-bind DID to user's ACE connection. Source connection: ${sourceConnectionId}, target: ${userConnectionId}.`,
+          detail: assign.error,
+        });
+      }
+
+      // 5. Bind to ACE's messaging profile (best-effort).
+      if (config.telnyxMessagingProfileId) {
+        const msg = await telnyx.assignNumberMessagingProfile(
+          telnyxNumberId,
+          config.telnyxMessagingProfileId,
+        );
+        if (!msg.ok) {
+          request.log.warn(
+            { numberId: telnyxNumberId, error: msg.error },
+            '[admin.user_dids.migrate] messaging profile assignment failed',
+          );
+        }
+      }
+
+      // 6. Create the UserDid row + handle default flag.
+      if (isDefault) {
+        await prisma.userDid.updateMany({
+          where: { userId },
+          data: { isDefault: false },
+        });
+      }
+      // Normalize the didNumber to E.164 if it isn't already (the
+      // Telnyx lookup returned canonical, use that).
+      const e164 = lookup.data.phone_number ?? didNumber;
+      const created = await prisma.userDid.create({
+        data: {
+          userId,
+          didNumber: e164,
+          telnyxNumberId,
+          connectionId: userConnectionId,
+          label,
+          colorHex,
+          isDefault,
+        },
+        select: {
+          id: true,
+          didNumber: true,
+          label: true,
+          colorHex: true,
+          isDefault: true,
+        },
+      });
+      if (isDefault) {
+        await prisma.user.update({
+          where: { id: userId },
+          data: { activeUserDidId: created.id },
+        });
+      }
+
+      await recordAudit(actor.sub, 'user_did.migrated', userId, {
+        source: 'migrate',
+        didNumber: e164,
+        sourceConnectionId,
+        targetConnectionId: userConnectionId,
+        label,
+        colorHex,
+        isDefault,
+        userDidId: created.id,
+      });
+
+      return {
+        ok: true,
+        userDid: created,
+        sourceConnectionId,
+        targetConnectionId: userConnectionId,
       };
     },
   );

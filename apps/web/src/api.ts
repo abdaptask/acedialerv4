@@ -1807,6 +1807,55 @@ export async function listUnassignedTelnyxNumbers(
   return body.items ?? [];
 }
 
+// v0.10.19 — Migration candidates for the "Migrate Existing User to
+// New Dialer" picker. Returns Telnyx DIDs that ARE bound to a Credential
+// Connection (i.e. currently working somewhere — usually Pulse) AND not
+// yet in ACE's UserDid table.
+export interface MigrationCandidate {
+  id: string;
+  phoneNumber: string;
+  areaCode: string | null;
+  sourceConnectionId: string;
+  status: string;
+}
+export async function listMigrationCandidates(
+  token: string,
+): Promise<MigrationCandidate[]> {
+  const res = await fetch(`${API_URL}/admin/telnyx/migration-candidates`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const body = (await res.json()) as { items: MigrationCandidate[] };
+  return body.items ?? [];
+}
+
+// v0.10.19 — Re-bind a migration candidate to the specified user's
+// ACE Credential Connection. Pulse stops receiving for that number;
+// ACE takes over inbound voice + SMS routing without changing the
+// phone number.
+export async function migrateDidToUser(
+  token: string,
+  userId: number,
+  input: {
+    didNumber: string;
+    label: string;
+    colorHex: string;
+    isDefault: boolean;
+  },
+): Promise<{ ok: boolean; error?: string }> {
+  const res = await fetch(`${API_URL}/admin/users/${userId}/dids/migrate`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(input),
+  });
+  const body = (await res.json().catch(() => ({}))) as { error?: string };
+  if (!res.ok) return { ok: false, error: body.error || `HTTP ${res.status}` };
+  return { ok: true };
+}
+
 export interface InvitePendingResult {
   ok: boolean;
   userId?: number;
