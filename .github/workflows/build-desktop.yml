@@ -49,15 +49,29 @@ jobs:
       - name: Build desktop TS
         working-directory: apps/desktop
         run: npm run build
-      - name: Package macOS .dmg (signed + notarized)
+      # v0.10.23 — Mac packaging with retry + unnotarized fallback.
+      #
+      # Apple's notarytool API (appstoreconnect.apple.com/notary/v2/submissions)
+      # has been intermittently failing — NSURLError -1001 timeouts and
+      # -1005 dropped connections on consecutive builds. Notarization is
+      # entirely on Apple's side; we can't fix the network. So we:
+      #   1. Try the FULL signed + notarized build up to 3 times with 60s
+      #      sleep between attempts.
+      #   2. If all 3 attempts still fail, fall through to a SIGNED-ONLY
+      #      build (no APPLE_* env vars → electron-builder skips notarization).
+      #
+      # End-user impact:
+      #   • Notarized path (the happy case): zero Gatekeeper warnings.
+      #   • Signed-only fallback: Mac users right-click → Open the first
+      #     time; macOS remembers thereafter. Far better than no installer.
+      #
+      # The fallback runs ONLY when the retried step has outcome == 'failure'.
+      - name: Package macOS .dmg (signed + notarized) with retry
+        id: package_mac_signed
         working-directory: apps/desktop
         # electron-builder reads these env vars automatically:
         #   CSC_LINK / CSC_KEY_PASSWORD  → signing identity (.p12)
         #   APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD / APPLE_TEAM_ID → notarize
-        # When all five secrets are present, the .dmg is signed AND notarized
-        # so end users get zero Gatekeeper warnings on install. When ANY of the
-        # secrets are absent (e.g. on a PR from a fork), CSC_IDENTITY_AUTO_DISCOVERY
-        # falls back to 'false' so the build still completes — just unsigned.
         env:
           CSC_LINK: ${{ secrets.APPLE_CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.APPLE_CSC_KEY_PASSWORD }}
@@ -65,12 +79,43 @@ jobs:
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           CSC_IDENTITY_AUTO_DISCOVERY: ${{ secrets.APPLE_CSC_LINK == '' && 'false' || 'true' }}
-          # electron-builder needs this to create the GH Release and upload
-          # the .dmg + latest-mac.yml + blockmap so installed apps can
-          # auto-update via electron-updater. GITHUB_TOKEN is provided by
-          # the workflow context (we set contents: write at the top).
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npm run package:mac:publish
+        continue-on-error: true
+        run: |
+          set +e
+          for attempt in 1 2 3; do
+            echo "::group::Attempt $attempt of 3 — notarized build"
+            npm run package:mac:publish
+            rc=$?
+            echo "::endgroup::"
+            if [ $rc -eq 0 ]; then
+              echo "✅ Notarized build succeeded on attempt $attempt"
+              exit 0
+            fi
+            if [ $attempt -lt 3 ]; then
+              echo "⚠️ Attempt $attempt failed (exit $rc), sleeping 60s before retry..."
+              sleep 60
+            fi
+          done
+          echo "❌ All 3 notarized attempts failed — fallback step will package unnotarized."
+          exit 1
+
+      - name: Fallback — Package macOS .dmg (signed-only, no notarization)
+        if: steps.package_mac_signed.outcome == 'failure'
+        working-directory: apps/desktop
+        # APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD / APPLE_TEAM_ID intentionally
+        # OMITTED here. electron-builder skips notarization when they're
+        # missing. The .dmg is still SIGNED via CSC_LINK so most install
+        # checks pass; only the strictest Gatekeeper rule (notarization
+        # ticket) is missing. Users right-click → Open the first time.
+        env:
+          CSC_LINK: ${{ secrets.APPLE_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.APPLE_CSC_KEY_PASSWORD }}
+          CSC_IDENTITY_AUTO_DISCOVERY: ${{ secrets.APPLE_CSC_LINK == '' && 'false' || 'true' }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "⚠️ Apple notarization unavailable — building signed-only fallback."
+          npm run package:mac:publish
       - name: Upload .dmg artifacts
         uses: actions/upload-artifact@v4
         with:
