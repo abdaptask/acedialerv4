@@ -1846,6 +1846,40 @@ export interface MigrateDidResult {
   previousConnectionId?: string;
   error?: string;
 }
+// v0.10.21 — "What to do with the old SIP connection?" cleanup prompt that
+// fires after a successful migration. Two actions:
+//   action: 'deactivate' — PATCH active=false (reversible)
+//   action: 'delete'     — DELETE the credential connection (IRREVERSIBLE)
+// Backend refuses if any UserDid still references this connectionId.
+export interface CleanupConnectionResult {
+  ok: boolean;
+  action?: 'deactivate' | 'delete';
+  error?: string;
+}
+export async function cleanupTelnyxConnection(
+  token: string,
+  connectionId: string,
+  action: 'deactivate' | 'delete',
+  reason?: string,
+): Promise<CleanupConnectionResult> {
+  const res = await fetch(
+    `${API_URL}/admin/telnyx/connections/${encodeURIComponent(connectionId)}/cleanup`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ action, ...(reason ? { reason } : {}) }),
+    },
+  );
+  const body = (await res.json().catch(() => ({}))) as CleanupConnectionResult;
+  if (!res.ok) {
+    return { ok: false, error: body.error ?? `HTTP ${res.status}` };
+  }
+  return { ok: true, ...body };
+}
+
 export async function migrateDidToUser(
   token: string,
   userId: number,

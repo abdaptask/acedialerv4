@@ -25,6 +25,8 @@ import {
   // v0.10.20 — Migrate Existing User to New Dialer flow.
   listMigrationCandidates,
   migrateDidToUser,
+  // v0.10.21 — "What to do with the old SIP connection?" cleanup.
+  cleanupTelnyxConnection,
   type AdminUserDidRow,
   type UnassignedTelnyxNumber,
   type MigrationCandidate,
@@ -363,7 +365,17 @@ function AddLineSubModal({ userId, onClose, onAdded }: AddLineProps) {
   // still picks from unassigned DIDs; 'migrate' picks from DIDs that ARE
   // currently bound to another connection (Pulse) and re-binds them to
   // this ACE user's connection without losing the phone number.
-  const [mode, setMode] = useState<'pick' | 'unassigned' | 'purchase' | 'migrate'>('pick');
+  const [mode, setMode] = useState<'pick' | 'unassigned' | 'purchase' | 'migrate' | 'cleanup'>('pick');
+  // v0.10.21 — After a successful migration, we land on the 'cleanup' step
+  // and offer to deactivate/delete the OLD SIP connection that previously
+  // served this number on Pulse. Captures the data we need to show + cleanup.
+  const [postMigrate, setPostMigrate] = useState<{
+    didNumber: string;
+    previousConnectionId: string;
+    previousConnectionName: string | null;
+    previousSipUser: string | null;
+  } | null>(null);
+  const [cleanupBusy, setCleanupBusy] = useState<'deactivate' | 'delete' | null>(null);
   const [unassigned, setUnassigned] = useState<UnassignedTelnyxNumber[]>([]);
   const [loadingUnassigned, setLoadingUnassigned] = useState(false);
   // v0.10.20 — Migration candidate list (Telnyx DIDs currently bound to
@@ -455,6 +467,10 @@ function AddLineSubModal({ userId, onClose, onAdded }: AddLineProps) {
   // POSTs to /admin/users/:id/dids/migrate which re-binds the picked Telnyx
   // DID's connection_id to this user's ACE connection (Pulse stops receiving),
   // then creates a UserDid row.
+  //
+  // v0.10.21 — On success we LAND ON the cleanup step instead of closing.
+  // The cleanup step lets the admin decide what to do with the old SIP
+  // connection that previously served this number (deactivate / delete / skip).
   async function handleMigrateSubmit() {
     const token = sessionStorage.getItem('ace_token');
     if (!token) return;
@@ -469,6 +485,48 @@ function AddLineSubModal({ userId, onClose, onAdded }: AddLineProps) {
     setSubmitting(false);
     if (!res.ok) {
       setError(res.error ?? 'Migration failed');
+      return;
+    }
+    // Capture the previous connection's metadata BEFORE closing so the
+    // cleanup step can show "what was on connection X (jdoe@pulse)".
+    const picked = migrationCandidates.find((c) => c.phoneNumber === pickedMigrationDid);
+    setPostMigrate({
+      didNumber: pickedMigrationDid,
+      previousConnectionId: res.previousConnectionId ?? picked?.sourceConnectionId ?? '',
+      previousConnectionName: picked?.connectionName ?? null,
+      previousSipUser: picked?.sipUsername ?? null,
+    });
+    setMode('cleanup');
+  }
+
+  // v0.10.21 — Cleanup prompt action. Either deactivates (reversible) or
+  // deletes (irreversible) the old SIP connection that served this number
+  // on Pulse. Returns control to parent after either succeeds OR after
+  // the admin clicks Skip.
+  async function handleCleanup(action: 'deactivate' | 'delete' | 'skip') {
+    if (action === 'skip') {
+      onAdded();
+      return;
+    }
+    const pm = postMigrate;
+    if (!pm?.previousConnectionId) {
+      // No connection id known — just close gracefully.
+      onAdded();
+      return;
+    }
+    const token = sessionStorage.getItem('ace_token');
+    if (!token) return;
+    setError(null);
+    setCleanupBusy(action);
+    const res = await cleanupTelnyxConnection(
+      token,
+      pm.previousConnectionId,
+      action,
+      `Post-migration cleanup of ${pm.didNumber}`,
+    );
+    setCleanupBusy(null);
+    if (!res.ok) {
+      setError(res.error ?? `${action} failed`);
       return;
     }
     onAdded();
@@ -734,6 +792,103 @@ function AddLineSubModal({ userId, onClose, onAdded }: AddLineProps) {
                   disabled={submitting || !pickedMigrationDid || !label}
                 >
                   {submitting ? 'Migrating…' : 'Migrate number'}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {mode === 'cleanup' && postMigrate && (
+            <div className="lines-form">
+              <div
+                className="pending-status"
+                role="status"
+                style={{
+                  background: 'rgba(34, 197, 94, 0.12)',
+                  border: '1px solid rgba(34, 197, 94, 0.35)',
+                  color: 'inherit',
+                  padding: '0.6rem 0.8rem',
+                  borderRadius: '6px',
+                  marginBottom: '0.75rem',
+                  display: 'flex',
+                  gap: '0.5rem',
+                  alignItems: 'center',
+                }}
+              >
+                <Check size={16} />
+                <span>
+                  Number {formatPhone(postMigrate.didNumber)} migrated
+                  successfully. ACE is now receiving its calls and SMS.
+                </span>
+              </div>
+
+              <h4 style={{ margin: '0.4rem 0 0.3rem 0' }}>Clean up the old SIP connection?</h4>
+              <p className="muted" style={{ fontSize: '0.85rem', marginTop: 0 }}>
+                The previous Pulse-side connection still exists in Telnyx
+                but no longer receives traffic for this number. Decide
+                what to do with it:
+              </p>
+
+              <div
+                style={{
+                  background: 'rgba(128,128,128,0.08)',
+                  border: '1px solid rgba(128,128,128,0.2)',
+                  borderRadius: '6px',
+                  padding: '0.6rem 0.8rem',
+                  margin: '0.5rem 0',
+                  fontSize: '0.85rem',
+                }}
+              >
+                <div><strong>Connection:</strong> {postMigrate.previousConnectionName ?? '(unknown name)'}</div>
+                <div><strong>SIP user:</strong> {postMigrate.previousSipUser ?? '(unknown)'}</div>
+                <div className="muted" style={{ fontSize: '0.75rem', marginTop: '0.25rem' }}>
+                  ID: {postMigrate.previousConnectionId || '(none)'}
+                </div>
+              </div>
+
+              <div
+                className="pending-error"
+                role="status"
+                style={{ marginTop: '0.5rem' }}
+              >
+                <AlertCircle size={14} />
+                <span>
+                  <strong>Important:</strong> if this Pulse connection is
+                  shared with other users still on Pulse, deactivating or
+                  deleting it will break their SIP login too. Only proceed
+                  if you're certain this connection only served the migrated
+                  number/user.
+                </span>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginTop: '1rem' }}>
+                <button
+                  type="button"
+                  className="settings-btn-secondary"
+                  onClick={() => handleCleanup('deactivate')}
+                  disabled={cleanupBusy !== null}
+                >
+                  {cleanupBusy === 'deactivate' ? 'Deactivating…' : 'Deactivate (reversible)'}
+                </button>
+                <button
+                  type="button"
+                  className="settings-btn-danger"
+                  onClick={() => {
+                    if (window.confirm('Permanently delete this Telnyx connection? This cannot be undone — any SIP user on Pulse using these creds will lose access immediately.')) {
+                      void handleCleanup('delete');
+                    }
+                  }}
+                  disabled={cleanupBusy !== null}
+                  style={{ background: '#dc2626', color: 'white', borderColor: '#dc2626' }}
+                >
+                  {cleanupBusy === 'delete' ? 'Deleting…' : 'Delete (permanent)'}
+                </button>
+                <button
+                  type="button"
+                  className="settings-btn-secondary"
+                  onClick={() => handleCleanup('skip')}
+                  disabled={cleanupBusy !== null}
+                >
+                  Keep — do nothing (close)
                 </button>
               </div>
             </div>

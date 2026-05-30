@@ -2676,6 +2676,91 @@ export async function adminRoutes(app: FastifyInstance) {
     },
   );
 
+  // ── POST /admin/telnyx/connections/:id/cleanup ──────────────────────────
+  // v0.10.21 — Used by the "what to do with the old SIP connection?" prompt
+  // that appears after a successful migration. Two actions:
+  //
+  //   action: 'deactivate'  → PATCH /credential_connections/{id} active=false
+  //                            (reversible — flip back later via Telnyx portal)
+  //   action: 'delete'      → DELETE /credential_connections/{id}
+  //                            (IRREVERSIBLE — the cred is gone, SIP creds
+  //                             on Pulse stop working entirely)
+  //
+  // Both audited. Both require admin role.
+  const ConnectionCleanupSchema = z.object({
+    action: z.enum(['deactivate', 'delete']),
+    /** Optional context for audit log (e.g. which DID's migration triggered this). */
+    reason: z.string().max(200).optional(),
+  });
+  app.post<{ Params: { id: string } }>(
+    '/admin/telnyx/connections/:id/cleanup',
+    { onRequest: [app.authenticate, requireAdmin] },
+    async (request, reply) => {
+      const actor = request.user as JwtPayload;
+      const connectionId = request.params.id;
+      if (!connectionId || connectionId.length < 4) {
+        return reply.code(400).send({ error: 'Invalid connection id' });
+      }
+      const parsed = ConnectionCleanupSchema.safeParse(request.body);
+      if (!parsed.success) {
+        return reply.code(400).send({ error: 'Invalid input', details: parsed.error.flatten() });
+      }
+      const { action, reason } = parsed.data;
+
+      // Refuse if this connection still backs ANY UserDid in our local DB —
+      // would orphan the user immediately. Admin must remove/reassign the
+      // user's lines first.
+      const usedBy = await prisma.userDid.findFirst({
+        where: { connectionId },
+        select: { id: true, userId: true, didNumber: true },
+      });
+      if (usedBy) {
+        return reply.code(409).send({
+          error: `Refusing to ${action} — connection is still bound to UserDid id=${usedBy.id} (user ${usedBy.userId}, ${usedBy.didNumber}) in ACE. Remove that line first.`,
+        });
+      }
+
+      // Fetch the connection so the audit record can capture its identity
+      // (name + user_name) before we mutate / delete it.
+      const before = await telnyx.fetchCredentialConnection(connectionId);
+      const beforeName = before.ok ? before.data?.data?.connection_name ?? null : null;
+      const beforeUser = before.ok ? before.data?.data?.user_name ?? null : null;
+
+      if (action === 'deactivate') {
+        const res = await telnyx.deactivateCredentialConnection(connectionId);
+        if (!res.ok) {
+          return reply.code(502).send({
+            error: 'Telnyx deactivate failed',
+            detail: res.error,
+          });
+        }
+        await recordAudit(actor.sub, 'telnyx.connection.deactivated', null, {
+          connectionId,
+          connectionName: beforeName,
+          sipUser: beforeUser,
+          reason,
+        });
+        return { ok: true, action: 'deactivate' };
+      }
+
+      // action === 'delete' — IRREVERSIBLE.
+      const res = await telnyx.deleteCredentialConnection(connectionId);
+      if (!res.ok) {
+        return reply.code(502).send({
+          error: 'Telnyx delete failed',
+          detail: res.error,
+        });
+      }
+      await recordAudit(actor.sub, 'telnyx.connection.deleted', null, {
+        connectionId,
+        connectionName: beforeName,
+        sipUser: beforeUser,
+        reason,
+      });
+      return { ok: true, action: 'delete' };
+    },
+  );
+
   // ── PATCH /admin/users/:id/dids/:didId ──────────────────────────────────
   const PatchDidSchema = z.object({
     label: z.string().min(1).max(40).optional(),

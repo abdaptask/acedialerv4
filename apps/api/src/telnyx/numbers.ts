@@ -239,6 +239,25 @@ export function deleteCredentialConnection(
 }
 
 /**
+ * v0.10.21 — Deactivate a Credential Connection without deleting it.
+ * Sets active=false. SIP REGISTER from that connection's credentials stops
+ * working immediately. Reversible — can be PATCH'd back to active=true.
+ *
+ * Used by the "deactivate-or-delete after migration" admin prompt: after
+ * a DID is re-bound from Pulse to ACE, the admin chooses whether the old
+ * Pulse Credential Connection should be deactivated (recoverable) or
+ * deleted (irreversible).
+ */
+export function deactivateCredentialConnection(
+  connectionId: string,
+): Promise<TelnyxResult<SingleResponse<FullCredentialConnection>>> {
+  return call(`/credential_connections/${connectionId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ active: false }),
+  });
+}
+
+/**
  * v0.9.7 — Fetch the FULL config of a single Credential Connection by id.
  * Used as the "template" probe: at invite time we read the working
  * `ace-dialer` connection (the one Abdulla uses today) and mirror its

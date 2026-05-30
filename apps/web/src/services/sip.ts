@@ -102,21 +102,25 @@ function applySpeakerSelection(audioEl: HTMLAudioElement): void {
  */
 function buildAudioConstraints(): MediaTrackConstraints {
   const micId = localStorage.getItem('ace_mic');
+  // v0.10.21 — User-controlled noise suppression. Default OFF preserves
+  // the legacy behavior (Chrome's RNNoise can produce a "tunnel / pipe"
+  // artifact on some headsets). Users in noisy environments toggle it
+  // ON via Settings → Microphone. Read fresh on every getUserMedia call
+  // so the change takes effect on the user's NEXT call without reload.
+  const noiseSuppression = localStorage.getItem('ace_noise_suppression') === 'true';
+
   // IMPORTANT: use `ideal` (not exact/hard) for sampleRate and channelCount.
   // Hard constraints fail silently on Bluetooth headsets, USB phones, and
   // older mics — the browser then either returns no audio or falls back to
   // a low-quality default that makes the user sound like they're in a pipe.
   // With `ideal`, the browser tries 48kHz/mono first but accepts the device's
   // native format if it can't comply.
-  // Browser audio processing is per-track. For VoIP on a wired headset (boom
-  // mic close to mouth) we keep echo cancellation and AGC on, but DISABLE
-  // noiseSuppression — Chrome's RNNoise filter is aggressive and produces
-  // the "speaking from a tunnel / pipe" sound recipients complain about.
+  // Echo cancellation + AGC always on. Noise suppression user-controlled.
   // Telnyx-side NS should also be off (one suppression pass at most, ideally
   // none if the user is in a quiet space).
   const constraints: MediaTrackConstraints = {
     echoCancellation: true,
-    noiseSuppression: false,
+    noiseSuppression,
     autoGainControl: true,
     channelCount: { ideal: 1 },
     sampleRate: { ideal: 48000 },

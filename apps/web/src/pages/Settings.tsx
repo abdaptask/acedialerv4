@@ -660,6 +660,14 @@ function MicrophoneSection() {
   const [mics, setMics] = useState<AudioDevice[]>([]);
   const [selected, setSelected] = useState<string>(localStorage.getItem('ace_mic') || 'default');
   const [error, setError] = useState<string | null>(null);
+  // v0.10.21 — User-controlled noise suppression. Default OFF (preserves the
+  // legacy behavior where Chrome's RNNoise was producing "tunnel/pipe" voice
+  // artifacts on some headsets). Users in noisy environments (cafes, open
+  // offices, India home setups with AC + traffic) can toggle ON.
+  // Read at every getUserMedia call via buildAudioConstraints() in sip.ts.
+  const [noiseSuppression, setNoiseSuppression] = useState<boolean>(
+    localStorage.getItem('ace_noise_suppression') === 'true',
+  );
 
   useEffect(() => {
     navigator.mediaDevices
@@ -684,6 +692,11 @@ function MicrophoneSection() {
     else localStorage.setItem('ace_mic', id);
   }
 
+  function toggleNoiseSuppression(on: boolean) {
+    setNoiseSuppression(on);
+    localStorage.setItem('ace_noise_suppression', on ? 'true' : 'false');
+  }
+
   return (
     <div className="settings-section">
       <p className="settings-blurb">Choose which microphone the dialer uses for outgoing audio.</p>
@@ -693,6 +706,28 @@ function MicrophoneSection() {
         selected={selected}
         onPick={pick}
       />
+
+      {/* v0.10.21 — Noise suppression toggle. Affects all future calls; an
+          in-progress call must be reconnected to pick up the new setting. */}
+      <div style={{ marginTop: '1rem', padding: '0.75rem 0', borderTop: '1px solid var(--divider, rgba(128,128,128,0.2))' }}>
+        <label style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem', cursor: 'pointer' }}>
+          <input
+            type="checkbox"
+            checked={noiseSuppression}
+            onChange={(e) => toggleNoiseSuppression(e.target.checked)}
+            style={{ marginTop: '0.2rem' }}
+          />
+          <span style={{ flex: 1 }}>
+            <strong>Noise suppression</strong>
+            <div className="muted small" style={{ marginTop: '0.2rem' }}>
+              Filters background noise (keyboard taps, AC hum, fans). Recommended
+              if you're in a noisy environment. Some headsets produce a slight
+              processed sound when enabled — try toggling off if your voice
+              sounds muffled on the other end. Takes effect on your next call.
+            </div>
+          </span>
+        </label>
+      </div>
     </div>
   );
 }
