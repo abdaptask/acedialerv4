@@ -26,6 +26,13 @@ import * as telnyx from '../telnyx/numbers.js';
 import { sendWelcomeEmail, sendLineAssignedEmail } from '../email/sendgrid.js';
 import { sendLineAssignedCard } from '../lib/teamsNotify.js';
 import { backfillMigratedDidHistory } from '../lib/migrationBackfill.js';
+import {
+  buildAuthorizeUrl,
+  exchangeCodeForTokens,
+  storeInitialTokens,
+  getConnectionStatus,
+  disconnectGraph,
+} from '../auth/microsoft.js';
 import { recordAudit } from '../lib/audit.js';
 import { ensureUserDid } from '../lib/userDid.js';
 
@@ -165,6 +172,44 @@ const InviteFromPendingSchema = z.object({
   // E.164 of the unassigned DID the admin picked (required when didMode === 'unassigned').
   unassignedDidNumber: z.string().optional(),
 });
+
+// v0.10.22 — Small HTML page returned by the MS OAuth callback. Shows a
+// success/error message and auto-closes the popup window after 3 seconds.
+// Kept inline (not a template file) so deploys stay simple.
+function buildCallbackHtml(success: boolean, message: string): string {
+  const safeMessage = message
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+  const color = success ? '#16a34a' : '#dc2626';
+  const icon = success ? '✓' : '✕';
+  return `<!doctype html>
+<html><head><meta charset="utf-8"><title>ACE Dialer — Teams Connection</title>
+<style>
+  body { font: 14px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    color: #0f172a; background: #f1f5f9; margin: 0;
+    display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+  .card { background: #fff; padding: 32px 40px; border-radius: 12px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.08); max-width: 420px; text-align: center; }
+  .icon { font-size: 48px; color: ${color}; margin-bottom: 12px; }
+  h1 { font-size: 20px; margin: 0 0 8px; color: ${color}; }
+  p { margin: 0 0 12px; color: #475569; }
+  .close { font-size: 13px; color: #94a3b8; margin-top: 24px; }
+</style></head>
+<body><div class="card">
+  <div class="icon">${icon}</div>
+  <h1>${success ? 'Connected' : 'Connection failed'}</h1>
+  <p>${safeMessage}</p>
+  <div class="close">This window will close automatically.</div>
+</div>
+<script>
+  // Notify opener (the dialer settings page) that the flow completed.
+  try { window.opener && window.opener.postMessage(
+    { type: 'ms-oauth-result', success: ${success} }, '*'); } catch (e) {}
+  setTimeout(() => { try { window.close(); } catch (e) {} }, 3000);
+</script>
+</body></html>`;
+}
 
 export async function adminRoutes(app: FastifyInstance) {
   // ───────────────────────── GET /admin/users ─────────────────────────
@@ -2789,6 +2834,110 @@ export async function adminRoutes(app: FastifyInstance) {
         reason,
       });
       return { ok: true, action: 'delete' };
+    },
+  );
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // v0.10.22 — Microsoft Graph OAuth for Teams notifications.
+  //
+  // Admin signs in ONCE as acebot@aptask.com via the initiate→callback
+  // flow. Refresh token gets stored in MsServiceToken. From then on,
+  // Teams DMs (line_assigned, missed_call, voicemail, SMS) flow through
+  // sendLineAssignedCard which uses the token to talk to Graph API.
+  // ═══════════════════════════════════════════════════════════════════════
+
+  // In-memory state map for CSRF protection across the OAuth round-trip.
+  // Keys: random nonce. Values: timestamp expiring after 10 minutes.
+  // Single-process is fine — the OAuth flow only takes ~30s for the user.
+  const oauthStateMap = new Map<string, number>();
+  setInterval(() => {
+    const now = Date.now();
+    for (const [k, exp] of oauthStateMap.entries()) {
+      if (exp < now) oauthStateMap.delete(k);
+    }
+  }, 60_000).unref();
+
+  // GET /admin/microsoft/oauth/initiate
+  // Returns { redirectUrl } — frontend opens this in a popup or full
+  // navigation. The admin will be prompted to sign in as acebot.
+  app.get(
+    '/admin/microsoft/oauth/initiate',
+    { onRequest: [app.authenticate, requireAdmin] },
+    async (_request, reply) => {
+      const state = randomUUID();
+      oauthStateMap.set(state, Date.now() + 10 * 60 * 1000);
+      try {
+        const url = buildAuthorizeUrl(state);
+        return { redirectUrl: url };
+      } catch (e) {
+        return reply.code(503).send({
+          error: e instanceof Error ? e.message : 'MS Graph config missing',
+        });
+      }
+    },
+  );
+
+  // GET /admin/microsoft/oauth/callback
+  // Hit by Microsoft after the admin signs in. Exchanges the code for
+  // tokens, stores them, then returns a small HTML page the popup window
+  // shows briefly before closing itself.
+  app.get<{ Querystring: { code?: string; state?: string; error?: string; error_description?: string } }>(
+    '/admin/microsoft/oauth/callback',
+    async (request, reply) => {
+      const { code, state, error, error_description } = request.query;
+
+      if (error) {
+        return reply.code(400).type('text/html').send(
+          buildCallbackHtml(false, `Microsoft returned error: ${error_description || error}`),
+        );
+      }
+      if (!code || !state) {
+        return reply.code(400).type('text/html').send(
+          buildCallbackHtml(false, 'Missing code or state parameter'),
+        );
+      }
+      // Verify state nonce (CSRF protection).
+      if (!oauthStateMap.has(state)) {
+        return reply.code(400).type('text/html').send(
+          buildCallbackHtml(false, 'OAuth state expired or invalid — please retry from the dialer'),
+        );
+      }
+      oauthStateMap.delete(state);
+
+      try {
+        const tokens = await exchangeCodeForTokens(code);
+        await storeInitialTokens(tokens);
+        return reply.type('text/html').send(
+          buildCallbackHtml(true, 'Connected — you can close this window.'),
+        );
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        request.log.error({ err: msg }, '[ms-oauth] token exchange failed');
+        return reply.code(500).type('text/html').send(
+          buildCallbackHtml(false, `Token exchange failed: ${msg}`),
+        );
+      }
+    },
+  );
+
+  // GET /admin/microsoft/oauth/status — used by the admin UI.
+  app.get(
+    '/admin/microsoft/oauth/status',
+    { onRequest: [app.authenticate, requireAdmin] },
+    async () => {
+      return getConnectionStatus();
+    },
+  );
+
+  // POST /admin/microsoft/oauth/disconnect — wipes the stored tokens.
+  app.post(
+    '/admin/microsoft/oauth/disconnect',
+    { onRequest: [app.authenticate, requireAdmin] },
+    async (request) => {
+      const actor = request.user as JwtPayload;
+      await disconnectGraph();
+      await recordAudit(actor.sub, 'ms_graph.disconnected', null, {});
+      return { ok: true };
     },
   );
 

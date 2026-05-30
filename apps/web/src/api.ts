@@ -1846,6 +1846,45 @@ export interface MigrateDidResult {
   previousConnectionId?: string;
   error?: string;
 }
+// v0.10.22 — Microsoft Graph OAuth for the ACE Bot Teams notifier.
+// Tenant-wide admin setting: connect once via the OAuth flow, then all
+// Teams DMs (line_assigned, missed_call, voicemail, SMS) route through
+// Microsoft Graph using the acebot@aptask.com service account's refresh
+// token. Status endpoint shows whether we're connected and when tokens
+// were last refreshed.
+export interface MsGraphStatus {
+  connected: boolean;
+  account?: string;
+  expiresAt?: string;             // ISO timestamp (access token expiry)
+  lastRefreshAt?: string;
+}
+export async function getMsGraphStatus(token: string): Promise<MsGraphStatus> {
+  const res = await fetch(`${API_URL}/admin/microsoft/oauth/status`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return (await res.json()) as MsGraphStatus;
+}
+export async function initiateMsGraphConnect(
+  token: string,
+): Promise<{ redirectUrl: string }> {
+  const res = await fetch(`${API_URL}/admin/microsoft/oauth/initiate`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({} as { error?: string }));
+    throw new Error((body as { error?: string }).error ?? `HTTP ${res.status}`);
+  }
+  return (await res.json()) as { redirectUrl: string };
+}
+export async function disconnectMsGraph(token: string): Promise<void> {
+  const res = await fetch(`${API_URL}/admin/microsoft/oauth/disconnect`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+}
+
 // v0.10.21 — "What to do with the old SIP connection?" cleanup prompt that
 // fires after a successful migration. Two actions:
 //   action: 'deactivate' — PATCH active=false (reversible)

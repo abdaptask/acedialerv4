@@ -426,3 +426,28 @@ model AuditLog {
   @@index([action, createdAt])
   @@map("audit_logs")
 }
+
+/// v0.10.22 — Microsoft Graph OAuth tokens for the ACE Bot service account
+/// (acebot@aptask.com). Single-row table (key = account email).
+///
+/// An admin signs in ONCE via /admin/microsoft/oauth/initiate → Microsoft
+/// callback stores refresh + access tokens here. From then on, the backend
+/// reads this row, refreshes the access token when expired (~1hr), and
+/// uses it to call Graph API endpoints (POST /chats, POST /chats/{id}/messages)
+/// for Teams DMs. Refresh token lifetime is 90 days sliding — usage extends
+/// it indefinitely. If invalidated (password change, conditional access),
+/// admin gets a notice and re-signs in.
+model MsServiceToken {
+  /// The service account's UPN (e.g. "acebot@aptask.com"). Used as the
+  /// primary key because we only ever store one account's tokens.
+  account       String   @id
+  accessToken   String   @map("access_token")
+  refreshToken  String   @map("refresh_token")
+  /// When the current access token expires. UI shows time-until-refresh.
+  expiresAt     DateTime @map("expires_at")
+  /// Bumped on every successful refresh; lets admin UI show "last refresh".
+  updatedAt     DateTime @updatedAt @map("updated_at")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@map("ms_service_tokens")
+}

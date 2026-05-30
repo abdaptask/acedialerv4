@@ -92,6 +92,11 @@ import {
   type CostReport,
   type RecruiterReport,
   type AlertsReport,
+  // v0.10.22 — MS Graph Teams connection
+  getMsGraphStatus,
+  initiateMsGraphConnect,
+  disconnectMsGraph,
+  type MsGraphStatus,
 } from '../api';
 import {
   DEFAULT_QUICK_REPLIES,
@@ -173,6 +178,8 @@ const SECTIONS: SectionDef[] = [
   { key: 'users', category: 'Admin', label: 'Users', icon: Users, blurb: 'Invite, promote, deactivate (admin only)', Component: UsersAdminSection, adminOnly: true },
   { key: 'pending-users', category: 'Admin', label: 'Pending Users', icon: UserPlus, blurb: 'Stage + invite Pulse users to ACE (admin only)', Component: PendingUsersSection, adminOnly: true },
   { key: 'audit-log', category: 'Admin', label: 'Audit log', icon: ScrollText, blurb: 'Recent admin actions (admin only)', Component: AuditLogSection, adminOnly: true },
+  // v0.10.22 — Tenant-wide MS Graph connection for Teams notifications.
+  { key: 'teams-connection', category: 'Admin', label: 'Teams connection', icon: MessageSquare, blurb: 'Connect ACE Bot to Microsoft Teams (admin only)', Component: TeamsConnectionSection, adminOnly: true },
 ];
 
 const SECTION_CATEGORIES: SectionCategory[] = ['Personal', 'Calling', 'Reports', 'Admin'];
@@ -4078,6 +4085,189 @@ function AlertsSection() {
       <p className="muted small" style={{ marginTop: 14 }}>
         Alert types: <strong>user.idle_7d</strong> (no activity 7 days), <strong>missed.spike</strong> (today &gt; 1.5Ã— 7-day avg), <strong>did.inactive_14d</strong> (no inbound 14 days).
       </p>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// v0.10.22 — Teams connection section (admin only).
+//
+// Tenant-wide setting: connects the ACE Bot service account
+// (acebot@aptask.com) to Microsoft Graph via delegated OAuth. Once
+// connected, all Teams DMs (line_assigned, missed_call, voicemail, SMS)
+// flow through Graph API using the stored refresh token.
+//
+// Flow:
+//   - GET /admin/microsoft/oauth/status → shows current connection state
+//   - "Connect" button → opens /admin/microsoft/oauth/initiate in a popup
+//   - Popup completes Microsoft sign-in, posts message back, popup closes
+//   - We re-fetch status to show "Connected as acebot@aptask.com"
+//   - "Disconnect" button → POSTs to /admin/microsoft/oauth/disconnect
+// ---------------------------------------------------------------------------
+
+function TeamsConnectionSection() {
+  const [status, setStatus] = useState<MsGraphStatus | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [connecting, setConnecting] = useState(false);
+  const [disconnecting, setDisconnecting] = useState(false);
+
+  async function refresh() {
+    const token = sessionStorage.getItem('ace_token');
+    if (!token) return;
+    try {
+      const s = await getMsGraphStatus(token);
+      setStatus(s);
+      setError(null);
+    } catch (e) {
+      setError((e as Error).message ?? 'Failed to load status');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    void refresh();
+    // Listen for the popup's postMessage when OAuth completes.
+    const onMessage = (ev: MessageEvent) => {
+      const d = ev.data as { type?: string; success?: boolean } | null;
+      if (d?.type === 'ms-oauth-result') {
+        setConnecting(false);
+        // Re-fetch status whether success or fail; status endpoint
+        // will reflect the new state if tokens got stored.
+        void refresh();
+      }
+    };
+    window.addEventListener('message', onMessage);
+    return () => window.removeEventListener('message', onMessage);
+  }, []);
+
+  async function handleConnect() {
+    const token = sessionStorage.getItem('ace_token');
+    if (!token) return;
+    setError(null);
+    setConnecting(true);
+    try {
+      const { redirectUrl } = await initiateMsGraphConnect(token);
+      const popup = window.open(
+        redirectUrl,
+        'ms-oauth',
+        'width=520,height=700',
+      );
+      if (!popup) {
+        setError('Browser blocked the popup. Allow popups and try again.');
+        setConnecting(false);
+        return;
+      }
+      // Fallback: if user closes popup without completing, stop spinner
+      // after 5 minutes max.
+      window.setTimeout(() => {
+        setConnecting((c) => (c ? false : c));
+      }, 5 * 60_000);
+    } catch (e) {
+      setError((e as Error).message ?? 'Failed to start sign-in');
+      setConnecting(false);
+    }
+  }
+
+  async function handleDisconnect() {
+    if (!window.confirm('Disconnect ACE Bot from Microsoft Teams? Teams DMs will stop firing until you reconnect.')) return;
+    const token = sessionStorage.getItem('ace_token');
+    if (!token) return;
+    setDisconnecting(true);
+    try {
+      await disconnectMsGraph(token);
+      await refresh();
+    } catch (e) {
+      setError((e as Error).message ?? 'Disconnect failed');
+    } finally {
+      setDisconnecting(false);
+    }
+  }
+
+  if (loading) return <div className="muted">Loading…</div>;
+
+  return (
+    <div className="settings-section">
+      <p className="settings-blurb">
+        Connect the <strong>ACE Bot</strong> service account
+        (<code>acebot@aptask.com</code>) to Microsoft Teams. Once connected,
+        the dialer sends Teams direct messages for line assignments, missed
+        calls, voicemails, and SMS — directly from ACE Bot.
+      </p>
+
+      {error && (
+        <div className="error" style={{ marginBottom: 12 }}>
+          {error}
+        </div>
+      )}
+
+      {status?.connected ? (
+        <div
+          style={{
+            background: 'rgba(34, 197, 94, 0.10)',
+            border: '1px solid rgba(34, 197, 94, 0.35)',
+            borderRadius: 8,
+            padding: '12px 16px',
+            marginBottom: 12,
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+            <Check size={18} />
+            <strong>Connected as {status.account}</strong>
+          </div>
+          <div className="muted small">
+            Access token expires:{' '}
+            {status.expiresAt ? new Date(status.expiresAt).toLocaleString() : '—'}
+            <br />
+            Last refresh:{' '}
+            {status.lastRefreshAt ? new Date(status.lastRefreshAt).toLocaleString() : '—'}
+          </div>
+          <p className="muted small" style={{ marginTop: 10 }}>
+            The refresh token has a 90-day sliding window; regular notifications
+            extend it indefinitely. If the bot account password changes or
+            tenant policy revokes the grant, click Disconnect and reconnect.
+          </p>
+          <button
+            type="button"
+            className="settings-btn-secondary"
+            onClick={handleDisconnect}
+            disabled={disconnecting}
+            style={{ marginTop: 6 }}
+          >
+            {disconnecting ? 'Disconnecting…' : 'Disconnect'}
+          </button>
+        </div>
+      ) : (
+        <div
+          style={{
+            background: 'rgba(128, 128, 128, 0.08)',
+            border: '1px solid rgba(128, 128, 128, 0.2)',
+            borderRadius: 8,
+            padding: '12px 16px',
+            marginBottom: 12,
+          }}
+        >
+          <p style={{ margin: '0 0 10px' }}>
+            <strong>Not connected.</strong> Click below to sign in as ACE Bot
+            and grant the required Teams permissions.
+          </p>
+          <p className="muted small" style={{ margin: '0 0 12px' }}>
+            A Microsoft sign-in window will pop up. Sign in as{' '}
+            <code>acebot@aptask.com</code> (NOT your personal account) and
+            click Accept on the permission prompt. The window will close
+            automatically.
+          </p>
+          <button
+            type="button"
+            className="settings-btn"
+            onClick={handleConnect}
+            disabled={connecting}
+          >
+            {connecting ? 'Waiting for sign-in…' : 'Connect to Microsoft Teams'}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
