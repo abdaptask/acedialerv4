@@ -3611,16 +3611,12 @@ body {
   width: 8px;
   height: 8px;
 }
-[data-theme="light"] .incoming-line-badge {
-  background: rgba(0, 0, 0, 0.06);
-  border-color: rgba(0, 0, 0, 0.16);
-  color: var(--text);
-  text-shadow: none;
-}
-[data-theme="light"] .incoming-line-text { color: var(--text); }
-[data-theme="light"] .incoming-line-swatch {
-  box-shadow: 0 0 0 1.5px rgba(0, 0, 0, 0.12);
-}
+/* v0.10.21 — REMOVED the [data-theme="light"] overrides that were forcing
+   the badge text to the dark-on-light theme color. The incoming-call
+   full-screen ALWAYS has a dark green gradient background (.incoming-
+   fullscreen sets background explicitly regardless of theme), so the
+   text + border must always stay white. The earlier light-theme rule
+   made the text invisible on the dark background in light-mode users. */
 @keyframes incoming-badge-in {
   from { opacity: 0; transform: translateY(-4px); }
   to   { opacity: 1; transform: translateY(0); }

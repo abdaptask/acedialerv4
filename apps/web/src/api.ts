@@ -1877,7 +1877,8 @@ export async function cleanupTelnyxConnection(
   if (!res.ok) {
     return { ok: false, error: body.error ?? `HTTP ${res.status}` };
   }
-  return { ok: true, ...body };
+  // Spread body first, then force ok: true so the server's "ok" can't override us.
+  return { ...body, ok: true };
 }
 
 export async function migrateDidToUser(
