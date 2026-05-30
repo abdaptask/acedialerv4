@@ -940,6 +940,11 @@ export interface MigrationCandidate {
   areaCode: string | null;
   status: string;                   // "active" | "pending" | ...
   sourceConnectionId: string;       // The current connection — likely Pulse.
+  // v0.10.20 — enriched server-side via fetchCredentialConnection so the
+  // picker can show humanReadable identification ('Pulse: jdoe@aptask
+  // (SIP user: aptask123)') instead of an opaque UUID.
+  connectionName: string | null;
+  sipUsername: string | null;
   messagingProfileId: string | null;
   regionLabel: string | null;
 }
@@ -974,6 +979,8 @@ export async function listMigrationCandidates(): Promise<TelnyxResult<MigrationC
           areaCode: extractUsAreaCode(n.phone_number),
           status: n.status,
           sourceConnectionId: n.connection_id,
+          connectionName: null,        // enriched by admin route
+          sipUsername: null,           // enriched by admin route
           messagingProfileId: n.messaging_profile_id ?? null,
           regionLabel: n.region_information?.[0]?.region_name ?? null,
         });

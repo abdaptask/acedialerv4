@@ -776,7 +776,7 @@ function InviteModal({
                 onChange={() => setDidMode('new')}
               />
               <span>
-                <strong>Purchase a new DID</strong>
+                <strong>Purchase a new DID from Telnyx</strong>
                 <span className="pending-toggle-help">
                   Telnyx buys a new local US number (~$0.45 upfront + $0.45/mo). User gets a fresh phone number.
                 </span>
@@ -813,7 +813,7 @@ function InviteModal({
                 onChange={() => setDidMode('unassigned')}
               />
               <span>
-                <strong>Use an ACE number you already own</strong>
+                <strong>Use a new number from Telnyx database that you already own</strong>
                 <span className="pending-toggle-help">
                   Pick from numbers already in your Telnyx account that aren't routed to any voice or messaging connection. $0 — no new purchase.
                 </span>

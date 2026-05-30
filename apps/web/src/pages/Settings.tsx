@@ -2458,7 +2458,7 @@ function AutoProvisionUserModal({
                     style={{ marginTop: 4 }}
                   />
                   <span>
-                    <strong>Purchase a new DID</strong>
+                    <strong>Purchase a new DID from Telnyx</strong>
                     <div className="muted small">
                       Telnyx buys a fresh local US number (~$0.45 setup + $0.45/mo).
                     </div>
@@ -2493,7 +2493,7 @@ function AutoProvisionUserModal({
                     style={{ marginTop: 4 }}
                   />
                   <span style={{ flex: 1 }}>
-                    <strong>Use an ACE number you already own</strong>
+                    <strong>Use a new number from Telnyx database that you already own</strong>
                     <div className="muted small">
                       Pick from numbers already in your Telnyx account that aren't routed anywhere. $0.
                     </div>

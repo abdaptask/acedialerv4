@@ -23,7 +23,8 @@ import { prisma } from '@ace/db';
 import bcrypt from 'bcryptjs';
 import { config } from '../config.js';
 import * as telnyx from '../telnyx/numbers.js';
-import { sendWelcomeEmail } from '../email/sendgrid.js';
+import { sendWelcomeEmail, sendLineAssignedEmail } from '../email/sendgrid.js';
+import { sendLineAssignedCard } from '../lib/teamsNotify.js';
 import { recordAudit } from '../lib/audit.js';
 import { ensureUserDid } from '../lib/userDid.js';
 
@@ -2036,6 +2037,12 @@ export async function adminRoutes(app: FastifyInstance) {
   // Returns Telnyx DIDs that ARE currently bound to a connection (usually
   // Pulse) but NOT yet in ACE's UserDid table. Admin picks one and we
   // re-bind it to the target user's ACE connection.
+  //
+  // Enrichment: each candidate's sourceConnectionId is resolved to
+  // connectionName + sipUsername via fetchCredentialConnection so the
+  // picker can show "(732) 555-1234 — Pulse: jdoe@aptask (SIP user:
+  // aptask123)" instead of a raw UUID. We dedupe by connectionId so a
+  // user with 50 DIDs on one Pulse connection only triggers ONE lookup.
   app.get(
     '/admin/telnyx/migration-candidates',
     { onRequest: [app.authenticate, requireAdmin] },
@@ -2056,10 +2063,33 @@ export async function adminRoutes(app: FastifyInstance) {
       const aceOwnedLast10 = new Set(
         aceOwnedDids.map((d) => d.didNumber.replace(/\D/g, '').slice(-10)),
       );
-      const items = (res.data ?? []).filter((c) => {
+      const filtered = (res.data ?? []).filter((c) => {
         const last10 = c.phoneNumber.replace(/\D/g, '').slice(-10);
         return !aceOwnedLast10.has(last10);
       });
+
+      // Dedupe connection IDs and fetch each once. Map to { name, sipUser }.
+      const connIds = Array.from(new Set(filtered.map((c) => c.sourceConnectionId)));
+      const connMeta: Record<string, { name: string | null; sipUser: string | null }> = {};
+      await Promise.all(
+        connIds.map(async (cid) => {
+          const cr = await telnyx.fetchCredentialConnection(cid);
+          if (cr.ok && cr.data?.data) {
+            connMeta[cid] = {
+              name: cr.data.data.connection_name ?? null,
+              sipUser: cr.data.data.user_name ?? null,
+            };
+          } else {
+            connMeta[cid] = { name: null, sipUser: null };
+          }
+        }),
+      );
+
+      const items = filtered.map((c) => ({
+        ...c,
+        connectionName: connMeta[c.sourceConnectionId]?.name ?? null,
+        sipUsername: connMeta[c.sourceConnectionId]?.sipUser ?? null,
+      }));
       return { items };
     },
   );
@@ -2382,6 +2412,46 @@ export async function adminRoutes(app: FastifyInstance) {
         purchasedNumber,
       });
 
+      // v0.10.20 — Notify the user that they've been assigned a new line.
+      // Both channels are fire-and-forget so the admin response stays fast.
+      // Failures are logged but never bubble up — adding a line shouldn't
+      // 5xx because SendGrid/Teams was temporarily unreachable.
+      const userForNotify = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { email: true, firstName: true, isActive: true },
+      });
+      if (userForNotify?.email && userForNotify.isActive) {
+        void sendLineAssignedCard({
+          userId,
+          didNumber: e164,
+          label,
+          isDefault: !!isDefault,
+          mode: 'added',
+        }).then((r) => {
+          if (!r.ok) {
+            request.log.warn(
+              { userId, didNumber: e164, reason: r.skippedReason ?? r.error },
+              '[admin.user_dids.add] teams notify failed',
+            );
+          }
+        });
+        void sendLineAssignedEmail({
+          toEmail: userForNotify.email,
+          firstName: userForNotify.firstName,
+          didNumber: e164,
+          label,
+          isDefault: !!isDefault,
+          mode: 'added',
+        }).then((r) => {
+          if (!r.ok) {
+            request.log.warn(
+              { userId, didNumber: e164, status: r.status, error: r.error },
+              '[admin.user_dids.add] email notify failed',
+            );
+          }
+        });
+      }
+
       return {
         ok: true,
         userDid: created,
@@ -2562,6 +2632,45 @@ export async function adminRoutes(app: FastifyInstance) {
         previousMessagingProfileId,
         newConnectionId: connectionId,         // ACE connection we re-bound to
       });
+
+      // v0.10.20 — Notify the user that their number was migrated.
+      // Fire-and-forget; failures logged, not surfaced to the admin API
+      // response since the actual migration already succeeded.
+      const userForNotify = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { email: true, firstName: true, isActive: true },
+      });
+      if (userForNotify?.email && userForNotify.isActive) {
+        void sendLineAssignedCard({
+          userId,
+          didNumber: e164,
+          label,
+          isDefault: !!isDefault,
+          mode: 'migrated',
+        }).then((r) => {
+          if (!r.ok) {
+            request.log.warn(
+              { userId, didNumber: e164, reason: r.skippedReason ?? r.error },
+              '[admin.user_dids.migrate] teams notify failed',
+            );
+          }
+        });
+        void sendLineAssignedEmail({
+          toEmail: userForNotify.email,
+          firstName: userForNotify.firstName,
+          didNumber: e164,
+          label,
+          isDefault: !!isDefault,
+          mode: 'migrated',
+        }).then((r) => {
+          if (!r.ok) {
+            request.log.warn(
+              { userId, didNumber: e164, status: r.status, error: r.error },
+              '[admin.user_dids.migrate] email notify failed',
+            );
+          }
+        });
+      }
 
       return { ok: true, userDid: created, previousConnectionId };
     },

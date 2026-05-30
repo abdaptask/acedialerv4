@@ -270,6 +270,110 @@ export function sendWelcomeEmail(input: WelcomeEmailInput): Promise<SendGridResu
   });
 }
 
+// ───────────────────── Line-assigned email template ────────────────────────
+//
+// v0.10.20 — Sent when an admin adds (or migrates) a NEW phone line to an
+// EXISTING user via the Manage Lines modal. Lets the user know to expect
+// calls / SMS on the new number without having to find out via surprise.
+
+export interface LineAssignedEmailInput {
+  toEmail: string;
+  firstName?: string | null;
+  didNumber: string;                // The newly-assigned DID (E.164).
+  label: string;                    // e.g. "Sales", "Recruiting"
+  isDefault?: boolean;
+  /** 'added' = new purchase / unassigned pick; 'migrated' = re-bound from another connection. */
+  mode?: 'added' | 'migrated';
+}
+
+export function sendLineAssignedEmail(input: LineAssignedEmailInput): Promise<SendGridResult> {
+  const firstName = (input.firstName?.trim() || '').split(/\s+/)[0] || 'there';
+  const niceDid = formatDidForDisplay(input.didNumber) || input.didNumber;
+  const supportEmail = config.aceSupportEmail || 'it@aptask.com';
+  const verb = input.mode === 'migrated' ? 'migrated' : 'assigned';
+  const subject = input.mode === 'migrated'
+    ? `Your phone line ${niceDid} has been migrated to ACE Dialer`
+    : `A new phone line has been assigned to you: ${niceDid}`;
+
+  const text = [
+    `Hi ${firstName},`,
+    ``,
+    `An admin has ${verb} a new line on your ACE Dialer account.`,
+    ``,
+    `  Label:      ${input.label}`,
+    `  Number:     ${niceDid}`,
+    input.isDefault ? `  Default:    Yes — this is now your default outbound line.` : '',
+    ``,
+    `Open ACE Dialer to start using it. The line will appear in your`,
+    `line switcher; calls + SMS to ${niceDid} will ring through to you`,
+    `automatically.`,
+    ``,
+    input.mode === 'migrated'
+      ? `Note: this number was previously on the old dialer (Pulse). It has`
+        + `\nnow been moved to ACE — calls will only ring on ACE going forward.`
+      : '',
+    ``,
+    `Need help? Reply to this email or contact ${supportEmail}.`,
+    ``,
+    `— The ACE Dialer team`,
+  ].filter(Boolean).join('\n');
+
+  const html = `<!doctype html>
+<html>
+<body style="margin:0;padding:0;background:#f4f6f9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;color:#0f172a;line-height:1.5;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4f6f9;padding:32px 16px;">
+    <tr><td align="center">
+      <table role="presentation" width="560" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border-radius:12px;box-shadow:0 1px 3px rgba(15,23,42,0.06);overflow:hidden;">
+        <tr><td style="padding:32px 32px 16px 32px;border-bottom:1px solid #e2e8f0;">
+          <h1 style="margin:0;font-size:22px;font-weight:600;color:#0f172a;">
+            ${input.mode === 'migrated' ? 'Line migrated to ACE' : 'New line assigned'}
+          </h1>
+          <p style="margin:8px 0 0 0;font-size:14px;color:#64748b;">Hi ${escapeHtml(firstName)}, ${verb === 'migrated' ? 'your existing phone number is now on ACE Dialer.' : 'a new phone line is now on your account.'}</p>
+        </td></tr>
+
+        <tr><td style="padding:24px 32px 8px 32px;">
+          <div style="background:#f0f9ff;border-left:4px solid #0284c7;border-radius:6px;padding:16px;">
+            <p style="margin:0 0 4px 0;font-size:12px;text-transform:uppercase;letter-spacing:0.05em;color:#075985;font-weight:600;">
+              ${escapeHtml(input.label)}${input.isDefault ? ' · Default line' : ''}
+            </p>
+            <p style="margin:0;font-size:22px;font-weight:700;color:#0c4a6e;font-variant-numeric:tabular-nums;">
+              ${escapeHtml(niceDid)}
+            </p>
+          </div>
+        </td></tr>
+
+        <tr><td style="padding:16px 32px 24px 32px;">
+          <p style="margin:0 0 12px 0;font-size:14px;color:#0f172a;">
+            Open ACE Dialer to start using it. The line will appear in your
+            line switcher; calls and SMS to <strong>${escapeHtml(niceDid)}</strong>
+            will ring through to you automatically.
+          </p>
+          ${input.mode === 'migrated' ? `<p style="margin:0;font-size:13px;color:#64748b;">
+            Note: this number was previously on the old dialer (Pulse). It has now
+            been moved to ACE — calls will only ring on ACE going forward.
+          </p>` : ''}
+        </td></tr>
+
+        <tr><td style="padding:16px 32px 28px 32px;border-top:1px solid #e2e8f0;background:#fafbfc;">
+          <p style="margin:0;font-size:13px;color:#64748b;">
+            Need help? Reply to this email or contact
+            <a href="mailto:${escapeHtml(supportEmail)}" style="color:#0284c7;text-decoration:none;">${escapeHtml(supportEmail)}</a>.
+          </p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`;
+
+  return send({
+    toEmail: input.toEmail,
+    subject,
+    text,
+    html,
+  });
+}
+
 // ─────────────────────────────── Helpers ────────────────────────────────────
 
 /**

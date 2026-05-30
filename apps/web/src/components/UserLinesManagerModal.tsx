@@ -371,6 +371,11 @@ function AddLineSubModal({ userId, onClose, onAdded }: AddLineProps) {
   const [migrationCandidates, setMigrationCandidates] = useState<MigrationCandidate[]>([]);
   const [loadingCandidates, setLoadingCandidates] = useState(false);
   const [pickedMigrationDid, setPickedMigrationDid] = useState<string>('');
+  // v0.10.20 — Search/filter for the migrate picker. Pulse customers may
+  // have hundreds of DIDs across many connections, so a typeahead filter
+  // is essential. We match against phone digits, connection name, AND
+  // SIP username so the admin can find by either identifier.
+  const [migrationSearch, setMigrationSearch] = useState<string>('');
 
   // Form state (shared between modes — only some fields apply per mode).
   const [pickedNumber, setPickedNumber] = useState<string>('');
@@ -640,17 +645,55 @@ function AddLineSubModal({ userId, onClose, onAdded }: AddLineProps) {
                     or none are bound to anything in Telnyx yet.
                   </p>
                 ) : (
-                  <select
-                    value={pickedMigrationDid}
-                    onChange={(e) => setPickedMigrationDid(e.target.value)}
-                  >
-                    <option value="">— Select a number —</option>
-                    {migrationCandidates.map((c) => (
-                      <option key={c.phoneNumber} value={c.phoneNumber}>
-                        {formatPhone(c.phoneNumber)} — currently on connection {c.sourceConnectionId}
-                      </option>
-                    ))}
-                  </select>
+                  <>
+                    {/* v0.10.20 — Search input above dropdown. Filters by
+                        digit substring, connection name, OR SIP user. */}
+                    <input
+                      type="text"
+                      placeholder="Search by number, connection name, or SIP user…"
+                      value={migrationSearch}
+                      onChange={(e) => setMigrationSearch(e.target.value)}
+                      style={{ marginBottom: '0.4rem' }}
+                    />
+                    {(() => {
+                      const q = migrationSearch.trim().toLowerCase();
+                      const qDigits = q.replace(/\D/g, '');
+                      const filtered = q
+                        ? migrationCandidates.filter((c) => {
+                            const digits = c.phoneNumber.replace(/\D/g, '');
+                            const nameMatch = (c.connectionName ?? '').toLowerCase().includes(q);
+                            const sipMatch = (c.sipUsername ?? '').toLowerCase().includes(q);
+                            const numMatch = qDigits.length > 0 && digits.includes(qDigits);
+                            return nameMatch || sipMatch || numMatch;
+                          })
+                        : migrationCandidates;
+                      return (
+                        <>
+                          <select
+                            value={pickedMigrationDid}
+                            onChange={(e) => setPickedMigrationDid(e.target.value)}
+                            size={Math.min(8, Math.max(3, filtered.length + 1))}
+                          >
+                            <option value="">— Select a number —</option>
+                            {filtered.map((c) => {
+                              const conn = c.connectionName ?? 'Unknown connection';
+                              const sip = c.sipUsername ? ` (SIP user: ${c.sipUsername})` : '';
+                              return (
+                                <option key={c.phoneNumber} value={c.phoneNumber}>
+                                  {formatPhone(c.phoneNumber)} — {conn}{sip}
+                                </option>
+                              );
+                            })}
+                          </select>
+                          <small className="muted">
+                            {filtered.length === migrationCandidates.length
+                              ? `${migrationCandidates.length} candidate${migrationCandidates.length === 1 ? '' : 's'}`
+                              : `${filtered.length} of ${migrationCandidates.length} matching`}
+                          </small>
+                        </>
+                      );
+                    })()}
+                  </>
                 )}
               </label>
 

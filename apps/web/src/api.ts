@@ -1817,6 +1817,9 @@ export interface MigrationCandidate {
   areaCode: string | null;
   status: string;
   sourceConnectionId: string;       // Connection it's currently on (Pulse).
+  // v0.10.20 — enriched server-side for picker readability.
+  connectionName: string | null;
+  sipUsername: string | null;
   messagingProfileId: string | null;
   regionLabel: string | null;
 }
