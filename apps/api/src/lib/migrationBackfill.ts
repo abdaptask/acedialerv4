@@ -167,15 +167,19 @@ async function fetchCdrCsvViaReport(
 ): Promise<string | null> {
   const create = await telnyx.requestCdrReport({ startTime, endTime, phoneNumber });
   if (!create.ok || !create.data?.data?.id) {
-    log({ status: create.status, error: create.error }, '[backfill] CDR report create failed');
+    log(
+      { status: create.status, error: create.error, triedPath: create.path },
+      '[backfill] CDR report create failed (all candidate paths tried)',
+    );
     return null;
   }
   const reportId = create.data.data.id;
-  log({ reportId, phoneNumber }, '[backfill] CDR report requested');
+  const path = create.path ?? '/cdr_usage_reports';
+  log({ reportId, phoneNumber, path }, '[backfill] CDR report requested');
 
   for (let i = 0; i < POLL_MAX_ATTEMPTS; i++) {
     await sleep(POLL_INTERVAL_MS);
-    const status = await telnyx.getCdrReportStatus(reportId);
+    const status = await telnyx.getCdrReportStatus(reportId, path);
     if (!status.ok || !status.data?.data) continue;
     const st = status.data.data.status;
     if (st === 'COMPLETE' || st === 'COMPLETED') {
@@ -204,15 +208,19 @@ async function fetchMdrCsvViaReport(
 ): Promise<string | null> {
   const create = await telnyx.requestMdrReport({ startTime, endTime, phoneNumber });
   if (!create.ok || !create.data?.data?.id) {
-    log({ status: create.status, error: create.error }, '[backfill] MDR report create failed');
+    log(
+      { status: create.status, error: create.error, triedPath: create.path },
+      '[backfill] MDR report create failed (all candidate paths tried)',
+    );
     return null;
   }
   const reportId = create.data.data.id;
-  log({ reportId, phoneNumber }, '[backfill] MDR report requested');
+  const path = create.path ?? '/mdr_usage_reports';
+  log({ reportId, phoneNumber, path }, '[backfill] MDR report requested');
 
   for (let i = 0; i < POLL_MAX_ATTEMPTS; i++) {
     await sleep(POLL_INTERVAL_MS);
-    const status = await telnyx.getMdrReportStatus(reportId);
+    const status = await telnyx.getMdrReportStatus(reportId, path);
     if (!status.ok || !status.data?.data) continue;
     const st = status.data.data.status;
     if (st === 'COMPLETE' || st === 'COMPLETED') {
@@ -310,16 +318,24 @@ function mapTelnyxCsvRowToCall(
   };
 }
 
+// v0.10.29 — Verified against actual Telnyx MDR CSV column names.
 function mapTelnyxCsvRowToMessage(
   row: Record<string, string>,
   userId: number,
   userDidId: number,
   ourDidE164: string,
 ) {
-  const telnyxMessageId = (row['Message ID'] || row['MessageID'] || row['ID'] || row['Unique MDR ID'] || '').trim();
-  const fromNumber = (row['From'] || row['Originating Number'] || '').trim();
-  const toNumber = (row['To'] || row['Terminating number'] || '').trim();
-  const tsStr = (row['Created At'] || row['Start Timestamp'] || row['Sent At'] || '').trim();
+  const telnyxMessageId = (
+    row['Unique Mdr ID'] || row['Unique MDR ID'] ||
+    row['Message ID'] || row['MessageID'] || row['ID'] || ''
+  ).trim();
+  const fromNumber = (row['Originating Number'] || row['From'] || '').trim();
+  const toNumber = (row['Terminating number'] || row['To'] || '').trim();
+  const tsStr = (
+    row['SendTimestamp(UTC)'] || row['CreateTimestamp(UTC)'] ||
+    row['Created At'] || row['Start Timestamp'] || row['Sent At'] || ''
+  ).trim();
+  const completeStr = (row['CompleteTimestamp(UTC)'] || '').trim();
   if (!telnyxMessageId || !fromNumber || !toNumber) return null;
 
   const last10 = (s: string) => s.replace(/\D/g, '').slice(-10);
@@ -329,12 +345,16 @@ function mapTelnyxCsvRowToMessage(
     direction = last10(fromNumber) === ourLast10 ? 'outbound' : 'inbound';
   }
   const threadKey = direction === 'outbound' ? toNumber : fromNumber;
-  const body = (row['Body'] || row['Text'] || '').trim();
-  const statusRaw = (row['Status'] || '').toLowerCase().trim();
+  const body = (row['Message Body'] || row['Body'] || row['Text'] || '').trim();
+  const statusRaw = (row['Status_v2'] || row['Status'] || '').toLowerCase().trim();
   const status = ['queued', 'sent', 'delivered', 'failed', 'received'].includes(statusRaw)
     ? statusRaw
     : direction === 'inbound' ? 'received' : 'delivered';
   const sentAt = tsStr ? new Date(tsStr.replace(' ', 'T') + 'Z') : null;
+  const deliveredAt = completeStr
+    ? new Date(completeStr.replace(' ', 'T') + 'Z')
+    : (status === 'delivered' && sentAt ? sentAt : null);
+  const mediaSize = parseInt(row['Total Media Size'] || '0', 10) || 0;
 
   return {
     userId,
@@ -343,11 +363,11 @@ function mapTelnyxCsvRowToMessage(
     direction,
     fromNumber,
     toNumber,
-    body,
+    body: body || (mediaSize > 0 ? '[MMS]' : ''),
     mediaUrls: [],
     status,
     sentAt,
-    deliveredAt: status === 'delivered' && sentAt ? sentAt : null,
+    deliveredAt,
     userDidId,
   };
 }

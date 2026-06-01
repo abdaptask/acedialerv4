@@ -1103,56 +1103,101 @@ interface CdrReportData {
 }
 
 /**
- * Request an async CDR (voice) usage report. Returns the report id.
- * Telnyx queues the report and we poll for completion.
+ * v0.10.29 — Telnyx has shipped their async CDR/MDR APIs under several
+ * URL conventions over the years. Different accounts may have different
+ * paths active. Instead of guessing, we try a list of candidates in
+ * order and use the first one that responds with 200. The successful
+ * path is logged so we can pin it down for future calls.
+ *
+ * Last 3 known patterns:
+ *   /v2/cdr_usage_reports                    (older)
+ *   /v2/reports/cdrs                          (current docs)
+ *   /v2/detail_records_reports               (intermediate)
  */
-export function requestCdrReport(args: {
-  startTime: string;           // ISO 8601
-  endTime: string;             // ISO 8601
-  phoneNumber: string;         // E.164
-}): Promise<TelnyxResult<SingleResponse<CdrReportData>>> {
+const CDR_REPORT_PATH_CANDIDATES = [
+  '/reports/cdrs',
+  '/cdr_usage_reports',
+  '/detail_records_reports',
+  '/cdr_requests/usage_reports',
+];
+
+const MDR_REPORT_PATH_CANDIDATES = [
+  '/reports/mdrs',
+  '/mdr_usage_reports',
+  '/messaging_detail_reports',
+  '/mdr_requests/usage_reports',
+];
+
+interface PathProbeResult {
+  path: string;
+  result: TelnyxResult<SingleResponse<CdrReportData>>;
+}
+
+async function tryReportPaths(
+  paths: readonly string[],
+  body: Record<string, unknown>,
+): Promise<PathProbeResult> {
+  let lastFailure: PathProbeResult | null = null;
+  for (const path of paths) {
+    const result = await call<SingleResponse<CdrReportData>>(path, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+    if (result.ok && result.data?.data?.id) {
+      return { path, result };
+    }
+    lastFailure = { path, result };
+  }
+  // None worked — return the last failure for diagnostics.
+  return lastFailure!;
+}
+
+/**
+ * Request an async CDR (voice) usage report. Returns the report id +
+ * the path that worked (so we can use the same path for polling).
+ */
+export async function requestCdrReport(args: {
+  startTime: string;
+  endTime: string;
+  phoneNumber: string;
+}): Promise<TelnyxResult<SingleResponse<CdrReportData>> & { path?: string }> {
   const body = {
     start_time: args.startTime,
     end_time: args.endTime,
-    // Filter by phone number — Telnyx accepts an array of E.164 strings.
-    // The report includes calls where any of these numbers appears as
-    // origination OR termination.
     phone_numbers: [args.phoneNumber],
-    // Include all fields available (matches the portal export columns).
     report_type: 'complete',
   };
-  return call(`/cdr_usage_reports`, {
-    method: 'POST',
-    body: JSON.stringify(body),
-  });
+  const probe = await tryReportPaths(CDR_REPORT_PATH_CANDIDATES, body);
+  return { ...probe.result, path: probe.path };
 }
 
 export function getCdrReportStatus(
   reportId: string,
+  path: string = '/cdr_usage_reports',
 ): Promise<TelnyxResult<SingleResponse<CdrReportData>>> {
-  return call(`/cdr_usage_reports/${reportId}`, { method: 'GET' });
+  return call(`${path}/${reportId}`, { method: 'GET' });
 }
 
-export function requestMdrReport(args: {
+export async function requestMdrReport(args: {
   startTime: string;
   endTime: string;
   phoneNumber: string;
-}): Promise<TelnyxResult<SingleResponse<CdrReportData>>> {
-  return call(`/mdr_usage_reports`, {
-    method: 'POST',
-    body: JSON.stringify({
-      start_time: args.startTime,
-      end_time: args.endTime,
-      phone_numbers: [args.phoneNumber],
-      report_type: 'complete',
-    }),
-  });
+}): Promise<TelnyxResult<SingleResponse<CdrReportData>> & { path?: string }> {
+  const body = {
+    start_time: args.startTime,
+    end_time: args.endTime,
+    phone_numbers: [args.phoneNumber],
+    report_type: 'complete',
+  };
+  const probe = await tryReportPaths(MDR_REPORT_PATH_CANDIDATES, body);
+  return { ...probe.result, path: probe.path };
 }
 
 export function getMdrReportStatus(
   reportId: string,
+  path: string = '/mdr_usage_reports',
 ): Promise<TelnyxResult<SingleResponse<CdrReportData>>> {
-  return call(`/mdr_usage_reports/${reportId}`, { method: 'GET' });
+  return call(`${path}/${reportId}`, { method: 'GET' });
 }
 
 /**

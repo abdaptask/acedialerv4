@@ -323,9 +323,14 @@ function mapTelnyxCdrCsvRow(
 }
 
 // Map a parsed Telnyx MDR CSV row to a Prisma Message.create input.
-// Telnyx MDR CSV has columns: "Message ID", "From", "To", "Direction",
-// "Body", "Created At", "Status" (or variations). We accept a few common
-// header naming variants.
+//
+// v0.10.29 — Verified against actual Telnyx MDR CSV export. Column names:
+//   "Originating Number", "Terminating number", "CreateTimestamp(UTC)",
+//   "SendTimestamp(UTC)", "CompleteTimestamp(UTC)", "Direction", "Status",
+//   "Status_v2", "Unique Mdr ID", "Message Body", "Message Type",
+//   "Total Media Size"
+// Earlier names ("From", "To", "Message ID", "Body", "Created At") kept
+// as fallbacks for compatibility with API-generated payloads.
 function mapTelnyxMdrCsvRow(
   row: Record<string, string>,
   userId: number,
@@ -346,14 +351,19 @@ function mapTelnyxMdrCsvRow(
   userDidId: number;
 } | null {
   const telnyxMessageId = (
-    row['Message ID'] || row['MessageID'] || row['ID'] || row['Unique MDR ID'] || ''
+    row['Unique Mdr ID'] || row['Unique MDR ID'] ||
+    row['Message ID'] || row['MessageID'] || row['ID'] || ''
   ).trim();
-  const fromNumber = (row['From'] || row['Originating Number'] || '').trim();
-  const toNumber = (row['To'] || row['Terminating number'] || '').trim();
-  const tsStr = (row['Created At'] || row['Start Timestamp'] || row['Sent At'] || '').trim();
+  const fromNumber = (row['Originating Number'] || row['From'] || '').trim();
+  const toNumber = (row['Terminating number'] || row['To'] || '').trim();
+  const tsStr = (
+    row['SendTimestamp(UTC)'] || row['CreateTimestamp(UTC)'] ||
+    row['Created At'] || row['Start Timestamp'] || row['Sent At'] || ''
+  ).trim();
+  const completeStr = (row['CompleteTimestamp(UTC)'] || '').trim();
   if (!telnyxMessageId || !fromNumber || !toNumber) return null;
 
-  // Direction: trust the CSV's Direction column; otherwise infer from our DID.
+  // Direction: prefer CSV's Direction column; fall back to our DID match.
   const last10 = (s: string) => s.replace(/\D/g, '').slice(-10);
   const ourLast10 = last10(ourDidE164);
   let direction = (row['Direction'] || '').toLowerCase();
@@ -362,14 +372,21 @@ function mapTelnyxMdrCsvRow(
   }
 
   const threadKey = direction === 'outbound' ? toNumber : fromNumber;
-  const body = (row['Body'] || row['Text'] || '').trim();
-  const statusRaw = (row['Status'] || '').toLowerCase().trim();
+  const body = (row['Message Body'] || row['Body'] || row['Text'] || '').trim();
+  // Prefer Status_v2 (newer, more accurate) over Status.
+  const statusRaw = (row['Status_v2'] || row['Status'] || '').toLowerCase().trim();
   const status = ['queued', 'sent', 'delivered', 'failed', 'received'].includes(statusRaw)
     ? statusRaw
     : direction === 'inbound'
       ? 'received'
       : 'delivered';
   const sentAt = tsStr ? new Date(tsStr.replace(' ', 'T') + 'Z') : null;
+  const deliveredAt = completeStr
+    ? new Date(completeStr.replace(' ', 'T') + 'Z')
+    : (status === 'delivered' && sentAt ? sentAt : null);
+  // Total Media Size > 0 implies MMS; we don't have the media URL itself
+  // in MDR exports, so just store an empty array but mark as MMS via body.
+  const mediaSize = parseInt(row['Total Media Size'] || '0', 10) || 0;
 
   return {
     userId,
@@ -378,11 +395,11 @@ function mapTelnyxMdrCsvRow(
     direction,
     fromNumber,
     toNumber,
-    body,
+    body: body || (mediaSize > 0 ? '[MMS]' : ''),
     mediaUrls: [],
     status,
     sentAt,
-    deliveredAt: status === 'delivered' && sentAt ? sentAt : null,
+    deliveredAt,
     userDidId,
   };
 }

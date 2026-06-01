@@ -24,6 +24,15 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.29',
+    date: 'June 1, 2026',
+    highlight: 'Migration history reliability fixes',
+    changes: [
+      { type: 'fixed', text: 'Automatic SMS history import now correctly recognizes Telnyx\'s actual column names — earlier the import would silently fail for messages even when data existed.' },
+      { type: 'improved', text: 'Migration backfill now tries multiple Telnyx API endpoint paths before giving up, so it works on every account regardless of Telnyx\'s URL conventions.' },
+    ],
+  },
+  {
     version: '0.10.28',
     date: 'June 1, 2026',
     highlight: 'Migrated users get their full 30-day history automatically',
