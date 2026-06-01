@@ -770,6 +770,8 @@ export interface ThreadSummary {
   mediaUrls: string[];
   status: string;
   createdAt: string;
+  /** v0.10.26 — number of inbound messages in this thread not yet read. */
+  unreadCount: number;
   userDid?: RowUserDid | null;
 }
 
@@ -788,6 +790,45 @@ export async function getThread(token: string, number: string): Promise<MessageR
   );
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
+}
+
+// v0.10.26 — Mark all inbound messages in a thread as read (auto-fires
+// when user opens the thread).
+export async function markThreadRead(token: string, number: string): Promise<{ marked: number }> {
+  const res = await fetch(
+    `${API_URL}/messages/threads/${encodeURIComponent(number)}/read`,
+    { method: 'POST', headers: { Authorization: `Bearer ${token}` } },
+  );
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+// v0.10.26 — Mark the most-recent inbound message in a thread as unread,
+// so the thread re-appears with an unread dot. Wired to a "Mark as
+// unread" action in the threads list.
+export async function markThreadUnread(token: string, number: string): Promise<void> {
+  const res = await fetch(
+    `${API_URL}/messages/threads/${encodeURIComponent(number)}/unread`,
+    { method: 'POST', headers: { Authorization: `Bearer ${token}` } },
+  );
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+}
+
+// v0.10.26 — Toggle a SINGLE message's read state (per-message granularity).
+export async function setMessageReadState(
+  token: string,
+  messageId: number,
+  read: boolean,
+): Promise<void> {
+  const res = await fetch(`${API_URL}/messages/${messageId}/read`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ read }),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
 }
 
 export interface SendMessageInput {

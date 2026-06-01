@@ -35,7 +35,7 @@ export interface NotifyOptions {
   /** Skip the preference gate. Default false (respect user pref). */
   bypassPref?: boolean;
   /** Which preference to consult. Default 'desktopNotification'. */
-  prefKey?: 'desktopNotification' | 'smsNotification';
+  prefKey?: 'desktopNotification' | 'smsNotification' | 'voicemailNotification';
   /** Icon URL — defaults to favicon. */
   icon?: string;
 }
@@ -49,6 +49,7 @@ export async function notify(opts: NotifyOptions): Promise<boolean> {
     const key = opts.prefKey ?? 'desktopNotification';
     if (key === 'desktopNotification' && !prefs.desktopNotification) return false;
     if (key === 'smsNotification' && !prefs.smsNotification) return false;
+    if (key === 'voicemailNotification' && !prefs.voicemailNotification) return false;
   }
 
   // Only show when the tab is hidden, unless overridden. This avoids

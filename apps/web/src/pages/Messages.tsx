@@ -13,6 +13,9 @@ import {
   // v0.10.13 — pull in the internal chat thread API so the unified
   // Messages tab can list teammate conversations alongside SMS threads.
   getInternalChatThreads,
+  // v0.10.26 — server-side mark-as-read for SMS threads.
+  markThreadRead,
+  markThreadUnread,
   type ThreadSummary,
   type MessageRecord,
   type ContactHistory,
@@ -325,8 +328,20 @@ function ThreadDetail({ number, onBack }: ThreadDetailProps) {
   // Mark this thread as visited so the unread dot disappears from the
   // threads list. Fires on mount and on every poll (so if a new inbound
   // arrives while the thread is open, it's instantly "read").
+  //
+  // v0.10.26 — Also call markThreadRead on the server. Old localStorage-
+  // only `markThreadVisited` is kept for instant local UI feedback (no
+  // network round-trip needed before the dot disappears), but the
+  // authoritative state now lives in DB via Message.readAt.
   useEffect(() => {
-    if (number) markThreadVisited(number);
+    if (!number) return;
+    markThreadVisited(number);
+    const token = sessionStorage.getItem('ace_token');
+    if (token) {
+      void markThreadRead(token, number).catch((e) => {
+        console.warn('[messages] markThreadRead failed', e);
+      });
+    }
   }, [number, messages.length]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

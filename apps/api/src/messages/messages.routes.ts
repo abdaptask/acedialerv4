@@ -29,23 +29,30 @@ function toE164(raw: string): string {
 
 export async function messagesRoutes(app: FastifyInstance) {
   // --- Unread count for bottom-nav badge ---
-  // Counts inbound messages received since `?since=<ISO>`. Web client tracks
-  // the last-visit timestamp in localStorage and passes it here so we don't
-  // need a per-message read flag in the schema.
+  // v0.10.26 — Switched from localStorage `since` timestamp to server-side
+  // Message.readAt. Counts inbound messages where readAt IS NULL. Synced
+  // across devices, survives cache clear. The `?since=` param is honored
+  // for backwards compat with older clients but ignored in the readAt path.
   app.get(
     '/messages/unread/count',
     { onRequest: [app.authenticate] },
     async (request: FastifyRequest) => {
       const user = request.user as JwtPayload;
       const sinceRaw = (request.query as { since?: string }).since;
-      const since = sinceRaw ? new Date(sinceRaw) : new Date(0);
-      const count = await prisma.message.count({
-        where: {
-          userId: user.sub,
-          direction: 'inbound',
-          createdAt: { gt: since },
-        },
-      });
+      // If a client still passes `since`, fall back to the legacy query
+      // (date-based). Otherwise use readAt=null (server-side state).
+      const where = sinceRaw
+        ? {
+            userId: user.sub,
+            direction: 'inbound',
+            createdAt: { gt: new Date(sinceRaw) },
+          }
+        : {
+            userId: user.sub,
+            direction: 'inbound',
+            readAt: null,
+          };
+      const count = await prisma.message.count({ where });
       return { count };
     },
   );
@@ -93,6 +100,21 @@ export async function messagesRoutes(app: FastifyInstance) {
         user.sub
       );
 
+      // v0.10.26 — Pull unread counts per thread in one query, then map.
+      // Counts inbound messages where readAt IS NULL, grouped by threadKey.
+      const unreadRows = await prisma.message.groupBy({
+        by: ['threadKey'],
+        where: {
+          userId: user.sub,
+          direction: 'inbound',
+          readAt: null,
+        },
+        _count: { _all: true },
+      });
+      const unreadByThread = new Map<string, number>(
+        unreadRows.map((r) => [r.threadKey, r._count._all]),
+      );
+
       // Sort by latest message time for the list view.
       rows.sort((a, b) => b.created_at.getTime() - a.created_at.getTime());
       return rows.map((r) => ({
@@ -105,6 +127,8 @@ export async function messagesRoutes(app: FastifyInstance) {
         mediaUrls: r.media_urls ?? [],
         status: r.status,
         createdAt: r.created_at,
+        // v0.10.26 — Per-thread unread message count for the inbox dot.
+        unreadCount: unreadByThread.get(r.thread_key) ?? 0,
         // v0.10.0 Task 5 — flattened UserDid for the line badge.
         // Null when this message was sent/received before the backfill
         // tagged it, or when the matched DID has since been deleted.
@@ -344,5 +368,117 @@ export async function messagesRoutes(app: FastifyInstance) {
       const publicUrl = `${config.supabaseUrl}/storage/v1/object/public/${config.supabaseMediaBucket}/${objectPath}`;
       return { url: publicUrl };
     }
+  );
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // v0.10.26 — Server-side mark-as-read for SMS / MMS messages.
+  //
+  // Previous version: read state was localStorage-only via
+  // `markThreadVisited` — not synced across devices, lost on cache clear.
+  // New version: per-message Message.readAt timestamp. Auto-marks when
+  // user opens a thread; manual toggle via PATCH endpoint.
+  //
+  // Endpoints:
+  //   POST  /messages/threads/:number/read   — mark ALL inbound in thread read
+  //   POST  /messages/threads/:number/unread — mark thread unread (latest only)
+  //   PATCH /messages/:id/read               — toggle a specific message
+  //                                            { read: true | false }
+  // ═══════════════════════════════════════════════════════════════════════
+
+  /** Helper: normalize a phone number param to last-10-digit comparison form. */
+  function last10(s: string): string {
+    return (s ?? '').replace(/\D/g, '').slice(-10);
+  }
+
+  // POST /messages/threads/:number/read
+  // Marks ALL inbound, unread messages in the thread as read. Called by
+  // the client on thread open. Idempotent.
+  app.post<{ Params: { number: string } }>(
+    '/messages/threads/:number/read',
+    { onRequest: [app.authenticate] },
+    async (request, reply) => {
+      const user = request.user as JwtPayload;
+      const other = last10(request.params.number);
+      if (other.length !== 10) {
+        return reply.code(400).send({ error: 'Invalid thread number' });
+      }
+      // Match by threadKey last-10 to tolerate +1 / no-+1 storage drift.
+      const result = await prisma.message.updateMany({
+        where: {
+          userId: user.sub,
+          direction: 'inbound',
+          readAt: null,
+          threadKey: { contains: other },
+        },
+        data: { readAt: new Date() },
+      });
+      return { ok: true, marked: result.count };
+    },
+  );
+
+  // POST /messages/threads/:number/unread
+  // Marks the MOST RECENT inbound message in the thread as unread, so the
+  // thread re-appears with an unread dot. Lets the user "mark as unread"
+  // a thread they previously read but want to come back to.
+  app.post<{ Params: { number: string } }>(
+    '/messages/threads/:number/unread',
+    { onRequest: [app.authenticate] },
+    async (request, reply) => {
+      const user = request.user as JwtPayload;
+      const other = last10(request.params.number);
+      if (other.length !== 10) {
+        return reply.code(400).send({ error: 'Invalid thread number' });
+      }
+      const latest = await prisma.message.findFirst({
+        where: {
+          userId: user.sub,
+          direction: 'inbound',
+          threadKey: { contains: other },
+        },
+        orderBy: { createdAt: 'desc' },
+        select: { id: true },
+      });
+      if (!latest) {
+        return reply.code(404).send({ error: 'No inbound message in this thread' });
+      }
+      await prisma.message.update({
+        where: { id: latest.id },
+        data: { readAt: null },
+      });
+      return { ok: true, messageId: latest.id };
+    },
+  );
+
+  // PATCH /messages/:id/read   body: { read: boolean }
+  // Toggle a specific message's read state. Used for per-message
+  // unread/read actions.
+  app.patch<{ Params: { id: string }; Body: { read?: boolean } }>(
+    '/messages/:id/read',
+    { onRequest: [app.authenticate] },
+    async (request, reply) => {
+      const user = request.user as JwtPayload;
+      const id = Number(request.params.id);
+      if (!Number.isFinite(id)) {
+        return reply.code(400).send({ error: 'Invalid id' });
+      }
+      const body = request.body ?? {};
+      if (typeof body.read !== 'boolean') {
+        return reply.code(400).send({ error: 'Expected { read: boolean }' });
+      }
+      const existing = await prisma.message.findFirst({
+        where: { id, userId: user.sub },
+        select: { id: true, direction: true },
+      });
+      if (!existing) return reply.code(404).send({ error: 'Not found' });
+      if (existing.direction !== 'inbound') {
+        return reply.code(400).send({ error: 'Outbound messages don\'t track read state' });
+      }
+      const updated = await prisma.message.update({
+        where: { id },
+        data: { readAt: body.read ? new Date() : null },
+        select: { id: true, readAt: true },
+      });
+      return { ok: true, id: updated.id, readAt: updated.readAt };
+    },
   );
 }

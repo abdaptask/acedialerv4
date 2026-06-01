@@ -260,6 +260,13 @@ model Message {
   errors           Json?
   sentAt           DateTime? @map("sent_at")
   deliveredAt      DateTime? @map("delivered_at")
+  /// v0.10.26 — When this inbound message was first "seen" by the user
+  /// (thread opened OR message explicitly marked read). Outbound messages
+  /// are always considered read (you sent it). Used for unread counts,
+  /// unread dots in the threads list, and 'New SMS' notifications.
+  /// NULL = unread (only meaningful for inbound rows; outbound rows
+  /// stay NULL too but the UI ignores readAt for outbound).
+  readAt           DateTime? @map("read_at")
   /// v0.10.0 — Which of the user's DIDs this message landed on (inbound)
   /// or was sent from (outbound). NULL for legacy rows pre-backfill.
   /// See Call.userDidId for the design rationale.
@@ -271,6 +278,9 @@ model Message {
   @@index([userId, threadKey, createdAt])
   @@index([userId, createdAt])
   @@index([userDidId])
+  /// v0.10.26 — Fast unread count queries: SELECT COUNT(*) WHERE userId
+  /// AND direction='inbound' AND readAt IS NULL.
+  @@index([userId, direction, readAt])
   @@map("messages")
 }
 

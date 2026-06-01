@@ -24,6 +24,7 @@ import {
 import IncomingCall from '../components/IncomingCall';
 import PostDeclineReply from '../components/PostDeclineReply';
 import SmsNotifier from '../components/SmsNotifier';
+import VoicemailNotifier from '../components/VoicemailNotifier';
 import UpdateBanner from '../components/UpdateBanner';
 import DidSwitcher from '../components/DidSwitcher';
 import { useSip } from '../contexts/SipContext';
@@ -230,6 +231,7 @@ export default function Layout({ user, onLogout }: Props) {
           ace:reply-after-decline window event. (#201 rebuild) */}
       <PostDeclineReply />
       <SmsNotifier />
+      <VoicemailNotifier />
       {/* Polls the API every 15 min — when the server reports a higher
           version than the bundled __APP_VERSION__, surfaces a pill at the
           top of every page so users on stale installs know to update. (#197) */}

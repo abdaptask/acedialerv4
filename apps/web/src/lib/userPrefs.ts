@@ -532,6 +532,8 @@ export interface NotificationPrefs {
   desktopNotification: boolean;
   /** Show toast/sound for new inbound SMS. */
   smsNotification: boolean;
+  /** v0.10.26 — Show toast/desktop notification for new voicemails. */
+  voicemailNotification: boolean;
 }
 
 const NOTIF_KEY = 'ace_notification_prefs';
@@ -542,6 +544,7 @@ export const DEFAULT_NOTIFICATION_PREFS: NotificationPrefs = {
   ringtoneVolume: 0.7,
   desktopNotification: true,
   smsNotification: true,
+  voicemailNotification: true,
 };
 
 export function getNotificationPrefs(): NotificationPrefs {
