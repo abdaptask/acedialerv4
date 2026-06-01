@@ -24,6 +24,16 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.30',
+    date: 'June 1, 2026',
+    highlight: 'SMS compose upgrades',
+    changes: [
+      { type: 'new', text: 'Emoji picker in the SMS compose box. Click the smile icon to open a popover with common emojis and reactions — insert at the cursor position with one click.' },
+      { type: 'new', text: 'Multi-line text messages. Press Shift+Enter to add a new line; Enter still sends the message.' },
+      { type: 'improved', text: 'Browser autocorrect, spellcheck, and sentence-start capitalization now active in the SMS compose box.' },
+    ],
+  },
+  {
     version: '0.10.29',
     date: 'June 1, 2026',
     highlight: 'Migration history reliability fixes',

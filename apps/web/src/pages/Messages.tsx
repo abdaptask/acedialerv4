@@ -2,7 +2,7 @@
 // thread list on the left (or full screen on narrow), thread detail on the right.
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Send, ArrowLeft, RefreshCcw, MessageSquarePlus, Image as ImageIcon, Search, X, Zap, Phone, History, Star, Ban } from 'lucide-react';
+import { Send, ArrowLeft, RefreshCcw, MessageSquarePlus, Image as ImageIcon, Search, X, Zap, Phone, History, Star, Ban, Smile } from 'lucide-react';
 import {
   getThreads,
   getThread,
@@ -39,6 +39,14 @@ import LineBadge from '../components/LineBadge';
 function formatNumber(raw: string): string {
   return formatPhone(raw);
 }
+
+// v0.10.29 — Curated emoji set for the SMS compose picker. Frequently-used
+// faces + reactions + symbols. Avoids skin-tone variations to keep the grid
+// compact and accessible. Two rows × 12 = 24 emojis fits well.
+const EMOJI_OPTIONS = [
+  '😀', '😂', '🙂', '😉', '😎', '🥲', '😊', '🤔', '😴', '🙄', '😅', '😭',
+  '👍', '👎', '👌', '🙏', '👏', '🙌', '✌️', '🤝', '🔥', '🎉', '✅', '❌',
+];
 
 function formatRelative(iso: string): string {
   const date = new Date(iso);
@@ -353,6 +361,10 @@ function ThreadDetail({ number, onBack }: ThreadDetailProps) {
   // so edits in Settings show up immediately without a page reload.
   const [quickReplies, setLocalQuickReplies] = useState<string[]>(() => getQuickReplies());
   const [showQuickReplies, setShowQuickReplies] = useState(false);
+  // v0.10.29 — Emoji picker open/close + ref to the compose textarea so
+  // we can insert at the cursor position.
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const composeInputRef = useRef<HTMLTextAreaElement>(null);
   useEffect(() => {
     const refresh = () => setLocalQuickReplies(getQuickReplies());
     window.addEventListener('ace:quickRepliesChanged', refresh);
@@ -791,10 +803,26 @@ function ThreadDetail({ number, onBack }: ThreadDetailProps) {
             <Zap size={20} />
           </button>
         )}
-        <input
+        {/* v0.10.29 — Emoji picker. Click → small grid of common emojis;
+            click an emoji to insert at cursor position. */}
+        <button
+          type="button"
+          className={`icon-btn${showEmojiPicker ? ' active' : ''}`}
+          onClick={() => setShowEmojiPicker((v) => !v)}
+          aria-label="Emoji"
+          title="Insert emoji"
+        >
+          <Smile size={20} />
+        </button>
+        {/* v0.10.29 — Textarea (not input) for multi-line drafts.
+            Enter sends; Shift+Enter inserts a newline. Browser-native
+            autoCorrect / spellCheck / autoCapitalize for typing assistance. */}
+        <textarea
+          ref={composeInputRef}
           className="compose-input"
-          placeholder="Text message"
+          placeholder="Text message (Shift+Enter for new line)"
           value={draft}
+          rows={1}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && !e.shiftKey) {
@@ -802,6 +830,10 @@ function ThreadDetail({ number, onBack }: ThreadDetailProps) {
               void handleSend();
             }
           }}
+          autoCorrect="on"
+          autoCapitalize="sentences"
+          spellCheck={true}
+          autoComplete="on"
         />
         {uploading && <span className="muted" style={{ fontSize: 12 }}>uploading…</span>}
         {attached.length > 0 && (
@@ -819,6 +851,43 @@ function ThreadDetail({ number, onBack }: ThreadDetailProps) {
           <Send size={18} />
         </button>
       </div>
+
+      {/* v0.10.29 — Emoji picker popover. Click an emoji to insert at
+          the textarea's caret position, then close the popover. */}
+      {showEmojiPicker && (
+        <div className="emoji-picker-popover" role="dialog" aria-label="Emoji picker">
+          <div className="emoji-picker-grid">
+            {EMOJI_OPTIONS.map((emoji) => (
+              <button
+                key={emoji}
+                type="button"
+                className="emoji-picker-item"
+                onClick={() => {
+                  const el = composeInputRef.current;
+                  if (el) {
+                    const start = el.selectionStart ?? draft.length;
+                    const end = el.selectionEnd ?? draft.length;
+                    const next = draft.slice(0, start) + emoji + draft.slice(end);
+                    setDraft(next);
+                    // Restore caret AFTER the inserted emoji
+                    requestAnimationFrame(() => {
+                      el.focus();
+                      const caret = start + emoji.length;
+                      el.setSelectionRange(caret, caret);
+                    });
+                  } else {
+                    setDraft(draft + emoji);
+                  }
+                  setShowEmojiPicker(false);
+                }}
+                aria-label={`Insert ${emoji}`}
+              >
+                {emoji}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {showHistory && history && (
         <HistoryModal

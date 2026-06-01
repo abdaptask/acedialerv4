@@ -4129,11 +4129,16 @@ body {
      defaults to font-family: monospace in every browser, which is what
      made the Chat compose row look "horrible" in the screenshots —
      placeholder rendered as Courier. Inherit the page's font stack
-     instead so the input matches the rest of the dialer. */
+     instead so the input matches the rest of the dialer.
+     v0.10.29 — SMS compose is also a textarea now (was input). Height
+     auto-grows up to a cap so multi-line drafts (Shift+Enter) read
+     naturally. min-height matches the prior 38px so the row layout
+     stays consistent for short messages. */
   font-family: inherit;
-  height: 38px;
-  padding: 0 14px;
-  border-radius: 999px;
+  min-height: 38px;
+  max-height: 160px;
+  padding: 8px 14px;
+  border-radius: 18px;
   border: 1px solid rgba(255, 255, 255, 0.12);
   background: #1f2937;
   color: #fff;
@@ -4141,8 +4146,49 @@ body {
   line-height: 1.4;
   outline: none;
   resize: none;
+  overflow-y: auto;
 }
 .compose-input:focus { border-color: #3b82f6; }
+
+/* v0.10.29 — Emoji picker popover. Floats above the compose row.
+   Two rows of 12 emojis, fixed grid. */
+.emoji-picker-popover {
+  position: absolute;
+  bottom: 64px;
+  left: 12px;
+  right: 12px;
+  max-width: 360px;
+  background: var(--surface, #1f2937);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  padding: 10px;
+  z-index: 50;
+}
+.emoji-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  gap: 4px;
+}
+.emoji-picker-item {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 20px;
+  padding: 6px 4px;
+  border-radius: 6px;
+  transition: background 120ms;
+}
+.emoji-picker-item:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+[data-theme="light"] .emoji-picker-popover {
+  background: #ffffff;
+  border-color: rgba(0, 0, 0, 0.12);
+}
+[data-theme="light"] .emoji-picker-item:hover {
+  background: rgba(0, 0, 0, 0.06);
+}
 .send-btn {
   width: 36px;
   height: 36px;
