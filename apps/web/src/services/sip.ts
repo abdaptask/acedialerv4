@@ -75,14 +75,47 @@ function toE164(raw: string): string {
   return `+${cleaned}`;
 }
 
+// v0.10.31 — Speaker selection with auto-fallback.
+//
+// Previously: if setSinkId rejected (saved speaker disconnected,
+// permissions revoked, etc), we just warned and the audio played
+// silently into the void — user could hear nothing on inbound calls
+// while their own outbound voice traveled fine. Now we explicitly
+// clear the stale ace_speaker key on failure so the next call falls
+// back to the system default.
 function applySpeakerSelection(audioEl: HTMLAudioElement): void {
   const speakerId = localStorage.getItem('ace_speaker');
   if (speakerId && speakerId !== 'default' && 'setSinkId' in audioEl) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (audioEl as any).setSinkId(speakerId).catch((e: Error) =>
-      console.warn('[sip] setSinkId failed', e.message),
-    );
+    (audioEl as any).setSinkId(speakerId).catch((e: Error) => {
+      console.warn(
+        '[sip] setSinkId failed — falling back to default speaker. Saved device may be disconnected.',
+        { speakerId, error: e.message },
+      );
+      // Clear the stale device id so subsequent calls don't keep trying
+      // to use it.
+      try {
+        localStorage.removeItem('ace_speaker');
+      } catch { /* noop */ }
+    });
   }
+}
+
+// v0.10.31 — Robust play() wrapper. Chromium's autoplay policy can
+// block audio.play() in backgrounded windows or after long idle. The
+// audio element has the stream attached but emits no sound until
+// play() succeeds. Retry once after a short delay; the user's Accept-
+// button click counts as a user gesture that should unblock subsequent
+// plays.
+function safePlay(audioEl: HTMLAudioElement, label: string): void {
+  void audioEl.play().catch((e) => {
+    console.warn(`[sip] ${label}.play failed — retrying in 250ms`, e);
+    setTimeout(() => {
+      void audioEl.play().catch((e2) =>
+        console.error(`[sip] ${label}.play retry ALSO failed — user will hear no inbound audio`, e2),
+      );
+    }, 250);
+  });
 }
 
 /**
@@ -772,11 +805,12 @@ export class SipService {
         if (ev.streams && ev.streams[0]) {
           const stream = ev.streams[0];
           audioEl.srcObject = stream;
-          void audioEl.play().catch((e) => console.warn('[sip] per-call audioEl.play failed', e));
           this.primaryAudioEl.srcObject = stream;
-          void this.primaryAudioEl.play().catch((e) =>
-            console.warn('[sip] primaryAudioEl.play failed', e),
-          );
+          // v0.10.31 — Use safePlay which retries once on autoplay failures
+          // (Chromium can block .play() on backgrounded windows; the user's
+          // Accept-button click is a valid gesture for subsequent plays).
+          safePlay(audioEl, 'per-call audioEl');
+          safePlay(this.primaryAudioEl, 'primaryAudioEl');
           applySpeakerSelection(audioEl);
           applySpeakerSelection(this.primaryAudioEl);
           console.log('[sip] remote stream attached to both audio elements');
@@ -793,14 +827,43 @@ export class SipService {
       pc.addEventListener('signalingstatechange', () => {
         console.log('[sip] signalingState:', pc.signalingState);
       });
-      // Also check current receivers for any already-attached remote tracks.
+      // v0.10.32 — CRITICAL fix for silent inbound audio.
+      //
+      // Previously we just LOGGED existing receiver tracks and did
+      // nothing with them. The race: if the WebRTC track was already
+      // added by JsSIP's SDP-answer flow by the time wirePcWhenReady
+      // runs (common on fast hardware / fast STUN paths), our 'track'
+      // event listener attached too late — the event already fired
+      // before we subscribed. Result: track exists on a receiver, but
+      // no audio element has srcObject set. Caller can hear user fine
+      // (outbound mic stream flows), but user hears silence (no audio
+      // path to speakers). User 7327344818 hit this consistently.
+      //
+      // Now: collect any existing tracks from receivers, build a
+      // MediaStream from them, attach to both audio elements just like
+      // the 'track' event handler would have done.
       try {
+        const existingTracks: MediaStreamTrack[] = [];
         for (const receiver of pc.getReceivers?.() ?? []) {
           if (receiver.track) {
             console.log('[sip] existing receiver track:', receiver.track.kind);
+            existingTracks.push(receiver.track);
           }
         }
-      } catch { /* noop */ }
+        if (existingTracks.some((t) => t.kind === 'audio')) {
+          const stream = new MediaStream();
+          for (const t of existingTracks) stream.addTrack(t);
+          audioEl.srcObject = stream;
+          this.primaryAudioEl.srcObject = stream;
+          safePlay(audioEl, 'existing-receiver audioEl');
+          safePlay(this.primaryAudioEl, 'existing-receiver primaryAudioEl');
+          applySpeakerSelection(audioEl);
+          applySpeakerSelection(this.primaryAudioEl);
+          console.log('[sip] attached existing receiver tracks (missed track event due to wiring race)');
+        }
+      } catch (e) {
+        console.warn('[sip] existing-receiver attach failed', e);
+      }
       return true;
     };
 

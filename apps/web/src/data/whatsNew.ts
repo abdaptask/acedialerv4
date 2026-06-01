@@ -26,11 +26,14 @@ export const WHATS_NEW: ReleaseEntry[] = [
   {
     version: '0.10.31',
     date: 'June 1, 2026',
-    highlight: 'Ringer + thread header polish',
+    highlight: 'Critical call reliability fixes',
     changes: [
+      { type: 'fixed', text: 'Some users couldn\'t hear incoming calls (caller could hear them fine, but the user heard silence). Root cause: a timing race where the audio track was already attached by the time the dialer wired up its listener — so the listener missed the track event. Now correctly attaches any pre-existing audio track when setting up listeners.' },
       { type: 'fixed', text: 'Accept button on incoming call screen could occasionally appear unresponsive when the caller hung up at exactly the same moment. The button now correctly dismisses the ringer instead of doing nothing silently.' },
+      { type: 'fixed', text: 'Speaker selection now auto-falls-back to the system default if the saved device is disconnected (e.g. unpaired Bluetooth headset), instead of silently playing into the void.' },
+      { type: 'improved', text: 'Audio playback retries once if the browser briefly blocks it (Chromium\'s autoplay policy on backgrounded windows).' },
       { type: 'improved', text: 'Thread header is reorganized — the contact\'s name and number group together at the top, with "Your line:" explicitly labeled below so it\'s clear which line is which.' },
-      { type: 'fixed', text: 'SMS compose placeholder text no longer wraps and gets cut off in narrow windows. Shift+Enter / Enter hints moved to a tooltip on hover.' },
+      { type: 'fixed', text: 'SMS compose placeholder text no longer wraps and gets cut off in narrow windows.' },
     ],
   },
   {
