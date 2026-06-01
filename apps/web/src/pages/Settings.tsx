@@ -71,6 +71,12 @@ import {
   listAdminUsers,
   inviteAdminUser,
   inviteNewUserAutoProvision,
+  migrateUserFromPulse,
+  type MigrateFromPulseResult,
+  bulkRefreshPulseSms,
+  type BulkRefreshPulseSmsResult,
+  refreshUserFromPulse,
+  type RefreshFromPulseResult,
   listUnassignedTelnyxNumbers,
   type InviteNewUserResult,
   type UnassignedTelnyxNumber,
@@ -1792,6 +1798,14 @@ function UsersAdminSection() {
   const [showInvite, setShowInvite] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [showAutoProvision, setShowAutoProvision] = useState(false);
+  // v0.10.37 — Unified wizard. Admin enters Pulse credentials; server
+  // creates the ACE user + rebinds DID + runs backfill in one shot.
+  const [showMigrateFromPulse, setShowMigrateFromPulse] = useState(false);
+  // v0.10.38 — Bulk-refresh SMS for all migrated users.
+  const [showBulkRefresh, setShowBulkRefresh] = useState(false);
+  // v0.10.38b — Per-user "Refresh from Pulse" target. Set from the
+  // kebab menu on a specific user row.
+  const [refreshFromPulseTarget, setRefreshFromPulseTarget] = useState<AdminUserRow | null>(null);
   const [openMenuId, setOpenMenuId] = useState<number | null>(null);
   const [search, setSearch] = useState('');
   // v0.9.8 — Hard-delete modal target. null = closed.
@@ -1918,6 +1932,27 @@ function UsersAdminSection() {
             title="Brand-new hire: ACE buys a Telnyx DID, creates SIP creds, sends welcome email"
           >
             <UserPlus size={14} /> Invite new user
+          </button>
+          {/* v0.10.37 — Pulse → ACE migration wizard. Admin enters the
+              user's Pulse email + password; ACE handles everything else. */}
+          <button
+            type="button"
+            className="device-action primary"
+            onClick={() => setShowMigrateFromPulse(true)}
+            title="Migrate a Pulse user to ACE. Enter their Pulse email + password — we'll create their ACE account, move their number, and import their 30-day history."
+          >
+            <UserPlus size={14} /> Migrate from Pulse
+          </button>
+          {/* v0.10.38 — Bulk-refresh SMS history from Pulse for every
+              previously-migrated user. SMS only (calls need per-user
+              passwords we don't store). */}
+          <button
+            type="button"
+            className="device-action"
+            onClick={() => setShowBulkRefresh(true)}
+            title="Re-run the 30-day SMS backfill from Pulse for every user who was migrated from Pulse. Catches late-arriving Pulse SMS. Calls are not refreshed."
+          >
+            <Upload size={14} /> Bulk-refresh SMS
           </button>
         </div>
       </div>
@@ -2096,6 +2131,22 @@ function UsersAdminSection() {
                         Manage lines
                       </button>
 
+                      {/* v0.10.38b — Per-user "Refresh from Pulse". One
+                          click pulls down their latest 30 days of SMS
+                          (and optionally calls if you have their Pulse
+                          password) into ACE without admin needing CLI. */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setOpenMenuId(null);
+                          setRefreshFromPulseTarget(r);
+                        }}
+                        title="Re-pull this user's 30-day history from Pulse into ACE. SMS automatic; calls optional with their Pulse password."
+                      >
+                        <Upload size={14} />
+                        Refresh from Pulse
+                      </button>
+
                       {/* Set SIP password â€” for users imported without a password */}
                       <button
                         type="button"
@@ -2171,6 +2222,34 @@ function UsersAdminSection() {
             setShowAutoProvision(false);
             load(); // refresh the table after a real provision
           }}
+        />
+      )}
+
+      {showMigrateFromPulse && (
+        <MigrateFromPulseModal
+          onClose={() => setShowMigrateFromPulse(false)}
+          onDone={() => {
+            setShowMigrateFromPulse(false);
+            load(); // refresh the table after a successful migrate
+          }}
+        />
+      )}
+
+      {showBulkRefresh && (
+        <BulkRefreshPulseSmsModal
+          onClose={() => setShowBulkRefresh(false)}
+          onDone={() => {
+            setShowBulkRefresh(false);
+            // No table reload needed — bulk refresh doesn't change User rows
+          }}
+        />
+      )}
+
+      {refreshFromPulseTarget && (
+        <RefreshUserFromPulseModal
+          target={refreshFromPulseTarget}
+          onClose={() => setRefreshFromPulseTarget(null)}
+          onDone={() => setRefreshFromPulseTarget(null)}
         />
       )}
 
@@ -2651,6 +2730,714 @@ function AutoProvisionUserModal({
 
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
               <button type="button" className="device-action primary" onClick={onDone}>
+                Close
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// v0.10.37 — Migrate user from Pulse to ACE — unified wizard.
+//
+// One modal, three fields. Server does the heavy lifting:
+//   1. Login to Pulse → decode JWT → extract Pulse user_id + voip_number + name
+//   2. Verify no ACE user with that email
+//   3. Create Telnyx Credential Connection for the new ACE user
+//   4. Rebind the Pulse DID from Pulse's Telnyx connection to ACE's
+//   5. Bind to ACE messaging profile (SMS routing)
+//   6. Create ACE User row + UserDid row
+//   7. Send welcome email
+//   8. Backfill 30 days (calls via Pulse REST + SMS via Pulse MySQL)
+//
+// Modal follows CLAUDE.md UI standards: position:fixed full-viewport
+// backdrop, scroll-to-top on open, Escape/backdrop-click close.
+function MigrateFromPulseModal({
+  onClose,
+  onDone,
+}: {
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const [pulseEmail, setPulseEmail] = useState('');
+  const [pulsePassword, setPulsePassword] = useState('');
+  const [makeAdmin, setMakeAdmin] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [result, setResult] = useState<MigrateFromPulseResult | null>(null);
+  const bodyRef = useRef<HTMLDivElement | null>(null);
+
+  // Scroll-to-top on open (UI standard #2).
+  useEffect(() => {
+    bodyRef.current?.scrollTo({ top: 0 });
+    queueMicrotask(() => bodyRef.current?.scrollTo({ top: 0 }));
+  }, []);
+
+  // Escape closes (UI standard #1).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !submitting) onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [submitting, onClose]);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    const token = sessionStorage.getItem('ace_token');
+    if (!token) return;
+    if (!pulseEmail.trim() || !pulsePassword) return;
+    setSubmitting(true);
+    setResult(null);
+    try {
+      const r = await migrateUserFromPulse(token, {
+        pulseEmail: pulseEmail.trim(),
+        pulsePassword,
+        isAdmin: makeAdmin,
+      });
+      setResult(r);
+    } catch (err) {
+      setResult({ ok: false, error: (err as Error).message });
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div className="compose-modal" onClick={submitting ? undefined : onClose}>
+      <div
+        className="fav-modal"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-labelledby="migrate-from-pulse-title"
+        style={{ maxWidth: 560 }}
+        ref={bodyRef}
+      >
+        <div className="fav-modal-header">
+          <UserPlus size={18} className="fav-modal-icon" />
+          <h3 id="migrate-from-pulse-title">Migrate user from Pulse</h3>
+        </div>
+
+        {!result && (
+          <>
+            <p className="muted small" style={{ marginTop: 0 }}>
+              Enter this user's <strong>Pulse</strong> email and password. ACE will create
+              their account, move their phone number from Pulse to ACE, and import their
+              last 30 days of call and SMS history. The password is used once and never stored.
+            </p>
+
+            <form onSubmit={handleSubmit} autoComplete="off">
+              <label className="fav-modal-field" style={{ marginBottom: 8 }}>
+                <span className="fav-modal-label">Pulse email *</span>
+                <input
+                  type="email"
+                  className="fav-modal-input"
+                  placeholder="firstname.lastname@aptask.com"
+                  value={pulseEmail}
+                  onChange={(e) => setPulseEmail(e.target.value)}
+                  autoFocus
+                  required
+                  disabled={submitting}
+                />
+              </label>
+              <label className="fav-modal-field" style={{ marginBottom: 8 }}>
+                <span className="fav-modal-label">Pulse password *</span>
+                <input
+                  type="password"
+                  className="fav-modal-input"
+                  placeholder="Their current Pulse password"
+                  value={pulsePassword}
+                  onChange={(e) => setPulsePassword(e.target.value)}
+                  required
+                  disabled={submitting}
+                  autoComplete="new-password"
+                />
+                <span className="muted small" style={{ marginTop: 4, display: 'block' }}>
+                  Used once to log into Pulse on their behalf. Never written to disk or
+                  audit log.
+                </span>
+              </label>
+              <label
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 8,
+                  marginTop: 8, fontSize: '0.92rem',
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={makeAdmin}
+                  onChange={(e) => setMakeAdmin(e.target.checked)}
+                  disabled={submitting}
+                />
+                Make this user an ACE admin
+              </label>
+
+              <div
+                style={{
+                  display: 'flex', justifyContent: 'flex-end',
+                  gap: 8, marginTop: 16,
+                }}
+              >
+                <button
+                  type="button"
+                  className="device-action"
+                  onClick={onClose}
+                  disabled={submitting}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="device-action primary"
+                  disabled={submitting || !pulseEmail.trim() || !pulsePassword}
+                >
+                  {submitting ? 'Migrating…' : 'Migrate user'}
+                </button>
+              </div>
+
+              {submitting && (
+                <p
+                  className="muted small"
+                  style={{ marginTop: 12, textAlign: 'center' }}
+                >
+                  This takes 20–60 seconds. We're logging into Pulse, rebinding the
+                  number on Telnyx, and importing 30 days of history. Don't close the
+                  window.
+                </p>
+              )}
+            </form>
+          </>
+        )}
+
+        {result && (
+          <div style={{ marginTop: 4 }}>
+            <div
+              style={{
+                padding: 10, borderRadius: 8, marginBottom: 12,
+                background: result.ok ? 'rgba(0, 150, 0, 0.08)' : 'rgba(215, 0, 21, 0.08)',
+                border: `1px solid ${result.ok ? 'rgba(0, 150, 0, 0.3)' : 'rgba(215, 0, 21, 0.3)'}`,
+              }}
+            >
+              <strong>
+                {result.ok
+                  ? 'Migration complete'
+                  : result.error
+                    ? `Migration failed: ${result.error}`
+                    : 'Migration completed with errors'}
+              </strong>
+              {result.ok && (
+                <div className="muted small" style={{ marginTop: 4 }}>
+                  ACE user created · Number {result.didNumber} moved · Imported{' '}
+                  {result.callsInserted ?? 0} calls and {result.messagesInserted ?? 0}{' '}
+                  messages from Pulse{' '}
+                  {typeof result.durationMs === 'number'
+                    ? ` (${(result.durationMs / 1000).toFixed(1)}s)`
+                    : ''}
+                </div>
+              )}
+            </div>
+
+            {result.steps && result.steps.length > 0 && (
+              <details open={!result.ok} style={{ marginTop: 8 }}>
+                <summary
+                  style={{ cursor: 'pointer', fontSize: '0.88rem', marginBottom: 8 }}
+                >
+                  Step-by-step ({result.steps.filter((s) => s.ok).length}/
+                  {result.steps.length} succeeded)
+                </summary>
+                <ul style={{ paddingLeft: 18, margin: 0, fontSize: '0.85rem' }}>
+                  {result.steps.map((s, i) => (
+                    <li
+                      key={i}
+                      style={{
+                        color: s.ok ? 'inherit' : '#d70015',
+                        marginBottom: 4,
+                      }}
+                    >
+                      <span style={{ marginRight: 6 }}>{s.ok ? '✓' : '✗'}</span>
+                      {s.step}
+                      {s.error && (
+                        <div
+                          className="muted small"
+                          style={{ marginLeft: 16, color: '#d70015' }}
+                        >
+                          {s.error}
+                        </div>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            )}
+
+            {result.backfillErrors && result.backfillErrors.length > 0 && (
+              <details style={{ marginTop: 8 }}>
+                <summary
+                  style={{ cursor: 'pointer', fontSize: '0.88rem', marginBottom: 8 }}
+                >
+                  Backfill warnings ({result.backfillErrors.length})
+                </summary>
+                <ul style={{ paddingLeft: 18, margin: 0, fontSize: '0.85rem' }}>
+                  {result.backfillErrors.map((e, i) => (
+                    <li key={i} style={{ marginBottom: 4 }}>
+                      {e}
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            )}
+
+            <div
+              style={{
+                display: 'flex', justifyContent: 'flex-end',
+                marginTop: 16,
+              }}
+            >
+              <button
+                type="button"
+                className="device-action primary"
+                onClick={onDone}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// v0.10.38 — Bulk-refresh SMS from Pulse for all previously-migrated users.
+//
+// Two states:
+//   1) Confirm — "We're about to re-run SMS backfill for N users. Calls
+//      cannot be bulk-refreshed (need per-user passwords). Continue?"
+//   2) Running / result — shows aggregate counts + per-user table
+//
+// Sequential server processing (200ms inter-user delay) means this is
+// slow for large tenants. We cap at 100 users per invocation; admin can
+// re-run for more.
+function BulkRefreshPulseSmsModal({
+  onClose,
+  onDone,
+}: {
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const [submitting, setSubmitting] = useState(false);
+  const [result, setResult] = useState<BulkRefreshPulseSmsResult | null>(null);
+  const bodyRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    bodyRef.current?.scrollTo({ top: 0 });
+    queueMicrotask(() => bodyRef.current?.scrollTo({ top: 0 }));
+  }, []);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !submitting) onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [submitting, onClose]);
+
+  async function handleRun() {
+    const token = sessionStorage.getItem('ace_token');
+    if (!token) return;
+    setSubmitting(true);
+    setResult(null);
+    try {
+      const r = await bulkRefreshPulseSms(token, {});
+      setResult(r);
+    } catch (err) {
+      setResult({
+        ok: false,
+        totalUsers: 0,
+        totalCallsInserted: 0,
+        totalMessagesInserted: 0,
+        totalDurationMs: 0,
+        results: [],
+        error: (err as Error).message,
+      });
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div className="compose-modal" onClick={submitting ? undefined : onClose}>
+      <div
+        className="fav-modal"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-labelledby="bulk-refresh-title"
+        style={{ maxWidth: 720 }}
+        ref={bodyRef}
+      >
+        <div className="fav-modal-header">
+          <Upload size={18} className="fav-modal-icon" />
+          <h3 id="bulk-refresh-title">Bulk-refresh SMS from Pulse</h3>
+        </div>
+
+        {!result && (
+          <>
+            <p className="muted small" style={{ marginTop: 0 }}>
+              Re-runs the 30-day SMS backfill from Pulse for every user previously
+              migrated from Pulse to ACE. Useful when Pulse logged new SMS in the
+              days after a user moved to ACE and you want those messages pulled in.
+            </p>
+            <div
+              style={{
+                padding: 10, borderRadius: 8, marginTop: 8, marginBottom: 12,
+                background: 'rgba(245, 158, 11, 0.08)',
+                border: '1px solid rgba(245, 158, 11, 0.3)',
+                fontSize: '0.88rem',
+              }}
+            >
+              <strong>SMS only.</strong> Calls cannot be bulk-refreshed because
+              Pulse requires each user's own JWT to fetch their call history, and
+              ACE doesn't store user passwords. For a specific user's call refresh,
+              use the per-user backfill on their account row instead.
+            </div>
+            <p className="muted small">
+              Sequential processing, ~3–5 seconds per user. Capped at 100 users
+              per run; if you have more migrated users than that, click again to
+              process the next batch.
+            </p>
+
+            <div
+              style={{
+                display: 'flex', justifyContent: 'flex-end',
+                gap: 8, marginTop: 16,
+              }}
+            >
+              <button
+                type="button"
+                className="device-action"
+                onClick={onClose}
+                disabled={submitting}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="device-action primary"
+                onClick={handleRun}
+                disabled={submitting}
+              >
+                {submitting ? 'Running…' : 'Run bulk refresh'}
+              </button>
+            </div>
+
+            {submitting && (
+              <p
+                className="muted small"
+                style={{ marginTop: 12, textAlign: 'center' }}
+              >
+                Running. Don't close the window — this can take several minutes
+                for large tenants.
+              </p>
+            )}
+          </>
+        )}
+
+        {result && (
+          <div style={{ marginTop: 4 }}>
+            <div
+              style={{
+                padding: 10, borderRadius: 8, marginBottom: 12,
+                background: result.ok ? 'rgba(0, 150, 0, 0.08)' : 'rgba(215, 0, 21, 0.08)',
+                border: `1px solid ${result.ok ? 'rgba(0, 150, 0, 0.3)' : 'rgba(215, 0, 21, 0.3)'}`,
+              }}
+            >
+              <strong>
+                {result.ok
+                  ? 'Bulk refresh complete'
+                  : result.error ? `Bulk refresh failed: ${result.error}` : 'Bulk refresh finished with errors'}
+              </strong>
+              {result.ok && (
+                <div className="muted small" style={{ marginTop: 4 }}>
+                  Processed {result.totalUsers} user{result.totalUsers === 1 ? '' : 's'} ·
+                  Imported {result.totalMessagesInserted} new message
+                  {result.totalMessagesInserted === 1 ? '' : 's'} ·
+                  {' '}{(result.totalDurationMs / 1000).toFixed(1)}s total
+                  {typeof result.totalUsersInRegistry === 'number' &&
+                    result.totalUsersInRegistry > result.totalUsers && (
+                    <>
+                      {' · '}
+                      {result.totalUsersInRegistry - result.totalUsers} more in registry —
+                      click "Run bulk refresh" again to process them
+                    </>
+                  )}
+                </div>
+              )}
+              {result.note && (
+                <div className="muted small" style={{ marginTop: 4 }}>
+                  {result.note}
+                </div>
+              )}
+            </div>
+
+            {result.results.length > 0 && (
+              <div style={{ maxHeight: 360, overflow: 'auto', border: '1px solid var(--border, rgba(0,0,0,0.1))', borderRadius: 8 }}>
+                <table style={{ width: '100%', fontSize: '0.85rem', borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr style={{ background: 'rgba(0,0,0,0.04)' }}>
+                      <th style={{ textAlign: 'left', padding: '6px 10px' }}>User</th>
+                      <th style={{ textAlign: 'left', padding: '6px 10px' }}>DID</th>
+                      <th style={{ textAlign: 'right', padding: '6px 10px' }}>New SMS</th>
+                      <th style={{ textAlign: 'left', padding: '6px 10px' }}>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {result.results.map((r) => (
+                      <tr key={r.userId} style={{ borderTop: '1px solid rgba(0,0,0,0.06)' }}>
+                        <td style={{ padding: '6px 10px' }}>
+                          {r.email}
+                          <div className="muted small">
+                            ACE #{r.userId} · Pulse #{r.pulseUserId}
+                          </div>
+                        </td>
+                        <td style={{ padding: '6px 10px' }}>{r.didNumber ?? '—'}</td>
+                        <td style={{ padding: '6px 10px', textAlign: 'right' }}>
+                          {r.messagesInserted}
+                        </td>
+                        <td style={{ padding: '6px 10px' }}>
+                          {r.skipped ? (
+                            <span className="muted small">skipped — {r.skipped}</span>
+                          ) : r.errors.length > 0 ? (
+                            <span style={{ color: '#d70015' }}>
+                              {r.errors.length} error{r.errors.length === 1 ? '' : 's'}
+                            </span>
+                          ) : (
+                            <span style={{ color: '#0a7a0a' }}>ok</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            <div
+              style={{
+                display: 'flex', justifyContent: 'flex-end',
+                marginTop: 16,
+              }}
+            >
+              <button
+                type="button"
+                className="device-action primary"
+                onClick={onDone}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// v0.10.38b — Per-user "Refresh from Pulse" modal.
+//
+// Tiny modal opened from the kebab menu on a user row. Shows who we're
+// refreshing, has an OPTIONAL Pulse password field for calls, runs the
+// backfill on click. No IDs to copy, no tokens to paste — admin just
+// clicks and sees results.
+function RefreshUserFromPulseModal({
+  target,
+  onClose,
+  onDone,
+}: {
+  target: AdminUserRow;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const [pulsePassword, setPulsePassword] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [result, setResult] = useState<RefreshFromPulseResult | null>(null);
+  const bodyRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    bodyRef.current?.scrollTo({ top: 0 });
+    queueMicrotask(() => bodyRef.current?.scrollTo({ top: 0 }));
+  }, []);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !submitting) onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [submitting, onClose]);
+
+  async function handleRun() {
+    const token = sessionStorage.getItem('ace_token');
+    if (!token) return;
+    setSubmitting(true);
+    setResult(null);
+    try {
+      const r = await refreshUserFromPulse(token, target.id, {
+        pulseUserPassword: pulsePassword || undefined,
+      });
+      setResult(r);
+    } catch (err) {
+      setResult({ ok: false, error: (err as Error).message });
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  const displayName =
+    [target.firstName, target.lastName].filter(Boolean).join(' ').trim() || target.email;
+
+  return (
+    <div className="compose-modal" onClick={submitting ? undefined : onClose}>
+      <div
+        className="fav-modal"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-labelledby="refresh-from-pulse-title"
+        style={{ maxWidth: 520 }}
+        ref={bodyRef}
+      >
+        <div className="fav-modal-header">
+          <Upload size={18} className="fav-modal-icon" />
+          <h3 id="refresh-from-pulse-title">Refresh {displayName} from Pulse</h3>
+        </div>
+
+        {!result && (
+          <>
+            <p className="muted small" style={{ marginTop: 0 }}>
+              Pulls this user's last 30 days of history from Pulse into ACE again.
+              Already-imported items are skipped automatically. Useful for catching
+              new SMS that arrived after they migrated.
+            </p>
+
+            <div
+              style={{
+                padding: 10, borderRadius: 8, marginBottom: 12,
+                background: 'rgba(0,0,0,0.04)',
+                fontSize: '0.88rem',
+              }}
+            >
+              <div><strong>User:</strong> {displayName}</div>
+              <div><strong>Email:</strong> {target.email}</div>
+              <div><strong>Default line:</strong> {target.didNumber ?? '—'}</div>
+            </div>
+
+            <label className="fav-modal-field" style={{ marginBottom: 8 }}>
+              <span className="fav-modal-label">Pulse password (optional)</span>
+              <input
+                type="password"
+                className="fav-modal-input"
+                placeholder="Leave blank to refresh SMS only"
+                value={pulsePassword}
+                onChange={(e) => setPulsePassword(e.target.value)}
+                disabled={submitting}
+                autoComplete="new-password"
+              />
+              <span className="muted small" style={{ marginTop: 4, display: 'block' }}>
+                Required only to refresh CALLS. SMS refresh works without a
+                password. Used once and never stored.
+              </span>
+            </label>
+
+            <div
+              style={{
+                display: 'flex', justifyContent: 'flex-end',
+                gap: 8, marginTop: 16,
+              }}
+            >
+              <button
+                type="button"
+                className="device-action"
+                onClick={onClose}
+                disabled={submitting}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="device-action primary"
+                onClick={handleRun}
+                disabled={submitting}
+              >
+                {submitting ? 'Refreshing…' : 'Refresh now'}
+              </button>
+            </div>
+
+            {submitting && (
+              <p
+                className="muted small"
+                style={{ marginTop: 12, textAlign: 'center' }}
+              >
+                Takes 5–30 seconds. Don't close the window.
+              </p>
+            )}
+          </>
+        )}
+
+        {result && (
+          <div style={{ marginTop: 4 }}>
+            <div
+              style={{
+                padding: 10, borderRadius: 8, marginBottom: 12,
+                background: result.ok ? 'rgba(0, 150, 0, 0.08)' : 'rgba(215, 0, 21, 0.08)',
+                border: `1px solid ${result.ok ? 'rgba(0, 150, 0, 0.3)' : 'rgba(215, 0, 21, 0.3)'}`,
+              }}
+            >
+              <strong>
+                {result.ok
+                  ? 'Refresh complete'
+                  : result.error
+                    ? `Refresh failed: ${result.error}`
+                    : 'Refresh finished with errors'}
+              </strong>
+              {result.ok && (
+                <div className="muted small" style={{ marginTop: 4 }}>
+                  Imported {result.callsInserted ?? 0} new call
+                  {(result.callsInserted ?? 0) === 1 ? '' : 's'} and{' '}
+                  {result.messagesInserted ?? 0} new message
+                  {(result.messagesInserted ?? 0) === 1 ? '' : 's'}
+                  {result.callsRequested === false && (
+                    <> · Calls skipped — provide the user's Pulse password to refresh calls too.</>
+                  )}
+                  {typeof result.durationMs === 'number' &&
+                    ` · ${(result.durationMs / 1000).toFixed(1)}s`}
+                </div>
+              )}
+            </div>
+
+            {result.errors && result.errors.length > 0 && (
+              <details open style={{ marginTop: 8 }}>
+                <summary style={{ cursor: 'pointer', fontSize: '0.88rem', marginBottom: 8 }}>
+                  Warnings ({result.errors.length})
+                </summary>
+                <ul style={{ paddingLeft: 18, margin: 0, fontSize: '0.85rem' }}>
+                  {result.errors.map((e, i) => (
+                    <li key={i} style={{ marginBottom: 4 }}>{e}</li>
+                  ))}
+                </ul>
+              </details>
+            )}
+
+            <div
+              style={{
+                display: 'flex', justifyContent: 'flex-end',
+                marginTop: 16,
+              }}
+            >
+              <button
+                type="button"
+                className="device-action primary"
+                onClick={onDone}
+              >
                 Close
               </button>
             </div>

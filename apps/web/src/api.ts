@@ -1375,6 +1375,169 @@ export async function inviteNewUserAutoProvision(
   return body;
 }
 
+// v0.10.37 — Unified "Migrate user from Pulse" wizard.
+//
+// One-shot endpoint. Admin enters Pulse email + password. Server logs into
+// Pulse on the user's behalf, decodes the JWT to extract pulse_user_id +
+// voip_number, creates the ACE user, rebinds the DID from Pulse's Telnyx
+// connection to a new ACE connection, runs the 30-day backfill (calls via
+// Pulse REST + SMS via Pulse MySQL), and returns one consolidated result.
+//
+// Password is sent once over HTTPS, used once on the server for the Pulse
+// login call, and never persisted.
+export interface MigrateFromPulseInput {
+  pulseEmail: string;
+  pulsePassword: string;
+  isAdmin?: boolean;
+  daysBack?: number;   // defaults to 30 on the server
+}
+export interface MigrateFromPulseResult {
+  ok: boolean;
+  user?: AdminUserRow;
+  pulseUserId?: number;
+  didNumber?: string;
+  sipUsername?: string;
+  callsInserted?: number;
+  callsSkipped?: number;
+  messagesInserted?: number;
+  messagesSkipped?: number;
+  backfillErrors?: string[];
+  durationMs?: number;
+  steps?: Array<{ step: string; ok: boolean; error?: string }>;
+  error?: string;
+}
+export async function migrateUserFromPulse(
+  token: string,
+  input: MigrateFromPulseInput,
+): Promise<MigrateFromPulseResult> {
+  const res = await fetch(`${API_URL}/admin/users/migrate-from-pulse`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(input),
+  });
+  const body = (await res.json().catch(() => ({}))) as MigrateFromPulseResult;
+  if (!res.ok) {
+    return {
+      ok: false,
+      error: typeof body === 'object' && 'error' in body
+        ? String((body as { error: unknown }).error)
+        : `HTTP ${res.status}`,
+      steps: 'steps' in body ? (body as { steps?: MigrateFromPulseResult['steps'] }).steps : undefined,
+    };
+  }
+  return body;
+}
+
+// v0.10.38b — Per-user "Refresh from Pulse" — used by the button in the
+// admin users-table kebab menu. Backend auto-resolves the user's
+// pulseUserId from audit log + their default DID. If pulseUserPassword
+// is omitted, only SMS is refreshed; calls require a per-user password
+// (Pulse scopes call logs to the JWT's own user_id).
+export interface RefreshFromPulseInput {
+  pulseUserPassword?: string;
+  daysBack?: number;
+}
+export interface RefreshFromPulseResult {
+  ok: boolean;
+  userId?: number;
+  userEmail?: string;
+  pulseUserId?: number;
+  didNumber?: string;
+  callsRequested?: boolean;
+  callsInserted?: number;
+  callsSkipped?: number;
+  messagesInserted?: number;
+  messagesSkipped?: number;
+  errors?: string[];
+  durationMs?: number;
+  error?: string;
+}
+export async function refreshUserFromPulse(
+  token: string,
+  userId: number,
+  input: RefreshFromPulseInput = {},
+): Promise<RefreshFromPulseResult> {
+  const res = await fetch(`${API_URL}/admin/users/${userId}/refresh-from-pulse`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(input),
+  });
+  const body = (await res.json().catch(() => ({}))) as RefreshFromPulseResult;
+  if (!res.ok) {
+    return {
+      ok: false,
+      error: typeof body === 'object' && 'error' in body
+        ? String((body as { error: unknown }).error)
+        : `HTTP ${res.status}`,
+    };
+  }
+  return body;
+}
+
+// v0.10.38 — Bulk-refresh SMS history from Pulse for all migrated users.
+// Calls intentionally not refreshed (require per-user Pulse password).
+export interface BulkRefreshPulseSmsInput {
+  daysBack?: number;
+  maxUsers?: number;
+}
+export interface BulkRefreshPulseSmsResult {
+  ok: boolean;
+  totalUsers: number;
+  totalUsersInRegistry?: number;
+  totalCallsInserted: number;
+  totalMessagesInserted: number;
+  totalDurationMs: number;
+  results: Array<{
+    userId: number;
+    email: string;
+    pulseUserId: number;
+    didNumber: string | null;
+    callsInserted: number;
+    callsSkipped: number;
+    messagesInserted: number;
+    messagesSkipped: number;
+    errors: string[];
+    durationMs: number;
+    skipped?: string;
+  }>;
+  note?: string;
+  error?: string;
+}
+export async function bulkRefreshPulseSms(
+  token: string,
+  input: BulkRefreshPulseSmsInput = {},
+): Promise<BulkRefreshPulseSmsResult> {
+  const res = await fetch(`${API_URL}/admin/users/bulk-refresh-pulse-sms`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(input),
+  });
+  const body = (await res.json().catch(() => ({}))) as BulkRefreshPulseSmsResult;
+  if (!res.ok) {
+    return {
+      ok: false,
+      totalUsers: 0,
+      totalCallsInserted: 0,
+      totalMessagesInserted: 0,
+      totalDurationMs: 0,
+      results: [],
+      error: typeof body === 'object' && 'error' in body
+        ? String((body as { error: unknown }).error)
+        : `HTTP ${res.status}`,
+    };
+  }
+  return body;
+}
+
 export interface UpdateAdminUserInput {
   firstName?: string | null;
   lastName?: string | null;

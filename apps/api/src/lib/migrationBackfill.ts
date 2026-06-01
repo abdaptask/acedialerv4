@@ -33,6 +33,14 @@ import {
   type PulseMessageRow,
   type PulseCallRow,
 } from './pulseBackfill.js';
+import {
+  loginToPulse,
+  getCallLogsAsUser,
+  type PulseRestCallRow,
+} from './pulseApi.js';
+// Note: getServiceJwt / getMessagesForPulseUserId / PulseRestMessageRow are
+// intentionally NOT imported — Pulse REST cannot serve SMS bodies; SMS is
+// handled by the MySQL path in pulseBackfill.ts.
 
 interface BackfillResult {
   callsInserted: number;
@@ -60,6 +68,13 @@ export async function backfillMigratedDidHistory(
      *  casing/domain/etc). Admin can find the right pulseUserId via
      *  GET /admin/pulse/search?q=... and pass it explicitly. */
     pulseUserIdOverride?: number;
+    /** v0.10.36 — Optional Pulse user email + password used to log into
+     *  the Pulse REST API and pull that user's call logs. Required only
+     *  for the per-user call-log path (SMS uses the service account).
+     *  If absent we skip the Pulse REST call-log fetch but still try
+     *  the Pulse REST SMS fetch via the service account. */
+    pulseUserEmail?: string;
+    pulseUserPassword?: string;
   },
   log: LogFn = noopLog,
 ): Promise<BackfillResult> {
@@ -243,8 +258,184 @@ export async function backfillMigratedDidHistory(
     log({ err: msg }, '[backfill] Pulse backfill failed (non-fatal)');
   }
 
+  // ─── v0.10.36 — Pulse REST API backfill (env-var gated) ────────────────
+  //
+  // Replaces the MySQL/ngrok path in normal operation. The MySQL code above
+  // stays in place dormant — we'll re-evaluate after REST proves out in
+  // production.
+  //
+  // Hybrid auth:
+  //   - Messages use a SERVICE ACCOUNT JWT (PULSE_SVC_EMAIL / PULSE_SVC_PASSWORD).
+  //     Pulse's /messages/getAllChatByUser?userID=N is JWT-protected but the
+  //     target user is a query param, so any valid Pulse JWT works.
+  //   - Call logs use a PER-USER JWT obtained by logging in as the user at
+  //     migrate time (admin enters their Pulse password in the modal). Pulse's
+  //     /telnyx/getCallLogs is scoped to the JWT's own user_id with no
+  //     override, so a service account would only see the admin's calls.
+  //
+  // If PULSE_API_BASE_URL is unset, the underlying pulseApi.ts no-ops. Safe
+  // to deploy before env vars are populated.
+  try {
+    // Resolve Pulse user_id the same way as the MySQL path — either via
+    // explicit override or by email lookup. We need this for the messages
+    // fetch (it's a query param). If we can't resolve it, skip the SMS
+    // half but still try the call-log half (which doesn't need it).
+    let restPulseUserId: number | null = args.pulseUserIdOverride ?? null;
+    if (restPulseUserId === null) {
+      const aceUser = await prisma.user.findUnique({
+        where: { id: args.userId },
+        select: { email: true },
+      });
+      if (aceUser?.email) {
+        restPulseUserId = await findPulseUserIdByEmail(aceUser.email);
+      }
+    }
+
+    // ── SMS via Pulse REST: DISABLED ─────────────────────────────────────
+    //
+    // Verified live for user_id=55 on 2026-05-29: Pulse's REST API does
+    // not return SMS message bodies. /messages/getAllChatByUser returns
+    // conversation envelopes with `dialog: []` (the populate-loop is
+    // hard-commented in pulse-master), and /messages/<conv_id> returns
+    // 401 in production. SMS history is fetched via the MySQL path above
+    // (pulseBackfill.ts with pulseUserIdOverride). No REST SMS call here.
+    //
+    // The restPulseUserId resolved above is left for diagnostics in the
+    // log line below, and is the same value passed to the MySQL path.
+    log({ restPulseUserId }, '[backfill] Pulse REST SMS skipped by design — using MySQL path');
+
+    // ── Call logs via Pulse REST + per-user JWT ──────────────────────────
+    if (args.pulseUserPassword) {
+      const loginEmail = args.pulseUserEmail
+        ?? (await prisma.user.findUnique({
+          where: { id: args.userId },
+          select: { email: true },
+        }))?.email
+        ?? null;
+      if (loginEmail) {
+        const userJwt = await loginToPulse(loginEmail, args.pulseUserPassword);
+        if (userJwt) {
+          const restCalls = await getCallLogsAsUser({ userJwt, daysBack });
+          log({ count: restCalls.length }, '[backfill] Pulse REST calls fetched');
+          if (restCalls.length > 0) {
+            const callRows = restCalls
+              .map((r) => mapPulseRestCallRowToCall(r, args.userId, args.userDidId))
+              .filter((r): r is NonNullable<typeof r> => r !== null);
+            if (callRows.length > 0) {
+              try {
+                const inserted = await prisma.call.createMany({
+                  data: callRows,
+                  skipDuplicates: true,
+                });
+                result.callsInserted += inserted.count;
+                result.callsSkipped += callRows.length - inserted.count;
+                log({ inserted: inserted.count, total: callRows.length }, '[backfill] Pulse REST calls inserted');
+              } catch (e) {
+                result.errors.push(`Pulse REST call createMany: ${e instanceof Error ? e.message : String(e)}`);
+              }
+            }
+          }
+        } else {
+          log({ loginEmail }, '[backfill] Pulse REST call-log fetch skipped — login failed');
+          result.errors.push('Pulse REST login failed (check email/password)');
+        }
+      }
+    } else {
+      log({}, '[backfill] Pulse REST call-log fetch skipped — no pulseUserPassword supplied');
+    }
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    result.errors.push(`Pulse REST backfill: ${msg}`);
+    log({ err: msg }, '[backfill] Pulse REST backfill failed (non-fatal)');
+  }
+
   log({ result }, '[backfill] done');
   return result;
+}
+
+// ─── Pulse REST row → ACE schema mappers ─────────────────────────────────
+//
+// REST-sourced messages are not implemented — Pulse's REST API can't serve
+// SMS bodies (verified live 2026-05-29 for user_id=55). SMS uses the MySQL
+// path's mapPulseMessageRowToMessage instead. See pulseApi.ts comment for
+// the full reason.
+
+function mapPulseRestCallRowToCall(
+  row: PulseRestCallRow,
+  userId: number,
+  userDidId: number,
+) {
+  // Phone normalization — Pulse stores `from`/`to` as raw integers
+  // (e.g. 17327344818) or strings; convert to +E.164.
+  const norm = (raw: string | number | null): string => {
+    if (raw === null || raw === undefined) return '';
+    const digits = String(raw).replace(/\D/g, '');
+    if (digits.length === 10) return `+1${digits}`;
+    if (digits.length === 11 && digits.startsWith('1')) return `+${digits}`;
+    return digits.length > 0 ? `+${digits}` : '';
+  };
+  const fromNumber = norm(row.from);
+  const toNumber = norm(row.to);
+  if (!fromNumber || !toNumber) return null;
+
+  // v0.10.36 — Pulse production returns "incoming" / "outgoing" (not
+  // "inbound" / "outbound"). Accept both vocabularies. Verified live
+  // 2026-05-29: sample row had direction="outgoing".
+  const dirRaw = (row.direction ?? '').toLowerCase().trim();
+  const direction = (dirRaw === 'inbound' || dirRaw === 'incoming')
+    ? 'inbound'
+    : 'outbound';
+  const durationSeconds = row.duration ?? 0;
+
+  let status = 'completed';
+  if (durationSeconds === 0) {
+    status = direction === 'inbound' ? 'missed' : 'failed';
+  }
+  if (row.status && typeof row.status === 'string') {
+    const s = row.status.toLowerCase().trim();
+    if (s === 'voicemail') status = 'voicemail';
+    else if (s === 'no-answer' || s === 'noanswer') status = 'missed';
+    else if (s === 'busy') status = 'busy';
+    else if (s === 'completed') status = 'completed';
+    else if (s === 'failed') status = 'failed';
+  }
+
+  // Dedup key. Pulse's `sid` field carries a Pulse-internal call id like
+  // "v3:FP0fL5PKaC...". We prefix with `pulse-` so logs make it obvious
+  // these rows came from Pulse (vs native ACE/Telnyx rows whose IDs are
+  // bare UUIDs from Telnyx webhooks).
+  const telnyxCallId = (row.sid && row.sid.trim().length > 0)
+    ? `pulse-${row.sid.trim()}`
+    : `pulse-call-${row.id}`;
+
+  // Approximate timestamps. Pulse's REST response only gives createdAt +
+  // duration; no separate answered_at / ended_at. We assume:
+  //   startedAt   = createdAt
+  //   answeredAt  = createdAt (if status=completed, otherwise null)
+  //   endedAt     = startedAt + durationSeconds
+  // The +duration approximation is off by webhook delay (we saw ~8s in
+  // sample data) but is far better than null for the Recents UI.
+  const startedAt = new Date(row.createdAt);
+  const endedAt = durationSeconds > 0
+    ? new Date(startedAt.getTime() + durationSeconds * 1000)
+    : null;
+  const answeredAt = status === 'completed' ? startedAt : null;
+
+  return {
+    userId,
+    telnyxCallId,
+    direction,
+    fromNumber,
+    toNumber,
+    status,
+    startedAt,
+    answeredAt,
+    endedAt,
+    durationSeconds,
+    hangupCause: null,
+    recordingUrl: row.recording_url_conferrence ?? null,
+    userDidId,
+  };
 }
 
 // ─── Pulse row → ACE schema mappers ─────────────────────────────────────
