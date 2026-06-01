@@ -1079,11 +1079,102 @@ export interface TelnyxSmsMdr {
   media_urls?: string[];
 }
 
+// ═════════════════════════════════════════════════════════════════════════
+// v0.10.28 — Telnyx async CDR Reports API.
+//
+// The sync /v2/detail_records endpoint (used by listVoiceCdrsForNumber
+// below) silently returns ZERO results when phone-number filters are
+// applied. Production reality: only filter[record_type] works on that
+// endpoint. To actually pull CDRs filtered by phone, we use the ASYNC
+// usage-report endpoint:
+//
+//   1. POST /v2/cdr_usage_reports — create report with filters
+//   2. GET  /v2/cdr_usage_reports/{id} — poll until status=COMPLETE
+//   3. Download the report's URL — returns the same CSV as the portal export
+//   4. Parse with existing CSV parser
+//
+// Same pattern for messaging via /v2/mdr_usage_reports.
+// ═════════════════════════════════════════════════════════════════════════
+
+interface CdrReportData {
+  id: string;
+  status?: string;             // "PENDING" | "IN_PROGRESS" | "COMPLETE" | "FAILED"
+  report_url?: string | null;
+}
+
+/**
+ * Request an async CDR (voice) usage report. Returns the report id.
+ * Telnyx queues the report and we poll for completion.
+ */
+export function requestCdrReport(args: {
+  startTime: string;           // ISO 8601
+  endTime: string;             // ISO 8601
+  phoneNumber: string;         // E.164
+}): Promise<TelnyxResult<SingleResponse<CdrReportData>>> {
+  const body = {
+    start_time: args.startTime,
+    end_time: args.endTime,
+    // Filter by phone number — Telnyx accepts an array of E.164 strings.
+    // The report includes calls where any of these numbers appears as
+    // origination OR termination.
+    phone_numbers: [args.phoneNumber],
+    // Include all fields available (matches the portal export columns).
+    report_type: 'complete',
+  };
+  return call(`/cdr_usage_reports`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export function getCdrReportStatus(
+  reportId: string,
+): Promise<TelnyxResult<SingleResponse<CdrReportData>>> {
+  return call(`/cdr_usage_reports/${reportId}`, { method: 'GET' });
+}
+
+export function requestMdrReport(args: {
+  startTime: string;
+  endTime: string;
+  phoneNumber: string;
+}): Promise<TelnyxResult<SingleResponse<CdrReportData>>> {
+  return call(`/mdr_usage_reports`, {
+    method: 'POST',
+    body: JSON.stringify({
+      start_time: args.startTime,
+      end_time: args.endTime,
+      phone_numbers: [args.phoneNumber],
+      report_type: 'complete',
+    }),
+  });
+}
+
+export function getMdrReportStatus(
+  reportId: string,
+): Promise<TelnyxResult<SingleResponse<CdrReportData>>> {
+  return call(`/mdr_usage_reports/${reportId}`, { method: 'GET' });
+}
+
+/**
+ * Download a completed report's CSV. Telnyx's report_url is a signed S3-like
+ * URL — no auth header needed (the signature in the URL is the auth).
+ */
+export async function downloadReportCsv(url: string): Promise<string> {
+  const res = await fetch(url);
+  if (!res.ok) {
+    throw new Error(`Failed to download Telnyx report: HTTP ${res.status}`);
+  }
+  return res.text();
+}
+
 /**
  * Fetch up to N pages of voice CDRs where the given E.164 appears as
  * EITHER `from` OR `to`. Filters by start_time gte = now - daysBack.
  * Returns merged + deduped results. Best-effort: returns [] if Telnyx
  * 4xx's (account may not have CDR API access on its tier).
+ *
+ * NOTE v0.10.28: This sync endpoint doesn't support phone filtering well.
+ * Prefer requestCdrReport + polling pattern for migrations.
  */
 export async function listVoiceCdrsForNumber(
   e164: string,
