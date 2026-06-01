@@ -24,6 +24,23 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.28',
+    date: 'June 1, 2026',
+    highlight: 'Migrated users get their full 30-day history automatically',
+    changes: [
+      { type: 'new', text: 'When you migrate a user from the old dialer to ACE, their last 30 days of call logs AND SMS history automatically come over. They open Recents and Messages and see everything reconstructed within a minute — no manual export needed.' },
+      { type: 'fixed', text: 'Previously some migrations finished with zero history populated because of a Telnyx API quirk. Now uses Telnyx\'s report-generation pipeline which reliably pulls phone-filtered history.' },
+    ],
+  },
+  {
+    version: '0.10.27',
+    date: 'June 1, 2026',
+    highlight: 'Manual CDR import as a fallback',
+    changes: [
+      { type: 'new', text: 'Admins can manually upload a CDR or messaging CSV exported from Telnyx Portal to backfill a migrated user\'s history. Useful as a fallback whenever the automatic backfill needs a hand.' },
+    ],
+  },
+  {
     version: '0.10.26',
     date: 'June 1, 2026',
     highlight: 'Smarter notifications and read tracking',
