@@ -3660,6 +3660,11 @@ export async function adminRoutes(app: FastifyInstance) {
   const RefreshFromPulseSchema = z.object({
     pulseUserPassword: z.string().min(1).max(200).optional(),
     daysBack: z.number().int().min(1).max(90).optional().default(30),
+    // v0.10.39 — Manual override for users (like Ravindra) whose audit
+    // log doesn't yet have a Pulse user_id mapping. Once used, the
+    // backfill writes a new audit log entry with this pulseUserId so
+    // future refreshes auto-resolve without needing the override.
+    pulseUserIdOverride: z.number().int().positive().optional(),
   });
   app.post<{ Params: { id: string } }>(
     '/admin/users/:id/refresh-from-pulse',
@@ -3674,7 +3679,7 @@ export async function adminRoutes(app: FastifyInstance) {
       if (!parsed.success) {
         return reply.code(400).send({ ok: false, error: 'Invalid input', details: parsed.error.flatten() });
       }
-      const { pulseUserPassword, daysBack } = parsed.data;
+      const { pulseUserPassword, daysBack, pulseUserIdOverride } = parsed.data;
 
       const user = await prisma.user.findUnique({
         where: { id: userId },
@@ -3697,28 +3702,34 @@ export async function adminRoutes(app: FastifyInstance) {
         });
       }
 
-      // Auto-resolve pulseUserId from audit log — newest entry wins
-      const auditRow = await prisma.auditLog.findFirst({
-        where: {
-          targetUserId: userId,
-          OR: [
-            { action: 'user.migrated_from_pulse' },
-            { action: 'user_did.backfill_rerun' },
-          ],
-        },
-        orderBy: { createdAt: 'desc' },
-        select: { metadata: true },
-      });
-      let pulseUserId: number | null = null;
-      if (auditRow?.metadata) {
-        const meta = auditRow.metadata as Record<string, unknown>;
-        const pid = meta.pulseUserId ?? meta.pulseUserIdOverride;
-        if (typeof pid === 'number' && pid > 0) pulseUserId = pid;
+      // Auto-resolve pulseUserId — explicit override wins; otherwise look
+      // up the newest audit log entry. v0.10.39: override added for
+      // pre-wizard ACE users (their audit log doesn't have a pulse mapping
+      // yet — first refresh seeds the mapping).
+      let pulseUserId: number | null = pulseUserIdOverride ?? null;
+      if (pulseUserId === null) {
+        const auditRow = await prisma.auditLog.findFirst({
+          where: {
+            targetUserId: userId,
+            OR: [
+              { action: 'user.migrated_from_pulse' },
+              { action: 'user_did.backfill_rerun' },
+            ],
+          },
+          orderBy: { createdAt: 'desc' },
+          select: { metadata: true },
+        });
+        if (auditRow?.metadata) {
+          const meta = auditRow.metadata as Record<string, unknown>;
+          const pid = meta.pulseUserId ?? meta.pulseUserIdOverride;
+          if (typeof pid === 'number' && pid > 0) pulseUserId = pid;
+        }
       }
       if (pulseUserId === null) {
         return reply.code(409).send({
           ok: false,
-          error: 'No Pulse user_id on record for this user. They may not have been migrated from Pulse.',
+          error: 'No Pulse user_id on record for this user. Enter their Pulse user ID in the "Pulse user ID" field below.',
+          needsPulseUserId: true,
         });
       }
 

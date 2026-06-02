@@ -24,6 +24,14 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.39',
+    date: 'June 2, 2026',
+    highlight: 'Refresh from Pulse works for pre-wizard users too',
+    changes: [
+      { type: 'fixed', text: 'The "Refresh from Pulse" button used to fail with "No Pulse user_id on record" for users who were added to ACE before the migrate wizard existed. Now the modal has an optional "Pulse user ID" field where you enter their Pulse user_id (e.g. 55) the first time — after that, ACE remembers and the field can stay blank.' },
+    ],
+  },
+  {
     version: '0.10.38',
     date: 'June 1, 2026',
     highlight: 'One-click refresh from Pulse for any migrated user',
