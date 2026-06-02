@@ -4027,24 +4027,25 @@ body {
 }
 [data-theme="light"] .thread-row:hover { background: rgba(0, 0, 0, 0.04); }
 .thread-text {
-  flex: 1;
+  /* v0.10.43 — More aggressive flex shrink. `flex: 1 1 0%` with `min-width: 0`
+     and `width: 0` forces the flex item to shrink below its intrinsic content
+     width on any viewport. v0.10.42's softer constraint wasn't tight enough
+     for some Electron + DPI-scaling combos — preview text was rendering at
+     2238px wide on a 1366px viewport. */
+  flex: 1 1 0%;
   min-width: 0;
-  /* v0.10.42 — Prevents .thread-name + LineBadge content from overflowing
-     the row on narrow viewports (e.g. 1366x768 with DPI scaling).
-     Without this, the row scrolls horizontally and preview text appears
-     mid-string instead of from the beginning. */
+  width: 0;
+  max-width: 100%;
   overflow: hidden;
 }
 .thread-name {
   font-size: 15px;
   font-weight: 600;
-  /* v0.10.42 — Truncate long contact names and ensure LineBadge wraps
-     gracefully on small screens. Display: flex keeps the inline name +
-     badge layout but lets the badge sit alongside text correctly. */
   display: flex;
   align-items: center;
   gap: 6px;
   min-width: 0;
+  max-width: 100%;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -4056,15 +4057,16 @@ body {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  /* v0.10.42 — Force left-alignment defensively; some browsers/Electron
-     versions inherit direction:rtl from parent on narrow viewports. */
   text-align: left;
   direction: ltr;
+  /* v0.10.43 — Hard-constrain width so nowrap text truncates instead of
+     forcing the parent row to grow to content width. */
+  max-width: 100%;
+  width: 100%;
 }
 .thread-time {
   font-size: 12px;
   opacity: 0.5;
-  /* v0.10.42 — Prevent time from being squeezed/wrapped on narrow rows. */
   flex-shrink: 0;
   white-space: nowrap;
 }
