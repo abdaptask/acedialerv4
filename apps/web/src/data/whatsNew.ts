@@ -24,6 +24,14 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.43',
+    date: 'June 2, 2026',
+    highlight: 'Messages list fix, take two',
+    changes: [
+      { type: 'fixed', text: 'Tighter CSS constraints on thread rows in the Messages tab. v0.10.42\'s fix worked for most resolutions but didn\'t fully constrain the layout on certain Electron desktop builds — preview text was extending to 2200+ pixels wide on a 1366-pixel screen, pushing the contact name off-screen to the left. Now uses width:0 + flex:1 1 0% to force aggressive shrink that works on all configurations.' },
+    ],
+  },
+  {
     version: '0.10.42',
     date: 'June 2, 2026',
     highlight: 'Messages list looks right on smaller screens too',
