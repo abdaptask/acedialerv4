@@ -24,6 +24,14 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.46',
+    date: 'June 2, 2026',
+    highlight: 'No migrated SMS gets dropped — period',
+    changes: [
+      { type: 'fixed', text: 'For users whose Pulse contacts had been entirely deleted from Pulse\'s chat_user table (Sagar Bangera being the latest example: 93 SMS in Pulse, 0 imported), the SMS import still dropped every message — even after v0.10.44\'s fix — because the chat_user row didn\'t exist to give us anything to anchor the thread on. The import now falls back to the raw Pulse user_id stored on the message itself, so the message imports under a synthetic thread regardless. No message ever gets silently dropped now.' },
+    ],
+  },
+  {
     version: '0.10.45',
     date: 'June 2, 2026',
     highlight: 'Migrated messages and calls show their original send time',
