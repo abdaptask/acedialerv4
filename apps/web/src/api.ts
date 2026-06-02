@@ -1428,6 +1428,9 @@ export async function migrateUserFromPulse(
 export interface RefreshFromPulseInput {
   pulseUserPassword?: string;
   daysBack?: number;
+  // v0.10.39 — Manual override for pre-wizard ACE users (no audit log
+  // entry yet with their Pulse user_id). Used once seeds the mapping.
+  pulseUserIdOverride?: number;
 }
 export interface RefreshFromPulseResult {
   ok: boolean;

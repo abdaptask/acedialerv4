@@ -3119,6 +3119,9 @@ function RefreshUserFromPulseModal({
   onDone: () => void;
 }) {
   const [pulsePassword, setPulsePassword] = useState('');
+  // v0.10.39 — Manual Pulse user_id for pre-wizard users (Ravindra etc.)
+  // who don't have an audit log entry yet. Empty string = use auto-resolve.
+  const [pulseUserIdStr, setPulseUserIdStr] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<RefreshFromPulseResult | null>(null);
   const bodyRef = useRef<HTMLDivElement | null>(null);
@@ -3142,8 +3145,14 @@ function RefreshUserFromPulseModal({
     setSubmitting(true);
     setResult(null);
     try {
+      const pulseUserIdNum = pulseUserIdStr.trim()
+        ? parseInt(pulseUserIdStr.trim(), 10)
+        : undefined;
       const r = await refreshUserFromPulse(token, target.id, {
         pulseUserPassword: pulsePassword || undefined,
+        pulseUserIdOverride: Number.isFinite(pulseUserIdNum) && pulseUserIdNum! > 0
+          ? pulseUserIdNum
+          : undefined,
       });
       setResult(r);
     } catch (err) {
@@ -3187,6 +3196,26 @@ function RefreshUserFromPulseModal({
               <div><strong>Email:</strong> {target.email}</div>
               <div><strong>Default line:</strong> {target.didNumber ?? '-'}</div>
             </div>
+            <label className="fav-modal-field" style={{ marginBottom: 8 }}>
+              <span className="fav-modal-label">Pulse user ID (only needed first time)</span>
+              <input
+                type="text"
+                inputMode="numeric"
+                pattern="\d+"
+                className="fav-modal-input"
+                placeholder="e.g. 55 — leave blank if already migrated"
+                value={pulseUserIdStr}
+                onChange={(e) => setPulseUserIdStr(e.target.value.replace(/[^\d]/g, ''))}
+                disabled={submitting}
+              />
+              <span className="muted small" style={{ marginTop: 4, display: 'block' }}>
+                Required <strong>only</strong> for users added to ACE before the migrate
+                wizard existed (their Pulse mapping isn't in the audit log yet).
+                After one successful refresh, you won't need to enter this again for
+                this user — it gets saved automatically.
+              </span>
+            </label>
+
             <label className="fav-modal-field" style={{ marginBottom: 8 }}>
               <span className="fav-modal-label">Pulse password (optional)</span>
               <input
