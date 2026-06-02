@@ -413,13 +413,22 @@ function mapPulseMessageRowToMessage(
       `+${digits}`;
   }
   // v0.10.44 — When chat_user.mobile_no and normalized_mobile are both
-  // null (happened for Sanjyot Waghmare's 284 SMS — all 0 imported under
-  // v0.10.43), synthesize a stable thread key from the chat_user.id so
-  // the message imports rather than being dropped. Format chosen so the
-  // ACE UI can detect synthetic keys and render them as "Unknown
-  // contact" instead of trying to format as a phone number.
+  // null, synthesize a stable thread key from the chat_user.id so the
+  // message imports rather than being dropped.
   if (!contactE164 && row.contact_chat_user_id) {
     contactE164 = `pulse-cu-${row.contact_chat_user_id}`;
+  }
+  // v0.10.46 — When even the chat_user row is missing entirely (LEFT
+  // JOIN returned null because the chat_user record was deleted from
+  // Pulse, e.g. Sagar Bangera's 93 SMS all dropped under v0.10.44),
+  // fall back to the raw from_user_id / to_user_id stored on the
+  // message itself. We don't have a name or phone for them, but the
+  // user_id is enough to group all their messages into one thread.
+  if (!contactE164) {
+    const otherUserId = row.from_type === 'c' ? row.from_user_id : row.to_user_id;
+    if (otherUserId) {
+      contactE164 = `pulse-uid-${otherUserId}`;
+    }
   }
   if (!contactE164) return null;
 
