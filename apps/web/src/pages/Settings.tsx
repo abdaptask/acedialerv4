@@ -89,6 +89,11 @@ import {
   listAdminBlockedNumbers,
   adminRemoveBlockedNumber,
   type AdminBlockedNumber,
+  // v0.10.74 — Admin Praise / Announcements.
+  listAdminPraises,
+  createPraise,
+  deletePraise,
+  type Praise,
   listUnassignedTelnyxNumbers,
   type InviteNewUserResult,
   type UnassignedTelnyxNumber,
@@ -205,6 +210,8 @@ const SECTIONS: SectionDef[] = [
   { key: 'users', category: 'Admin', label: 'Users', icon: Users, blurb: 'Invite, promote, deactivate (admin only)', Component: UsersAdminSection, adminOnly: true },
   // v0.10.52 — Tenant SMS templates (admin only).
   { key: 'sms-templates', category: 'Admin', label: 'SMS templates', icon: MessageSquare, blurb: 'Curate the recruiter SMS playbook for all users', Component: SmsTemplatesAdminSection, adminOnly: true },
+  // v0.10.74 — Admin Praise / Announcements.
+  { key: 'praise', category: 'Admin', label: 'Send praise', icon: Sparkles, blurb: 'Celebrate a new hire, offer, birthday, anniversary — one user or broadcast', Component: PraiseAdminSection, adminOnly: true },
   // v0.10.51 — Admin view of all users' blocked numbers + override.
   { key: 'blocked-admin', category: 'Admin', label: 'Blocked numbers (all users)', icon: ShieldOff, blurb: 'See who blocked which numbers and why; override blocks', Component: BlockedNumbersAdminSection, adminOnly: true },
   // v0.10.63 — Pending Users section removed. The bulk-stage-then-invite
@@ -5811,6 +5818,271 @@ function SmsTemplateEditModal({
     </div>
   );
 }
+
+// v0.10.74 — Admin Praise / Announcements section.
+//
+// Admin composes a celebratory message: pick category, pick recipient
+// (one user or broadcast), set the displayed recipient name (defaults to
+// the picked user's name; editable for "Congrats Ankit Patel" style
+// messages where the subject is external to ACE), write the body, send.
+// History list below shows the last 100 praises this admin has sent
+// with delete affordance per row.
+function PraiseAdminSection() {
+  const [category, setCategory] = useState<PraiseCategoryUI>('new_offer');
+  const [targetMode, setTargetMode] = useState<'one' | 'broadcast'>('one');
+  const [targetUserId, setTargetUserId] = useState<string>('');
+  const [recipientName, setRecipientName] = useState('');
+  const [message, setMessage] = useState('');
+  const [users, setUsers] = useState<AdminUserRow[]>([]);
+  const [history, setHistory] = useState<Praise[]>([]);
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [okMsg, setOkMsg] = useState<string | null>(null);
+
+  // Load active users + history once on mount.
+  useEffect(() => {
+    const token = sessionStorage.getItem('ace_token');
+    if (!token) return;
+    void listAdminUsers(token).then((rows) => setUsers(rows.filter((u) => u.isActive)));
+    void listAdminPraises(token).then(setHistory);
+  }, []);
+
+  // When admin picks a user from the dropdown, default recipientName to
+  // their first+last. Admin can override (e.g. external candidate name).
+  useEffect(() => {
+    if (targetMode === 'one' && targetUserId) {
+      const u = users.find((x) => String(x.id) === targetUserId);
+      if (u) {
+        const joined = [u.firstName, u.lastName].filter(Boolean).join(' ').trim();
+        if (joined) setRecipientName(joined);
+      }
+    }
+  }, [targetUserId, targetMode, users]);
+
+  async function handleSend() {
+    setError(null);
+    setOkMsg(null);
+    const token = sessionStorage.getItem('ace_token');
+    if (!token) return;
+    if (!message.trim()) {
+      setError('Write something — the message can\'t be blank.');
+      return;
+    }
+    if (targetMode === 'one' && !targetUserId) {
+      setError('Pick a recipient (or switch to Broadcast).');
+      return;
+    }
+    setSending(true);
+    const r = await createPraise(token, {
+      category,
+      toUserId: targetMode === 'broadcast' ? null : Number(targetUserId),
+      recipientName: recipientName.trim() || undefined,
+      message: message.trim(),
+    });
+    setSending(false);
+    if ('error' in r) {
+      setError(r.error);
+      return;
+    }
+    setHistory((prev) => [r, ...prev]);
+    setOkMsg(targetMode === 'broadcast'
+      ? 'Sent to everyone. They\'ll see it on their next dialer screen.'
+      : 'Sent. The recipient will see it within ~60 seconds.');
+    setMessage('');
+    // v0.10.74 — Poke the PraiseModal poller so the sender sees their own
+    // broadcast immediately (when they're a recipient of broadcast too)
+    // instead of waiting up to 60s.
+    window.dispatchEvent(new CustomEvent('ace:praise-poke'));
+    // Keep category + recipient so admin can quickly send another similar.
+  }
+
+  async function handleDelete(praiseId: number) {
+    if (!confirm('Delete this praise? Anyone who hasn\'t seen it yet won\'t.')) return;
+    const token = sessionStorage.getItem('ace_token');
+    if (!token) return;
+    const r = await deletePraise(token, praiseId);
+    if (!r.ok) {
+      alert(r.error ?? 'Delete failed');
+      return;
+    }
+    setHistory((prev) => prev.filter((p) => p.id !== praiseId));
+  }
+
+  const categoryLabel = (c: PraiseCategoryUI): string => {
+    switch (c) {
+      case 'new_hire': return 'New hire';
+      case 'new_offer': return 'New offer';
+      case 'birthday': return 'Birthday';
+      case 'anniversary': return 'Anniversary';
+      case 'custom': return 'Custom';
+    }
+  };
+
+  return (
+    <div className="settings-section praise-admin">
+      <p className="settings-blurb">
+        Send a celebratory pop-up to one user or broadcast to everyone.
+        Recipients see a big modal next time they\'re idle in the dialer
+        (mid-call recipients see it after the call ends). One-way — no
+        replies. Use for new hires, new offers, birthdays, work
+        anniversaries, or any custom shout-out.
+      </p>
+
+      <div className="praise-admin-form">
+        <label className="fav-modal-field">
+          <span className="fav-modal-label">Category</span>
+          <select
+            className="fav-modal-input"
+            value={category}
+            onChange={(e) => setCategory(e.target.value as PraiseCategoryUI)}
+            disabled={sending}
+          >
+            <option value="new_offer">New offer</option>
+            <option value="new_hire">New hire</option>
+            <option value="birthday">Birthday</option>
+            <option value="anniversary">Work anniversary</option>
+            <option value="custom">Custom</option>
+          </select>
+        </label>
+
+        <fieldset className="praise-admin-target">
+          <legend className="fav-modal-label">Who sees this?</legend>
+          <label>
+            <input
+              type="radio"
+              name="praise-target"
+              value="one"
+              checked={targetMode === 'one'}
+              onChange={() => setTargetMode('one')}
+              disabled={sending}
+            />
+            <span>One user</span>
+          </label>
+          <label>
+            <input
+              type="radio"
+              name="praise-target"
+              value="broadcast"
+              checked={targetMode === 'broadcast'}
+              onChange={() => setTargetMode('broadcast')}
+              disabled={sending}
+            />
+            <span>Everyone (broadcast)</span>
+          </label>
+        </fieldset>
+
+        {targetMode === 'one' && (
+          <label className="fav-modal-field">
+            <span className="fav-modal-label">Recipient</span>
+            <select
+              className="fav-modal-input"
+              value={targetUserId}
+              onChange={(e) => setTargetUserId(e.target.value)}
+              disabled={sending}
+            >
+              <option value="">— Pick a user —</option>
+              {users.map((u) => (
+                <option key={u.id} value={String(u.id)}>
+                  {[u.firstName, u.lastName].filter(Boolean).join(' ') || u.email}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+
+        <label className="fav-modal-field">
+          <span className="fav-modal-label">Display name (who's being celebrated)</span>
+          <input
+            type="text"
+            className="fav-modal-input"
+            value={recipientName}
+            onChange={(e) => setRecipientName(e.target.value)}
+            placeholder={targetMode === 'broadcast' ? 'e.g. The whole team, or Ankit Patel' : '(defaults to recipient\'s name)'}
+            disabled={sending}
+          />
+          <span className="muted small" style={{ marginTop: 4, display: 'block' }}>
+            Shown after the category headline, e.g. "Congratulations <strong>Ankit Patel</strong>". Leave blank to skip.
+          </span>
+        </label>
+
+        <label className="fav-modal-field">
+          <span className="fav-modal-label">Message</span>
+          <textarea
+            className="fav-modal-input"
+            value={message}
+            onChange={(e) => setMessage(e.target.value)}
+            placeholder={
+              category === 'new_offer' ? 'on your offer with Mphasis - Puneeth' :
+              category === 'new_hire' ? 'Welcome to ApTask! Excited to have you on the team.' :
+              category === 'birthday' ? 'Hope you have an amazing day 🎂' :
+              category === 'anniversary' ? '3 years at ApTask today — thank you for everything!' :
+              'Write a short, celebratory message…'
+            }
+            rows={3}
+            disabled={sending}
+          />
+        </label>
+
+        {error && <div className="error small">{error}</div>}
+        {okMsg && <div className="muted small" style={{ color: '#34c759' }}>{okMsg}</div>}
+
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 12 }}>
+          <button
+            type="button"
+            className="device-action primary"
+            onClick={handleSend}
+            disabled={sending || !message.trim() || (targetMode === 'one' && !targetUserId)}
+          >
+            {sending ? 'Sending…' : 'Send praise 🎉'}
+          </button>
+        </div>
+      </div>
+
+      {history.length > 0 && (
+        <div className="praise-admin-history" style={{ marginTop: 24 }}>
+          <h4 style={{ marginBottom: 8 }}>Recent praise sent</h4>
+          <ul className="praise-history-list">
+            {history.map((p) => (
+              <li key={p.id} className="praise-history-row">
+                <div className="praise-history-row-text">
+                  <div className="praise-history-row-headline">
+                    <strong>{categoryLabel(p.category as PraiseCategoryUI)}</strong>
+                    {' · '}
+                    {p.toUserId === null
+                      ? <em>Everyone</em>
+                      : p.toUser
+                        ? `${[p.toUser.firstName, p.toUser.lastName].filter(Boolean).join(' ')}`
+                        : `User #${p.toUserId}`}
+                    {p.recipientName && p.recipientName !== `${p.toUser?.firstName ?? ''} ${p.toUser?.lastName ?? ''}`.trim() &&
+                      ` (about ${p.recipientName})`}
+                  </div>
+                  <div className="praise-history-row-message muted">{p.message}</div>
+                  <div className="praise-history-row-meta muted small">
+                    Sent {new Date(p.createdAt).toLocaleString()}
+                    {typeof p._count?.reads === 'number' && ` · Seen by ${p._count.reads}`}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="icon-btn"
+                  onClick={() => handleDelete(p.id)}
+                  aria-label="Delete praise"
+                  title="Delete"
+                >
+                  <Trash2 size={16} />
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Local type alias matching the API. Mirrored here so this file's imports
+// stay tight; the source-of-truth is PraiseCategory in api.ts.
+type PraiseCategoryUI = 'new_hire' | 'new_offer' | 'birthday' | 'anniversary' | 'custom';
 
 function WhatsNewSection() {
   return (

@@ -106,6 +106,9 @@ model User {
   calls           Call[]
   messages        Message[]
   voicemails      Voicemail[]
+  praisesSent     Praise[]    @relation("PraiseFrom")
+  praisesReceived Praise[]    @relation("PraiseTo")
+  praiseReads     PraiseRead[]
   internalSent       InternalMessage[] @relation("InternalMessageSender")
   internalReceived   InternalMessage[] @relation("InternalMessageRecipient")
   blockedNumbers     BlockedNumber[]
@@ -562,6 +565,66 @@ model SmsTemplate {
 
   @@index([isActive, category, sortOrder])
   @@map("sms_templates")
+}
+
+/// v0.10.74 — Admin Praise / Announcements.
+///
+/// Admin-curated celebratory messages (new hire announcement, offer
+/// congratulations, birthday wish, work anniversary, custom). Shown to
+/// the recipient as a big modal that pops over the dialer once their
+/// active call (if any) ends. Two targeting modes:
+///   * toUserId set    — one specific recipient
+///   * toUserId NULL   — broadcast to everyone (every active ACE user)
+///
+/// Read state is tracked per-user via PraiseRead so a broadcast praise
+/// can be marked read by recipient A without disappearing for recipient
+/// B. The "is this praise unread for me?" check is:
+///   praise.toUserId == me OR praise.toUserId == NULL
+///   AND no PraiseRead row exists for (praise.id, me)
+model Praise {
+  id            Int       @id @default(autoincrement())
+  /// Admin who created it. Always set.
+  fromUserId    Int       @map("from_user_id")
+  fromUser      User      @relation("PraiseFrom", fields: [fromUserId], references: [id])
+  /// Recipient. NULL = broadcast to all active users.
+  toUserId      Int?      @map("to_user_id")
+  toUser        User?     @relation("PraiseTo", fields: [toUserId], references: [id])
+  /// 'new_hire' | 'new_offer' | 'birthday' | 'anniversary' | 'custom'
+  /// Drives the icon + default headline. 'custom' lets admin write
+  /// arbitrary copy.
+  category      String
+  /// Display name of the person being celebrated. For a targeted praise
+  /// this is usually toUser.firstName + lastName, BUT admin may want to
+  /// celebrate someone external to ACE (e.g. a candidate who got an
+  /// offer — not an ACE user). For broadcasts this is whoever the praise
+  /// is ABOUT (e.g. "Team hit Q2 quota!").
+  recipientName String?   @map("recipient_name")
+  /// Body of the praise. Free-form (e.g. "on your offer with Mphasis - Puneeth").
+  message       String
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  /// Tracks who has dismissed this praise. One row per (praise, user).
+  reads         PraiseRead[]
+
+  /// Lookups by recipient for "what unread praises do I have?"
+  @@index([toUserId, createdAt])
+  /// Lookups by category for analytics ("how many new_hire announcements
+  /// did we ship this quarter?")
+  @@index([category, createdAt])
+  @@map("praises")
+}
+
+model PraiseRead {
+  id        Int      @id @default(autoincrement())
+  praiseId  Int      @map("praise_id")
+  praise    Praise   @relation(fields: [praiseId], references: [id], onDelete: Cascade)
+  userId    Int      @map("user_id")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  readAt    DateTime @default(now()) @map("read_at")
+
+  @@unique([praiseId, userId])
+  @@index([userId, readAt])
+  @@map("praise_reads")
 }
 
 /// v0.10.59 — Schedule an SMS or MMS to send at a future moment.

@@ -24,6 +24,16 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.74',
+    date: 'June 3, 2026',
+    highlight: 'Send Praise — celebrate new hires, offers, birthdays from inside ACE',
+    changes: [
+      { type: 'new', text: 'Admins can now send a Teams-Praise-style celebratory pop-up to one user or broadcast to everyone. Settings → Admin → Send praise. Pick a category (New hire / New offer / Birthday / Work anniversary / Custom), the recipient (one user or Everyone), the display name of who\'s being celebrated, and a short message. The recipient(s) see a big confetti modal next time they\'re idle in the dialer.' },
+      { type: 'new', text: 'Smart suppression: the praise modal does NOT pop up while a user is on an active call — recruiters mid-conversation aren\'t yanked out of context. It waits until the call ends, then appears.' },
+      { type: 'new', text: 'Per-user read tracking. A broadcast praise is marked read separately for each recipient, so when Abdulla dismisses it, it doesn\'t disappear for Ankit. Admin can see in their send history how many people have viewed each broadcast.' },
+    ],
+  },
+  {
     version: '0.10.73',
     date: 'June 3, 2026',
     highlight: 'Dialer no longer clips at small window sizes / 125% DPI scaling',
