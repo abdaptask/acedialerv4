@@ -1362,6 +1362,9 @@ export interface AdminUserRow {
   // v0.10.60 — Beta opt-in. Optional for back-compat with older API
   // responses (where this field didn't exist).
   connectionHealthBeta?: boolean;
+  // v0.10.64 — Country (IN / US / Other) for Telnyx anchorsite selection.
+  // Optional because older API responses don't include it.
+  country?: string | null;
 }
 
 export async function listAdminUsers(token: string): Promise<AdminUserRow[]> {
@@ -1419,6 +1422,9 @@ export interface InviteNewUserInput {
   unassignedDidNumber?: string;
   isAdmin?: boolean;
   sendEmail?: boolean;
+  // v0.10.64 — Country for Telnyx anchorsite selection. Defaults to 'IN'
+  // on the server when omitted.
+  country?: string;
 }
 export interface InviteNewUserResult {
   ok: boolean;
@@ -1932,6 +1938,8 @@ export interface UpdateAdminUserInput {
   localPassword?: string | null;
   // v0.10.60 — Per-user beta opt-in for Connection Health.
   connectionHealthBeta?: boolean;
+  // v0.10.64 — Country tag (IN / US / Other) for Telnyx anchorsite.
+  country?: string | null;
 }
 
 export async function updateAdminUser(
