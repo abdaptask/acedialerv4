@@ -24,6 +24,14 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.57',
+    date: 'June 3, 2026',
+    highlight: 'Messages page width matches Recents',
+    changes: [
+      { type: 'fixed', text: 'The Messages page now renders the same width as Recents. Previously the conversation list collapsed to the natural width of its header, which made names truncate too aggressively. Messages and Recents now share a single 480px centered column for visual consistency.' },
+    ],
+  },
+  {
     version: '0.10.56',
     date: 'June 3, 2026',
     highlight: 'Timestamps everywhere + safer Recents row tap',
