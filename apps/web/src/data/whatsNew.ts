@@ -24,6 +24,15 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.62',
+    date: 'June 3, 2026',
+    highlight: 'Fix the v0.10.50 over-aggressive visibility-register cascade',
+    changes: [
+      { type: 'fixed', text: 'The dialer no longer hammers Telnyx with a fresh SIP REGISTER every time you click between the dialer window and another app. The v0.10.50 "always force a fresh register on focus" defense was meant to recover from silent Telnyx evictions after long absences (laptop sleep, etc.), but it was firing on every tab/window focus — which for users who keep DevTools docked next to ACE meant dozens of REGISTERs in seconds, eventually colliding with Telnyx\'s concurrent-REGISTER guard and triggering a registrationFailed cascade → manual reconnect → visible Disconnected flicker. The forced register now only fires when (a) the document was actually hidden for more than 30 seconds, AND (b) we haven\'t already force-registered in the last 30 seconds. The 10-second heartbeat still handles routine refreshes; this just stops the focus-event spam.' },
+      { type: 'improved', text: 'Diagnostic logs now show how long the dialer was hidden and how long since the last forced register, so when SIP issues show up in the console you can tell at a glance whether the visibility recovery was the cause or something else.' },
+    ],
+  },
+  {
     version: '0.10.61',
     date: 'June 3, 2026',
     highlight: 'Fixes for Invalid-Date bubbles + misleading Pulse import warning',

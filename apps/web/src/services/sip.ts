@@ -767,47 +767,101 @@ export class SipService {
     }
   }
 
+  // v0.10.62 — Visibility-driven register state.
+  // Track when the document became hidden so we can measure how long we
+  // were away. Track the last forced-register timestamp so we can apply a
+  // cooldown. Without these, we'd hammer Telnyx with a fresh REGISTER on
+  // every tab focus, which Nilesh's console showed in production: dozens
+  // of "forced register (defensive)" log lines in 10 seconds when he had
+  // DevTools docked next to ACE, eventually causing Telnyx to 491 and
+  // triggering a full reconnect cascade.
+  private lastHiddenAt: number | null = null;
+  private lastForcedRegisterAt: number = 0;
+
   private installVisibilityRecovery(): void {
     // Idempotent — don't double-attach if connect() is ever called twice.
     if (this.visibilityHandler) return;
     this.visibilityHandler = () => {
-      if (typeof document === 'undefined' || document.visibilityState !== 'visible') return;
+      if (typeof document === 'undefined') return;
+      // v0.10.62 — Track hidden→visible transitions explicitly so we know
+      // how long we were away. Just checking visibilitychange isn't enough:
+      // the event fires for the hidden direction too, and we want a baseline.
+      if (document.visibilityState === 'hidden') {
+        this.lastHiddenAt = Date.now();
+        return;
+      }
+      if (document.visibilityState !== 'visible') return;
       if (!this.ua) return;
       try {
         const isRegistered = this.ua.isRegistered?.() ?? false;
         const isConnected = this.ua.isConnected?.() ?? false;
-        console.log('[sip] visibility=visible — connected:', isConnected, 'registered:', isRegistered);
+        const hiddenForMs = this.lastHiddenAt ? Date.now() - this.lastHiddenAt : 0;
+        const sinceLastForceMs = Date.now() - this.lastForcedRegisterAt;
+        console.log(
+          '[sip] visibility=visible — connected:', isConnected,
+          'registered:', isRegistered,
+          'hiddenForMs:', hiddenForMs,
+          'sinceLastForceMs:', sinceLastForceMs,
+        );
+        // Reset the hidden marker so a follow-up visible event (e.g.
+        // window.focus firing right after visibilitychange) doesn't
+        // re-measure the same gap.
+        this.lastHiddenAt = null;
+
         if (!isConnected) {
           // WebSocket died while backgrounded. Full UA rebuild — calling
           // start() on a dead UA often leaves it stuck.
           this.reconnect();
-        } else {
-          // v0.10.50 — ALWAYS force a fresh REGISTER on focus, regardless
-          // of local isRegistered state. The local state can lie: Telnyx
-          // may have silently evicted our Contact while the window was
-          // idle (laptop sleep, network blip during background period),
-          // but JsSIP's last-known state still says "registered". User
-          // returns to the app expecting calls to ring, but they go
-          // straight to voicemail because Telnyx no longer routes to us.
-          // ua.register() is idempotent on Telnyx side, so re-registering
-          // an already-valid Contact has zero cost; re-registering a
-          // stale one fixes the silent-eviction case. The 491 race that
-          // motivated the v0.10.17 fix only happens when the heartbeat
-          // double-registers on every 10s tick — focus events are rare
-          // enough that the same 491 race isn't a concern.
+          return;
+        }
+
+        // v0.10.62 — Only force a fresh REGISTER when the absence was
+        // long enough to plausibly cause Telnyx-side eviction (>30s).
+        // Brief tab switches don't evict; the original v0.10.50 "always
+        // force" was over-defensive and caused the registrationFailed
+        // cascade visible in Nilesh's console (dev-tools docked next to
+        // ACE → focus events fire on every pane click → forced REGISTERs
+        // collide with each other and with the 10s heartbeat → eventually
+        // Telnyx 491s → full UA tear-down → visible Disconnected flicker).
+        //
+        // Also apply a hard cooldown: even if absence was long, don't
+        // force-register more than once per 30s window. The 10s heartbeat
+        // and Telnyx's own register_expires=600s refresh keep us alive
+        // between these focus events.
+        const LONG_ABSENCE_MS = 30_000;
+        const COOLDOWN_MS = 30_000;
+        const wasAwayLong = hiddenForMs >= LONG_ABSENCE_MS;
+        const cooldownExpired = sinceLastForceMs >= COOLDOWN_MS;
+
+        if (wasAwayLong && cooldownExpired) {
           try {
             this.ua.register();
-            console.log('[sip] visibility=visible — forced register (defensive against stale Telnyx Contact)');
+            this.lastForcedRegisterAt = Date.now();
+            console.log(
+              `[sip] visibility=visible — forced register (was away ${Math.round(hiddenForMs / 1000)}s, last force ${Math.round(sinceLastForceMs / 1000)}s ago)`,
+            );
           } catch (e) {
             console.warn('[sip] visibility register threw', e);
           }
+        } else {
+          // Skip — the absence was short OR we just force-registered.
+          // The 10s heartbeat (refreshRegistration) will catch any real
+          // eviction within ~10s, and Telnyx's register_expires=600s
+          // keeps our Contact valid in the meantime.
+          console.log(
+            `[sip] visibility=visible — skipping forced register (wasAwayLong=${wasAwayLong}, cooldownExpired=${cooldownExpired})`,
+          );
         }
       } catch (e) {
         console.warn('[sip] visibility handler error', e);
       }
     };
     document.addEventListener('visibilitychange', this.visibilityHandler);
-    window.addEventListener('focus', this.visibilityHandler);
+    // v0.10.62 — Removed the redundant `window.addEventListener('focus', ...)`
+    // line. Focus events fire on every alt-tab and pane switch (including
+    // moving between DevTools and ACE), and they're a superset of
+    // visibilitychange. Relying on visibilitychange alone gives us one
+    // reliable signal per real hide/show cycle without the over-firing.
   }
 
   // ---------- Call lifecycle (outbound / inbound common path) ----------
