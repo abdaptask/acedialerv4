@@ -82,6 +82,9 @@ function publicUser(u: {
   // v0.10.60 — Beta flag. Optional because legacy SELECT clauses may not
   // include it; treated as false when missing.
   connectionHealthBeta?: boolean;
+  // v0.10.64 — Country tag for Telnyx anchorsite. Optional because legacy
+  // SELECT clauses may not include it; pass-through null when missing.
+  country?: string | null;
 }) {
   return {
     id: u.id,
@@ -97,6 +100,7 @@ function publicUser(u: {
     createdAt: u.createdAt.toISOString(),
     userDids: u.userDids ?? [],
     connectionHealthBeta: u.connectionHealthBeta ?? false,
+    country: u.country ?? null,
   };
 }
 
@@ -463,6 +467,9 @@ export async function adminRoutes(app: FastifyInstance) {
           // v0.10.60 — Surface the beta flag so the Users tab kebab menu
           // can show its current state (toggleable on/off per user).
           connectionHealthBeta: true,
+          // v0.10.64 — Surface country so the kebab can show its current
+          // value and admin can update it.
+          country: true,
           // v0.10.40 — Include the user's full DID list. The Users table
           // column displays the isDefault DID (instead of the legacy
           // User.didNumber column which can be stale), and the Refresh
@@ -992,6 +999,9 @@ export async function adminRoutes(app: FastifyInstance) {
           // this, the kebab kept showing "Enable" after a toggle because
           // r.connectionHealthBeta came back undefined.
           connectionHealthBeta: true,
+          // v0.10.64 — Echo country back so the kebab "Set country (IN)"
+          // label updates immediately after a PATCH.
+          country: true,
         },
       });
 

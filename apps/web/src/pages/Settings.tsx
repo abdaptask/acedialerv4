@@ -2319,6 +2319,38 @@ function UsersAdminSection() {
                         {r.connectionHealthBeta ? 'Disable Conn. Health (beta)' : 'Enable Conn. Health (beta)'}
                       </button>
 
+                      {/* v0.10.64 — Set the user's country. Drives Telnyx
+                          anchorsite_override (IN → Chennai, else → Latency).
+                          For future ACE Telnyx config syncs to use the
+                          correct anchor — doesn't immediately re-PATCH the
+                          existing connection. Admin should also run the
+                          re-apply (when v0.10.65 ships) for changes to
+                          flow through to Telnyx for existing users. */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setOpenMenuId(null);
+                          const current = r.country ?? '';
+                          const next = prompt(
+                            `Set country for ${rowName(r)} (IN / US / Other).\nCurrent: ${current || '(not set)'}\n\nValid: IN, US, Other. Drives Telnyx anchorsite (IN → Chennai).`,
+                            current || 'IN',
+                          );
+                          if (next === null) return; // cancelled
+                          const trimmed = next.trim().toUpperCase();
+                          if (trimmed && !['IN', 'US', 'OTHER'].includes(trimmed)) {
+                            alert('Country must be IN, US, or Other (case-insensitive).');
+                            return;
+                          }
+                          // Normalize "OTHER" back to "Other" for storage consistency.
+                          const value = trimmed === 'OTHER' ? 'Other' : trimmed;
+                          void handlePatch(r.id, { country: value || null });
+                        }}
+                        title="Set this user's country (drives Telnyx anchorsite routing)"
+                      >
+                        <Phone size={14} />
+                        Set country ({r.country ?? '—'})
+                      </button>
+
                       {/* v0.10.38 — Per-user "Refresh from Pulse". One
                           click re-pulls their 30-day SMS (and optionally
                           calls if you provide their Pulse password). */}
@@ -2648,6 +2680,9 @@ function AutoProvisionUserModal({
   const [areaCode, setAreaCode] = useState('');
   const [makeAdmin, setMakeAdmin] = useState(false);
   const [sendEmail, setSendEmail] = useState(true);
+  // v0.10.64 — Country for Telnyx anchorsite selection. Defaults to IN
+  // since 95% of new ApTask hires are in India.
+  const [country, setCountry] = useState<'IN' | 'US' | 'Other'>('IN');
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<InviteNewUserResult | null>(null);
 
@@ -2694,6 +2729,8 @@ function AutoProvisionUserModal({
         unassignedDidNumber: didMode === 'unassigned' ? pickedUnassignedDid : undefined,
         isAdmin: makeAdmin,
         sendEmail,
+        // v0.10.64 — country drives Telnyx anchorsite (IN → Chennai).
+        country,
       });
       setResult(r);
     } catch (err) {
@@ -2859,6 +2896,28 @@ function AutoProvisionUserModal({
                   </span>
                 </label>
               </fieldset>
+
+              {/* v0.10.64 — Country picker for Telnyx anchorsite selection.
+                  India → Chennai routing (lowest latency for the 95% in-country);
+                  US/Other → "Latency" routing (Telnyx picks closest site per-call).
+                  Default IN since 95% of new hires are India-based. */}
+              <label className="fav-modal-field" style={{ marginTop: 14, marginBottom: 8 }}>
+                <span className="fav-modal-label">Country</span>
+                <select
+                  className="fav-modal-input"
+                  value={country}
+                  onChange={(e) => setCountry(e.target.value as 'IN' | 'US' | 'Other')}
+                  disabled={submitting}
+                >
+                  <option value="IN">India (Chennai anchor)</option>
+                  <option value="US">United States (Latency)</option>
+                  <option value="Other">Other (Latency)</option>
+                </select>
+                <span className="muted small" style={{ marginTop: 4, display: 'block' }}>
+                  Picks the Telnyx anchor site closest to this user. Can be edited
+                  later from the Users tab kebab menu.
+                </span>
+              </label>
 
               {/* Don't use .fav-modal-field here — it forces flex-column which
                   stacks the checkbox above the label. Use plain inline flex. */}

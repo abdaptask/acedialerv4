@@ -24,6 +24,15 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.69',
+    date: 'June 3, 2026',
+    highlight: 'Telnyx auto-config — country picker on Invite + Edit country on Users tab',
+    changes: [
+      { type: 'new', text: 'The "Invite New User" modal now has a Country dropdown (default India). The country drives Telnyx anchorsite selection on the new user\'s Credential Connection — India users get Chennai anchor (lowest latency); US/Other users get Telnyx\'s "Latency" routing (closest site per-call).' },
+      { type: 'new', text: 'Settings → Users → kebab menu now has a "Set country (XX)" option. Click to change an existing user\'s country (drives future Telnyx config syncs). The current value is shown right in the menu label. This finishes the v0.10.64 Telnyx auto-config feature — every flow that creates or assigns a Telnyx DID now honors the user\'s country.' },
+    ],
+  },
+  {
     version: '0.10.68',
     date: 'June 3, 2026',
     highlight: 'CRITICAL hotfix — restore aggressive SIP re-register on focus',
