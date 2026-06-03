@@ -46,7 +46,9 @@ function formatTime(iso: string): string {
   // v0.10.55 — Always show time-of-day. Yesterday and older dates were
   // dropping the time, which made it impossible to tell when a voicemail
   // actually came in. See Recents.tsx for the full pattern.
+  // v0.10.60 — Invalid-date guard.
   const date = new Date(iso);
+  if (!iso || Number.isNaN(date.getTime())) return '';
   const now = new Date();
   const timeStr = date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
   const sameDay =

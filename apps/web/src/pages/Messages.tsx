@@ -63,7 +63,11 @@ const EMOJI_OPTIONS = [
 function formatRelative(iso: string): string {
   // v0.10.55 — Always include time-of-day so users can scan when each SMS
   // landed, not just which day. See Recents.tsx for full rationale.
+  // v0.10.60 — Guard against invalid Date. Prevents "Invalid Date, Invalid
+  // Date" on bubbles whose createdAt is missing/malformed (regression seen
+  // after the v0.10.59 sendMessage helper refactor narrowed its select).
   const date = new Date(iso);
+  if (!iso || Number.isNaN(date.getTime())) return '';
   const now = new Date();
   const timeStr = date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
   const sameDay =
@@ -85,7 +89,9 @@ function formatRelative(iso: string): string {
 // More verbose than formatRelative: caller wants to see WHEN it goes out,
 // not when it was created. Same time-of-day on every label.
 function formatScheduledFor(iso: string): string {
+  // v0.10.60 — Invalid-date guard. Same defensive pattern as formatRelative.
   const date = new Date(iso);
+  if (!iso || Number.isNaN(date.getTime())) return '';
   const now = new Date();
   const timeStr = date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
   const sameDay =
