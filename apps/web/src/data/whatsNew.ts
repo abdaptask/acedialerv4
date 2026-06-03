@@ -24,6 +24,15 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.60',
+    date: 'June 3, 2026',
+    highlight: 'Connection Health — pilot smoothing (admin-toggleable)',
+    changes: [
+      { type: 'new', text: 'Admin → Settings → Users → kebab menu now has a "Enable Connection Health (beta)" toggle per user. When enabled for a user, the dialer no longer flickers Disconnected → Online for brief network blips. Brief blips under 5 seconds stay invisible. Sustained 5-30 second gaps show as amber "Reconnecting…" instead of red "Disconnected". Only after 30 seconds of sustained failure does the status flip to red. The aim: stop the noisy red/green flicker that causes user stress without changing actual call behavior. Default off; enable for pilot users first.' },
+      { type: 'fixed', text: 'Telnyx silent-eviction recovery layer is coming in v0.10.60-rc2. The current release smooths only the visible flicker — calls can still go to voicemail if the heartbeat takes a moment to notice an eviction. RC2 will add server-driven instant reconnect (latency <1 second) once the webhook subscription is configured on Telnyx. Pilot users on this RC1 should validate that the flicker reduction feels right before we layer on the deeper fix.' },
+    ],
+  },
+  {
     version: '0.10.59',
     date: 'June 3, 2026',
     highlight: 'Schedule an SMS or MMS to send later',

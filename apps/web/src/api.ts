@@ -15,6 +15,9 @@ export interface User {
    *  this to register against Telnyx as the logged-in user. */
   sipPassword?: string | null;
   didNumber?: string | null;
+  // v0.10.60 — Beta opt-in for the Connection Health smoothing + webhook
+  // recovery behavior. Optional for back-compat with older API responses.
+  connectionHealthBeta?: boolean;
 }
 
 export interface UpdateMeInput {
@@ -1292,6 +1295,9 @@ export interface AdminUserRow {
     label: string | null;
     isDefault: boolean;
   }>;
+  // v0.10.60 — Beta opt-in. Optional for back-compat with older API
+  // responses (where this field didn't exist).
+  connectionHealthBeta?: boolean;
 }
 
 export async function listAdminUsers(token: string): Promise<AdminUserRow[]> {
@@ -1855,6 +1861,8 @@ export interface UpdateAdminUserInput {
   isAdmin?: boolean;
   isActive?: boolean;
   localPassword?: string | null;
+  // v0.10.60 — Per-user beta opt-in for Connection Health.
+  connectionHealthBeta?: boolean;
 }
 
 export async function updateAdminUser(

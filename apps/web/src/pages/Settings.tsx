@@ -2293,6 +2293,25 @@ function UsersAdminSection() {
                         Manage lines
                       </button>
 
+                      {/* v0.10.60 — Per-user Connection Health beta toggle.
+                          Smooths the disconnect/reconnect flicker and (in
+                          a follow-up RC) responds to Telnyx-pushed eviction
+                          events. Pilot-only until validated, then default on. */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setOpenMenuId(null);
+                          const next = !r.connectionHealthBeta;
+                          const verb = next ? 'Enable' : 'Disable';
+                          if (!confirm(`${verb} Connection Health (beta) for ${rowName(r)}? They'll need to refresh the dialer for the change to take effect.`)) return;
+                          void handlePatch(r.id, { connectionHealthBeta: next });
+                        }}
+                        title="Toggle the Connection Health beta for this user. They must refresh after toggling."
+                      >
+                        <Zap size={14} />
+                        {r.connectionHealthBeta ? 'Disable Conn. Health (beta)' : 'Enable Conn. Health (beta)'}
+                      </button>
+
                       {/* v0.10.38 — Per-user "Refresh from Pulse". One
                           click re-pulls their 30-day SMS (and optionally
                           calls if you provide their Pulse password). */}

@@ -106,9 +106,14 @@ export function onSessionExpired(
  * and the user is supposed to be logged in (has a token), trigger the
  * same session-expired flow. Returns a function the caller MUST invoke
  * on every state change to feed the watchdog.
+ *
+ * v0.10.60 — Parameter widened to accept all SipState values (including the
+ * new 'reconnecting' beta state). Only 'failed' triggers the countdown;
+ * every other state — including 'reconnecting' — clears it, so the
+ * behavior is unchanged for non-beta users.
  */
 export function createSipWatchdog(): {
-  report: (state: 'disconnected' | 'connecting' | 'registered' | 'failed') => void;
+  report: (state: 'disconnected' | 'connecting' | 'registered' | 'reconnecting' | 'failed') => void;
   stop: () => void;
 } {
   let firstFailedAt: number | null = null;

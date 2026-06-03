@@ -149,11 +149,17 @@ export function SipProvider({ children }: { children: React.ReactNode }) {
       // regional tuning.
       const wssUri = import.meta.env.VITE_SIP_WSS_URI as string | undefined;
 
+      // v0.10.60 — Read the beta flag from sessionStorage (set by App.tsx
+      // persistSipCreds after /auth/me lands). When true, the SipService
+      // applies the disconnect-debounce-with-escalation behavior described
+      // in services/sip.ts. Default false for everyone not in the pilot.
+      const connectionHealthBeta = sessionStorage.getItem('ace_conn_health_beta') === '1';
+
       // v0.9.13 — Connect immediately with Telnyx-TURN-only so the user
       // isn't delayed by the Cloudflare-credentials round-trip. Then
       // asynchronously fetch Cloudflare TURN and trigger a reconnect when
       // it lands so future ICE renegotiations include the extra relay path.
-      sipService.connect({ username, password, callerNumber, wssUri });
+      sipService.connect({ username, password, callerNumber, wssUri, connectionHealthBeta });
       connected = true;
 
       const token = sessionStorage.getItem('ace_token');

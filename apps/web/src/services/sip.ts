@@ -18,7 +18,14 @@ import { getHoldMusicEnabled, getHoldMusicDataUrl } from '../lib/userPrefs';
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type RTCSession = any; // jssip's RTCSession type is JSDoc-only
 
-export type SipState = 'disconnected' | 'connecting' | 'registered' | 'failed';
+// v0.10.60 — Added 'reconnecting' as an intermediate state between
+// 'registered' and 'disconnected'. With the Connection Health beta on,
+// brief disconnect blips (< 5s) are hidden entirely, sustained gaps
+// (5-30s) show as amber 'reconnecting', and only >30s sustained
+// disconnect shows red 'disconnected'. Without the flag, classic
+// behavior preserved: 'reconnecting' is never emitted and the existing
+// debounce alone keeps the UI quiet.
+export type SipState = 'disconnected' | 'connecting' | 'registered' | 'reconnecting' | 'failed';
 export type CallState =
   | 'idle'
   | 'calling'
@@ -35,6 +42,10 @@ export interface SipConfig {
   callerNumber?: string;
   /** Override the WSS endpoint. Defaults to Telnyx's. */
   wssUri?: string;
+  /** v0.10.60 — When true, enable the Connection Health smoothing
+   *  (disconnect-debounce + 'reconnecting' intermediate state). Off by
+   *  default so non-pilot users see classic behavior. */
+  connectionHealthBeta?: boolean;
   /** Override the SIP domain (the part after @). Defaults to sip.telnyx.com. */
   realm?: string;
   /**
@@ -324,23 +335,62 @@ export class SipService {
     // state — no reason to debounce success).
     let pendingState: SipState | null = null;
     let pendingTimer: ReturnType<typeof setTimeout> | null = null;
+    // v0.10.60 — Second-stage escalation timer. When the beta flag is on
+    // and a 'disconnected' has been visible as 'reconnecting' for >25s
+    // total, escalate to red 'disconnected'. Cleared on any 'registered'.
+    let escalationTimer: ReturnType<typeof setTimeout> | null = null;
     const STATE_DEBOUNCE_MS = 2_500;
+    // Beta-only constants: hide blips < 5s entirely, show amber 'reconnecting'
+    // from 5-30s, only show red 'disconnected' after 30s sustained.
+    const BETA_RECONNECT_AT_MS = 5_000;
+    const BETA_ESCALATE_AT_MS = 30_000;
+    const betaSmoothing = config.connectionHealthBeta === true;
+
+    const clearAllTimers = () => {
+      if (pendingTimer) { clearTimeout(pendingTimer); pendingTimer = null; }
+      if (escalationTimer) { clearTimeout(escalationTimer); escalationTimer = null; }
+    };
+
     const scheduleEmit = (state: SipState) => {
       pendingState = state;
       if (pendingTimer) clearTimeout(pendingTimer);
+      // For non-beta users OR for any state other than 'disconnected',
+      // keep classic behavior: single 2.5s debounce, then emit as-is.
+      if (!betaSmoothing || state !== 'disconnected') {
+        pendingTimer = setTimeout(() => {
+          pendingTimer = null;
+          if (pendingState === state) {
+            this.emit<SipState>('state', state);
+          }
+        }, STATE_DEBOUNCE_MS);
+        return;
+      }
+      // Beta path for disconnect:
+      //   t=0..5s   → silence (pending). If 'registered' fires in this
+      //              window, the user never sees a status change at all.
+      //   t=5..30s  → show 'reconnecting' (amber).
+      //   t>=30s    → show 'disconnected' (red).
+      // We start two timers; the 'registered' handler cancels both.
       pendingTimer = setTimeout(() => {
         pendingTimer = null;
-        if (pendingState === state) {
-          this.emit<SipState>('state', state);
+        // Only emit if we still believe we're disconnected (no
+        // 'registered' interleaved).
+        if (pendingState === 'disconnected') {
+          console.log('[sip] beta-smoothing: 5s sustained disconnect → emitting reconnecting');
+          this.emit<SipState>('state', 'reconnecting');
         }
-      }, STATE_DEBOUNCE_MS);
+      }, BETA_RECONNECT_AT_MS);
+      escalationTimer = setTimeout(() => {
+        escalationTimer = null;
+        if (pendingState === 'disconnected') {
+          console.warn('[sip] beta-smoothing: 30s sustained disconnect → emitting disconnected');
+          this.emit<SipState>('state', 'disconnected');
+        }
+      }, BETA_ESCALATE_AT_MS);
     };
     const emitImmediate = (state: SipState) => {
       // Successful transitions cancel any pending debounced state.
-      if (pendingTimer) {
-        clearTimeout(pendingTimer);
-        pendingTimer = null;
-      }
+      clearAllTimers();
       pendingState = state;
       this.emit<SipState>('state', state);
     };

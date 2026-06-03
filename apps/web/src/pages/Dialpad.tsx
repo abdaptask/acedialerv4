@@ -338,10 +338,14 @@ export default function Dialpad() {
 
   const statusLabel =
     sipState === 'registered' ? 'Registered' :
+    sipState === 'reconnecting' ? 'Reconnecting…' :
     sipState === 'connecting' ? 'Connecting…' :
     sipState === 'failed' ? 'Connection failed' :
     'Disconnected';
 
+  // v0.10.60 — 'reconnecting' uses the same amber 'warn' class as
+  // 'connecting'. The whole point of the new state is to look NOT-RED
+  // for the first 30 seconds of trouble.
   const statusClass =
     sipState === 'registered' ? 'sip-status ok' :
     sipState === 'failed' ? 'sip-status err' :
