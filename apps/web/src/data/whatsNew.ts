@@ -24,6 +24,15 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.52',
+    date: 'June 3, 2026',
+    highlight: 'Recruiter SMS templates — pick from a playbook',
+    changes: [
+      { type: 'new', text: 'A "Templates" button appears next to the emoji picker in every SMS compose box. Click to open a popover grouped by category (initial outreach, documents, submission, interview, follow-up, outcomes, BGV, relationship). Pick a template and the message loads into the compose box with the contact\'s first name auto-filled. Other placeholders ({role}, {client}, {time}, etc.) stay as {variable} so the recruiter can fill them inline before sending.' },
+      { type: 'new', text: 'Settings → SMS templates (admin only). Admin can create, edit, archive, and re-order templates. One-click "Seed default playbook" loads the built-in 20-template recruiter playbook (idempotent — safe to run multiple times). Templates are tenant-wide; every user sees the same picker.' },
+    ],
+  },
+  {
     version: '0.10.50',
     date: 'June 3, 2026',
     highlight: 'Fewer missed calls on return to desktop + hold music lockdown',

@@ -466,6 +466,33 @@ export async function meRoutes(app: FastifyInstance) {
     },
   );
 
+  // ── GET /me/sms-templates ───────────────────────────────────────────────
+  //
+  // v0.10.52 — Returns the tenant's active SMS templates for the picker
+  // in the SMS compose UI. Read-only for users — admin manages the list.
+  app.get(
+    '/me/sms-templates',
+    { onRequest: [app.authenticate] },
+    async () => {
+      const templates = await prisma.smsTemplate.findMany({
+        where: { isActive: true },
+        orderBy: [
+          { category: 'asc' },
+          { sortOrder: 'asc' },
+          { id: 'asc' },
+        ],
+        select: {
+          id: true,
+          category: true,
+          name: true,
+          body: true,
+          sortOrder: true,
+        },
+      });
+      return { ok: true, templates };
+    },
+  );
+
   // ── GET /me/hold-music ──────────────────────────────────────────────────
   //
   // v0.10.48 — Returns the tenant-wide default hold music if the admin has
