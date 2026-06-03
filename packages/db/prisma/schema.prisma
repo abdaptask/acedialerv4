@@ -462,6 +462,44 @@ model MsServiceToken {
   @@map("ms_service_tokens")
 }
 
+/// v0.10.52 — Tenant-wide SMS templates curated by admins.
+///
+/// Used by recruiters when composing outbound SMS — they pick a template
+/// from a dropdown in the compose box and the body is inserted with
+/// {firstName} pre-filled from the selected contact. Other placeholder
+/// variables ({role}, {client}, {time}, etc.) stay as `{varName}` and
+/// the user fills them in before sending.
+///
+/// Tenant-wide by default — all active users see all active templates.
+/// Admin curates the list (create, edit, archive). No per-user templates
+/// in this iteration; the same playbook covers the whole recruiter team.
+model SmsTemplate {
+  id          Int      @id @default(autoincrement())
+  /// Bucket the template falls under: "outreach" | "docs" | "submission"
+  /// | "interview" | "followup" | "outcome" | "bgv" | "relationship" |
+  /// "custom". Used for grouping in the picker.
+  category    String
+  /// Display name shown in the picker (e.g. "Cold outreach").
+  name        String
+  /// The SMS body itself. May contain {placeholder} variables that get
+  /// resolved at send time. Newlines preserved.
+  body        String
+  /// Sort order within a category. Lower = shown first.
+  sortOrder   Int      @default(100) @map("sort_order")
+  /// Soft delete — keeps the row for audit + allows un-archive but hides
+  /// from the user picker. Admin can also use this to disable templates
+  /// without losing the body.
+  isActive    Boolean  @default(true) @map("is_active")
+  /// User ID of the admin who last touched this row. Nullable for the
+  /// initial seed (created by the system "seed defaults" endpoint).
+  updatedBy   Int?     @map("updated_by")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt      @map("updated_at")
+
+  @@index([isActive, category, sortOrder])
+  @@map("sms_templates")
+}
+
 /// v0.10.48 — Tenant-wide key/value settings table.
 ///
 /// Originally added for hold music: admin uploads a default audio file

@@ -80,6 +80,12 @@ import {
   getTenantHoldMusic,
   setTenantHoldMusic,
   clearTenantHoldMusic,
+  listAdminSmsTemplates,
+  createSmsTemplate,
+  updateSmsTemplate,
+  archiveSmsTemplate,
+  seedSmsTemplateDefaults,
+  type SmsTemplate,
   listUnassignedTelnyxNumbers,
   type InviteNewUserResult,
   type UnassignedTelnyxNumber,
@@ -191,6 +197,8 @@ const SECTIONS: SectionDef[] = [
   { key: 'recruiter', category: 'Reports', label: 'Recruiter', icon: Target, blurb: 'Reach + conversation rate (admin only)', Component: RecruiterSection, adminOnly: true },
   { key: 'alerts', category: 'Reports', label: 'Alerts', icon: Siren, blurb: 'Health & anomaly alerts (admin only)', Component: AlertsSection, adminOnly: true },
   { key: 'users', category: 'Admin', label: 'Users', icon: Users, blurb: 'Invite, promote, deactivate (admin only)', Component: UsersAdminSection, adminOnly: true },
+  // v0.10.52 — Tenant SMS templates (admin only).
+  { key: 'sms-templates', category: 'Admin', label: 'SMS templates', icon: MessageSquare, blurb: 'Curate the recruiter SMS playbook for all users', Component: SmsTemplatesAdminSection, adminOnly: true },
   { key: 'pending-users', category: 'Admin', label: 'Pending Users', icon: UserPlus, blurb: 'Stage + invite Pulse users to ACE (admin only)', Component: PendingUsersSection, adminOnly: true },
   { key: 'audit-log', category: 'Admin', label: 'Audit log', icon: ScrollText, blurb: 'Recent admin actions (admin only)', Component: AuditLogSection, adminOnly: true },
   // v0.10.22 — Tenant-wide MS Graph connection for Teams notifications.
@@ -5163,6 +5171,324 @@ function TeamsConnectionSection() {
 // Data lives in apps/web/src/data/whatsNew.ts so adding a new version
 // is a single-file edit.
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// v0.10.52 — SMS Templates admin section.
+//
+// Admin-only. Lists all tenant SMS templates, allows create / edit /
+// archive, and exposes a one-click "seed default playbook" button that
+// loads the built-in 20-template recruiter playbook (idempotent — safe
+// to re-run; only inserts templates that don't already exist).
+// ---------------------------------------------------------------------------
+
+const SMS_TEMPLATE_CATEGORY_OPTIONS: Array<{ key: string; label: string }> = [
+  { key: 'outreach', label: 'Initial outreach' },
+  { key: 'docs', label: 'Documents & profile' },
+  { key: 'submission', label: 'Submission' },
+  { key: 'interview', label: 'Interview' },
+  { key: 'followup', label: 'Follow-ups & status' },
+  { key: 'outcome', label: 'Outcomes' },
+  { key: 'bgv', label: 'Onboarding & BGV' },
+  { key: 'relationship', label: 'Relationship maintenance' },
+  { key: 'custom', label: 'Custom' },
+];
+
+function SmsTemplatesAdminSection() {
+  const [templates, setTemplates] = useState<SmsTemplate[] | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [editing, setEditing] = useState<SmsTemplate | null>(null);
+  const [showCreate, setShowCreate] = useState(false);
+  const [seedResult, setSeedResult] = useState<string | null>(null);
+
+  async function reload() {
+    const token = sessionStorage.getItem('ace_token');
+    if (!token) return;
+    const items = await listAdminSmsTemplates(token);
+    setTemplates(items);
+  }
+
+  useEffect(() => { void reload(); }, []);
+
+  async function handleSeed() {
+    const token = sessionStorage.getItem('ace_token');
+    if (!token) return;
+    setBusy('seed');
+    setSeedResult(null);
+    const r = await seedSmsTemplateDefaults(token);
+    setBusy(null);
+    if (r.ok) {
+      setSeedResult(
+        `Inserted ${r.inserted ?? 0} new template${(r.inserted ?? 0) === 1 ? '' : 's'}` +
+        (r.skipped ? `, skipped ${r.skipped} that already exist` : '') + '.',
+      );
+      await reload();
+    } else {
+      setSeedResult(`Failed: ${r.error ?? 'unknown error'}`);
+    }
+  }
+
+  async function handleArchive(id: number) {
+    if (!confirm('Archive this template? It will disappear from users\' picker. You can un-archive by editing.')) return;
+    const token = sessionStorage.getItem('ace_token');
+    if (!token) return;
+    await archiveSmsTemplate(token, id);
+    await reload();
+  }
+
+  if (templates === null) {
+    return <div className="muted">Loading templates…</div>;
+  }
+
+  const grouped: Record<string, SmsTemplate[]> = {};
+  for (const t of templates) {
+    if (!grouped[t.category]) grouped[t.category] = [];
+    grouped[t.category].push(t);
+  }
+
+  return (
+    <div className="settings-section">
+      <p className="settings-blurb">
+        Templates appear in every user's SMS compose box as a picker. They
+        can have <code>{`{firstName}`}</code> (auto-filled from the contact) and
+        other <code>{`{placeholder}`}</code> variables that the user fills inline.
+      </p>
+
+      <div className="device-actions" style={{ marginBottom: '1rem' }}>
+        <button
+          type="button"
+          className="device-action primary"
+          onClick={() => setShowCreate(true)}
+        >
+          New template
+        </button>
+        <button
+          type="button"
+          className="device-action"
+          onClick={handleSeed}
+          disabled={busy === 'seed'}
+          title="Inserts the 20 built-in recruiter templates. Skips any already present."
+        >
+          {busy === 'seed' ? 'Seeding…' : 'Seed default playbook'}
+        </button>
+      </div>
+
+      {seedResult && (
+        <p className="muted small" style={{ marginBottom: '1rem' }}>{seedResult}</p>
+      )}
+
+      {templates.length === 0 ? (
+        <div className="muted" style={{ padding: '2rem 0' }}>
+          No templates yet. Click "Seed default playbook" to load the
+          built-in 20 recruiter templates, or "New template" to write your own.
+        </div>
+      ) : (
+        <>
+          {SMS_TEMPLATE_CATEGORY_OPTIONS.map((cat) => {
+            const list = grouped[cat.key];
+            if (!list || list.length === 0) return null;
+            return (
+              <div key={cat.key} style={{ marginBottom: '1.5rem' }}>
+                <h3 style={{ fontSize: 14, margin: '0 0 8px', opacity: 0.7 }}>{cat.label}</h3>
+                <table className="users-admin-table" style={{ width: '100%' }}>
+                  <tbody>
+                    {list.map((t) => (
+                      <tr key={t.id} style={{ opacity: t.isActive === false ? 0.5 : 1 }}>
+                        <td style={{ width: '30%', fontWeight: 600 }}>
+                          {t.name}
+                          {t.isActive === false && <span className="muted small"> · archived</span>}
+                        </td>
+                        <td className="muted small" style={{ fontSize: 12 }}>
+                          {t.body.length > 100 ? t.body.slice(0, 100) + '…' : t.body}
+                        </td>
+                        <td style={{ width: 140, textAlign: 'right', whiteSpace: 'nowrap' }}>
+                          <button
+                            type="button"
+                            className="device-action"
+                            onClick={() => setEditing(t)}
+                            style={{ marginRight: 6 }}
+                          >
+                            Edit
+                          </button>
+                          {t.isActive !== false && (
+                            <button
+                              type="button"
+                              className="device-action danger"
+                              onClick={() => handleArchive(t.id)}
+                            >
+                              Archive
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            );
+          })}
+        </>
+      )}
+
+      {(showCreate || editing) && (
+        <SmsTemplateEditModal
+          template={editing ?? undefined}
+          onClose={() => { setShowCreate(false); setEditing(null); }}
+          onSaved={() => { setShowCreate(false); setEditing(null); void reload(); }}
+        />
+      )}
+    </div>
+  );
+}
+
+function SmsTemplateEditModal({
+  template,
+  onClose,
+  onSaved,
+}: {
+  template?: SmsTemplate;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [category, setCategory] = useState(template?.category ?? 'custom');
+  const [name, setName] = useState(template?.name ?? '');
+  const [body, setBody] = useState(template?.body ?? '');
+  const [sortOrder, setSortOrder] = useState(String(template?.sortOrder ?? 100));
+  const [isActive, setIsActive] = useState(template?.isActive !== false);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    const token = sessionStorage.getItem('ace_token');
+    if (!token) return;
+    if (!category.trim() || !name.trim() || !body.trim()) {
+      setError('Category, name, and body are all required.');
+      return;
+    }
+    setSubmitting(true);
+    setError(null);
+    const input = {
+      category: category.trim(),
+      name: name.trim(),
+      body: body.trim(),
+      sortOrder: parseInt(sortOrder, 10) || 100,
+      isActive,
+    };
+    const r = template
+      ? await updateSmsTemplate(token, template.id, input)
+      : await createSmsTemplate(token, input);
+    setSubmitting(false);
+    if (r.ok) {
+      onSaved();
+    } else {
+      setError(r.error ?? 'Save failed');
+    }
+  }
+
+  return (
+    <div className="compose-modal" onClick={submitting ? undefined : onClose}>
+      <div
+        className="fav-modal"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-labelledby="sms-tmpl-title"
+        style={{ maxWidth: 640 }}
+      >
+        <div className="fav-modal-header">
+          <MessageSquare size={18} className="fav-modal-icon" />
+          <h3 id="sms-tmpl-title">{template ? 'Edit template' : 'New template'}</h3>
+        </div>
+
+        <form onSubmit={handleSubmit} autoComplete="off">
+          <div className="fav-modal-row">
+            <label className="fav-modal-field">
+              <span className="fav-modal-label">Category</span>
+              <select
+                className="fav-modal-input"
+                value={category}
+                onChange={(e) => setCategory(e.target.value)}
+                disabled={submitting}
+                style={{ colorScheme: 'light dark' }}
+              >
+                {SMS_TEMPLATE_CATEGORY_OPTIONS.map((c) => (
+                  <option key={c.key} value={c.key}>{c.label}</option>
+                ))}
+              </select>
+            </label>
+            <label className="fav-modal-field">
+              <span className="fav-modal-label">Name</span>
+              <input
+                type="text"
+                className="fav-modal-input"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="e.g. Cold outreach"
+                disabled={submitting}
+                required
+              />
+            </label>
+          </div>
+
+          <label className="fav-modal-field" style={{ marginTop: 8 }}>
+            <span className="fav-modal-label">Body</span>
+            <textarea
+              className="fav-modal-input"
+              value={body}
+              onChange={(e) => setBody(e.target.value)}
+              rows={6}
+              placeholder="Hi {firstName}, this is {recruiter} from ApTask..."
+              disabled={submitting}
+              required
+              style={{ fontFamily: 'inherit', resize: 'vertical' }}
+            />
+            <span className="muted small" style={{ marginTop: 4, display: 'block' }}>
+              Variables in <code>{`{curlyBraces}`}</code> are placeholders.
+              <code>{`{firstName}`}</code> auto-fills from the contact; others are filled inline by the user.
+            </span>
+          </label>
+
+          <div className="fav-modal-row" style={{ marginTop: 8 }}>
+            <label className="fav-modal-field">
+              <span className="fav-modal-label">Sort order (within category)</span>
+              <input
+                type="number"
+                inputMode="numeric"
+                className="fav-modal-input"
+                value={sortOrder}
+                onChange={(e) => setSortOrder(e.target.value)}
+                min={0}
+                max={9999}
+                disabled={submitting}
+              />
+            </label>
+            <label
+              style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 24, fontSize: '0.92rem' }}
+            >
+              <input
+                type="checkbox"
+                checked={isActive}
+                onChange={(e) => setIsActive(e.target.checked)}
+                disabled={submitting}
+              />
+              Active (visible to users)
+            </label>
+          </div>
+
+          {error && <div className="error" style={{ marginTop: 12 }}>{error}</div>}
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
+            <button type="button" className="device-action" onClick={onClose} disabled={submitting}>
+              Cancel
+            </button>
+            <button type="submit" className="device-action primary" disabled={submitting}>
+              {submitting ? 'Saving…' : (template ? 'Save changes' : 'Create template')}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
 
 function WhatsNewSection() {
   return (

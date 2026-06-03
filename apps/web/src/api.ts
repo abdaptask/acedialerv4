@@ -1385,6 +1385,80 @@ export async function inviteNewUserAutoProvision(
   return body;
 }
 
+// v0.10.52 — Tenant SMS templates.
+export interface SmsTemplate {
+  id: number;
+  category: string;
+  name: string;
+  body: string;
+  sortOrder: number;
+  isActive?: boolean;
+  updatedBy?: number | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
+export interface SmsTemplateInput {
+  category: string;
+  name: string;
+  body: string;
+  sortOrder?: number;
+  isActive?: boolean;
+}
+export async function listMySmsTemplates(token: string): Promise<SmsTemplate[]> {
+  const res = await fetch(`${API_URL}/me/sms-templates`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) return [];
+  const body = (await res.json().catch(() => ({}))) as { ok?: boolean; templates?: SmsTemplate[] };
+  return body.templates ?? [];
+}
+export async function listAdminSmsTemplates(token: string): Promise<SmsTemplate[]> {
+  const res = await fetch(`${API_URL}/admin/sms-templates`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) return [];
+  const body = (await res.json().catch(() => ({}))) as { ok?: boolean; templates?: SmsTemplate[] };
+  return body.templates ?? [];
+}
+export async function createSmsTemplate(token: string, input: SmsTemplateInput): Promise<{ ok: boolean; template?: SmsTemplate; error?: string }> {
+  const res = await fetch(`${API_URL}/admin/sms-templates`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify(input),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) return { ok: false, error: typeof body === 'object' && 'error' in body ? String((body as { error: unknown }).error) : `HTTP ${res.status}` };
+  return body as { ok: boolean; template: SmsTemplate };
+}
+export async function updateSmsTemplate(token: string, id: number, input: Partial<SmsTemplateInput>): Promise<{ ok: boolean; template?: SmsTemplate; error?: string }> {
+  const res = await fetch(`${API_URL}/admin/sms-templates/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify(input),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) return { ok: false, error: typeof body === 'object' && 'error' in body ? String((body as { error: unknown }).error) : `HTTP ${res.status}` };
+  return body as { ok: boolean; template: SmsTemplate };
+}
+export async function archiveSmsTemplate(token: string, id: number): Promise<{ ok: boolean; error?: string }> {
+  const res = await fetch(`${API_URL}/admin/sms-templates/${id}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) return { ok: false, error: typeof body === 'object' && 'error' in body ? String((body as { error: unknown }).error) : `HTTP ${res.status}` };
+  return body as { ok: boolean };
+}
+export async function seedSmsTemplateDefaults(token: string): Promise<{ ok: boolean; inserted?: number; skipped?: number; note?: string; error?: string }> {
+  const res = await fetch(`${API_URL}/admin/sms-templates/seed-defaults`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) return { ok: false, error: typeof body === 'object' && 'error' in body ? String((body as { error: unknown }).error) : `HTTP ${res.status}` };
+  return body as { ok: boolean; inserted: number; skipped: number };
+}
+
 // v0.10.48 — Tenant hold music. Read by every user; written by admin.
 export interface TenantHoldMusic {
   ok: boolean;

@@ -2,7 +2,7 @@
 // thread list on the left (or full screen on narrow), thread detail on the right.
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Send, ArrowLeft, RefreshCcw, MessageSquarePlus, Image as ImageIcon, Search, X, Zap, Phone, History, Star, Ban, Smile } from 'lucide-react';
+import { Send, ArrowLeft, RefreshCcw, MessageSquarePlus, Image as ImageIcon, Search, X, Zap, Phone, History, Star, Ban, Smile, FileText } from 'lucide-react';
 import {
   getThreads,
   getThread,
@@ -21,6 +21,9 @@ import {
   type ContactHistory,
   type ContactTimelineEntry,
   type InternalChatThread,
+  // v0.10.52 — Tenant SMS templates picker.
+  listMySmsTemplates,
+  type SmsTemplate,
 } from '../api';
 import { useJobDivaContact, getCachedJobDivaName } from '../hooks/useJobDivaContact';
 import { useSip } from '../contexts/SipContext';
@@ -364,6 +367,19 @@ function ThreadDetail({ number, onBack }: ThreadDetailProps) {
   // v0.10.29 — Emoji picker open/close + ref to the compose textarea so
   // we can insert at the cursor position.
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  // v0.10.52 — SMS templates picker. Loaded once when the thread opens;
+  // the picker popover shows all active tenant templates grouped by
+  // category. Clicking one inserts the body at caret position, with
+  // {firstName} pre-filled from the contact (if known).
+  const [showTemplatePicker, setShowTemplatePicker] = useState(false);
+  const [templates, setTemplates] = useState<SmsTemplate[]>([]);
+  useEffect(() => {
+    const token = sessionStorage.getItem('ace_token');
+    if (!token) return;
+    listMySmsTemplates(token)
+      .then((items) => setTemplates(items))
+      .catch(() => undefined);
+  }, []);
   const composeInputRef = useRef<HTMLTextAreaElement>(null);
   useEffect(() => {
     const refresh = () => setLocalQuickReplies(getQuickReplies());
@@ -824,6 +840,25 @@ function ThreadDetail({ number, onBack }: ThreadDetailProps) {
         >
           <Smile size={20} />
         </button>
+        {/* v0.10.52 — SMS templates picker. Click → popover grouped by
+            category. Picking a template inserts its body with
+            {firstName} pre-filled from the contact (if known); other
+            placeholders stay as `{varName}` for the user to fill before
+            sending. Hidden if no templates exist (admin hasn't seeded). */}
+        {templates.length > 0 && (
+          <button
+            type="button"
+            className={`icon-btn${showTemplatePicker ? ' active' : ''}`}
+            onClick={() => {
+              setShowTemplatePicker((v) => !v);
+              setShowEmojiPicker(false);
+            }}
+            aria-label="Templates"
+            title="Insert template"
+          >
+            <FileText size={20} />
+          </button>
+        )}
         {/* v0.10.29 — Textarea (not input) for multi-line drafts.
             Enter sends; Shift+Enter inserts a newline. Browser-native
             autoCorrect / spellCheck / autoCapitalize for typing assistance. */}
@@ -897,6 +932,81 @@ function ThreadDetail({ number, onBack }: ThreadDetailProps) {
               </button>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* v0.10.52 — SMS templates picker popover. Templates are grouped
+          by category. Clicking one replaces the entire draft (since
+          templates are usually full SMS, not insertion snippets). The
+          {firstName} variable is resolved from the contact's display
+          name if known; the rest stay as `{var}` so the user can fill
+          inline before sending. */}
+      {showTemplatePicker && templates.length > 0 && (
+        <div className="template-picker-popover" role="dialog" aria-label="SMS templates">
+          {(() => {
+            const grouped: Record<string, SmsTemplate[]> = {};
+            for (const t of templates) {
+              if (!grouped[t.category]) grouped[t.category] = [];
+              grouped[t.category].push(t);
+            }
+            const categoryOrder = ['outreach', 'docs', 'submission', 'interview', 'followup', 'outcome', 'bgv', 'relationship', 'custom'];
+            const categoryLabel: Record<string, string> = {
+              outreach: 'Initial outreach',
+              docs: 'Documents & profile',
+              submission: 'Submission',
+              interview: 'Interview',
+              followup: 'Follow-ups & status',
+              outcome: 'Outcomes',
+              bgv: 'Onboarding & BGV',
+              relationship: 'Relationship maintenance',
+              custom: 'Custom',
+            };
+            // Extract the first word of the contact's display name as
+            // a best-effort firstName. Falls back to '{firstName}' if
+            // we can't resolve (e.g. unknown phone number).
+            const resolveFirstName = (): string => {
+              if (!displayName) return '{firstName}';
+              // If displayName looks like a formatted phone (no letters),
+              // leave the placeholder so the user knows to type it.
+              if (!/[a-zA-Z]/.test(displayName)) return '{firstName}';
+              return displayName.trim().split(/\s+/)[0];
+            };
+            const first = resolveFirstName();
+            return (
+              <div className="template-picker-content">
+                {categoryOrder
+                  .filter((cat) => grouped[cat] && grouped[cat].length > 0)
+                  .map((cat) => (
+                    <div key={cat} className="template-picker-group">
+                      <div className="template-picker-group-label">
+                        {categoryLabel[cat] ?? cat}
+                      </div>
+                      {grouped[cat].map((t) => (
+                        <button
+                          key={t.id}
+                          type="button"
+                          className="template-picker-item"
+                          onClick={() => {
+                            const resolved = t.body.replace(/\{firstName\}/g, first);
+                            setDraft(resolved);
+                            setShowTemplatePicker(false);
+                            requestAnimationFrame(() => {
+                              composeInputRef.current?.focus();
+                            });
+                          }}
+                          title="Click to insert"
+                        >
+                          <div className="template-picker-item-name">{t.name}</div>
+                          <div className="template-picker-item-body">
+                            {t.body.length > 80 ? t.body.slice(0, 80) + '…' : t.body}
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  ))}
+              </div>
+            );
+          })()}
         </div>
       )}
 

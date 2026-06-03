@@ -3824,6 +3824,151 @@ export async function adminRoutes(app: FastifyInstance) {
     },
   );
 
+  // ── SMS templates (v0.10.52) ────────────────────────────────────────────
+  //
+  // Tenant-wide recruiter SMS playbook. Admin curates the list; users see
+  // them in the SMS compose box as a picker. Templates can have
+  // {placeholder} variables that get filled in at send time (firstName
+  // auto-resolves from contact; rest are typed by the user).
+  //
+  // Endpoints:
+  //   GET    /admin/sms-templates       — list ALL (incl. inactive) for admin
+  //   POST   /admin/sms-templates       — create
+  //   PATCH  /admin/sms-templates/:id   — update
+  //   DELETE /admin/sms-templates/:id   — soft-delete (set isActive=false)
+  //   POST   /admin/sms-templates/seed-defaults — one-time seed of the 20
+  //                                       built-in templates (idempotent —
+  //                                       skips templates that already
+  //                                       exist by (category, name) match)
+  //
+  // The user-facing GET /me/sms-templates lives in me.routes.ts.
+  const SmsTemplateInputSchema = z.object({
+    category: z.string().min(1).max(40),
+    name: z.string().min(1).max(80),
+    body: z.string().min(1).max(1600),
+    sortOrder: z.number().int().min(0).max(9999).optional(),
+    isActive: z.boolean().optional(),
+  });
+
+  app.get(
+    '/admin/sms-templates',
+    { onRequest: [app.authenticate, requireAdmin] },
+    async () => {
+      const templates = await prisma.smsTemplate.findMany({
+        orderBy: [
+          { isActive: 'desc' },
+          { category: 'asc' },
+          { sortOrder: 'asc' },
+          { id: 'asc' },
+        ],
+      });
+      return { ok: true, templates };
+    },
+  );
+
+  app.post(
+    '/admin/sms-templates',
+    { onRequest: [app.authenticate, requireAdmin] },
+    async (request, reply) => {
+      const actor = request.user as JwtPayload;
+      const parsed = SmsTemplateInputSchema.safeParse(request.body);
+      if (!parsed.success) {
+        return reply.code(400).send({ ok: false, error: 'Invalid input', details: parsed.error.flatten() });
+      }
+      const created = await prisma.smsTemplate.create({
+        data: { ...parsed.data, updatedBy: actor.sub },
+      });
+      await recordAudit(actor.sub, 'sms_template.created', null, {
+        templateId: created.id,
+        category: created.category,
+        name: created.name,
+      });
+      return { ok: true, template: created };
+    },
+  );
+
+  app.patch<{ Params: { id: string } }>(
+    '/admin/sms-templates/:id',
+    { onRequest: [app.authenticate, requireAdmin] },
+    async (request, reply) => {
+      const actor = request.user as JwtPayload;
+      const id = Number(request.params.id);
+      if (!Number.isFinite(id)) return reply.code(400).send({ ok: false, error: 'Invalid id' });
+      const parsed = SmsTemplateInputSchema.partial().safeParse(request.body);
+      if (!parsed.success) {
+        return reply.code(400).send({ ok: false, error: 'Invalid input', details: parsed.error.flatten() });
+      }
+      const existing = await prisma.smsTemplate.findUnique({ where: { id } });
+      if (!existing) return reply.code(404).send({ ok: false, error: 'Template not found' });
+      const updated = await prisma.smsTemplate.update({
+        where: { id },
+        data: { ...parsed.data, updatedBy: actor.sub },
+      });
+      await recordAudit(actor.sub, 'sms_template.updated', null, {
+        templateId: id,
+        changes: parsed.data,
+      });
+      return { ok: true, template: updated };
+    },
+  );
+
+  app.delete<{ Params: { id: string } }>(
+    '/admin/sms-templates/:id',
+    { onRequest: [app.authenticate, requireAdmin] },
+    async (request, reply) => {
+      const actor = request.user as JwtPayload;
+      const id = Number(request.params.id);
+      if (!Number.isFinite(id)) return reply.code(400).send({ ok: false, error: 'Invalid id' });
+      // Soft delete — preserves history. Hard delete via admin would
+      // require an additional ?hard=true param; not implementing now.
+      const updated = await prisma.smsTemplate.update({
+        where: { id },
+        data: { isActive: false, updatedBy: actor.sub },
+      });
+      await recordAudit(actor.sub, 'sms_template.archived', null, { templateId: id });
+      return { ok: true, template: updated };
+    },
+  );
+
+  // Idempotent seed — only inserts templates with (category, name) tuples
+  // that don't already exist. Safe to re-run.
+  app.post(
+    '/admin/sms-templates/seed-defaults',
+    { onRequest: [app.authenticate, requireAdmin] },
+    async (request) => {
+      const actor = request.user as JwtPayload;
+      const { SMS_TEMPLATE_SEEDS } = await import('../lib/smsTemplateSeed.js');
+      const existing = await prisma.smsTemplate.findMany({
+        select: { category: true, name: true },
+      });
+      const existingKeys = new Set(existing.map((t) => `${t.category}|${t.name}`));
+      const toInsert = SMS_TEMPLATE_SEEDS.filter(
+        (s) => !existingKeys.has(`${s.category}|${s.name}`),
+      );
+      if (toInsert.length === 0) {
+        return { ok: true, inserted: 0, skipped: SMS_TEMPLATE_SEEDS.length, note: 'All defaults already present.' };
+      }
+      await prisma.smsTemplate.createMany({
+        data: toInsert.map((s) => ({
+          category: s.category,
+          name: s.name,
+          body: s.body,
+          sortOrder: s.sortOrder,
+          updatedBy: actor.sub,
+        })),
+      });
+      await recordAudit(actor.sub, 'sms_template.seed_defaults', null, {
+        inserted: toInsert.length,
+        skipped: SMS_TEMPLATE_SEEDS.length - toInsert.length,
+      });
+      return {
+        ok: true,
+        inserted: toInsert.length,
+        skipped: SMS_TEMPLATE_SEEDS.length - toInsert.length,
+      };
+    },
+  );
+
   // ── Hold music admin-distribute (v0.10.48) ─────────────────────────────
   //
   // Admin uploads a single audio file (any format the browser can play —
