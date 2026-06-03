@@ -26,6 +26,8 @@ import PostDeclineReply from '../components/PostDeclineReply';
 import SmsNotifier from '../components/SmsNotifier';
 import VoicemailNotifier from '../components/VoicemailNotifier';
 import UpdateBanner from '../components/UpdateBanner';
+// v0.10.74 — Admin Praise / Announcement modal.
+import PraiseModal from '../components/PraiseModal';
 import { getTenantHoldMusic } from '../api';
 import {
   getHoldMusicDataUrl,
@@ -440,6 +442,11 @@ export default function Layout({ user, onLogout }: Props) {
             the banner in a different form later (e.g. AI-generated). */}
         <Outlet />
       </main>
+
+      {/* v0.10.74 — Admin Praise / Announcement modal. Self-mounts, polls
+          /me/praises every 60s, suppresses during active calls. Shows the
+          celebratory pop-over once the user is idle and dismissable. */}
+      <PraiseModal />
 
       <nav className="tab-bar">
         <NavLink to="/favorites" className={({ isActive }) => (isActive ? 'tab active' : 'tab')}>

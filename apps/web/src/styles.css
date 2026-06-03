@@ -1358,6 +1358,162 @@ body {
 [data-theme="light"] .contacts-quickpick-phone { color: var(--text-muted); }
 [data-theme="light"] .contacts-quickpick-section { color: var(--text-muted); }
 
+/* ============ v0.10.74 PRAISE MODAL + ADMIN SECTION ============ */
+/* Big celebratory pop-over shown to recipients when admin sends a praise.
+   Full-viewport backdrop dims everything; centered modal sits on top
+   with a category icon disc, headline, message, sender attribution,
+   and a dismiss button. */
+.praise-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.78);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999; /* above bottom-nav, above incoming-call ringer */
+  animation: praiseBackdropIn 0.25s ease-out;
+}
+@keyframes praiseBackdropIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.praise-modal {
+  background: linear-gradient(160deg, #1c1c1e 0%, #2c2c2e 100%);
+  color: #fff;
+  padding: 32px 28px 24px;
+  border-radius: 20px;
+  width: min(90vw, 420px);
+  text-align: center;
+  position: relative;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+  animation: praiseModalIn 0.35s cubic-bezier(0.2, 0.9, 0.3, 1.2);
+}
+@keyframes praiseModalIn {
+  from { opacity: 0; transform: scale(0.92) translateY(8px); }
+  to   { opacity: 1; transform: scale(1)    translateY(0); }
+}
+[data-theme="light"] .praise-modal {
+  background: linear-gradient(160deg, #ffffff 0%, #f5f5f7 100%);
+  color: var(--text);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.18);
+}
+.praise-modal-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  background: rgba(255, 255, 255, 0.08);
+  border: none;
+  color: inherit;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.7;
+}
+.praise-modal-close:hover { opacity: 1; }
+[data-theme="light"] .praise-modal-close { background: rgba(0, 0, 0, 0.06); }
+.praise-modal-icon {
+  width: 88px;
+  height: 88px;
+  border-radius: 50%;
+  margin: 0 auto 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  /* background is set inline based on category meta */
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.35);
+}
+.praise-modal-headline {
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.25;
+  margin-bottom: 10px;
+}
+.praise-modal-message {
+  font-size: 15px;
+  line-height: 1.45;
+  margin-bottom: 16px;
+  opacity: 0.92;
+  white-space: pre-wrap;
+}
+.praise-modal-from {
+  font-size: 12px;
+  opacity: 0.65;
+  margin-bottom: 22px;
+}
+.praise-modal-cta {
+  background: #0a84ff;
+  color: #fff;
+  border: none;
+  padding: 12px 28px;
+  border-radius: 999px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  min-width: 160px;
+}
+.praise-modal-cta:hover { background: #006fdb; }
+.praise-modal-cta:disabled { opacity: 0.6; cursor: not-allowed; }
+.praise-modal-queue-hint {
+  font-size: 11px;
+  opacity: 0.55;
+  margin-top: 14px;
+}
+
+/* Admin Send Praise section in Settings */
+.praise-admin-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 12px;
+  max-width: 520px;
+}
+.praise-admin-target {
+  border: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  gap: 18px;
+  align-items: center;
+}
+.praise-admin-target legend { padding: 0 0 6px; }
+.praise-admin-target label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  font-size: 0.92rem;
+}
+.praise-history-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.praise-history-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
+}
+[data-theme="light"] .praise-history-row {
+  background: rgba(0, 0, 0, 0.02);
+  border-color: rgba(0, 0, 0, 0.08);
+}
+.praise-history-row-text { flex: 1; min-width: 0; }
+.praise-history-row-headline { font-size: 0.95rem; margin-bottom: 2px; }
+.praise-history-row-message { font-size: 0.88rem; }
+.praise-history-row-meta { margin-top: 4px; }
+
 /* ============ TAB BAR ============ */
 .tab-bar {
   display: flex;

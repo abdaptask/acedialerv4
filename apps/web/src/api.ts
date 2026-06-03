@@ -1606,6 +1606,91 @@ export async function seedSmsTemplateDefaults(token: string): Promise<{ ok: bool
   return body as { ok: boolean; inserted: number; skipped: number };
 }
 
+// v0.10.74 — Admin Praise / Announcements.
+export type PraiseCategory = 'new_hire' | 'new_offer' | 'birthday' | 'anniversary' | 'custom';
+
+export interface Praise {
+  id: number;
+  category: PraiseCategory;
+  recipientName: string | null;
+  message: string;
+  createdAt: string;
+  toUserId: number | null;
+  fromUser: {
+    id: number;
+    firstName: string | null;
+    lastName: string | null;
+    email: string;
+  };
+  toUser?: {
+    id: number;
+    firstName: string | null;
+    lastName: string | null;
+  } | null;
+  // _count.reads on admin-history responses; absent on /me/praises.
+  _count?: { reads: number };
+}
+
+export interface CreatePraiseInput {
+  category: PraiseCategory;
+  /** null/undefined = broadcast to everyone */
+  toUserId?: number | null;
+  recipientName?: string;
+  message: string;
+}
+
+export async function listMyPraises(token: string): Promise<Praise[]> {
+  const res = await fetch(`${API_URL}/me/praises`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) return [];
+  const json = (await res.json()) as { praises?: Praise[] };
+  return json.praises ?? [];
+}
+
+export async function markPraiseRead(token: string, praiseId: number): Promise<{ ok: boolean }> {
+  const res = await fetch(`${API_URL}/me/praises/${praiseId}/read`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const body = await res.json().catch(() => ({}));
+  return body as { ok: boolean };
+}
+
+export async function listAdminPraises(token: string): Promise<Praise[]> {
+  const res = await fetch(`${API_URL}/admin/praises`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) return [];
+  const json = (await res.json()) as { praises?: Praise[] };
+  return json.praises ?? [];
+}
+
+export async function createPraise(token: string, input: CreatePraiseInput): Promise<Praise | { error: string }> {
+  const res = await fetch(`${API_URL}/admin/praises`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify(input),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    return { error: (body as { error?: string }).error ?? `HTTP ${res.status}` };
+  }
+  return body as Praise;
+}
+
+export async function deletePraise(token: string, id: number): Promise<{ ok: boolean; error?: string }> {
+  const res = await fetch(`${API_URL}/admin/praises/${id}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    return { ok: false, error: (body as { error?: string }).error ?? `HTTP ${res.status}` };
+  }
+  return body as { ok: boolean };
+}
+
 // v0.10.59 — Scheduled messages (one-off).
 export interface ScheduledMessage {
   id: number;
