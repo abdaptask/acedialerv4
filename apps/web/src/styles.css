@@ -4006,6 +4006,16 @@ body {
   height: 100%;
   display: flex;
   flex-direction: column;
+  /* v0.10.56 — Match the Recents page width. Previously .messages had no
+     max-width so it inherited the full .app-content width (1280px), but
+     because the flex column container had no width either, in practice
+     it was shrinking to the natural width of .msg-header + .search-bar
+     content — which is much narrower than the .recents 480px column.
+     Pin the same width rules .recents uses so both pages render as
+     identical centered columns. */
+  width: 100%;
+  max-width: 480px;
+  margin: 0 auto;
 }
 .msg-header {
   display: flex;
