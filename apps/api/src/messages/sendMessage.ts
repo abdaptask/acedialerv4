@@ -10,9 +10,13 @@
 import { prisma } from '@ace/db';
 import { config } from '../config.js';
 
+// v0.10.60 — Loosened the message shape to "whatever Prisma's create()
+// returns without a select" — i.e. the full Message row. Avoids the
+// Invalid-Date bug where a narrow select dropped createdAt/body and the
+// frontend bubble renderer choked.
 export type SendMessageOk = {
   ok: true;
-  message: {
+  message: Record<string, unknown> & {
     id: number;
     telnyxMessageId: string;
     fromNumber: string;
@@ -154,6 +158,14 @@ export async function sendMessageImmediate(
   }
 
   const telnyxMessageId = telnyxResponse.id ?? `local-${Date.now()}`;
+  // v0.10.60 — Drop the narrow `select`. The previous version returned
+  // only 6 fields, which meant the frontend bubble renderer received a
+  // message missing createdAt, body, mediaUrls, direction, and threadKey
+  // — so the new-message bubble rendered "Invalid Date, Invalid Date"
+  // and an empty body until the next refresh re-fetched the full thread.
+  // Returning the full row matches what the immediate-send route used to
+  // do before v0.10.59's extraction, and matches the GET /messages/threads
+  // shape the rest of the UI expects.
   const saved = await prisma.message.create({
     data: {
       userId,
@@ -167,14 +179,6 @@ export async function sendMessageImmediate(
       status: telnyxResponse.status ?? 'queued',
       userDidId: fromUserDidId,
       sentAt: new Date(),
-    },
-    select: {
-      id: true,
-      telnyxMessageId: true,
-      fromNumber: true,
-      toNumber: true,
-      status: true,
-      userDidId: true,
     },
   });
 

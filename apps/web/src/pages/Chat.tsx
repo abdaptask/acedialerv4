@@ -86,7 +86,9 @@ function avatarStyle(u: InternalChatUser | null | undefined) {
 
 function formatRelative(iso: string): string {
   // v0.10.55 — Include time-of-day on every label. See Recents.tsx.
+  // v0.10.60 — Invalid-date guard.
   const date = new Date(iso);
+  if (!iso || Number.isNaN(date.getTime())) return '';
   const now = new Date();
   const timeStr = date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
   const sameDay =

@@ -24,6 +24,15 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.61',
+    date: 'June 3, 2026',
+    highlight: 'Fix "Invalid Date" on freshly-sent SMS bubbles',
+    changes: [
+      { type: 'fixed', text: 'Sending an SMS no longer shows "Invalid Date, Invalid Date" on the new bubble. The regression came from v0.10.59 when the send helper was extracted into a shared module — it accidentally narrowed the response shape, dropping createdAt and a few other fields that the bubble renderer needs. The bubble now shows the proper timestamp from the moment the message is sent (no refresh needed).' },
+      { type: 'fixed', text: 'All four timestamp formatters (Messages, Recents, Voicemail, Chat) now guard against invalid date inputs and render an empty string instead of "Invalid Date, Invalid Date" if a malformed timestamp ever slips through. Defensive layer in case future code paths produce bad dates.' },
+    ],
+  },
+  {
     version: '0.10.60',
     date: 'June 3, 2026',
     highlight: 'Connection Health — pilot smoothing (admin-toggleable)',
