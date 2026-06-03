@@ -198,12 +198,17 @@ export default function Layout({ user, onLogout }: Props) {
   }, []);
 
   // SIP status presentation
+  // v0.10.60 — Added 'reconnecting' as an amber intermediate state for
+  // pilot users on the Connection Health beta. Sits between connected
+  // (green) and disconnected (red) — telling the user "we noticed, we're
+  // fixing it" instead of jumping straight to alarming red.
   const sipPresentation = (() => {
     switch (sipState) {
-      case 'registered': return { label: 'Online', dot: 'ok' };
-      case 'connecting': return { label: 'Connecting…', dot: 'warn' };
-      case 'failed':     return { label: 'Offline', dot: 'err' };
-      default:           return { label: 'Disconnected', dot: 'err' };
+      case 'registered':   return { label: 'Online', dot: 'ok' };
+      case 'reconnecting': return { label: 'Reconnecting…', dot: 'warn' };
+      case 'connecting':   return { label: 'Connecting…', dot: 'warn' };
+      case 'failed':       return { label: 'Offline', dot: 'err' };
+      default:             return { label: 'Disconnected', dot: 'err' };
     }
   })();
 

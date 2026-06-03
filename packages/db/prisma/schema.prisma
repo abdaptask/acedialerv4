@@ -83,6 +83,15 @@ model User {
   /// edits via Settings → Personal → Teams notifications. Empty string
   /// = explicit opt-out of all events (we never auto-fill back).
   teamsNotifyOn   String?   @default("missed_call,sms,voicemail") @map("teams_notify_on")
+  /// v0.10.60 — Per-user beta flag for the Connection Health overhaul.
+  /// When true, this user gets: (a) UI smoothing of disconnect/reconnect
+  /// status (transient blips hidden, amber "Reconnecting..." instead of
+  /// red flicker), (b) server-pushed force-reconnect on Telnyx silent
+  /// eviction (instead of waiting up to 10s for the heartbeat to notice).
+  /// Default false during pilot; admin flips per user from Settings → Users.
+  /// Once pilot validates the behavior, we flip the default to true in a
+  /// follow-up migration.
+  connectionHealthBeta Boolean @default(false) @map("connection_health_beta")
   lastLoginAt     DateTime? @map("last_login_at")
   createdAt       DateTime  @default(now()) @map("created_at")
   updatedAt       DateTime  @updatedAt      @map("updated_at")

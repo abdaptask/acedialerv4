@@ -83,6 +83,10 @@ export async function authRoutes(app: FastifyInstance) {
       sipUsername: user.sipUsername,
       sipPassword: user.sipPassword,
       didNumber: user.didNumber,
+      // v0.10.60 — Beta flag for the Connection Health smoothing + webhook
+      // recovery behavior. Client reads this on login and toggles its
+      // disconnect-display debounce + socket.io reconnect listener.
+      connectionHealthBeta: user.connectionHealthBeta,
     };
   });
 

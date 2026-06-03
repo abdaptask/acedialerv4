@@ -114,6 +114,8 @@ const UpdateSchema = z.object({
   isAdmin: z.boolean().optional(),
   isActive: z.boolean().optional(),
   localPassword: z.string().min(8).max(200).nullable().optional(),
+  // v0.10.60 — Per-user beta opt-in for Connection Health.
+  connectionHealthBeta: z.boolean().optional(),
 });
 
 // Phase 5 (#189) — bulk import schema. Each row mirrors the CSV column set.
@@ -444,6 +446,9 @@ export async function adminRoutes(app: FastifyInstance) {
           didNumber: true,
           lastLoginAt: true,
           createdAt: true,
+          // v0.10.60 — Surface the beta flag so the Users tab kebab menu
+          // can show its current state (toggleable on/off per user).
+          connectionHealthBeta: true,
           // v0.10.40 — Include the user's full DID list. The Users table
           // column displays the isDefault DID (instead of the legacy
           // User.didNumber column which can be stale), and the Refresh
@@ -871,6 +876,8 @@ export async function adminRoutes(app: FastifyInstance) {
       set('firstName', target.firstName, parsed.data.firstName ?? undefined);
       set('lastName', target.lastName, parsed.data.lastName ?? undefined);
       set('sipUsername', target.sipUsername, parsed.data.sipUsername ?? undefined);
+      // v0.10.60 — Beta opt-in toggle.
+      set('connectionHealthBeta', target.connectionHealthBeta, parsed.data.connectionHealthBeta);
       if (parsed.data.sipPassword !== undefined) {
         data.sipPassword = parsed.data.sipPassword;
         auditMeta.sipPassword = { changed: true };
