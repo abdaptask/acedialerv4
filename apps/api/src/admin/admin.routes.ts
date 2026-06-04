@@ -767,7 +767,7 @@ export async function adminRoutes(app: FastifyInstance) {
       const connDefaults = await applyAceConnectionDefaults(connectionId, country);
       step(
         connDefaults.ok
-          ? `apply ACE connection defaults (anchorsite for country=${country ?? 'IN'})`
+          ? `apply ACE connection defaults (noise suppression copied from master template)`
           : 'apply ACE connection defaults — non-fatal warning',
         connDefaults.ok,
         connDefaults.ok ? undefined : JSON.stringify(connDefaults.detail),
@@ -3817,7 +3817,7 @@ export async function adminRoutes(app: FastifyInstance) {
       const connDefaults = await applyAceConnectionDefaults(connectionId, country);
       step(
         connDefaults.ok
-          ? `apply ACE connection defaults (anchorsite for country=${country ?? 'IN'})`
+          ? `apply ACE connection defaults (noise suppression copied from master template)`
           : `apply ACE connection defaults — non-fatal warning`,
         connDefaults.ok,
         connDefaults.ok ? undefined : JSON.stringify(connDefaults.detail),

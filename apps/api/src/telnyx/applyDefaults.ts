@@ -102,29 +102,74 @@ export function anchorsiteForCountry(_country: string | null | undefined): strin
 }
 
 /**
- * v0.10.85 — Re-enabled the anchorsite_override PATCH using the actual
- * Telnyx-published value ("latency" — lowercase).
+ * v0.10.86 — REPURPOSED. Previous versions tried to PATCH anchorsite_override
+ * with various string values, all rejected by Telnyx with error 10015. Per
+ * admin direction, we now MANAGE ANCHORSITE MANUALLY via Telnyx Mission
+ * Control on the master template; new users inherit it through
+ * createConnectionFromTemplate's clone body (which copies the template's
+ * anchorsite_override verbatim — a known-working value because the admin
+ * set it via the GUI).
  *
- * History of this function's PATCH value:
- *   - v0.10.64:  'Chennai' / 'Latency'             → rejected by Telnyx
- *   - v0.10.81:  'Chennai, India' / 'Latency Routing' → also rejected
- *   - v0.10.84:  no-op (disabled the PATCH entirely)
- *   - v0.10.85:  'latency' (lowercase) for everyone — Telnyx-accepted.
+ * This function now PATCHes Noise Suppression instead. The master template
+ * has noise suppression configured (config="Both Inbound and Outbound",
+ * engine="Krisp Viva Tel Lite"). The template clone is supposed to copy
+ * this onto new connections, but a recurring symptom is that the field
+ * doesn't stick on POST/PATCH of clone bodies — apparently Telnyx
+ * sometimes drops it from large bodies. A SEPARATE PATCH that only sends
+ * noise_suppression isolates the field so it lands reliably.
  *
- * The country argument is retained on the function signature for
- * forward-compat (Telnyx may eventually add an India/APAC PoP we'd want
- * to route India users through), but currently ignored — see
- * anchorsiteForCountry() above for why.
+ * Behavior:
+ *   1. Re-fetch the master template (via TELNYX_TEMPLATE_CONNECTION_ID)
+ *   2. Extract template.noise_suppression
+ *   3. PATCH it onto the user's new connection (separate API call)
  *
- * Returns the PATCH result so callers can log it. Never throws.
+ * The country argument is retained on the signature for callsite
+ * stability, but currently unused.
+ *
+ * Returns the PATCH result. Never throws. Falls back to ok:true with
+ * a "skipped" note if the template fetch fails or the template has no
+ * noise_suppression set — caller shouldn't treat the migration as
+ * failed for this.
  */
 export async function applyAceConnectionDefaults(
   connectionId: string,
-  country: string | null | undefined,
+  _country: string | null | undefined,
 ): Promise<PatchResult> {
-  const anchor = anchorsiteForCountry(country);
+  if (!config.telnyxApiKey) {
+    return { ok: true, status: 200, detail: 'skipped — TELNYX_API_KEY not set' };
+  }
+  const tplId = (config.telnyxTemplateConnectionId ?? '').trim();
+  if (!tplId) {
+    // No template configured → nothing to copy from. Don't fail the
+    // migration; just record that we skipped.
+    return { ok: true, status: 200, detail: 'skipped — no TELNYX_TEMPLATE_CONNECTION_ID configured' };
+  }
+  // Fetch template to read its noise_suppression value (use the real
+  // string format Telnyx returned for the template — never hardcode
+  // "both"/"krisp_viva_tel_lite", because Telnyx's accepted enum
+  // values shift over time and the template GUI dropdown holds the
+  // canonical strings).
+  let templateNoise: unknown = null;
+  try {
+    const res = await fetch(`https://api.telnyx.com/v2/credential_connections/${tplId}`, {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${config.telnyxApiKey}` },
+    });
+    if (!res.ok) {
+      return { ok: true, status: 200, detail: `skipped — template fetch returned ${res.status}` };
+    }
+    const json = (await res.json()) as { data?: { noise_suppression?: unknown } };
+    templateNoise = json?.data?.noise_suppression ?? null;
+  } catch (e) {
+    return { ok: true, status: 200, detail: `skipped — template fetch threw: ${e instanceof Error ? e.message : String(e)}` };
+  }
+  if (!templateNoise || typeof templateNoise !== 'object') {
+    return { ok: true, status: 200, detail: 'skipped — template has no noise_suppression set' };
+  }
+  // PATCH only the noise_suppression field — isolated so it lands
+  // independently of whatever else the clone PATCH might have dropped.
   return telnyxPatch(`/credential_connections/${connectionId}`, {
-    anchorsite_override: anchor,
+    noise_suppression: { ...(templateNoise as Record<string, unknown>) },
   });
 }
 
