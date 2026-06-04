@@ -24,6 +24,16 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.87',
+    date: 'June 4, 2026',
+    highlight: 'Anchorsite goes manual; noise suppression gets its own isolated PATCH',
+    changes: [
+      { type: 'fixed', text: 'No more "apply ACE connection defaults — non-fatal warning" red X on migrations. The dialer no longer tries to PATCH anchorsite_override programmatically — instead admin sets AnchorSite manually on the master template in Telnyx Mission Control, and new users inherit whatever the template has. Previous attempts ("Chennai" / "Chennai, India" / "Latency" / "latency" / "Latency Routing") all got Telnyx 10015 rejections because Telnyx\'s accepted enum strings vary across connection types in ways we can\'t reliably guess from outside. The GUI dropdown is now the source of truth.' },
+      { type: 'improved', text: 'Noise Suppression now gets its own isolated PATCH right after the connection is created — separate from the template clone\'s large bulk PATCH. The function re-fetches the master template at migration time, reads template.noise_suppression (currently "Both Inbound and Outbound" + Krisp Viva Tel Lite), and PATCHes that exact block onto the new user\'s connection. Belt-and-suspenders against Telnyx silently dropping noise_suppression from the bigger template-clone payload. Migration step list shows "apply ACE connection defaults (noise suppression copied from master template)".' },
+      { type: 'improved', text: 'The /admin/backfill-anchorsites endpoint now backfills NOISE SUPPRESSION (not anchorsite) for every existing user — it re-runs applyAceConnectionDefaults which now does the noise PATCH instead. After this deploys, run the backfill once via the browser console to ensure every existing user gets the master template\'s noise suppression config applied to their Telnyx connection. The endpoint name is historical; the function it calls now does the right thing.' },
+    ],
+  },
+  {
     version: '0.10.86',
     date: 'June 4, 2026',
     highlight: 'Telnyx template inheritance fixed + zero-SQL re-migrations',
