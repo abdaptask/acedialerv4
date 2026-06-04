@@ -289,6 +289,11 @@ export class SipService {
     // session left them set).
     this.didInitialWildcardWipe = false;
     this.wildcardWipeInFlight = false;
+    // v0.10.88 — bump the connection generation. Any setTimeout callbacks
+    // still alive from a previous _doConnect closure will see this advance
+    // and bail out (preventing stale state emissions that incorrectly mark
+    // the UI as Disconnected after a successful reconnect).
+    const myGeneration = ++this.connectGen;
     // Telnyx SIP-over-WebSocket endpoint. Port 7443 is the conventional WSS
     // port for SIP (Telnyx, Twilio, most carriers). Some Telnyx accounts
     // also accept wss://rtc.telnyx.com:443. Override via config.wssUri or
@@ -364,6 +369,9 @@ export class SipService {
       if (!betaSmoothing || state !== 'disconnected') {
         pendingTimer = setTimeout(() => {
           pendingTimer = null;
+          // v0.10.88 — bail if this closure is stale (a reconnect has
+          // advanced the generation since this timer was scheduled).
+          if (this.connectGen !== myGeneration) return;
           if (pendingState === state) {
             this.emit<SipState>('state', state);
           }
@@ -378,6 +386,8 @@ export class SipService {
       // We start two timers; the 'registered' handler cancels both.
       pendingTimer = setTimeout(() => {
         pendingTimer = null;
+        // v0.10.88 — stale-closure guard.
+        if (this.connectGen !== myGeneration) return;
         // Only emit if we still believe we're disconnected (no
         // 'registered' interleaved).
         if (pendingState === 'disconnected') {
@@ -387,6 +397,14 @@ export class SipService {
       }, BETA_RECONNECT_AT_MS);
       escalationTimer = setTimeout(() => {
         escalationTimer = null;
+        // v0.10.88 — stale-closure guard. This is THE bug from Shreya's
+        // 2026-06-04 incident: after a 503 → reconnect, the old
+        // escalationTimer was firing 30s later and emitting 'disconnected'
+        // to the UI even though the new session was healthy.
+        if (this.connectGen !== myGeneration) {
+          console.log('[sip] beta-smoothing: 30s timer fired in stale generation — ignoring (session has reconnected)');
+          return;
+        }
         if (pendingState === 'disconnected') {
           console.warn('[sip] beta-smoothing: 30s sustained disconnect → emitting disconnected');
           this.emit<SipState>('state', 'disconnected');
@@ -845,6 +863,35 @@ export class SipService {
    */
   private didInitialWildcardWipe = false;
   private wildcardWipeInFlight = false;
+
+  /**
+   * v0.10.88 — Generation counter for connection-state smoothing timers.
+   *
+   * BUG this fixes: the smoothing logic in _doConnect tracks pendingTimer
+   * and escalationTimer as LOCAL variables inside the closure. When a
+   * REGISTER fails and we reconnect (tear down UA + connect again),
+   * _doConnect runs FRESH — but any setTimeout callbacks scheduled by
+   * the OLD closure are still queued in the browser's event loop. They
+   * eventually fire and emit a stale 'disconnected' state to the UI,
+   * even though we re-registered successfully in between.
+   *
+   * Observed symptom (Shreya, 2026-06-04): one 503 REGISTER refresh
+   * failure triggered a reconnect. Reconnect succeeded within ~3s.
+   * 30 seconds AFTER the disconnect event, the OLD escalation timer
+   * fired and flipped the UI status to "Disconnected" — even though
+   * the session had been registered + healthy for 27 seconds. She could
+   * still receive calls (SIP layer was fine), but the UI lied.
+   *
+   * Fix: each call to _doConnect captures myGeneration = ++this.connectGen.
+   * Every setTimeout callback in that closure checks
+   *   if (this.connectGen !== myGeneration) return;
+   * before doing anything. Stale callbacks from previous closures see the
+   * generation has advanced and bail out. Belt-and-suspenders: we also
+   * clear pendingTimer/escalationTimer on reconnect via a separate
+   * tracker (added inside _doConnect), but the generation check is the
+   * authoritative gate against UI corruption.
+   */
+  private connectGen = 0;
 
   /**
    * Phase 6.9 — proactive registration heartbeat. Calls ua.register()
