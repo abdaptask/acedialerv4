@@ -24,6 +24,15 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.88',
+    date: 'June 4, 2026',
+    highlight: 'Fixes the "shows Disconnected but calls still ring through" bug',
+    changes: [
+      { type: 'fixed', text: 'Dialer no longer falsely shows Disconnected after a transient Telnyx REGISTER hiccup. When Telnyx returned a one-time 503 on a REGISTER refresh and the dialer reconnected within ~3 seconds, an OLD smoothing timer from the pre-reconnect closure was firing 30 seconds later and lying to the UI that we were still disconnected — even though the new SIP session was healthy and calls were ringing through normally. Users would see a red Disconnected pill, panic, restart their dialer unnecessarily. Now every reconnect bumps a generation counter and stale timers from the previous session no-op when they fire.' },
+      { type: 'improved', text: 'Diagnostics log export filename and header now stamp the correct app version. Previously it was frozen at 0.10.80 — making it look like users were on an old build even when they had the latest installed.' },
+    ],
+  },
+  {
     version: '0.10.87',
     date: 'June 4, 2026',
     highlight: 'Anchorsite goes manual; noise suppression gets its own isolated PATCH',
