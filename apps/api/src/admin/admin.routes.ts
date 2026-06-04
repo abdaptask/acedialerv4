@@ -3653,14 +3653,61 @@ export async function adminRoutes(app: FastifyInstance) {
       }
       step('check for existing ACE user', true);
 
+      // v0.10.82 — when the DID is already in ACE, surface WHICH user owns it
+      // (email + name + active state) so admin can decide at a glance whether
+      // it's a stale prior-attempt record (deletable + retry) or a real other
+      // user (Pulse data is genuinely wrong, use override or skip Pulse).
+      // Previously this just said "ACE user #31" and admin had to look up
+      // user #31 separately.
       const dupDid = await prisma.userDid.findUnique({
         where: { didNumber: e164 },
-        select: { id: true, userId: true },
+        select: {
+          id: true,
+          userId: true,
+          user: {
+            select: {
+              id: true,
+              email: true,
+              firstName: true,
+              lastName: true,
+              isActive: true,
+            },
+          },
+        },
       });
       if (dupDid) {
-        step('check DID not already in ACE', false,
-          `DID ${e164} is already assigned to ACE user #${dupDid.userId}`);
-        return reply.code(409).send({ ok: false, error: 'DID already in ACE', steps });
+        const owner = dupDid.user;
+        const ownerName = owner
+          ? `${owner.firstName ?? ''} ${owner.lastName ?? ''}`.trim() || '(no name)'
+          : '(unknown)';
+        const ownerEmail = owner?.email ?? '(unknown)';
+        const activeTag = owner?.isActive ? 'active' : 'deactivated';
+        const detail =
+          `DID ${e164} is already assigned to ACE user #${dupDid.userId} ` +
+          `(${ownerName} <${ownerEmail}>, ${activeTag}). ` +
+          (owner && !owner.isActive
+            ? `That user is deactivated — admin can delete them to free the DID, then retry.`
+            : owner && owner.email === normEmail
+              ? `Same email as the migration target — this looks like a prior failed attempt for the same person. Delete user #${dupDid.userId} and retry.`
+              : `Different user owns this DID. Either Pulse's voip_number is wrong, or this DID legitimately belongs to ${ownerName}. Use the Override DID field with the correct number.`);
+        step('check DID not already in ACE', false, detail);
+        return reply.code(409).send({
+          ok: false,
+          error: 'DID already in ACE',
+          steps,
+          // Structured payload so the frontend can also display this clearly,
+          // not just buried in the step's error string.
+          existingOwner: owner
+            ? {
+                userId: owner.id,
+                email: owner.email,
+                firstName: owner.firstName,
+                lastName: owner.lastName,
+                isActive: owner.isActive,
+                sameAsTarget: owner.email === normEmail,
+              }
+            : null,
+        });
       }
       step(`check DID ${e164} not already in ACE`, true);
 

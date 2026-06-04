@@ -24,6 +24,15 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.82',
+    date: 'June 4, 2026',
+    highlight: 'Mac users no longer need to double-click to accept incoming calls',
+    changes: [
+      { type: 'fixed', text: 'On macOS, accepting an incoming call from the floating ringer used to require two clicks — the first one only focused the window, the second actually accepted. Now a single click works, matching Windows behavior. Same fix applied to the main dialer window when interacting with it after switching from another app.' },
+      { type: 'improved', text: 'When migrate-from-Pulse fails with "DID already in ACE," the modal now shows WHO already owns that DID (name, email, active/deactivated state) with a tailored next-step recommendation — so admin doesn\'t have to look up the conflicting user separately. If the conflicting user has the same email as the migration target, the modal explicitly says "this is a prior failed attempt — delete that user and retry."' },
+    ],
+  },
+  {
     version: '0.10.81',
     date: 'June 4, 2026',
     highlight: 'Migration robustness — debug panel for failed Pulse migrations + Telnyx anchorsite fix',
