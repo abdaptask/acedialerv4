@@ -544,6 +544,9 @@ export class SipService {
     // alive even when the tab is in the foreground. See block below.
     this.installVisibilityRecovery();
     this.installRegistrationHeartbeat();
+    // v0.10.77 — Proactive 60s force-REGISTER on top of the 10s heartbeat
+    // and visibility recovery. See installForceRegisterTimer() for why.
+    this.installForceRegisterTimer();
     this.saveConfigForReconnect(config);
   }
 
@@ -661,6 +664,12 @@ export class SipService {
       clearInterval(this.heartbeatTimer);
       this.heartbeatTimer = null;
     }
+    // v0.10.77 — Also tear down the force-register timer; connect() will
+    // re-install it when the fresh UA is ready.
+    if (this.forceRegisterTimer) {
+      clearInterval(this.forceRegisterTimer);
+      this.forceRegisterTimer = null;
+    }
     if (!cfg) {
       console.warn('[sip] reconnect: no saved config — refresh the page');
       return;
@@ -672,6 +681,17 @@ export class SipService {
 
   private visibilityHandler: (() => void) | null = null;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  /**
+   * v0.10.77 — Independent of the heartbeatTimer. The 10s heartbeat only
+   * acts when isConnected()=false or isRegistered()=false; in the case of
+   * silent Telnyx eviction (Telnyx drops our Contact but doesn't notify
+   * the client), both stay true forever and the heartbeat never fires a
+   * fresh REGISTER. This timer fires unconditionally every 60s and
+   * always calls ua.register(). Closes the silent-eviction window:
+   * Telnyx sees a fresh REGISTER from us at most 60s after any eviction,
+   * recovering the routing before the next inbound call misses.
+   */
+  private forceRegisterTimer: ReturnType<typeof setInterval> | null = null;
 
   /**
    * Phase 6.9 — proactive registration heartbeat. Calls ua.register()
@@ -689,6 +709,50 @@ export class SipService {
     this.heartbeatTimer = setInterval(() => {
       this.refreshRegistration('heartbeat');
     }, 10_000);
+  }
+
+  /**
+   * v0.10.77 — Proactive force-REGISTER independent of local state.
+   *
+   * Why this is separate from the heartbeat: the heartbeat's
+   * refreshRegistration() only calls ua.register() when isRegistered()
+   * returns false. With Telnyx silent eviction, isRegistered() keeps
+   * returning true because JsSIP isn't told it's been kicked off. Result:
+   * heartbeat never refreshes, Telnyx routing stays broken, inbound calls
+   * go to voicemail.
+   *
+   * Confirmed in production on 2026-06-04 — Ravindra's pilot user
+   * received voicemail at 17:48 despite v0.10.68's defensive register
+   * being live. He was sitting at the dialer (no visibility events
+   * firing) and Telnyx had silently evicted him.
+   *
+   * Fix: 60s timer that unconditionally fires ua.register(). Telnyx
+   * tolerates duplicate REGISTERs (they're idempotent), and the 491
+   * "Request Pending" race that motivated v0.10.17's cautious approach
+   * is unlikely at 60s cadence (the 491 race only happened with the
+   * earlier 10s + visibility-storm pattern).
+   *
+   * If a 491 ever does fire from this, the existing registrationFailed
+   * retry-with-backoff path catches it and we recover.
+   */
+  private installForceRegisterTimer(): void {
+    if (this.forceRegisterTimer) return;
+    this.forceRegisterTimer = setInterval(() => {
+      if (!this.ua) return;
+      // Skip if currently on a call — registration is already alive at
+      // Telnyx's side because the call's SIP dialog is in flight, and
+      // firing a REGISTER during a call risks confusing the dialog state.
+      if (this.calls.size > 0 || this.incomingCallId !== null) {
+        console.log('[sip] 60s force-register skipped — active call');
+        return;
+      }
+      try {
+        this.ua.register();
+        console.log('[sip] 60s force-register fired (defensive against silent eviction)');
+      } catch (e) {
+        console.warn('[sip] 60s force-register threw', e);
+      }
+    }, 60_000);
   }
 
   /**
@@ -2315,6 +2379,13 @@ export class SipService {
     if (this.heartbeatTimer) {
       clearInterval(this.heartbeatTimer);
       this.heartbeatTimer = null;
+    }
+    // v0.10.77 — Same for the force-register timer. Without this cleanup
+    // a setInterval would keep firing ua.register() on a torn-down UA
+    // after logout, throwing every 60s into console noise.
+    if (this.forceRegisterTimer) {
+      clearInterval(this.forceRegisterTimer);
+      this.forceRegisterTimer = null;
     }
     // v0.9.13 — also cancel any pending first-login retry so a logout/
     // page-close during the 2-8s backoff window doesn't fire a stray

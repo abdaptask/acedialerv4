@@ -24,6 +24,14 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.77',
+    date: 'June 4, 2026',
+    highlight: 'Closes the silent-eviction gap — proactive REGISTER refresh every 60s',
+    changes: [
+      { type: 'fixed', text: 'Inbound calls dropping to voicemail when the dialer THOUGHT it was registered. The 10-second heartbeat only re-registers when our local state says we\'re not registered — but Telnyx silent eviction doesn\'t flip that bit (JsSIP isn\'t notified when Telnyx kicks us off), so the heartbeat never refreshed. Added an independent 60-second timer that unconditionally calls register() regardless of local state. Telnyx now sees a fresh REGISTER from us at most 60 seconds after any silent eviction, recovering the routing before the next inbound call can miss. Skipped while a call is in progress to avoid interfering with the active SIP dialog.' },
+    ],
+  },
+  {
     version: '0.10.76',
     date: 'June 3, 2026',
     highlight: 'Admin can upload custom ringtones — replaces the built-in beeps',
