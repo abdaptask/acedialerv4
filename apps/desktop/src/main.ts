@@ -160,6 +160,14 @@ function createWindow() {
       // as when visible.
       backgroundThrottling: false,
     },
+    // v0.10.82 — macOS click-through fix. By default macOS treats the
+    // first click on an inactive window as a focus-only event (doesn't
+    // forward to whatever was clicked). That meant Mac users had to
+    // double-click "Accept" on the incoming-call screen — first click
+    // focused the dialer, second click actually accepted. acceptFirstMouse
+    // tells macOS to forward the first click as both focus + activate.
+    // No-op on Windows/Linux.
+    acceptFirstMouse: true,
   });
 
   const session = mainWindow.webContents.session;
@@ -380,6 +388,13 @@ function createRingerWindow(callerNumber?: string): void {
       nodeIntegration: false,
       sandbox: false,
     },
+    // v0.10.82 — macOS click-through fix. CRITICAL for the floating ringer:
+    // this window pops up unfocused (the user is in another app when the
+    // call arrives), and without acceptFirstMouse the FIRST click on
+    // Accept/Decline only focuses the window — the user has to click a
+    // second time for it to actually press the button. That's the
+    // double-click-to-accept bug on the Mac build. No-op on Windows/Linux.
+    acceptFirstMouse: true,
   });
   try { ringerWindow.setAlwaysOnTop(true, 'screen-saver'); } catch { /* noop */ }
 

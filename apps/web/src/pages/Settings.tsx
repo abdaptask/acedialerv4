@@ -3379,6 +3379,38 @@ function MigrateFromPulseModal({
                 </ul>
               </details>
             )}
+            {/* v0.10.82 — "DID already in ACE" → show WHO already owns it
+                so admin can decide whether to delete that user (same person,
+                stale prior attempt) or use the Override DID field (different
+                person, Pulse data wrong). */}
+            {result.existingOwner && (
+              <div
+                style={{
+                  marginTop: 12,
+                  padding: 12,
+                  borderRadius: 8,
+                  background: 'rgba(245, 158, 11, 0.08)',
+                  border: '1px solid rgba(245, 158, 11, 0.3)',
+                }}
+              >
+                <strong style={{ fontSize: '0.9rem' }}>
+                  That DID already belongs to ACE user #{result.existingOwner.userId}
+                </strong>
+                <div style={{ marginTop: 6, fontSize: '0.88rem' }}>
+                  <strong>
+                    {(`${result.existingOwner.firstName ?? ''} ${result.existingOwner.lastName ?? ''}`.trim()) || '(no name)'}
+                  </strong>
+                  {' '}&lt;{result.existingOwner.email}&gt; — {result.existingOwner.isActive ? 'active' : 'deactivated'}
+                </div>
+                <div className="muted small" style={{ marginTop: 8 }}>
+                  {result.existingOwner.sameAsTarget
+                    ? `Same email as the user you're migrating — this is a prior failed attempt for the same person. Delete ACE user #${result.existingOwner.userId} (Settings → Admin → Users), then re-run the migration.`
+                    : !result.existingOwner.isActive
+                      ? `This user is deactivated — admin can delete them to free up the DID, then retry.`
+                      : `A different active user owns this DID. Either Pulse's voip_number for the user you're migrating is wrong, or this DID legitimately belongs to the user shown above. Use the Override DID field above with the correct number.`}
+                </div>
+              </div>
+            )}
             {/* v0.10.81 — Migration debug. When Telnyx didn't recognize the
                 primary voip_number, the backend scans the Pulse JWT for
                 OTHER phone-shaped fields and reports each one's ownership

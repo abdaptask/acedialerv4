@@ -2050,6 +2050,18 @@ export interface MigrateFromPulseResult {
     /** Ownership result: owned by us, not on Telnyx, or API blew up. */
     telnyxStatus: 'owned' | 'not_found' | 'error';
   }>;
+  // v0.10.82 — Populated on the "DID already in ACE" failure path. Tells
+  // admin WHO already owns the DID so they don't have to look up the user
+  // ID separately. sameAsTarget=true means it's a prior failed attempt
+  // for the same person (admin can delete + retry).
+  existingOwner?: {
+    userId: number;
+    email: string;
+    firstName: string | null;
+    lastName: string | null;
+    isActive: boolean;
+    sameAsTarget: boolean;
+  } | null;
 }
 export async function migrateUserFromPulse(
   token: string,
