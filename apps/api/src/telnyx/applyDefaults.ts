@@ -61,16 +61,25 @@ async function telnyxPatch(path: string, body: Record<string, unknown>): Promise
 /**
  * Translate ACE's User.country code to a Telnyx anchorsite_override value.
  *
- * Telnyx's anchorsite_override accepts named sites ("Chennai", "Mumbai",
- * "Ashburn, VA", etc.) or the special "Latency" routing token that picks
- * the closest site dynamically. Our policy: India users → Chennai (lowest
- * latency for the 95% in-country); everyone else → "Latency" (Telnyx
- * picks per-call). Two-letter ISO codes accepted, case-insensitive.
+ * v0.10.81 — FIXED: Telnyx's anchorsite_override accepts EXACT named-site
+ * strings, not approximations. v0.10.64 used 'Chennai' and 'Latency' which
+ * Telnyx rejects with error 10015 ("is not an acceptable value"). The
+ * proper values are below per Telnyx API docs:
+ *   - "Latency Routing"    — picks closest site dynamically per call
+ *   - "Chennai, India"     — explicit Chennai anchor
+ *   - "Mumbai, India"      — explicit Mumbai (alternate for India)
+ *   - "Ashburn, VA"        — US East
+ *   - "San Jose, CA"       — US West
+ *   - …other named sites
+ *
+ * Our policy: India users → Chennai (lowest latency for the 95% in-country);
+ * everyone else → Latency Routing (Telnyx picks per-call). Two-letter ISO
+ * codes accepted, case-insensitive.
  */
 export function anchorsiteForCountry(country: string | null | undefined): string {
   const c = (country ?? '').trim().toUpperCase();
-  if (c === 'IN' || c === 'INDIA') return 'Chennai';
-  return 'Latency';
+  if (c === 'IN' || c === 'INDIA') return 'Chennai, India';
+  return 'Latency Routing';
 }
 
 /**

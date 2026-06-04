@@ -24,6 +24,15 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.81',
+    date: 'June 4, 2026',
+    highlight: 'Migration robustness — debug panel for failed Pulse migrations + Telnyx anchorsite fix',
+    changes: [
+      { type: 'fixed', text: 'Telnyx anchorsite_override values were being rejected on every migration since v0.10.64 — we were sending "Chennai" and "Latency" instead of the proper "Chennai, India" and "Latency Routing". Showed up as the red "X apply ACE connection defaults — non-fatal warning" line in the migrate modal. For US users this was invisible (template default kicked in); for India users it meant calls weren\'t being anchor-routed through Chennai, hurting latency. Fixed going forward, and a separate one-time backfill endpoint reapplies the correct anchorsite to all existing users.' },
+      { type: 'new', text: 'Migration debug panel. When the migrate-from-Pulse modal fails with "Telnyx doesn\'t recognize this DID," it now scans the Pulse JWT for OTHER phone-shaped fields (mobile_no, caller_phone_number) and checks each one\'s Telnyx ownership. Shows admin "this OTHER number from Pulse IS owned by us — try that instead" instead of forcing a SQL spelunk. Saves several minutes per misconfigured migration (Roshni / Shreya pattern).' },
+    ],
+  },
+  {
     version: '0.10.80',
     date: 'June 4, 2026',
     highlight: 'Fixes a major silent miss-call bug — stale "ghost" sessions at Telnyx',

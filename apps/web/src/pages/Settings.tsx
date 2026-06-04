@@ -3379,6 +3379,57 @@ function MigrateFromPulseModal({
                 </ul>
               </details>
             )}
+            {/* v0.10.81 — Migration debug. When Telnyx didn't recognize the
+                primary voip_number, the backend scans the Pulse JWT for
+                OTHER phone-shaped fields and reports each one's ownership
+                status. Surface them so admin sees at a glance whether the
+                user's real DID is hiding in another column. */}
+            {result.phoneCandidates && result.phoneCandidates.length > 0 && (
+              <div
+                style={{
+                  marginTop: 12,
+                  padding: 12,
+                  borderRadius: 8,
+                  background: 'rgba(245, 158, 11, 0.08)',
+                  border: '1px solid rgba(245, 158, 11, 0.3)',
+                }}
+              >
+                <strong style={{ fontSize: '0.9rem' }}>
+                  Other numbers found in this user's Pulse record:
+                </strong>
+                <div className="muted small" style={{ marginTop: 4, marginBottom: 8 }}>
+                  If one of these is marked <strong>owned</strong>, that's likely the
+                  user's real DID. Update Pulse's <code>voip_number</code> via SQL
+                  to point at it, then re-run this migration. Or use the
+                  Override DID field above and skip Pulse's data entirely.
+                </div>
+                <ul style={{ paddingLeft: 18, margin: 0, fontSize: '0.85rem' }}>
+                  {result.phoneCandidates.map((c, i) => {
+                    const statusColor =
+                      c.telnyxStatus === 'owned' ? '#0a7d23'
+                      : c.telnyxStatus === 'error' ? '#d70015'
+                      : 'inherit';
+                    const statusLabel =
+                      c.telnyxStatus === 'owned' ? 'OWNED by ApTask'
+                      : c.telnyxStatus === 'not_found' ? 'not on Telnyx'
+                      : 'lookup error';
+                    return (
+                      <li key={i} style={{ marginBottom: 4 }}>
+                        <code>{c.field}</code>: <strong>{c.e164}</strong>{' '}
+                        <span style={{ color: statusColor, fontWeight: 600 }}>
+                          {statusLabel}
+                        </span>
+                        {c.raw !== c.e164 && (
+                          <span className="muted small">
+                            {' '}(raw: "{c.raw}")
+                          </span>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            )}
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
               <button type="button" className="device-action primary" onClick={onDone}>
                 Close
