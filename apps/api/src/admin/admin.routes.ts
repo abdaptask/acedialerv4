@@ -6061,6 +6061,10 @@ export async function adminRoutes(app: FastifyInstance) {
       const byConnection = new Map<string, { country: string | null; userEmail: string }>();
       for (const d of dids) {
         if (!d.connectionId) continue;
+        // Defensive — Prisma types the user relation as nullable even though
+        // every UserDid in our schema has an owner. Skip the row if the
+        // relation somehow loaded null rather than crashing the whole backfill.
+        if (!d.user) continue;
         if (byConnection.has(d.connectionId)) continue;
         byConnection.set(d.connectionId, {
           country: d.user.country,
