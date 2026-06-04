@@ -33,6 +33,30 @@ type EventType = 'missed_call' | 'sms' | 'voicemail';
 
 const APP_URL = (process.env.WEB_BASE_URL ?? 'https://ace-dialer.vercel.app').replace(/\/+$/, '');
 
+/**
+ * Build a deep-link URL that opens the Electron desktop app via the
+ * ace-dialer:// protocol handler when one is installed, with the web app
+ * as the fallback. Mirrors what the Teams cards do (see teamsCards/types.ts):
+ * we point the CTA at /auto/call or /auto/sms on the web app, and the
+ * AutoRoute page does the protocol launch + close-tab dance.
+ *
+ * - 'call' opens the Electron app's dialpad with the to= number prefilled.
+ *   Used for missed-call AND voicemail emails (call back is more useful
+ *   than listening once the transcript is already in the email).
+ * - 'sms' opens the Electron app's compose pane with the to= prefilled.
+ *
+ * If the from-number isn't usable (anonymous caller, malformed),
+ * returns the plain root URL — Electron protocol won't launch but the
+ * user still gets the web app and can navigate from there.
+ */
+function buildDeepLink(action: 'call' | 'sms', toNumber: string | null | undefined): string {
+  const cleaned = (toNumber ?? '').replace(/[^\d+]/g, '');
+  if (!cleaned || cleaned.length < 4) {
+    return APP_URL;
+  }
+  return `${APP_URL}/auto/${action}?to=${encodeURIComponent(cleaned)}`;
+}
+
 // ─────────────────────────────────────────────────────────────────
 // Opt-in lookup.
 // ─────────────────────────────────────────────────────────────────
@@ -242,12 +266,17 @@ export async function notifyMissedCallByEmail(opts: {
       </td></tr>
     </table>`;
 
+  // v0.10.80 — CTA goes through /auto/call so the Electron desktop app
+  // opens via the ace-dialer:// protocol when installed (with web
+  // fallback). Previously the CTA opened the web dialer even when
+  // Electron was already running.
+  const callBackUrl = buildDeepLink('call', call.fromNumber);
   const text = [
     `Hi ${firstName},`,
     ``,
     `Missed call from ${fromDisplay}${lineSuffix} at ${when}.`,
     ``,
-    `Open ACE Dialer to call back: ${APP_URL}/recents`,
+    `Call back in ACE Dialer: ${callBackUrl}`,
     ``,
     `Manage email notifications: ${APP_URL}/settings/email-notifications`,
   ].join('\n');
@@ -256,8 +285,8 @@ export async function notifyMissedCallByEmail(opts: {
     headerTitle: 'Missed call',
     headerSubtitle: when,
     bodyHtml,
-    ctaLabel: 'Open ACE Dialer',
-    ctaUrl: `${APP_URL}/recents`,
+    ctaLabel: 'Call back in ACE Dialer',
+    ctaUrl: callBackUrl,
     text,
   });
 
@@ -341,6 +370,9 @@ export async function notifyInboundSmsByEmail(opts: {
     </table>
     <p style="margin:0 0 8px 0;font-size:13px;color:#64748b;">${escapeHtml(when)}</p>`;
 
+  // v0.10.80 — CTA via /auto/sms so Electron opens the compose pane with
+  // the sender prefilled, instead of falling back to the web app.
+  const replyUrl = buildDeepLink('sms', msg.fromNumber);
   const text = [
     `Hi ${firstName},`,
     ``,
@@ -348,7 +380,7 @@ export async function notifyInboundSmsByEmail(opts: {
     ``,
     preview || '(no message body — likely an MMS attachment)',
     ``,
-    `Reply in ACE Dialer: ${APP_URL}/messages`,
+    `Reply in ACE Dialer: ${replyUrl}`,
     ``,
     `Manage email notifications: ${APP_URL}/settings/email-notifications`,
   ].join('\n');
@@ -358,7 +390,7 @@ export async function notifyInboundSmsByEmail(opts: {
     headerSubtitle: when,
     bodyHtml,
     ctaLabel: 'Reply in ACE Dialer',
-    ctaUrl: `${APP_URL}/messages`,
+    ctaUrl: replyUrl,
     text,
   });
 
@@ -446,6 +478,12 @@ export async function notifyVoicemailByEmail(opts: {
       <p style="margin:0 0 0 0;font-size:13px;color:#64748b;">${escapeHtml(when)}</p>
       ${transcriptHtml}`;
 
+    // v0.10.80 — CTA via /auto/call (not /auto/voicemail — AutoRoute only
+    // supports call/sms today). The transcript is already in the email
+    // body, so the most useful action from the email is "call back" rather
+    // than "listen again." Opens Electron's dialpad prefilled with the
+    // caller's number.
+    const callBackUrl = buildDeepLink('call', vm.fromNumber);
     const text = [
       `Hi ${firstName},`,
       ``,
@@ -454,7 +492,7 @@ export async function notifyVoicemailByEmail(opts: {
       transcript ? `Transcript:` : `Transcript still processing — open ACE Dialer to listen.`,
       transcript || '',
       ``,
-      `Listen in ACE Dialer: ${APP_URL}/voicemail`,
+      `Call back in ACE Dialer: ${callBackUrl}`,
       ``,
       `Manage email notifications: ${APP_URL}/settings/email-notifications`,
     ].filter(Boolean).join('\n');
@@ -463,8 +501,8 @@ export async function notifyVoicemailByEmail(opts: {
       headerTitle: `New voicemail`,
       headerSubtitle: `${fromDisplay} · ${when}`,
       bodyHtml,
-      ctaLabel: 'Listen in ACE Dialer',
-      ctaUrl: `${APP_URL}/voicemail`,
+      ctaLabel: 'Call back in ACE Dialer',
+      ctaUrl: callBackUrl,
       text,
     });
 

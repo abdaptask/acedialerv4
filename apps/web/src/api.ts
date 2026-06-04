@@ -2036,6 +2036,20 @@ export interface MigrateFromPulseResult {
   durationMs?: number;
   steps?: Array<{ step: string; ok: boolean; error?: string }>;
   error?: string;
+  // v0.10.81 — Migration debug. Populated when Telnyx says it doesn't own
+  // the primary voip_number. Surfaces the OTHER phone-shaped fields the
+  // Pulse JWT contained, with each one's Telnyx ownership status, so admin
+  // doesn't have to SQL-spelunk Pulse for the right DID.
+  phoneCandidates?: Array<{
+    /** Which Pulse JWT field this came from: voip_number, mobile_no, etc. */
+    field: string;
+    /** Raw value as Pulse stored it (formatting preserved for the admin). */
+    raw: string;
+    /** Our E.164 normalization, used for Telnyx lookup + retry. */
+    e164: string;
+    /** Ownership result: owned by us, not on Telnyx, or API blew up. */
+    telnyxStatus: 'owned' | 'not_found' | 'error';
+  }>;
 }
 export async function migrateUserFromPulse(
   token: string,

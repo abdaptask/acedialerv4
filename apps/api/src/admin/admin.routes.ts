@@ -58,6 +58,83 @@ async function requireAdmin(request: FastifyRequest, reply: FastifyReply) {
   }
 }
 
+// ─── v0.10.81 — Migration debug helper ─────────────────────────────────────
+//
+// When migrate-from-pulse's Telnyx lookup fails for the primary voip_number,
+// scan the rest of the Pulse JWT payload for OTHER phone-shaped fields
+// (mobile_no, caller_phone_number) and check each against Telnyx ownership.
+// Surfaces a list of alternative DIDs the admin can try, so we don't have
+// to SQL-spelunk Pulse for the right number (Roshni / Shreya pattern).
+//
+// Returns a list of candidates, each with:
+//   - field: the Pulse JWT field name where this number came from
+//   - raw:   the value as Pulse stored it (handy for the admin to see
+//             whether it's e.g. unformatted, has spaces, etc.)
+//   - e164:  our normalized E.164 form
+//   - telnyxStatus: 'owned' (we control it — admin can use as override)
+//                   'not_found' (Telnyx doesn't recognize it)
+//                   'error' (Telnyx API blew up — admin should retry)
+//
+// Best-effort and bounded. We Telnyx-check at most 4 candidates so a
+// malformed JWT can't fan us out into dozens of API calls.
+export interface PhoneCandidate {
+  field: string;
+  raw: string;
+  e164: string;
+  telnyxStatus: 'owned' | 'not_found' | 'error';
+}
+
+function normalizeToE164(raw: string): string | null {
+  const digits = raw.replace(/\D/g, '');
+  if (digits.length === 0) return null;
+  if (digits.length === 11 && digits.startsWith('1')) return `+${digits}`;
+  if (digits.length === 10) return `+1${digits}`;
+  if (raw.trim().startsWith('+') && digits.length >= 8) return raw.trim();
+  // Too short to be a usable phone number — skip.
+  return null;
+}
+
+async function scanPulsePayloadForOwnedNumbers(
+  payload: {
+    mobile_no?: string;
+    voip_number?: string;
+    caller_phone_number?: string;
+  },
+  exclude: string,
+): Promise<PhoneCandidate[]> {
+  const fields: Array<{ field: string; raw: string | undefined }> = [
+    { field: 'voip_number', raw: payload.voip_number },
+    { field: 'caller_phone_number', raw: payload.caller_phone_number },
+    { field: 'mobile_no', raw: payload.mobile_no },
+  ];
+  const seen = new Set<string>([exclude]);
+  const candidates: Array<{ field: string; raw: string; e164: string }> = [];
+  for (const f of fields) {
+    if (!f.raw) continue;
+    const e164 = normalizeToE164(f.raw);
+    if (!e164) continue;
+    if (seen.has(e164)) continue; // dedup + skip the one we already tried
+    seen.add(e164);
+    candidates.push({ field: f.field, raw: f.raw, e164 });
+    if (candidates.length >= 4) break;
+  }
+  if (candidates.length === 0) return [];
+  // Check each candidate in parallel — keeps response latency low even
+  // when Telnyx is slow (each lookup is ~200ms).
+  const results = await Promise.all(
+    candidates.map(async (c): Promise<PhoneCandidate> => {
+      try {
+        const lookup = await telnyx.findNumberByE164(c.e164);
+        if (!lookup.ok) return { ...c, telnyxStatus: 'error' };
+        return { ...c, telnyxStatus: lookup.data ? 'owned' : 'not_found' };
+      } catch {
+        return { ...c, telnyxStatus: 'error' };
+      }
+    }),
+  );
+  return results;
+}
+
 function publicUser(u: {
   id: number;
   email: string;
@@ -3595,7 +3672,18 @@ export async function adminRoutes(app: FastifyInstance) {
       }
       if (!tn.data) {
         step('look up DID on Telnyx', false, `Telnyx doesn't recognize ${e164}`);
-        return reply.code(404).send({ ok: false, error: 'DID not found on Telnyx', steps });
+        // v0.10.81 — Migration debug. Before giving up, scan the Pulse JWT
+        // payload for OTHER phone-shaped fields (mobile_no, caller_phone_number,
+        // anything we haven't tried) and check each against Telnyx. Saves the
+        // admin from having to SQL-spelunk Pulse to figure out which column
+        // holds the user's real DID. This was the Roshni / Shreya pattern.
+        const candidates = await scanPulsePayloadForOwnedNumbers(payload, e164);
+        return reply.code(404).send({
+          ok: false,
+          error: 'DID not found on Telnyx',
+          steps,
+          phoneCandidates: candidates,
+        });
       }
       const telnyxNumberId = tn.data.id;
       const previousConnectionId = tn.data.connection_id ?? null;
@@ -5925,6 +6013,83 @@ export async function adminRoutes(app: FastifyInstance) {
         pulseExtPassword: pending.pulseExtPassword,
         pulseConnectionName: pending.pulseConnectionName,
       };
+    },
+  );
+
+  // ── POST /admin/backfill-anchorsites ─────────────────────────────────────
+  //
+  // v0.10.81 — One-time backfill. v0.10.64 introduced applyAceConnectionDefaults
+  // which PATCHes Telnyx Credential Connections with anchorsite_override based
+  // on User.country. We were sending the wrong string values ('Chennai' and
+  // 'Latency' instead of 'Chennai, India' and 'Latency Routing'). Telnyx
+  // rejected every PATCH with error 10015 "is not an acceptable value", so
+  // every migrated user since v0.10.64 has the wrong anchorsite at Telnyx
+  // (falling back to whatever the template connection has, usually fine for
+  // US but suboptimal for India users).
+  //
+  // This endpoint reapplies the correct (v0.10.81-fixed) anchorsite to every
+  // distinct Credential Connection in our database. Triggerable once via:
+  //   curl -X POST $API_URL/admin/backfill-anchorsites \
+  //        -H "Authorization: Bearer $ADMIN_JWT"
+  //
+  // Or from the browser console while signed in as admin:
+  //   fetch('/admin/backfill-anchorsites', {
+  //     method: 'POST',
+  //     headers: { Authorization: 'Bearer ' + sessionStorage.getItem('ace_token') },
+  //   }).then(r => r.json()).then(console.log);
+  //
+  // Idempotent — running it multiple times is safe. Returns per-connection
+  // outcome so admin can spot any individual failures.
+  app.post(
+    '/admin/backfill-anchorsites',
+    { onRequest: [app.authenticate, requireAdmin] },
+    async (request, reply) => {
+      const actor = request.user as JwtPayload;
+      // Pull every UserDid → join up to user.country. Each DID is bound to
+      // a Credential Connection; users typically have one connection across
+      // all their DIDs, but to be defensive we dedupe by connectionId.
+      const dids = await prisma.userDid.findMany({
+        where: { connectionId: { not: null } },
+        select: {
+          connectionId: true,
+          user: { select: { id: true, email: true, country: true } },
+        },
+      });
+      // Dedupe by connectionId. If somehow two users share a connection
+      // (shouldn't happen in ACE's model, but legacy data might), pick the
+      // first user's country — both will route via the same anchor anyway.
+      const byConnection = new Map<string, { country: string | null; userEmail: string }>();
+      for (const d of dids) {
+        if (!d.connectionId) continue;
+        if (byConnection.has(d.connectionId)) continue;
+        byConnection.set(d.connectionId, {
+          country: d.user.country,
+          userEmail: d.user.email,
+        });
+      }
+      const total = byConnection.size;
+      let success = 0;
+      let failed = 0;
+      const results: Array<{ connectionId: string; userEmail: string; status: 'ok' | 'failed'; error?: string }> = [];
+
+      for (const [connectionId, ctx] of byConnection.entries()) {
+        const r = await applyAceConnectionDefaults(connectionId, ctx.country);
+        if (r.ok) {
+          success += 1;
+          results.push({ connectionId, userEmail: ctx.userEmail, status: 'ok' });
+        } else {
+          failed += 1;
+          const errStr = typeof r.detail === 'string' ? r.detail : JSON.stringify(r.detail ?? r);
+          results.push({ connectionId, userEmail: ctx.userEmail, status: 'failed', error: errStr });
+        }
+      }
+
+      await recordAudit(actor.sub, 'admin.backfill_anchorsites', null, {
+        total,
+        success,
+        failed,
+      });
+      return { ok: failed === 0, total, success, failed, results };
     },
   );
 

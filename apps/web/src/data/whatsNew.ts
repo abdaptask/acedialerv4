@@ -24,11 +24,21 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.81',
+    date: 'June 4, 2026',
+    highlight: 'Migration robustness — debug panel for failed Pulse migrations + Telnyx anchorsite fix',
+    changes: [
+      { type: 'fixed', text: 'Telnyx anchorsite_override values were being rejected on every migration since v0.10.64 — we were sending "Chennai" and "Latency" instead of the proper "Chennai, India" and "Latency Routing". Showed up as the red "X apply ACE connection defaults — non-fatal warning" line in the migrate modal. For US users this was invisible (template default kicked in); for India users it meant calls weren\'t being anchor-routed through Chennai, hurting latency. Fixed going forward, and a separate one-time backfill endpoint reapplies the correct anchorsite to all existing users.' },
+      { type: 'new', text: 'Migration debug panel. When the migrate-from-Pulse modal fails with "Telnyx doesn\'t recognize this DID," it now scans the Pulse JWT for OTHER phone-shaped fields (mobile_no, caller_phone_number) and checks each one\'s Telnyx ownership. Shows admin "this OTHER number from Pulse IS owned by us — try that instead" instead of forcing a SQL spelunk. Saves several minutes per misconfigured migration (Roshni / Shreya pattern).' },
+    ],
+  },
+  {
     version: '0.10.80',
     date: 'June 4, 2026',
     highlight: 'Fixes a major silent miss-call bug — stale "ghost" sessions at Telnyx',
     changes: [
       { type: 'fixed', text: 'Inbound calls going straight to voicemail even though the dialer looked online — root cause was old, abandoned SIP sessions accumulating at Telnyx every time you reload or restart the app. Telnyx was trying to ring every old session before getting to the live one, so calls stalled. The dialer now wipes those ghost sessions at startup and registers fresh. After this deploys, restart your dialer once and inbound routing should be reliable from there on. (If you have ACE open on multiple devices for the same account, only the most recently-opened one will ring — same model as Pulse.)' },
+      { type: 'fixed', text: 'Email notification buttons ("Reply in ACE Dialer", "Call back in ACE Dialer") were opening the web app instead of your installed desktop app. They now use the same ace-dialer:// protocol that Teams cards use, so they open Electron directly with the caller / sender prefilled. Web is still the fallback when no desktop app is installed.' },
       { type: 'new', text: 'Diagnostics section under Settings → Personal. If your dialer ever does something weird — missed call, stuck status, disconnects — click "Download logs" and email the .txt file to your admin so we can pinpoint exactly what happened on your machine. Way easier than asking you to open developer tools.' },
       { type: 'improved', text: 'SIP REGISTER responses now log the full Contact header from Telnyx and the count of active bindings, so when something IS wrong with routing we can spot it in the diagnostics export instantly instead of guessing.' },
     ],
