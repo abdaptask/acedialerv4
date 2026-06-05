@@ -1,4 +1,4 @@
-// Phase 6.13 — Admin Users panel.
+﻿// Phase 6.13 â€” Admin Users panel.
 //
 // Endpoints for the in-app Users management UI. All routes require an
 // authenticated user with isAdmin=true. Every mutation writes an AuditLog
@@ -9,12 +9,12 @@
 //   POST   /admin/users              Invite a new user (creates DB row, awaits first SSO)
 //   PATCH  /admin/users/:id          Promote / demote / activate / deactivate / edit
 //   GET    /admin/audit-logs         Recent admin actions (paginated, default 100)
-//   POST   /admin/users/bulk-import  Phase 5 — CSV bulk-import (#189)
+//   POST   /admin/users/bulk-import  Phase 5 â€” CSV bulk-import (#189)
 //
 // Safeguards (Phase 6.13 spec):
 //   - Can't demote the LAST remaining active admin.
 //   - Can't deactivate yourself (would brick the panel for you).
-//   - Can't change your own admin flag — ask another admin.
+//   - Can't change your own admin flag â€” ask another admin.
 
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { randomUUID } from 'node:crypto';
@@ -23,7 +23,7 @@ import { prisma } from '@ace/db';
 import bcrypt from 'bcryptjs';
 import { config } from '../config.js';
 import * as telnyx from '../telnyx/numbers.js';
-// v0.10.64 — Per-user Telnyx defaults (anchor site, HD voice, CNAM,
+// v0.10.64 â€” Per-user Telnyx defaults (anchor site, HD voice, CNAM,
 // voicemail PIN). Applied after every new Credential Connection / DID
 // assignment so admin doesn't have to remember the long list of settings.
 import {
@@ -58,7 +58,7 @@ async function requireAdmin(request: FastifyRequest, reply: FastifyReply) {
   }
 }
 
-// ─── v0.10.81 — Migration debug helper ─────────────────────────────────────
+// â”€â”€â”€ v0.10.81 â€” Migration debug helper â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 //
 // When migrate-from-pulse's Telnyx lookup fails for the primary voip_number,
 // scan the rest of the Pulse JWT payload for OTHER phone-shaped fields
@@ -71,9 +71,9 @@ async function requireAdmin(request: FastifyRequest, reply: FastifyReply) {
 //   - raw:   the value as Pulse stored it (handy for the admin to see
 //             whether it's e.g. unformatted, has spaces, etc.)
 //   - e164:  our normalized E.164 form
-//   - telnyxStatus: 'owned' (we control it — admin can use as override)
+//   - telnyxStatus: 'owned' (we control it â€” admin can use as override)
 //                   'not_found' (Telnyx doesn't recognize it)
-//                   'error' (Telnyx API blew up — admin should retry)
+//                   'error' (Telnyx API blew up â€” admin should retry)
 //
 // Best-effort and bounded. We Telnyx-check at most 4 candidates so a
 // malformed JWT can't fan us out into dozens of API calls.
@@ -90,7 +90,7 @@ function normalizeToE164(raw: string): string | null {
   if (digits.length === 11 && digits.startsWith('1')) return `+${digits}`;
   if (digits.length === 10) return `+1${digits}`;
   if (raw.trim().startsWith('+') && digits.length >= 8) return raw.trim();
-  // Too short to be a usable phone number — skip.
+  // Too short to be a usable phone number â€” skip.
   return null;
 }
 
@@ -119,7 +119,7 @@ async function scanPulsePayloadForOwnedNumbers(
     if (candidates.length >= 4) break;
   }
   if (candidates.length === 0) return [];
-  // Check each candidate in parallel — keeps response latency low even
+  // Check each candidate in parallel â€” keeps response latency low even
   // when Telnyx is slow (each lookup is ~200ms).
   const results = await Promise.all(
     candidates.map(async (c): Promise<PhoneCandidate> => {
@@ -147,7 +147,7 @@ function publicUser(u: {
   didNumber: string | null;
   lastLoginAt: Date | null;
   createdAt: Date;
-  // v0.10.40 — optional UserDids when caller includes them in the select.
+  // v0.10.40 â€” optional UserDids when caller includes them in the select.
   // Older callers (e.g. POST /admin/users response) don't include it; in
   // that case we just emit an empty array so the type is consistent.
   userDids?: Array<{
@@ -156,10 +156,10 @@ function publicUser(u: {
     label: string | null;
     isDefault: boolean;
   }>;
-  // v0.10.60 — Beta flag. Optional because legacy SELECT clauses may not
+  // v0.10.60 â€” Beta flag. Optional because legacy SELECT clauses may not
   // include it; treated as false when missing.
   connectionHealthBeta?: boolean;
-  // v0.10.64 — Country tag for Telnyx anchorsite. Optional because legacy
+  // v0.10.64 â€” Country tag for Telnyx anchorsite. Optional because legacy
   // SELECT clauses may not include it; pass-through null when missing.
   country?: string | null;
 }) {
@@ -181,9 +181,9 @@ function publicUser(u: {
   };
 }
 
-// Audit helper — best-effort. We never want an audit-log write to fail the
+// Audit helper â€” best-effort. We never want an audit-log write to fail the
 // admin action itself, so log + swallow.
-// v0.10.0 — `recordAudit` moved to ../lib/audit.ts so non-admin routes
+// v0.10.0 â€” `recordAudit` moved to ../lib/audit.ts so non-admin routes
 // (specifically /me/active-did and friends) can write audit entries too.
 
 const InviteSchema = z.object({
@@ -206,14 +206,14 @@ const UpdateSchema = z.object({
   isAdmin: z.boolean().optional(),
   isActive: z.boolean().optional(),
   localPassword: z.string().min(8).max(200).nullable().optional(),
-  // v0.10.60 — Per-user beta opt-in for Connection Health.
+  // v0.10.60 â€” Per-user beta opt-in for Connection Health.
   connectionHealthBeta: z.boolean().optional(),
-  // v0.10.64 — Country for Telnyx anchorsite selection. Editable per
+  // v0.10.64 â€” Country for Telnyx anchorsite selection. Editable per
   // user from the kebab menu so admin can fix it after-the-fact.
   country: z.string().trim().max(8).nullable().optional(),
 });
 
-// Phase 5 (#189) — bulk import schema. Each row mirrors the CSV column set.
+// Phase 5 (#189) â€” bulk import schema. Each row mirrors the CSV column set.
 // Rows without sipPassword are accepted; user gets created but can't register
 // against Telnyx until an admin fills the password in later (staged rollout).
 const BulkRowSchema = z.object({
@@ -231,7 +231,7 @@ const BulkImportSchema = z.object({
   rows: z.array(BulkRowSchema).min(1).max(500),
 });
 
-// Phase 8 (#216-220) — Pulse-to-ACE migration via PendingUser staging.
+// Phase 8 (#216-220) â€” Pulse-to-ACE migration via PendingUser staging.
 //
 // PendingUser rows come from the new admin "Pending Users" tab CSV upload.
 // Nothing on Telnyx changes until an admin clicks Invite + Confirm on a
@@ -251,7 +251,7 @@ const PendingUserImportSchema = z.object({
   rows: z.array(PendingUserRowSchema).min(1).max(500),
 });
 
-// v0.9.7 — PATCH /admin/pending-users/:id schema. All fields optional so the
+// v0.9.7 â€” PATCH /admin/pending-users/:id schema. All fields optional so the
 // admin can edit one column at a time. Server-side restrictions block edits
 // to Pulse credentials on already-invited rows (those values were already
 // pushed to Telnyx; changing them in PendingUser would silently drift from
@@ -282,7 +282,7 @@ const InviteFromPendingSchema = z.object({
   unassignedDidNumber: z.string().optional(),
 });
 
-// v0.10.22 — Small HTML page returned by the MS OAuth callback. Shows a
+// v0.10.22 â€” Small HTML page returned by the MS OAuth callback. Shows a
 // success/error message and auto-closes the popup window after 3 seconds.
 // Kept inline (not a template file) so deploys stay simple.
 function buildCallbackHtml(success: boolean, message: string): string {
@@ -291,9 +291,9 @@ function buildCallbackHtml(success: boolean, message: string): string {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;');
   const color = success ? '#16a34a' : '#dc2626';
-  const icon = success ? '✓' : '✕';
+  const icon = success ? 'âœ“' : 'âœ•';
   return `<!doctype html>
-<html><head><meta charset="utf-8"><title>ACE Dialer — Teams Connection</title>
+<html><head><meta charset="utf-8"><title>ACE Dialer â€” Teams Connection</title>
 <style>
   body { font: 14px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     color: #0f172a; background: #f1f5f9; margin: 0;
@@ -320,7 +320,7 @@ function buildCallbackHtml(success: boolean, message: string): string {
 </body></html>`;
 }
 
-// v0.10.27 — Minimal RFC 4180 CSV parser for Telnyx CDR/MDR uploads.
+// v0.10.27 â€” Minimal RFC 4180 CSV parser for Telnyx CDR/MDR uploads.
 // Handles quoted fields, escaped quotes (""), trims whitespace, returns
 // rows as { columnName: value } objects keyed by the header row.
 //
@@ -433,7 +433,7 @@ function mapTelnyxCdrCsvRow(
 
 // Map a parsed Telnyx MDR CSV row to a Prisma Message.create input.
 //
-// v0.10.29 — Verified against actual Telnyx MDR CSV export. Column names:
+// v0.10.29 â€” Verified against actual Telnyx MDR CSV export. Column names:
 //   "Originating Number", "Terminating number", "CreateTimestamp(UTC)",
 //   "SendTimestamp(UTC)", "CompleteTimestamp(UTC)", "Direction", "Status",
 //   "Status_v2", "Unique Mdr ID", "Message Body", "Message Type",
@@ -514,13 +514,13 @@ function mapTelnyxMdrCsvRow(
 }
 
 export async function adminRoutes(app: FastifyInstance) {
-  // ───────────────────────── GET /admin/users ─────────────────────────
+  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ GET /admin/users â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   app.get(
     '/admin/users',
     { onRequest: [app.authenticate, requireAdmin] },
     async () => {
       const rows = await prisma.user.findMany({
-        // v0.9.12 — hide tombstoned rows from the admin Users list. When a
+        // v0.9.12 â€” hide tombstoned rows from the admin Users list. When a
         // hard-delete falls back to anonymize (FK history), the email is
         // rewritten to `deleted-{id}@deleted.ace.local`. These rows only
         // exist to keep call/SMS/voicemail FK references valid for audit
@@ -541,13 +541,13 @@ export async function adminRoutes(app: FastifyInstance) {
           didNumber: true,
           lastLoginAt: true,
           createdAt: true,
-          // v0.10.60 — Surface the beta flag so the Users tab kebab menu
+          // v0.10.60 â€” Surface the beta flag so the Users tab kebab menu
           // can show its current state (toggleable on/off per user).
           connectionHealthBeta: true,
-          // v0.10.64 — Surface country so the kebab can show its current
+          // v0.10.64 â€” Surface country so the kebab can show its current
           // value and admin can update it.
           country: true,
-          // v0.10.40 — Include the user's full DID list. The Users table
+          // v0.10.40 â€” Include the user's full DID list. The Users table
           // column displays the isDefault DID (instead of the legacy
           // User.didNumber column which can be stale), and the Refresh
           // from Pulse modal uses this list to populate its "Which line?"
@@ -562,7 +562,7 @@ export async function adminRoutes(app: FastifyInstance) {
     },
   );
 
-  // ───────────────────────── POST /admin/users ────────────────────────
+  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ POST /admin/users â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   app.post(
     '/admin/users',
     { onRequest: [app.authenticate, requireAdmin] },
@@ -603,7 +603,7 @@ export async function adminRoutes(app: FastifyInstance) {
         },
       });
 
-      // v0.10.0 — Ensure UserDid row when the invite includes a DID.
+      // v0.10.0 â€” Ensure UserDid row when the invite includes a DID.
       // Without this, the new user has User.didNumber populated but no
       // UserDid row, which breaks DidSwitcher + SMS + line badges. See
       // apps/api/src/lib/userDid.ts for the full rationale.
@@ -628,7 +628,7 @@ export async function adminRoutes(app: FastifyInstance) {
     },
   );
 
-  // ───────────────────────── POST /admin/users/invite-new ─────────────
+  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ POST /admin/users/invite-new â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   // Brand-new hire: no Pulse history, no pre-provisioned Telnyx assets.
   // We do the full auto-provision in one shot:
   //   1. Create new Telnyx Credential Connection (returns sipUsername + sipPassword)
@@ -657,9 +657,9 @@ export async function adminRoutes(app: FastifyInstance) {
         unassignedDidNumber: z.string().optional(),
         isAdmin: z.boolean().optional(),
         sendEmail: z.boolean().default(true),
-        // v0.10.64 — Country for Telnyx anchorsite selection. Defaults
+        // v0.10.64 â€” Country for Telnyx anchorsite selection. Defaults
         // to IN (Chennai anchor) since 95% of users are in India. US
-        // users → "Latency" routing. Admin overrides per user.
+        // users â†’ "Latency" routing. Admin overrides per user.
         country: z.string().trim().min(0).max(8).optional().default('IN'),
       });
       const parsed = InviteNewSchema.safeParse(request.body);
@@ -670,7 +670,7 @@ export async function adminRoutes(app: FastifyInstance) {
         email, firstName, lastName,
         didMode, newDidAreaCode, unassignedDidNumber,
         isAdmin: makeAdmin, sendEmail,
-        // v0.10.64 — country drives anchorsite_override.
+        // v0.10.64 â€” country drives anchorsite_override.
         country,
       } = parsed.data;
 
@@ -681,11 +681,11 @@ export async function adminRoutes(app: FastifyInstance) {
       }
       const normEmail = email.trim().toLowerCase();
 
-      // v0.9.10 — accept soft-deactivated rows as recyclable. After a hard-
+      // v0.9.10 â€” accept soft-deactivated rows as recyclable. After a hard-
       // delete that fell back to soft-deactivate (FK constraints kept the
       // row alive for history), the email is still taken. Without this we'd
       // refuse to re-invite and admin couldn't recover. If the existing row
-      // is ACTIVE, refuse — that's a real collision.
+      // is ACTIVE, refuse â€” that's a real collision.
       const dup = await prisma.user.findUnique({
         where: { email: normEmail },
         select: { id: true, isActive: true },
@@ -706,11 +706,11 @@ export async function adminRoutes(app: FastifyInstance) {
         .toLowerCase()
         .replace(/[^a-z0-9-]/gi, '');
       const connectionName = `${slug}-ace-${Date.now().toString(36).slice(-5)}`;
-      // Telnyx user_name: letters + digits only — no underscores, hyphens,
+      // Telnyx user_name: letters + digits only â€” no underscores, hyphens,
       // or spaces (see Telnyx error code 10015).
       const userName = `ace${slug.replace(/[^a-z0-9]/gi, '').slice(0, 20)}${Date.now().toString(36).slice(-6)}`;
 
-      // v0.9.7 — template-clone path. If the template DID/ID resolves, clone
+      // v0.9.7 â€” template-clone path. If the template DID/ID resolves, clone
       // its outbound voice profile + channel limits + codecs onto the new
       // connection so the user can actually PLACE calls from minute one.
       // Fall back to plain create if anything goes wrong. Initialize to
@@ -737,7 +737,7 @@ export async function adminRoutes(app: FastifyInstance) {
           if (cloneRes.templateApplied) {
             step('clone Telnyx connection from template (outbound voice profile + limits)', true);
           } else {
-            step('clone Telnyx connection from template — created but PATCH partial', true);
+            step('clone Telnyx connection from template â€” created but PATCH partial', true);
             for (const w of cloneRes.warnings) step(`template warning: ${w}`, false);
           }
         } else {
@@ -758,17 +758,17 @@ export async function adminRoutes(app: FastifyInstance) {
         sipUsername = conn.data.data.user_name;
         sipPassword = conn.data.data.password ?? '';
         connectionId = conn.data.data.id;
-        step('create Telnyx Credential Connection (fallback — no template)', true);
+        step('create Telnyx Credential Connection (fallback â€” no template)', true);
       }
 
-      // v0.10.64 — Apply per-user ACE connection defaults (anchorsite by
-      // country). Best-effort; non-fatal — admin can re-apply later from
+      // v0.10.64 â€” Apply per-user ACE connection defaults (anchorsite by
+      // country). Best-effort; non-fatal â€” admin can re-apply later from
       // the per-user kebab menu.
       const connDefaults = await applyAceConnectionDefaults(connectionId, country);
       step(
         connDefaults.ok
           ? `apply ACE connection defaults (noise suppression copied from master template)`
-          : 'apply ACE connection defaults — non-fatal warning',
+          : 'apply ACE connection defaults â€” non-fatal warning',
         connDefaults.ok,
         connDefaults.ok ? undefined : JSON.stringify(connDefaults.detail),
       );
@@ -812,7 +812,7 @@ export async function adminRoutes(app: FastifyInstance) {
       }
 
       // 4) Bind the DID to ACE's messaging profile so SMS works.
-      // v0.10.64 — While we're looking up the DID anyway, also apply ACE
+      // v0.10.64 â€” While we're looking up the DID anyway, also apply ACE
       // phone-number defaults (HD voice + CNAM=ApTask + voicemail+PIN).
       // Both happen in one lookup pass.
       if (config.telnyxMessagingProfileId) {
@@ -829,12 +829,12 @@ export async function adminRoutes(app: FastifyInstance) {
           } else {
             step('bind DID to ACE messaging profile', false, JSON.stringify(bind.error));
           }
-          // v0.10.64 — Apply per-DID ACE defaults (HD voice + CNAM + VM).
+          // v0.10.64 â€” Apply per-DID ACE defaults (HD voice + CNAM + VM).
           const phoneDefaults = await applyAcePhoneNumberDefaults(lookup.data.id);
           step(
             phoneDefaults.voice.ok && phoneDefaults.voicemail.ok
               ? 'apply ACE DID defaults (HD voice + CNAM + voicemail + PIN)'
-              : 'apply ACE DID defaults — partial/failed (non-fatal)',
+              : 'apply ACE DID defaults â€” partial/failed (non-fatal)',
             phoneDefaults.voice.ok && phoneDefaults.voicemail.ok,
             phoneDefaults.voice.ok && phoneDefaults.voicemail.ok
               ? undefined
@@ -846,7 +846,7 @@ export async function adminRoutes(app: FastifyInstance) {
           'Skipped: TELNYX_MESSAGING_PROFILE_ID env var not set');
       }
 
-      // 4.5) v0.9.11 — Set Caller ID Override = the user's OWN DID so calls
+      // 4.5) v0.9.11 â€” Set Caller ID Override = the user's OWN DID so calls
       // placed from the WebRTC dialer present THIS user's number as the
       // caller ID (not the template's). Maps to outbound.ani_override on
       // the Credential Connection with ani_override_type="always".
@@ -873,7 +873,7 @@ export async function adminRoutes(app: FastifyInstance) {
       }
 
       // 5) Create OR recycle the User row.
-      // v0.9.10 — if recycleExistingUserId is set (a soft-deactivated row
+      // v0.9.10 â€” if recycleExistingUserId is set (a soft-deactivated row
       // exists for this email), UPDATE that row instead of failing on the
       // unique-email constraint. This lets admins re-invite users whose
       // history blocked the hard delete (Postgres FK on calls/messages/etc).
@@ -897,7 +897,7 @@ export async function adminRoutes(app: FastifyInstance) {
               // Clear lastLoginAt so the "Accepted" status only triggers
               // when the recycled user actually signs in again.
               lastLoginAt: null,
-              // v0.10.64 — Persist country for future Telnyx defaults syncs.
+              // v0.10.64 â€” Persist country for future Telnyx defaults syncs.
               country,
             },
             select: userSelect,
@@ -913,7 +913,7 @@ export async function adminRoutes(app: FastifyInstance) {
               isAdmin: !!makeAdmin,
               isActive: true,
               provider: 'microsoft',
-              // v0.10.64 — country drives Telnyx anchorsite selection.
+              // v0.10.64 â€” country drives Telnyx anchorsite selection.
               country,
             },
             select: userSelect,
@@ -925,8 +925,8 @@ export async function adminRoutes(app: FastifyInstance) {
         true,
       );
 
-      // v0.10.0 — ALSO create a matching UserDid row + point the user's
-      // activeUserDidId at it. See apps/api/src/lib/userDid.ts for why —
+      // v0.10.0 â€” ALSO create a matching UserDid row + point the user's
+      // activeUserDidId at it. See apps/api/src/lib/userDid.ts for why â€”
       // without this, new users have User.didNumber populated but no
       // UserDid row, which breaks DidSwitcher / SMS / line badges.
       const linked = await ensureUserDid({
@@ -980,7 +980,7 @@ export async function adminRoutes(app: FastifyInstance) {
     },
   );
 
-  // ───────────────────────── PATCH /admin/users/:id ───────────────────
+  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ PATCH /admin/users/:id â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   app.patch<{ Params: { id: string } }>(
     '/admin/users/:id',
     { onRequest: [app.authenticate, requireAdmin] },
@@ -1010,9 +1010,9 @@ export async function adminRoutes(app: FastifyInstance) {
       set('firstName', target.firstName, parsed.data.firstName ?? undefined);
       set('lastName', target.lastName, parsed.data.lastName ?? undefined);
       set('sipUsername', target.sipUsername, parsed.data.sipUsername ?? undefined);
-      // v0.10.60 — Beta opt-in toggle.
+      // v0.10.60 â€” Beta opt-in toggle.
       set('connectionHealthBeta', target.connectionHealthBeta, parsed.data.connectionHealthBeta);
-      // v0.10.64 — Country tag for Telnyx anchor-site selection.
+      // v0.10.64 â€” Country tag for Telnyx anchor-site selection.
       set('country', target.country, parsed.data.country ?? undefined);
       if (parsed.data.sipPassword !== undefined) {
         data.sipPassword = parsed.data.sipPassword;
@@ -1071,12 +1071,12 @@ export async function adminRoutes(app: FastifyInstance) {
           id: true, email: true, firstName: true, lastName: true,
           isAdmin: true, isActive: true, provider: true,
           sipUsername: true, didNumber: true, lastLoginAt: true, createdAt: true,
-          // v0.10.60 — Echo the beta flag back so the admin UI can update
+          // v0.10.60 â€” Echo the beta flag back so the admin UI can update
           // the kebab menu state without a full Users re-fetch. Without
           // this, the kebab kept showing "Enable" after a toggle because
           // r.connectionHealthBeta came back undefined.
           connectionHealthBeta: true,
-          // v0.10.64 — Echo country back so the kebab "Set country (IN)"
+          // v0.10.64 â€” Echo country back so the kebab "Set country (IN)"
           // label updates immediately after a PATCH.
           country: true,
         },
@@ -1096,10 +1096,10 @@ export async function adminRoutes(app: FastifyInstance) {
     },
   );
 
-  // ───────────────────────── DELETE /admin/users/:id (v0.9.8) ─────────
+  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ DELETE /admin/users/:id (v0.9.8) â”€â”€â”€â”€â”€â”€â”€â”€â”€
   // Hard-delete a user with full Telnyx cleanup. Mirrors the pending-users
-  // cleanup pipeline (un-assign DID → delete Credential Connection → delete
-  // User row → cascade-delete linked PendingUser).
+  // cleanup pipeline (un-assign DID â†’ delete Credential Connection â†’ delete
+  // User row â†’ cascade-delete linked PendingUser).
   //
   // Safeguards:
   //  - 403 if target is the only active admin (would lock everyone out).
@@ -1181,7 +1181,7 @@ export async function adminRoutes(app: FastifyInstance) {
 
       // 2) Delete Credential Connection. Preferred: connection_id from DID.
       //    Fallback: paginated scan by user_name (Telnyx filter[user_name]
-      //    on /credential_connections is broken — it returns everything).
+      //    on /credential_connections is broken â€” it returns everything).
       let connToDelete: string | null = connIdFromDid;
       if (!connToDelete && target.sipUsername) {
         const MAX_PAGES = 5;
@@ -1235,7 +1235,7 @@ export async function adminRoutes(app: FastifyInstance) {
       // 3) Best-effort: drop any linked PendingUser row first so the staging
       //    table stays consistent with the actual user list. PendingUser.
       //    invitedUserId is a plain Int? (no relation), so this isn't strictly
-      //    required for the User.delete below to succeed — but it stops the
+      //    required for the User.delete below to succeed â€” but it stops the
       //    Pending Users tab from showing a "ghost" staged row pointing at a
       //    user that no longer exists.
       const linkedPending = await prisma.pendingUser.findFirst({
@@ -1254,7 +1254,7 @@ export async function adminRoutes(app: FastifyInstance) {
       }
 
       // 4) Try the hard delete on the User row. On FK failure, ANONYMIZE
-      //    in place. v0.9.12 — the user explicitly asked: "i want the user
+      //    in place. v0.9.12 â€” the user explicitly asked: "i want the user
       //    details to be deleted so that next time i send them an email
       //    there is no confusion or wont be used. you can keep the other
       //    history for integrity." So when the FK constraint keeps the row
@@ -1274,14 +1274,14 @@ export async function adminRoutes(app: FastifyInstance) {
         const msg = e instanceof Error ? e.message : String(e);
         step(`delete User row #${id}`, false, msg);
         try {
-          // v0.10.84 — Release UserDid rows BEFORE anonymizing the user.
+          // v0.10.84 â€” Release UserDid rows BEFORE anonymizing the user.
           //
           // PROBLEM this solves: pre-v0.10.84, the anonymize path tombstoned
           // the User row but left UserDid rows attached. Result: that user's
           // DID stayed reserved in our DB even though the user was "deleted."
-          // When admin later tried to migrate the SAME person from Pulse —
+          // When admin later tried to migrate the SAME person from Pulse â€”
           // or migrate a DIFFERENT person whose Pulse data happened to point
-          // at the same DID — the "DID already in ACE" check fired against
+          // at the same DID â€” the "DID already in ACE" check fired against
           // the orphan UserDid. Admin then had to SQL-spelunk to find +
           // delete that row by hand. This recurred for Farheen + Shreya (x2).
           //
@@ -1293,7 +1293,7 @@ export async function adminRoutes(app: FastifyInstance) {
           const releasedDids = await prisma.userDid
             .deleteMany({ where: { userId: id } })
             .catch((err) => {
-              // Don't abort the anonymize flow if DID release fails — the
+              // Don't abort the anonymize flow if DID release fails â€” the
               // user is still being tombstoned. Admin gets a clear step log
               // so they know DIDs may be orphaned and can clean up manually.
               step(
@@ -1314,7 +1314,7 @@ export async function adminRoutes(app: FastifyInstance) {
             where: { id },
             data: {
               // Tombstone the email so the unique constraint frees the
-              // original — admin can re-invite the same person and we'll
+              // original â€” admin can re-invite the same person and we'll
               // create a fresh User row (no recycle hit because the email
               // no longer maps to this row).
               email: `deleted-${id}@deleted.ace.local`,
@@ -1335,7 +1335,7 @@ export async function adminRoutes(app: FastifyInstance) {
               voicemailGreetingUrl: null,
               voicemailGreetingFilename: null,
               // Break the SSO link so signing in with the same Microsoft
-              // account doesn't resurrect this row — re-invite path will
+              // account doesn't resurrect this row â€” re-invite path will
               // create a fresh User instead.
               azureOid: null,
               passwordHash: null,
@@ -1345,7 +1345,7 @@ export async function adminRoutes(app: FastifyInstance) {
             },
           });
           step(
-            `User #${id} had history — anonymized (email tombstoned, PII + SIP creds + DID + SSO link cleared; history rows retained)`,
+            `User #${id} had history â€” anonymized (email tombstoned, PII + SIP creds + DID + SSO link cleared; history rows retained)`,
             true,
           );
         } catch (e2) {
@@ -1358,7 +1358,7 @@ export async function adminRoutes(app: FastifyInstance) {
         actor.sub,
         deletedHard ? 'user.hard_deleted' : 'user.anonymized',
         // Don't reference the User row in the audit log if we just deleted it
-        // (would FK-fail). For anonymize it's safe to point at it — the row
+        // (would FK-fail). For anonymize it's safe to point at it â€” the row
         // still exists, just stripped of PII.
         deletedHard ? null : id,
         {
@@ -1377,7 +1377,7 @@ export async function adminRoutes(app: FastifyInstance) {
         status: deletedHard ? 'deleted' : 'anonymized',
         message: deletedHard
           ? 'User and Telnyx resources fully removed.'
-          : "User had call/SMS history — anonymized instead of deleted. Personal details (email, name, SIP creds, DID, SSO link) were cleared. The empty row stays attached to the historical call/SMS records for audit integrity, but the email is now free to re-invite.",
+          : "User had call/SMS history â€” anonymized instead of deleted. Personal details (email, name, SIP creds, DID, SSO link) were cleared. The empty row stays attached to the historical call/SMS records for audit integrity, but the email is now free to re-invite.",
         didReleased,
         connectionDeleted,
         pendingDeleted,
@@ -1386,7 +1386,7 @@ export async function adminRoutes(app: FastifyInstance) {
     },
   );
 
-  // ───────────────────────── GET /admin/audit-logs ────────────────────
+  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ GET /admin/audit-logs â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   app.get<{ Querystring: { limit?: string; cursor?: string } }>(
     '/admin/audit-logs',
     { onRequest: [app.authenticate, requireAdmin] },
@@ -1431,7 +1431,7 @@ export async function adminRoutes(app: FastifyInstance) {
     },
   );
 
-  // ───────────────────── POST /admin/users/bulk-import (#189) ─────────
+  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ POST /admin/users/bulk-import (#189) â”€â”€â”€â”€â”€â”€â”€â”€â”€
   // Per-row upsert by email. dryRun=true validates + returns the preview
   // without writing. Returns per-row { status, error?, missingPassword }
   // so the frontend can show a result table.
@@ -1537,7 +1537,7 @@ export async function adminRoutes(app: FastifyInstance) {
               },
               select: { id: true },
             });
-            // v0.10.0 — Ensure matching UserDid row (see lib/userDid.ts).
+            // v0.10.0 â€” Ensure matching UserDid row (see lib/userDid.ts).
             const bulkDid = row.didNumber?.trim();
             if (bulkDid) {
               await ensureUserDid({
@@ -1591,8 +1591,8 @@ export async function adminRoutes(app: FastifyInstance) {
     },
   );
 
-  // ───────────────────── GET /admin/reports/live (Phase 8 — #204) ─────
-  // P0 reporting slice — at-a-glance numbers for an admin dashboard.
+  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ GET /admin/reports/live (Phase 8 â€” #204) â”€â”€â”€â”€â”€
+  // P0 reporting slice â€” at-a-glance numbers for an admin dashboard.
   // Designed to be cheap: 6 separate queries that all hit indexed columns
   // and return small aggregates, no per-call full scans.
   // Refresh budget on the client: 15s. Each call is < 100ms in practice.
@@ -1618,7 +1618,7 @@ export async function adminRoutes(app: FastifyInstance) {
         },
       });
 
-      // 2. Today's calls — grouped by direction + status for an in/out/missed split.
+      // 2. Today's calls â€” grouped by direction + status for an in/out/missed split.
       const todaysCallsRaw = await prisma.call.groupBy({
         by: ['direction', 'status'],
         where: { startedAt: { gte: startOfDay } },
@@ -1654,7 +1654,7 @@ export async function adminRoutes(app: FastifyInstance) {
         received: todaysSmsRaw.find((r) => r.direction === 'inbound')?._count._all ?? 0,
       };
 
-      // 5. Active users in the last 24h — anyone who's made a call OR sent/
+      // 5. Active users in the last 24h â€” anyone who's made a call OR sent/
       //    received a message. Best proxy for "online" without server-side
       //    SIP-presence tracking (which we'd need Telnyx Status webhooks for).
       const activeCallers = await prisma.call.findMany({
@@ -1729,7 +1729,7 @@ export async function adminRoutes(app: FastifyInstance) {
           c.user.email,
       }));
 
-      // 8. Hourly call buckets for today (24 buckets, indexed 0–23 UTC).
+      // 8. Hourly call buckets for today (24 buckets, indexed 0â€“23 UTC).
       const todaysCallsForChart = await prisma.call.findMany({
         where: { startedAt: { gte: startOfDay } },
         select: { startedAt: true, direction: true, status: true },
@@ -1780,7 +1780,7 @@ export async function adminRoutes(app: FastifyInstance) {
     },
   );
 
-  // ───────────────────── GET /admin/reports/presence (#211) ───────────
+  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ GET /admin/reports/presence (#211) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   // Per-user real-time presence: who's on a call, who's active, who's idle.
   // No true SIP-presence tracking (would need Telnyx Status webhooks); we
   // proxy via open Call rows + recent activity timestamps. Good enough.
@@ -1902,7 +1902,7 @@ export async function adminRoutes(app: FastifyInstance) {
     },
   );
 
-  // ───────────────────── GET /admin/reports/usage (#205) ──────────────
+  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ GET /admin/reports/usage (#205) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   app.get<{ Querystring: { range?: string } }>(
     '/admin/reports/usage',
     { onRequest: [app.authenticate, requireAdmin] },
@@ -2009,7 +2009,7 @@ export async function adminRoutes(app: FastifyInstance) {
     },
   );
 
-  // ───────────────────── GET /admin/reports/quality (#206) ────────────
+  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ GET /admin/reports/quality (#206) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   app.get<{ Querystring: { range?: string } }>(
     '/admin/reports/quality',
     { onRequest: [app.authenticate, requireAdmin] },
@@ -2083,7 +2083,7 @@ export async function adminRoutes(app: FastifyInstance) {
 
       const totalShort = Array.from(ua.values()).reduce((sum, u) => sum + u.short, 0);
 
-      // v0.10.92 — Message quality + health, unified with the call quality
+      // v0.10.92 â€” Message quality + health, unified with the call quality
       // report so admins see voice AND SMS reliability on one page. Same
       // time window (`range`), same shape: aggregate totals + top failure
       // causes with sample drill-down rows.
@@ -2096,7 +2096,7 @@ export async function adminRoutes(app: FastifyInstance) {
           fromNumber: true,
           toNumber: true,
           sentAt: true,
-          // Telnyx error details. Schema stores as Json — typical shape is
+          // Telnyx error details. Schema stores as Json â€” typical shape is
           // an array of { code, title, detail } objects per their API.
           // We extract the first object's `code` for failure aggregation.
           errors: true,
@@ -2109,7 +2109,7 @@ export async function adminRoutes(app: FastifyInstance) {
       const messageTotals: Record<string, number> = {
         sent: 0, delivered: 0, failed: 0, undelivered: 0, queued: 0, received: 0, other: 0,
       };
-      // Failure cause aggregation — only for outbound failed/undelivered,
+      // Failure cause aggregation â€” only for outbound failed/undelivered,
       // grouped by errorCode (e.g. Telnyx error code 30001-30022, 40002-40010).
       // Each cause carries up to 5 sample messages for the drill-down UI.
       const failureCauses = new Map<string, {
@@ -2181,7 +2181,7 @@ export async function adminRoutes(app: FastifyInstance) {
         hangupCauses: hangupCausesArr,
         totals: { shortCalls: totalShort, totalCalls: calls.length },
         heatmap,
-        // v0.10.92 — Unified message quality block. Frontend renders this
+        // v0.10.92 â€” Unified message quality block. Frontend renders this
         // alongside the call section on the Quality & Health page.
         messages: {
           totalMessages: messages.length,
@@ -2195,7 +2195,7 @@ export async function adminRoutes(app: FastifyInstance) {
     },
   );
 
-  // ───────────────────── GET /admin/reports/cost (#207) ───────────────
+  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ GET /admin/reports/cost (#207) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   // Telnyx cost reporting. Pricing constants come from env vars (with
   // sane defaults) so an admin can tune them in one place if Telnyx
   // pricing changes.
@@ -2210,7 +2210,7 @@ export async function adminRoutes(app: FastifyInstance) {
         : new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
       const days = range === '7d' ? 7 : 30;
 
-      // Pricing — Telnyx US defaults. Override via env if your plan differs.
+      // Pricing â€” Telnyx US defaults. Override via env if your plan differs.
       const COST_INBOUND_PER_MIN = parseFloat(process.env.TELNYX_COST_INBOUND_PER_MIN ?? '0.005');
       const COST_OUTBOUND_PER_MIN = parseFloat(process.env.TELNYX_COST_OUTBOUND_PER_MIN ?? '0.007');
       const COST_PER_SMS = parseFloat(process.env.TELNYX_COST_PER_SMS ?? '0.004');
@@ -2321,7 +2321,7 @@ export async function adminRoutes(app: FastifyInstance) {
     },
   );
 
-  // ───────────────────── GET /admin/reports/recruiter (#208) ──────────
+  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ GET /admin/reports/recruiter (#208) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   // ApTask-specific recruiter metrics.
   //   - candidateReach: unique outbound numbers dialed per user per day (avg)
   //   - conversationRate: % of outbound calls that connected > 30s
@@ -2422,8 +2422,8 @@ export async function adminRoutes(app: FastifyInstance) {
     },
   );
 
-  // ───────────────────── GET /admin/reports/alerts (#210) ─────────────
-  // Surfaces anomalies the admin should know about. No cron yet — admin
+  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ GET /admin/reports/alerts (#210) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // Surfaces anomalies the admin should know about. No cron yet â€” admin
   // refreshes to recompute. Cheap enough to run on demand.
   app.get(
     '/admin/reports/alerts',
@@ -2468,7 +2468,7 @@ export async function adminRoutes(app: FastifyInstance) {
       );
 
       for (const u of activeUsers) {
-        // Don't alert on accounts created within the last 7 days — they're new.
+        // Don't alert on accounts created within the last 7 days â€” they're new.
         if (u.createdAt >= sevenDaysAgo) continue;
         if (recentlyActiveCallerIds.has(u.id) || recentlyActiveMessagerIds.has(u.id)) continue;
         alerts.push({
@@ -2549,21 +2549,21 @@ export async function adminRoutes(app: FastifyInstance) {
       };
     },
   );
-  // ───────────────────── Pulse-to-ACE migration (#216-220) ─────────────────
+  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ Pulse-to-ACE migration (#216-220) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   //
-  // POST /admin/pending-users/import  — bulk staging upload from CSV
-  // GET  /admin/pending-users         — list with status filter
-  // POST /admin/pending-users/:id/invite — orchestrate per-user provisioning
-  // DELETE /admin/pending-users/:id   — clean up a wrong CSV row
+  // POST /admin/pending-users/import  â€” bulk staging upload from CSV
+  // GET  /admin/pending-users         â€” list with status filter
+  // POST /admin/pending-users/:id/invite â€” orchestrate per-user provisioning
+  // DELETE /admin/pending-users/:id   â€” clean up a wrong CSV row
   //
   // The invite endpoint is the only place that touches Telnyx in this
   // feature. All others are pure DB reads/writes. See InviteFromPendingSchema
   // for the per-row choices (didMode / credsMode / repointWebhook / sendEmail).
 
-  // ── GET /admin/telnyx/unassigned-numbers ────────────────────────────────
+  // â”€â”€ GET /admin/telnyx/unassigned-numbers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   // Returns the list of Telnyx numbers we own that aren't currently routed
   // to any voice connection AND not bound to any messaging profile. Powers
-  // the invite-modal "Use an ACE number you already own" picker — letting
+  // the invite-modal "Use an ACE number you already own" picker â€” letting
   // admins re-use leftover inventory instead of buying a new DID.
   app.get(
     '/admin/telnyx/unassigned-numbers',
@@ -2580,15 +2580,15 @@ export async function adminRoutes(app: FastifyInstance) {
     },
   );
 
-  // ── GET /admin/telnyx/migration-candidates ──────────────────────────────
-  // v0.10.20 — Powers the "Migrate Existing User to New Dialer" picker.
+  // â”€â”€ GET /admin/telnyx/migration-candidates â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // v0.10.20 â€” Powers the "Migrate Existing User to New Dialer" picker.
   // Returns Telnyx DIDs that ARE currently bound to a connection (usually
   // Pulse) but NOT yet in ACE's UserDid table. Admin picks one and we
   // re-bind it to the target user's ACE connection.
   //
   // Enrichment: each candidate's sourceConnectionId is resolved to
   // connectionName + sipUsername via fetchCredentialConnection so the
-  // picker can show "(732) 555-1234 — Pulse: jdoe@aptask (SIP user:
+  // picker can show "(732) 555-1234 â€” Pulse: jdoe@aptask (SIP user:
   // aptask123)" instead of a raw UUID. We dedupe by connectionId so a
   // user with 50 DIDs on one Pulse connection only triggers ONE lookup.
   app.get(
@@ -2617,13 +2617,13 @@ export async function adminRoutes(app: FastifyInstance) {
       });
 
       // Dedupe connection IDs and fetch each once. Map to { name, sipUser }.
-      // v0.10.21 — Use the GENERIC /connections/{id} endpoint instead of
+      // v0.10.21 â€” Use the GENERIC /connections/{id} endpoint instead of
       // /credential_connections/{id}. The credential-only endpoint returned
       // 404 for non-credential connections (FQDN/IP/SIP types), which made
       // the picker show "Unknown connection" for any Pulse DID bound to a
       // non-credential connection. Generic endpoint works for all types.
       // SIP username (user_name) is only populated on credential connections;
-      // null for other types — that's fine.
+      // null for other types â€” that's fine.
       const connIds = Array.from(new Set(filtered.map((c) => c.sourceConnectionId)));
       const connMeta: Record<string, { name: string | null; sipUser: string | null }> = {};
       let failedLookups = 0;
@@ -2638,7 +2638,7 @@ export async function adminRoutes(app: FastifyInstance) {
           } else {
             connMeta[cid] = { name: null, sipUser: null };
             failedLookups += 1;
-            // v0.10.26 — Log the FIRST failure of each batch so we can
+            // v0.10.26 â€” Log the FIRST failure of each batch so we can
             // diagnose "all candidates show Unknown connection". Common
             // cause: Telnyx /v2/connections/{id} returns 404 because the
             // connection was deleted out-of-band but the DID still
@@ -2669,8 +2669,8 @@ export async function adminRoutes(app: FastifyInstance) {
     },
   );
 
-  // ═══════════════════════════════════════════════════════════════════════
-  // v0.10.0 Task 27 — Per-user DID management (additional lines).
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // v0.10.0 Task 27 â€” Per-user DID management (additional lines).
   //
   // Lets admins add/remove/edit DIDs on an existing user without going
   // through the full invite flow. Needed because the invite flow only
@@ -2682,9 +2682,9 @@ export async function adminRoutes(app: FastifyInstance) {
   //   POST   /admin/users/:id/dids                  add a DID
   //   PATCH  /admin/users/:id/dids/:didId           edit label/color/default
   //   DELETE /admin/users/:id/dids/:didId           remove a DID
-  // ═══════════════════════════════════════════════════════════════════════
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
-  // ── GET /admin/users/:id/dids ───────────────────────────────────────────
+  // â”€â”€ GET /admin/users/:id/dids â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   app.get<{ Params: { id: string } }>(
     '/admin/users/:id/dids',
     { onRequest: [app.authenticate, requireAdmin] },
@@ -2717,15 +2717,15 @@ export async function adminRoutes(app: FastifyInstance) {
     },
   );
 
-  // ── POST /admin/users/:id/dids ──────────────────────────────────────────
+  // â”€â”€ POST /admin/users/:id/dids â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   // Adds an additional DID to an existing user. Two modes (mutually exclusive):
   //
-  //   Mode A — UNASSIGNED inventory pick
+  //   Mode A â€” UNASSIGNED inventory pick
   //     { source: 'unassigned', didNumber: '+19735551234', ... }
   //     The admin picked a DID we already own that's not currently
   //     assigned to anyone. We just route it to the user's connection.
   //
-  //   Mode B — PURCHASE a fresh DID
+  //   Mode B â€” PURCHASE a fresh DID
   //     { source: 'purchase', purchaseAreaCode: '732', ... }
   //     The admin wants a brand-new number. We search Telnyx availability
   //     in the requested area code, pick the first hit, order it (billable),
@@ -2733,7 +2733,7 @@ export async function adminRoutes(app: FastifyInstance) {
   //
   // Both modes then:
   //   1. Validate the user has an existing Credential Connection (from
-  //      their default UserDid). If not, we refuse — admin should
+  //      their default UserDid). If not, we refuse â€” admin should
   //      complete the invite flow first which creates the connection.
   //   2. Assign the DID to that connection on Telnyx (voice routing).
   //   3. Bind the DID to ACE's messaging profile (SMS routing).
@@ -2782,10 +2782,10 @@ export async function adminRoutes(app: FastifyInstance) {
       });
       if (!target) return reply.code(404).send({ error: 'User not found' });
 
-      // Find the user's Credential Connection — needed for routing the
+      // Find the user's Credential Connection â€” needed for routing the
       // new DID. We pull it from the user's default UserDid.
       //
-      // v0.10.7 fix — the v0.10.0 migration backfilled UserDid rows from
+      // v0.10.7 fix â€” the v0.10.0 migration backfilled UserDid rows from
       // the legacy User.didNumber column but didn't populate
       // connection_id (the legacy User row never tracked it locally).
       // Result: every pre-v0.10.0 user has a default UserDid with
@@ -2819,7 +2819,7 @@ export async function adminRoutes(app: FastifyInstance) {
       }
       if (!connectionId) {
         return reply.code(409).send({
-          error: 'Cannot resolve user\'s Telnyx connection. Their default DID has no connection_id in Telnyx either — check that the number is bound to a Credential Connection in the Telnyx portal.',
+          error: 'Cannot resolve user\'s Telnyx connection. Their default DID has no connection_id in Telnyx either â€” check that the number is bound to a Credential Connection in the Telnyx portal.',
         });
       }
 
@@ -2830,7 +2830,7 @@ export async function adminRoutes(app: FastifyInstance) {
       let purchasedNumber: string | null = null;
 
       if (source === 'unassigned') {
-        // Mode A — admin picked an existing inventory number.
+        // Mode A â€” admin picked an existing inventory number.
         const didNumber = parsed.data.didNumber!;
         const digits = didNumber.replace(/\D/g, '');
         e164 = digits.startsWith('1') && digits.length === 11
@@ -2861,12 +2861,12 @@ export async function adminRoutes(app: FastifyInstance) {
         }
         if (!tn.data) {
           return reply.code(404).send({
-            error: `Telnyx doesn't recognize ${e164}. Confirm we own this number in Numbers → My Numbers.`,
+            error: `Telnyx doesn't recognize ${e164}. Confirm we own this number in Numbers â†’ My Numbers.`,
           });
         }
         telnyxNumberId = tn.data.id;
       } else {
-        // Mode B — purchase a fresh DID from Telnyx.
+        // Mode B â€” purchase a fresh DID from Telnyx.
         const areaCode = parsed.data.purchaseAreaCode!;
 
         // 1. Search availability.
@@ -2908,7 +2908,7 @@ export async function adminRoutes(app: FastifyInstance) {
         );
         // Note: purchaseDid() above already passed connection_id at order
         // time so the assignDidToConnection call below is a confirmatory
-        // PATCH (idempotent — Telnyx tolerates re-setting the same value).
+        // PATCH (idempotent â€” Telnyx tolerates re-setting the same value).
       }
 
       // Assign the DID to the user's connection (voice routing).
@@ -2931,7 +2931,7 @@ export async function adminRoutes(app: FastifyInstance) {
           config.telnyxMessagingProfileId,
         );
         if (!msg.ok) {
-          // Non-fatal — voice is wired; SMS may need manual portal fix.
+          // Non-fatal â€” voice is wired; SMS may need manual portal fix.
           // Log + continue.
           request.log.warn(
             { numberId: telnyxNumberId, error: msg.error },
@@ -2940,7 +2940,7 @@ export async function adminRoutes(app: FastifyInstance) {
         }
       }
 
-      // v0.10.64 — Apply per-DID ACE defaults (HD voice + CNAM + voicemail
+      // v0.10.64 â€” Apply per-DID ACE defaults (HD voice + CNAM + voicemail
       // + PIN=12345). Non-fatal; admin can re-apply later if it failed.
       const phoneDefaults = await applyAcePhoneNumberDefaults(telnyxNumberId);
       if (!phoneDefaults.voice.ok || !phoneDefaults.voicemail.ok) {
@@ -3001,9 +3001,9 @@ export async function adminRoutes(app: FastifyInstance) {
         purchasedNumber,
       });
 
-      // v0.10.20 — Notify the user that they've been assigned a new line.
+      // v0.10.20 â€” Notify the user that they've been assigned a new line.
       // Both channels are fire-and-forget so the admin response stays fast.
-      // Failures are logged but never bubble up — adding a line shouldn't
+      // Failures are logged but never bubble up â€” adding a line shouldn't
       // 5xx because SendGrid/Teams was temporarily unreachable.
       const userForNotify = await prisma.user.findUnique({
         where: { id: userId },
@@ -3050,16 +3050,16 @@ export async function adminRoutes(app: FastifyInstance) {
     },
   );
 
-  // ── POST /admin/users/:id/dids/migrate ──────────────────────────────────
-  // v0.10.20 — "Migrate Existing User to New Dialer".
+  // â”€â”€ POST /admin/users/:id/dids/migrate â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // v0.10.20 â€” "Migrate Existing User to New Dialer".
   //
   // Takes a Telnyx DID that's currently bound to ANOTHER connection (likely
   // Pulse) and re-binds it to THIS user's ACE Credential Connection. The
-  // phone number stays the same — only the SIP routing changes. After this
+  // phone number stays the same â€” only the SIP routing changes. After this
   // call:
-  //   • The old connection (Pulse) stops receiving calls/SMS for the DID
-  //   • The new connection (this user's ACE creds) starts receiving them
-  //   • A UserDid row exists locally so ACE recognises the DID
+  //   â€¢ The old connection (Pulse) stops receiving calls/SMS for the DID
+  //   â€¢ The new connection (this user's ACE creds) starts receiving them
+  //   â€¢ A UserDid row exists locally so ACE recognises the DID
   //
   // This is a DESTRUCTIVE operation for the old dialer. Audited.
   const MigrateDidSchema = z.object({
@@ -3152,7 +3152,7 @@ export async function adminRoutes(app: FastifyInstance) {
       }
       if (!tn.data.connection_id) {
         return reply.code(409).send({
-          error: 'This DID has no current connection on Telnyx — it\'s already unassigned, so use the regular "Add an available number from Telnyx" flow instead.',
+          error: 'This DID has no current connection on Telnyx â€” it\'s already unassigned, so use the regular "Add an available number from Telnyx" flow instead.',
         });
       }
 
@@ -3222,12 +3222,12 @@ export async function adminRoutes(app: FastifyInstance) {
         newConnectionId: connectionId,         // ACE connection we re-bound to
       });
 
-      // v0.10.22 — Fire-and-forget 30d history backfill from Telnyx.
+      // v0.10.22 â€” Fire-and-forget 30d history backfill from Telnyx.
       // Pulls all voice CDRs + SMS detail records where the migrated number
       // appears as from OR to in the last 30 days, deduped against existing
       // rows, inserted into Call + Message tables. Response returns
       // immediately; backfill streams in over the next minute. Migration
-      // never fails because of backfill issues — best-effort only.
+      // never fails because of backfill issues â€” best-effort only.
       void backfillMigratedDidHistory(
         {
           userId,
@@ -3245,7 +3245,7 @@ export async function adminRoutes(app: FastifyInstance) {
         );
       });
 
-      // v0.10.20 — Notify the user that their number was migrated.
+      // v0.10.20 â€” Notify the user that their number was migrated.
       // Fire-and-forget; failures logged, not surfaced to the admin API
       // response since the actual migration already succeeded.
       const userForNotify = await prisma.user.findUnique({
@@ -3288,14 +3288,14 @@ export async function adminRoutes(app: FastifyInstance) {
     },
   );
 
-  // ── POST /admin/telnyx/connections/:id/cleanup ──────────────────────────
-  // v0.10.21 — Used by the "what to do with the old SIP connection?" prompt
+  // â”€â”€ POST /admin/telnyx/connections/:id/cleanup â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // v0.10.21 â€” Used by the "what to do with the old SIP connection?" prompt
   // that appears after a successful migration. Two actions:
   //
-  //   action: 'deactivate'  → PATCH /credential_connections/{id} active=false
-  //                            (reversible — flip back later via Telnyx portal)
-  //   action: 'delete'      → DELETE /credential_connections/{id}
-  //                            (IRREVERSIBLE — the cred is gone, SIP creds
+  //   action: 'deactivate'  â†’ PATCH /credential_connections/{id} active=false
+  //                            (reversible â€” flip back later via Telnyx portal)
+  //   action: 'delete'      â†’ DELETE /credential_connections/{id}
+  //                            (IRREVERSIBLE â€” the cred is gone, SIP creds
   //                             on Pulse stop working entirely)
   //
   // Both audited. Both require admin role.
@@ -3319,7 +3319,7 @@ export async function adminRoutes(app: FastifyInstance) {
       }
       const { action, reason } = parsed.data;
 
-      // Refuse if this connection still backs ANY UserDid in our local DB —
+      // Refuse if this connection still backs ANY UserDid in our local DB â€”
       // would orphan the user immediately. Admin must remove/reassign the
       // user's lines first.
       const usedBy = await prisma.userDid.findFirst({
@@ -3328,7 +3328,7 @@ export async function adminRoutes(app: FastifyInstance) {
       });
       if (usedBy) {
         return reply.code(409).send({
-          error: `Refusing to ${action} — connection is still bound to UserDid id=${usedBy.id} (user ${usedBy.userId}, ${usedBy.didNumber}) in ACE. Remove that line first.`,
+          error: `Refusing to ${action} â€” connection is still bound to UserDid id=${usedBy.id} (user ${usedBy.userId}, ${usedBy.didNumber}) in ACE. Remove that line first.`,
         });
       }
 
@@ -3355,7 +3355,7 @@ export async function adminRoutes(app: FastifyInstance) {
         return { ok: true, action: 'deactivate' };
       }
 
-      // action === 'delete' — IRREVERSIBLE.
+      // action === 'delete' â€” IRREVERSIBLE.
       const res = await telnyx.deleteCredentialConnection(connectionId);
       if (!res.ok) {
         return reply.code(502).send({
@@ -3373,18 +3373,18 @@ export async function adminRoutes(app: FastifyInstance) {
     },
   );
 
-  // ═══════════════════════════════════════════════════════════════════════
-  // v0.10.22 — Microsoft Graph OAuth for Teams notifications.
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // v0.10.22 â€” Microsoft Graph OAuth for Teams notifications.
   //
-  // Admin signs in ONCE as acebot@aptask.com via the initiate→callback
+  // Admin signs in ONCE as acebot@aptask.com via the initiateâ†’callback
   // flow. Refresh token gets stored in MsServiceToken. From then on,
   // Teams DMs (line_assigned, missed_call, voicemail, SMS) flow through
   // sendLineAssignedCard which uses the token to talk to Graph API.
-  // ═══════════════════════════════════════════════════════════════════════
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
   // In-memory state map for CSRF protection across the OAuth round-trip.
   // Keys: random nonce. Values: timestamp expiring after 10 minutes.
-  // Single-process is fine — the OAuth flow only takes ~30s for the user.
+  // Single-process is fine â€” the OAuth flow only takes ~30s for the user.
   const oauthStateMap = new Map<string, number>();
   setInterval(() => {
     const now = Date.now();
@@ -3394,7 +3394,7 @@ export async function adminRoutes(app: FastifyInstance) {
   }, 60_000).unref();
 
   // GET /admin/microsoft/oauth/initiate
-  // Returns { redirectUrl } — frontend opens this in a popup or full
+  // Returns { redirectUrl } â€” frontend opens this in a popup or full
   // navigation. The admin will be prompted to sign in as acebot.
   app.get(
     '/admin/microsoft/oauth/initiate',
@@ -3435,7 +3435,7 @@ export async function adminRoutes(app: FastifyInstance) {
       // Verify state nonce (CSRF protection).
       if (!oauthStateMap.has(state)) {
         return reply.code(400).type('text/html').send(
-          buildCallbackHtml(false, 'OAuth state expired or invalid — please retry from the dialer'),
+          buildCallbackHtml(false, 'OAuth state expired or invalid â€” please retry from the dialer'),
         );
       }
       oauthStateMap.delete(state);
@@ -3444,7 +3444,7 @@ export async function adminRoutes(app: FastifyInstance) {
         const tokens = await exchangeCodeForTokens(code);
         await storeInitialTokens(tokens);
         return reply.type('text/html').send(
-          buildCallbackHtml(true, 'Connected — you can close this window.'),
+          buildCallbackHtml(true, 'Connected â€” you can close this window.'),
         );
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
@@ -3456,7 +3456,7 @@ export async function adminRoutes(app: FastifyInstance) {
     },
   );
 
-  // GET /admin/microsoft/oauth/status — used by the admin UI.
+  // GET /admin/microsoft/oauth/status â€” used by the admin UI.
   app.get(
     '/admin/microsoft/oauth/status',
     { onRequest: [app.authenticate, requireAdmin] },
@@ -3465,7 +3465,7 @@ export async function adminRoutes(app: FastifyInstance) {
     },
   );
 
-  // POST /admin/microsoft/oauth/disconnect — wipes the stored tokens.
+  // POST /admin/microsoft/oauth/disconnect â€” wipes the stored tokens.
   app.post(
     '/admin/microsoft/oauth/disconnect',
     { onRequest: [app.authenticate, requireAdmin] },
@@ -3477,9 +3477,9 @@ export async function adminRoutes(app: FastifyInstance) {
     },
   );
 
-  // ── GET /admin/pulse/search?q=ravindra ────────────────────────────────
+  // â”€â”€ GET /admin/pulse/search?q=ravindra â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   //
-  // v0.10.35 — Diagnostic helper. Search Pulse users table by name/email
+  // v0.10.35 â€” Diagnostic helper. Search Pulse users table by name/email
   // substring (case-insensitive). Returns up to 20 matches with their
   // pulse user_id. Used to find a user when their email in ACE doesn't
   // match what's stored in Pulse.
@@ -3497,13 +3497,13 @@ export async function adminRoutes(app: FastifyInstance) {
     },
   );
 
-  // ── POST /admin/users/:id/dids/:didId/backfill-from-csv ────────────────
+  // â”€â”€ POST /admin/users/:id/dids/:didId/backfill-from-csv â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   //
-  // v0.10.27 — Critical workaround. Telnyx's /v2/detail_records sync API
-  // doesn't actually support filter[from]/filter[to] — it silently returns
+  // v0.10.27 â€” Critical workaround. Telnyx's /v2/detail_records sync API
+  // doesn't actually support filter[from]/filter[to] â€” it silently returns
   // empty when those filters are applied. This means the automatic backfill
   // never finds anything. As an immediate fix, admin can manually export
-  // the CSV from Telnyx Portal → Reports and upload it here.
+  // the CSV from Telnyx Portal â†’ Reports and upload it here.
   //
   // Body: { csvText: string, type: 'voice' | 'sms' }
   //
@@ -3601,9 +3601,9 @@ export async function adminRoutes(app: FastifyInstance) {
     },
   );
 
-  // ── POST /admin/users/:id/dids/:didId/backfill ──────────────────────────
+  // â”€â”€ POST /admin/users/:id/dids/:didId/backfill â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   //
-  // v0.10.26 — Manually re-trigger the 30-day call+SMS history backfill for
+  // v0.10.26 â€” Manually re-trigger the 30-day call+SMS history backfill for
   // an already-migrated UserDid. Used when the original migration's
   // backfill didn't run (e.g. migration happened before the backfill code
   // was deployed) or when the admin wants to retry after fixing a Telnyx
@@ -3613,12 +3613,12 @@ export async function adminRoutes(app: FastifyInstance) {
   // response. Same dedup-via-unique-constraint pattern means retrying is safe.
   const BackfillSchema = z.object({
     daysBack: z.number().int().min(1).max(90).optional().default(30),
-    // v0.10.35 — Optional override for Pulse user_id. By default the
+    // v0.10.35 â€” Optional override for Pulse user_id. By default the
     // backfill looks up Pulse user by ACE email; when emails don't
     // match across systems, admin can pass the explicit Pulse user_id
     // (found via GET /admin/pulse/search?q=...).
     pulseUserIdOverride: z.number().int().positive().optional(),
-    // v0.10.36 — Optional Pulse user email + password to log into Pulse
+    // v0.10.36 â€” Optional Pulse user email + password to log into Pulse
     // REST API as the target user. Required only for the per-user
     // call-log path; SMS uses the MySQL backfill which doesn't need
     // credentials. Password is used once and never persisted.
@@ -3661,7 +3661,7 @@ export async function adminRoutes(app: FastifyInstance) {
         (obj, msg) => request.log.info(obj, msg),
       );
 
-      // v0.10.36 — Audit log records that a Pulse password was provided,
+      // v0.10.36 â€” Audit log records that a Pulse password was provided,
       // but never the password value.
       await recordAudit(actor.sub, 'user_did.backfill_rerun', userId, {
         userDidId: didId,
@@ -3677,12 +3677,12 @@ export async function adminRoutes(app: FastifyInstance) {
     },
   );
 
-  // ── POST /admin/users/migrate-from-pulse ───────────────────────────────
+  // â”€â”€ POST /admin/users/migrate-from-pulse â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   //
-  // v0.10.37 — One-shot wizard. Admin enters Pulse email + Pulse password.
+  // v0.10.37 â€” One-shot wizard. Admin enters Pulse email + Pulse password.
   // We log into Pulse on the user's behalf, decode their JWT to extract
   // everything we need (Pulse user_id, name, voip_number), then run the
-  // full create-ACE-user → rebind-DID → backfill pipeline in a single
+  // full create-ACE-user â†’ rebind-DID â†’ backfill pipeline in a single
   // request.
   //
   // Failure model: if any step after the User row is created fails, we
@@ -3691,7 +3691,7 @@ export async function adminRoutes(app: FastifyInstance) {
   // transient; rolling back the user would cause duplicate-user errors
   // on retry. Admin can finish the failed step manually.
   //
-  // Password is never persisted — used once for loginToPulse to obtain
+  // Password is never persisted â€” used once for loginToPulse to obtain
   // a JWT, then GC'd at end of request. Audit log records that a
   // migration ran, but not the credentials.
   const MigrateFromPulseSchema = z.object({
@@ -3699,17 +3699,17 @@ export async function adminRoutes(app: FastifyInstance) {
     pulsePassword: z.string().min(1).max(200),
     isAdmin: z.boolean().optional().default(false),
     daysBack: z.number().int().min(1).max(90).optional().default(30),
-    // v0.10.58 — Optional manual DID override. When provided, the migration
+    // v0.10.58 â€” Optional manual DID override. When provided, the migration
     // ignores whatever voip_number / caller_phone_number Pulse returned in
     // the JWT and uses this number for the Telnyx lookup + UserDid creation.
     // Use case: Pulse data is stale or wrong (verified case: Roshni Sahani
-    // — Pulse stored 4706008030 but her real Telnyx DID is 4706168494).
+    // â€” Pulse stored 4706008030 but her real Telnyx DID is 4706168494).
     // Accepted formats: E.164 (+14706168494), 11-digit (14706168494),
     // 10-digit US (4706168494), or with separators ((470) 616-8494).
     // Server normalizes to E.164.
     didOverride: z.string().trim().min(0).max(32).optional(),
-    // v0.10.64 — User's country, used to pick Telnyx anchorsite_override
-    // ("IN" → Chennai; everything else → "Latency"). Defaults to IN since
+    // v0.10.64 â€” User's country, used to pick Telnyx anchorsite_override
+    // ("IN" â†’ Chennai; everything else â†’ "Latency"). Defaults to IN since
     // 95% of ApTask users are in India.
     country: z.string().trim().min(0).max(8).optional().default('IN'),
   });
@@ -3747,10 +3747,10 @@ export async function adminRoutes(app: FastifyInstance) {
 
       // 2) Verify we have a voip_number we can migrate.
       //
-      // v0.10.58 — When admin supplies didOverride, ignore Pulse's stored
+      // v0.10.58 â€” When admin supplies didOverride, ignore Pulse's stored
       // voip_number/caller_phone_number entirely and use the override.
       // Use case: Pulse has stale or wrong data on the user's record
-      // (verified case: Roshni Sahani — Pulse stored 4706008030 but her
+      // (verified case: Roshni Sahani â€” Pulse stored 4706008030 but her
       // real Telnyx DID is 4706168494). The override lets us migrate
       // without first having to fix Pulse data. The override value is
       // also logged into the step list and audit so we have a record
@@ -3773,7 +3773,7 @@ export async function adminRoutes(app: FastifyInstance) {
       // Surface the override clearly in the step list so admin can audit.
       step(
         usingOverride
-          ? `extract voip_number (${e164}) — using admin override, Pulse said "${(payload.voip_number ?? payload.caller_phone_number ?? '(blank)')}"`
+          ? `extract voip_number (${e164}) â€” using admin override, Pulse said "${(payload.voip_number ?? payload.caller_phone_number ?? '(blank)')}"`
           : `extract voip_number (${e164})`,
         true,
       );
@@ -3790,7 +3790,7 @@ export async function adminRoutes(app: FastifyInstance) {
       }
       step('check for existing ACE user', true);
 
-      // v0.10.82 — when the DID is already in ACE, surface WHICH user owns it
+      // v0.10.82 â€” when the DID is already in ACE, surface WHICH user owns it
       // (email + name + active state) so admin can decide at a glance whether
       // it's a stale prior-attempt record (deletable + retry) or a real other
       // user (Pulse data is genuinely wrong, use override or skip Pulse).
@@ -3823,9 +3823,9 @@ export async function adminRoutes(app: FastifyInstance) {
           `DID ${e164} is already assigned to ACE user #${dupDid.userId} ` +
           `(${ownerName} <${ownerEmail}>, ${activeTag}). ` +
           (owner && !owner.isActive
-            ? `That user is deactivated — admin can delete them to free the DID, then retry.`
+            ? `That user is deactivated â€” admin can delete them to free the DID, then retry.`
             : owner && owner.email === normEmail
-              ? `Same email as the migration target — this looks like a prior failed attempt for the same person. Delete user #${dupDid.userId} and retry.`
+              ? `Same email as the migration target â€” this looks like a prior failed attempt for the same person. Delete user #${dupDid.userId} and retry.`
               : `Different user owns this DID. Either Pulse's voip_number is wrong, or this DID legitimately belongs to ${ownerName}. Use the Override DID field with the correct number.`);
         step('check DID not already in ACE', false, detail);
         return reply.code(409).send({
@@ -3856,7 +3856,7 @@ export async function adminRoutes(app: FastifyInstance) {
       }
       if (!tn.data) {
         step('look up DID on Telnyx', false, `Telnyx doesn't recognize ${e164}`);
-        // v0.10.81 — Migration debug. Before giving up, scan the Pulse JWT
+        // v0.10.81 â€” Migration debug. Before giving up, scan the Pulse JWT
         // payload for OTHER phone-shaped fields (mobile_no, caller_phone_number,
         // anything we haven't tried) and check each against Telnyx. Saves the
         // admin from having to SQL-spelunk Pulse to figure out which column
@@ -3912,14 +3912,14 @@ export async function adminRoutes(app: FastifyInstance) {
         step('create Telnyx Credential Connection (no template)', true);
       }
 
-      // v0.10.64 — Apply per-user Telnyx connection defaults (anchorsite
+      // v0.10.64 â€” Apply per-user Telnyx connection defaults (anchorsite
       // based on country). Best-effort; non-fatal. Log a step either way
       // so admin can see what happened.
       const connDefaults = await applyAceConnectionDefaults(connectionId, country);
       step(
         connDefaults.ok
           ? `apply ACE connection defaults (noise suppression copied from master template)`
-          : `apply ACE connection defaults — non-fatal warning`,
+          : `apply ACE connection defaults â€” non-fatal warning`,
         connDefaults.ok,
         connDefaults.ok ? undefined : JSON.stringify(connDefaults.detail),
       );
@@ -3932,13 +3932,13 @@ export async function adminRoutes(app: FastifyInstance) {
       }
       step(`rebind DID ${e164} from Pulse to ACE connection ${connectionId}`, true);
 
-      // v0.10.64 — Apply per-DID Telnyx defaults (HD voice, CNAM = ApTask,
+      // v0.10.64 â€” Apply per-DID Telnyx defaults (HD voice, CNAM = ApTask,
       // voicemail enabled, voicemail PIN = 12345). Best-effort; non-fatal.
       const phoneDefaults = await applyAcePhoneNumberDefaults(telnyxNumberId);
       step(
         phoneDefaults.voice.ok && phoneDefaults.voicemail.ok
           ? 'apply ACE DID defaults (HD voice + CNAM + voicemail + PIN)'
-          : 'apply ACE DID defaults — partial/failed (non-fatal)',
+          : 'apply ACE DID defaults â€” partial/failed (non-fatal)',
         phoneDefaults.voice.ok && phoneDefaults.voicemail.ok,
         phoneDefaults.voice.ok && phoneDefaults.voicemail.ok
           ? undefined
@@ -3985,7 +3985,7 @@ export async function adminRoutes(app: FastifyInstance) {
               isActive: true,
               provider: 'microsoft',
               lastLoginAt: null,
-              // v0.10.64 — Persist country so future refresh-from-pulse
+              // v0.10.64 â€” Persist country so future refresh-from-pulse
               // and Telnyx config syncs use the correct anchorsite.
               country,
             },
@@ -4001,7 +4001,7 @@ export async function adminRoutes(app: FastifyInstance) {
               isAdmin: !!makeAdmin,
               isActive: true,
               provider: 'microsoft',
-              // v0.10.64 — country drives Telnyx anchorsite selection.
+              // v0.10.64 â€” country drives Telnyx anchorsite selection.
               country,
             },
             select: userSelect,
@@ -4022,7 +4022,7 @@ export async function adminRoutes(app: FastifyInstance) {
         linked.ok, linked.ok ? undefined : linked.error ?? 'unknown error',
       );
 
-      // v0.10.86 — 10b) Auto-reattach orphan history from previous failed
+      // v0.10.86 â€” 10b) Auto-reattach orphan history from previous failed
       // migrations of the SAME Pulse user.
       //
       // PROBLEM this solves: if this Pulse user was migrated before, the
@@ -4030,11 +4030,11 @@ export async function adminRoutes(app: FastifyInstance) {
       // email rewritten to deleted-N@deleted.ace.local). The messages/
       // calls/voicemails from that previous attempt stay bound to the
       // tombstoned user_id, not visible to the new user we just created.
-      // Required SQL cleanup every time — Roshni/Farheen/Shreya/Rahul pattern.
+      // Required SQL cleanup every time â€” Roshni/Farheen/Shreya/Rahul pattern.
       //
       // FIX: find every audit-log entry for this Pulse user_id where the
       // target was later tombstoned. Reassign their orphan history rows
-      // to the freshly-created user. Best-effort — failure here logs a
+      // to the freshly-created user. Best-effort â€” failure here logs a
       // warning step but doesn't abort the migration (history can be
       // recovered manually via the same SQL we used to use).
       try {
@@ -4055,7 +4055,7 @@ export async function adminRoutes(app: FastifyInstance) {
           .filter((id): id is number => typeof id === 'number' && id !== created.id);
 
         if (priorUserIds.length > 0) {
-          // Only act on tombstoned (anonymized) ones — active prior users
+          // Only act on tombstoned (anonymized) ones â€” active prior users
           // would mean multiple people share a Pulse user_id (shouldn't
           // happen, but guard anyway).
           const tombstoned = await prisma.user.findMany({
@@ -4109,7 +4109,7 @@ export async function adminRoutes(app: FastifyInstance) {
           }
         }
       } catch (err) {
-        // Best-effort — log + continue. Admin can still SQL-recover.
+        // Best-effort â€” log + continue. Admin can still SQL-recover.
         step(
           'inherit orphan history from prior tombstoned user(s)',
           false,
@@ -4129,7 +4129,7 @@ export async function adminRoutes(app: FastifyInstance) {
         mail.ok ? undefined : (typeof mail.error === 'string' ? mail.error : `HTTP ${mail.status}`),
       );
 
-      // 12) Backfill — calls via Pulse REST, SMS via Pulse MySQL
+      // 12) Backfill â€” calls via Pulse REST, SMS via Pulse MySQL
       const userDid = await prisma.userDid.findFirst({
         where: { userId: created.id, didNumber: e164 },
         select: { id: true },
@@ -4154,7 +4154,7 @@ export async function adminRoutes(app: FastifyInstance) {
           backfillResult.errors.length > 0 ? backfillResult.errors.join('; ') : undefined,
         );
       } else {
-        step('locate new UserDid for backfill', false, 'UserDid row missing after create — backfill skipped');
+        step('locate new UserDid for backfill', false, 'UserDid row missing after create â€” backfill skipped');
       }
 
       await recordAudit(actor.sub, 'user.migrated_from_pulse', created.id, {
@@ -4162,7 +4162,7 @@ export async function adminRoutes(app: FastifyInstance) {
         pulseEmail: normEmail,
         aceEmail: normEmail,
         didNumber: e164,
-        // v0.10.58 — Audit the override usage so we have a record that admin
+        // v0.10.58 â€” Audit the override usage so we have a record that admin
         // manually supplied this DID (and that we ignored Pulse's stored
         // value). Helpful for incident review if a wrong number got migrated.
         usedDidOverride: usingOverride,
@@ -4194,21 +4194,21 @@ export async function adminRoutes(app: FastifyInstance) {
     },
   );
 
-  // ── POST /admin/users/:id/refresh-from-pulse ───────────────────────────
+  // â”€â”€ POST /admin/users/:id/refresh-from-pulse â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   //
-  // v0.10.38 — Per-user "Refresh from Pulse" button. UI sends just the
+  // v0.10.38 â€” Per-user "Refresh from Pulse" button. UI sends just the
   // target user id and (optionally) the user's Pulse password. Backend
   // resolves everything else (pulseUserId from audit log, default DID,
   // email from the User row).
   const RefreshFromPulseSchema = z.object({
     pulseUserPassword: z.string().min(1).max(200).optional(),
     daysBack: z.number().int().min(1).max(90).optional().default(30),
-    // v0.10.39 — Manual override for users (like Ravindra) whose audit
+    // v0.10.39 â€” Manual override for users (like Ravindra) whose audit
     // log doesn't yet have a Pulse user_id mapping. Once used, the
     // backfill writes a new audit log entry with this pulseUserId so
     // future refreshes auto-resolve without needing the override.
     pulseUserIdOverride: z.number().int().positive().optional(),
-    // v0.10.40 — For users with multiple ACE lines, admin picks WHICH
+    // v0.10.40 â€” For users with multiple ACE lines, admin picks WHICH
     // line the imported Pulse history should attach to. If omitted, we
     // fall back to the user's isDefault DID (single-line behaviour).
     userDidId: z.number().int().positive().optional(),
@@ -4228,7 +4228,7 @@ export async function adminRoutes(app: FastifyInstance) {
       }
       const { pulseUserPassword, daysBack, pulseUserIdOverride, userDidId: pickedUserDidId } = parsed.data;
 
-      // v0.10.40 — Pull ALL the user's DIDs so admin can pick which one
+      // v0.10.40 â€” Pull ALL the user's DIDs so admin can pick which one
       // (multi-line users), with isDefault as the fallback.
       const user = await prisma.user.findUnique({
         where: { id: userId },
@@ -4263,10 +4263,10 @@ export async function adminRoutes(app: FastifyInstance) {
         });
       }
 
-      // Auto-resolve pulseUserId — explicit override wins; otherwise look
+      // Auto-resolve pulseUserId â€” explicit override wins; otherwise look
       // up the newest audit log entry. v0.10.39: override added for
       // pre-wizard ACE users (their audit log doesn't have a pulse mapping
-      // yet — first refresh seeds the mapping).
+      // yet â€” first refresh seeds the mapping).
       let pulseUserId: number | null = pulseUserIdOverride ?? null;
       if (pulseUserId === null) {
         const auditRow = await prisma.auditLog.findFirst({
@@ -4308,7 +4308,7 @@ export async function adminRoutes(app: FastifyInstance) {
         (obj, msg) => request.log.info(obj, msg),
       );
 
-      // v0.10.41 — Always fetch diagnostic counts so the admin can see
+      // v0.10.41 â€” Always fetch diagnostic counts so the admin can see
       // how much SMS data Pulse actually has for this user (vs. what we
       // imported). Distinguishes "Pulse has 0 SMS for them" from "Pulse
       // has lots of SMS but our query is missing them".
@@ -4347,7 +4347,7 @@ export async function adminRoutes(app: FastifyInstance) {
     },
   );
 
-  // ── Admin blocked-number visibility + override (v0.10.51) ──────────────
+  // â”€â”€ Admin blocked-number visibility + override (v0.10.51) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   //
   // Per-user blocklists already exist (see apps/api/src/blocked/blocked.routes.ts).
   // What's new here: admin can see EVERY user's blocks in one place and
@@ -4356,8 +4356,8 @@ export async function adminRoutes(app: FastifyInstance) {
   // filtering calls and why.
   //
   // Endpoints:
-  //   GET    /admin/blocked-numbers       — list ALL blocks across all users
-  //   DELETE /admin/blocked-numbers/:id   — remove any block (admin override)
+  //   GET    /admin/blocked-numbers       â€” list ALL blocks across all users
+  //   DELETE /admin/blocked-numbers/:id   â€” remove any block (admin override)
   app.get(
     '/admin/blocked-numbers',
     { onRequest: [app.authenticate, requireAdmin] },
@@ -4410,7 +4410,7 @@ export async function adminRoutes(app: FastifyInstance) {
     },
   );
 
-  // ── SMS templates (v0.10.52) ────────────────────────────────────────────
+  // â”€â”€ SMS templates (v0.10.52) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   //
   // Tenant-wide recruiter SMS playbook. Admin curates the list; users see
   // them in the SMS compose box as a picker. Templates can have
@@ -4418,12 +4418,12 @@ export async function adminRoutes(app: FastifyInstance) {
   // auto-resolves from contact; rest are typed by the user).
   //
   // Endpoints:
-  //   GET    /admin/sms-templates       — list ALL (incl. inactive) for admin
-  //   POST   /admin/sms-templates       — create
-  //   PATCH  /admin/sms-templates/:id   — update
-  //   DELETE /admin/sms-templates/:id   — soft-delete (set isActive=false)
-  //   POST   /admin/sms-templates/seed-defaults — one-time seed of the 20
-  //                                       built-in templates (idempotent —
+  //   GET    /admin/sms-templates       â€” list ALL (incl. inactive) for admin
+  //   POST   /admin/sms-templates       â€” create
+  //   PATCH  /admin/sms-templates/:id   â€” update
+  //   DELETE /admin/sms-templates/:id   â€” soft-delete (set isActive=false)
+  //   POST   /admin/sms-templates/seed-defaults â€” one-time seed of the 20
+  //                                       built-in templates (idempotent â€”
   //                                       skips templates that already
   //                                       exist by (category, name) match)
   //
@@ -4505,7 +4505,7 @@ export async function adminRoutes(app: FastifyInstance) {
       const actor = request.user as JwtPayload;
       const id = Number(request.params.id);
       if (!Number.isFinite(id)) return reply.code(400).send({ ok: false, error: 'Invalid id' });
-      // Soft delete — preserves history. Hard delete via admin would
+      // Soft delete â€” preserves history. Hard delete via admin would
       // require an additional ?hard=true param; not implementing now.
       const updated = await prisma.smsTemplate.update({
         where: { id },
@@ -4516,7 +4516,7 @@ export async function adminRoutes(app: FastifyInstance) {
     },
   );
 
-  // Idempotent seed — only inserts templates with (category, name) tuples
+  // Idempotent seed â€” only inserts templates with (category, name) tuples
   // that don't already exist. Safe to re-run.
   app.post(
     '/admin/sms-templates/seed-defaults',
@@ -4555,24 +4555,24 @@ export async function adminRoutes(app: FastifyInstance) {
     },
   );
 
-  // ── Hold music admin-distribute (v0.10.48) ─────────────────────────────
+  // â”€â”€ Hold music admin-distribute (v0.10.48) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   //
-  // Admin uploads a single audio file (any format the browser can play —
+  // Admin uploads a single audio file (any format the browser can play â€”
   // typically MP3 or M4A, under 3 MB). It's stored as a base64 data URL
   // in the SystemSetting table under key "hold_music_data_url" and
   // becomes the default for any user without their own local override.
   //
   // Three endpoints:
-  //   POST   /admin/hold-music   — upload/replace
-  //   GET    /admin/hold-music   — view current (admin diagnostic)
-  //   DELETE /admin/hold-music   — clear, fall back to "no default"
+  //   POST   /admin/hold-music   â€” upload/replace
+  //   GET    /admin/hold-music   â€” view current (admin diagnostic)
+  //   DELETE /admin/hold-music   â€” clear, fall back to "no default"
   //
   // The user-facing GET /me/hold-music lives in me.routes.ts. Same data,
   // but no admin gate.
   const HoldMusicUploadSchema = z.object({
     /** Base64 data URL (e.g. "data:audio/mpeg;base64,SUQz..."). */
     dataUrl: z.string().startsWith('data:audio/').max(4 * 1024 * 1024),
-    /** Original filename — display-only, no semantic meaning. */
+    /** Original filename â€” display-only, no semantic meaning. */
     filename: z.string().min(1).max(200),
   });
   app.post(
@@ -4636,17 +4636,17 @@ export async function adminRoutes(app: FastifyInstance) {
     },
   );
 
-  // ── POST /admin/maintenance/fix-pulse-timestamps ──────────────────────
+  // â”€â”€ POST /admin/maintenance/fix-pulse-timestamps â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   //
-  // v0.10.45 — One-time cleanup. Pulse-migrated Messages and Calls before
+  // v0.10.45 â€” One-time cleanup. Pulse-migrated Messages and Calls before
   // v0.10.45 had Message.createdAt = NOW() (the import time) instead of
   // the original send/call time. This makes the Messages list and Recents
   // show all migrated items with the same timestamp. Fix: set createdAt
-  // = sentAt for Messages, createdAt = startedAt for Calls — but only
+  // = sentAt for Messages, createdAt = startedAt for Calls â€” but only
   // for rows that look like they came from Pulse (telnyx id starts with
   // "pulse-" or "pulserest-").
   //
-  // Idempotent — re-running is safe (just re-sets the same values).
+  // Idempotent â€” re-running is safe (just re-sets the same values).
   app.post(
     '/admin/maintenance/fix-pulse-timestamps',
     { onRequest: [app.authenticate, requireAdmin] },
@@ -4654,7 +4654,7 @@ export async function adminRoutes(app: FastifyInstance) {
       const actor = request.user as JwtPayload;
       const startedAt = Date.now();
 
-      // Messages: createdAt → sentAt
+      // Messages: createdAt â†’ sentAt
       const msgResult: number = await prisma.$executeRawUnsafe(`
         UPDATE messages
         SET created_at = sent_at
@@ -4663,7 +4663,7 @@ export async function adminRoutes(app: FastifyInstance) {
           AND created_at <> sent_at
       `);
 
-      // Calls: createdAt → startedAt
+      // Calls: createdAt â†’ startedAt
       const callResult: number = await prisma.$executeRawUnsafe(`
         UPDATE calls
         SET created_at = started_at
@@ -4687,9 +4687,9 @@ export async function adminRoutes(app: FastifyInstance) {
     },
   );
 
-  // ── POST /admin/users/bulk-refresh-pulse-sms ──────────────────────────
+  // â”€â”€ POST /admin/users/bulk-refresh-pulse-sms â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   //
-  // v0.10.38 — Re-runs the MySQL SMS backfill for every ACE user who has
+  // v0.10.38 â€” Re-runs the MySQL SMS backfill for every ACE user who has
   // a Pulse origin in the audit log. SMS only (calls would need per-user
   // passwords). Sequential processing with a 200ms inter-user delay to
   // stay polite to Pulse MySQL. Capped at 100 users per invocation.
@@ -4852,7 +4852,7 @@ export async function adminRoutes(app: FastifyInstance) {
     },
   );
 
-  // ── PATCH /admin/users/:id/dids/:didId ──────────────────────────────────
+  // â”€â”€ PATCH /admin/users/:id/dids/:didId â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const PatchDidSchema = z.object({
     label: z.string().min(1).max(40).optional(),
     colorHex: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
@@ -4910,10 +4910,10 @@ export async function adminRoutes(app: FastifyInstance) {
     },
   );
 
-  // ── DELETE /admin/users/:id/dids/:didId ─────────────────────────────────
+  // â”€â”€ DELETE /admin/users/:id/dids/:didId â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   // Removes a DID from a user. Refuses if it's the user's only DID
   // (would leave them un-callable). Also unassigns the DID on Telnyx so
-  // it returns to the pool — admin can re-use it on another user via
+  // it returns to the pool â€” admin can re-use it on another user via
   // the unassigned-numbers picker.
   app.delete<{ Params: { id: string; didId: string } }>(
     '/admin/users/:id/dids/:didId',
@@ -4944,7 +4944,7 @@ export async function adminRoutes(app: FastifyInstance) {
       }
 
       // Telnyx side: unassign so the number returns to the pool.
-      // Non-fatal — if Telnyx rejects, we still drop the UserDid row
+      // Non-fatal â€” if Telnyx rejects, we still drop the UserDid row
       // (admin can fix the Telnyx side later).
       let telnyxUnassigned = false;
       if (target.telnyxNumberId) {
@@ -4991,7 +4991,7 @@ export async function adminRoutes(app: FastifyInstance) {
     },
   );
 
-  // ── POST /admin/pending-users/import ────────────────────────────────────
+  // â”€â”€ POST /admin/pending-users/import â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   app.post(
     '/admin/pending-users/import',
     { onRequest: [app.authenticate, requireAdmin] },
@@ -5055,7 +5055,7 @@ export async function adminRoutes(app: FastifyInstance) {
     },
   );
 
-  // ── GET /admin/pending-users ────────────────────────────────────────────
+  // â”€â”€ GET /admin/pending-users â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   app.get(
     '/admin/pending-users',
     { onRequest: [app.authenticate, requireAdmin] },
@@ -5073,7 +5073,7 @@ export async function adminRoutes(app: FastifyInstance) {
       });
 
       // PendingUser.invitedUserId is a plain Int column, NOT a Prisma
-      // relation (intentional — avoids cascade-delete weirdness if a
+      // relation (intentional â€” avoids cascade-delete weirdness if a
       // User row is removed). So we can't `include` the User; instead
       // we bulk-fetch the lastLoginAt for every invitedUserId we saw
       // and build a lookup map.
@@ -5138,7 +5138,7 @@ export async function adminRoutes(app: FastifyInstance) {
       return {
         items: rows.map((r) => ({
           ...r,
-          // Don't leak the SIP password to the client in the LIST view —
+          // Don't leak the SIP password to the client in the LIST view â€”
           // only the invite endpoint needs to know it server-side. Show a
           // boolean indicator instead.
           pulseExtPassword: undefined,
@@ -5156,9 +5156,9 @@ export async function adminRoutes(app: FastifyInstance) {
     },
   );
 
-  // ── POST /admin/pending-users/:id/invite ───────────────────────────────
+  // â”€â”€ POST /admin/pending-users/:id/invite â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   // The actual provisioning. Reads PendingUser + the 4 modal toggles, then
-  // orchestrates: (Telnyx work?) → create User row → (welcome email?) →
+  // orchestrates: (Telnyx work?) â†’ create User row â†’ (welcome email?) â†’
   // mark PendingUser.status=invited. Every step is logged into the returned
   // `steps` array so the UI can show a per-step success/error table.
   app.post<{ Params: { id: string } }>(
@@ -5187,11 +5187,11 @@ export async function adminRoutes(app: FastifyInstance) {
 
       // Pre-flight: refuse to start the Telnyx orchestration if this email is
       // already a User row (e.g. the admin themselves, or someone added via
-      // Admin → Users). Otherwise we'd touch Telnyx and then fail on the
+      // Admin â†’ Users). Otherwise we'd touch Telnyx and then fail on the
       // Prisma unique constraint at the very end. Same check for sipUsername
       // when credsMode=existing, since reusing the Pulse extension as the
       // sipUsername would collide too.
-      // v0.9.10 — allow recycling soft-deactivated rows so admins can
+      // v0.9.10 â€” allow recycling soft-deactivated rows so admins can
       // re-invite users whose history blocked the hard delete.
       const dupEmail = await prisma.user.findUnique({
         where: { email: pending.email.toLowerCase() },
@@ -5237,7 +5237,7 @@ export async function adminRoutes(app: FastifyInstance) {
       let webhookRepointed = false;
       let emailSent = false;
 
-      // ── Step 1: SIP credentials ──────────────────────────────────────
+      // â”€â”€ Step 1: SIP credentials â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
       if (credsMode === 'existing') {
         step('use existing SIP credentials (from CSV)', true);
       } else {
@@ -5248,10 +5248,10 @@ export async function adminRoutes(app: FastifyInstance) {
         const userName =
           `ace${pending.pulseVoipExt.replace(/[^a-z0-9]/gi, '').toLowerCase().slice(0, 20)}${Date.now().toString(36).slice(-6)}`;
 
-        // v0.9.7 — Try template-clone first so the new connection inherits the
+        // v0.9.7 â€” Try template-clone first so the new connection inherits the
         // proven-working outbound voice profile + channel limits + codecs from
         // the +17322001305 connection. If we can't resolve the template or the
-        // clone fails, fall back to a plain create — NEVER block the invite.
+        // clone fails, fall back to a plain create â€” NEVER block the invite.
         const tplIdRes = await telnyx.resolveTemplateConnectionId();
         const tplId = tplIdRes.ok ? tplIdRes.data : null;
         let usedTemplate = false;
@@ -5270,7 +5270,7 @@ export async function adminRoutes(app: FastifyInstance) {
             if (cloneRes.templateApplied) {
               step('clone Telnyx connection from template (outbound voice profile + limits)', true);
             } else {
-              step('clone Telnyx connection from template — created but PATCH partial', true);
+              step('clone Telnyx connection from template â€” created but PATCH partial', true);
               for (const w of cloneRes.warnings) step(`template warning: ${w}`, false);
             }
           } else {
@@ -5296,11 +5296,11 @@ export async function adminRoutes(app: FastifyInstance) {
           sipPassword = res.data.data.password ?? '';
           newConnectionId = res.data.data.id;
           credsCreated = true;
-          step('create new Telnyx Credential Connection (fallback — no template)', true);
+          step('create new Telnyx Credential Connection (fallback â€” no template)', true);
         }
       }
 
-      // ── Step 2: DID number ──────────────────────────────────────────
+      // â”€â”€ Step 2: DID number â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
       if (didMode === 'existing') {
         // Use the user's existing Pulse DID as-is. If we ALSO created new
         // credentials above, we need to reroute the DID from the Pulse
@@ -5388,11 +5388,11 @@ export async function adminRoutes(app: FastifyInstance) {
         step(`purchase DID ${target}` + (targetConnId ? ' (routed to connection)' : ''), true);
       }
 
-      // ── Step 2.5: Auto-flip messaging profile to ACE ─────────────────
+      // â”€â”€ Step 2.5: Auto-flip messaging profile to ACE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
       // Regardless of which DID mode the admin picked, the user's number
       // should route inbound SMS to ACE's messaging webhook (not Pulse).
       // This runs every time so users are SMS-ready the moment they log in
-      // — no manual portal config, no "valuable time" wasted.
+      // â€” no manual portal config, no "valuable time" wasted.
       // Skipped only if TELNYX_MESSAGING_PROFILE_ID isn't configured in env.
       if (didNumber && config.telnyxMessagingProfileId) {
         const digits = didNumber.replace(/[^\d]/g, '');
@@ -5402,7 +5402,7 @@ export async function adminRoutes(app: FastifyInstance) {
         const lookup = await telnyx.findNumberByE164(e164);
         if (!lookup.ok || !lookup.data) {
           step('look up DID to bind messaging profile', false, `Number not found: ${e164}`);
-          // Non-fatal — user can still receive calls; we just won't get SMS
+          // Non-fatal â€” user can still receive calls; we just won't get SMS
           // until an admin binds the messaging profile manually.
         } else {
           const bind = await telnyx.assignNumberMessagingProfile(
@@ -5413,7 +5413,7 @@ export async function adminRoutes(app: FastifyInstance) {
             step('bind DID to ACE messaging profile (SMS routing)', true);
           } else {
             step('bind DID to ACE messaging profile (SMS routing)', false, JSON.stringify(bind.error));
-            // Also non-fatal — voice still works.
+            // Also non-fatal â€” voice still works.
           }
         }
       } else if (didNumber && !config.telnyxMessagingProfileId) {
@@ -5421,16 +5421,16 @@ export async function adminRoutes(app: FastifyInstance) {
           'Skipped: TELNYX_MESSAGING_PROFILE_ID env var not set');
       }
 
-      // ── Step 2.75: Caller ID Override (v0.9.11) ─────────────────────
+      // â”€â”€ Step 2.75: Caller ID Override (v0.9.11) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
       // Set outbound.ani_override on the user's connection to their OWN DID
       // so outbound calls from the WebRTC dialer present THIS user's number
       // (not the template's +17322001305). Without this, the previous
       // "template clone" was inheriting Abdulla's DID as the caller ID for
-      // every new user — wrong number on every call.
+      // every new user â€” wrong number on every call.
       //
       // Target connection:
-      //   - credsMode === 'new'      → the freshly-created connection
-      //   - credsMode === 'existing' → the user's existing Pulse connection
+      //   - credsMode === 'new'      â†’ the freshly-created connection
+      //   - credsMode === 'existing' â†’ the user's existing Pulse connection
       //     (resolved via the DID's connection_id since the DID is bound to
       //     it after step 2)
       if (didNumber) {
@@ -5467,17 +5467,17 @@ export async function adminRoutes(app: FastifyInstance) {
         }
       }
 
-      // ── Step 3: Repoint webhook ─────────────────────────────────────
+      // â”€â”€ Step 3: Repoint webhook â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
       // Only meaningful when we're keeping the user's existing Pulse
       // connection (credsMode=existing). If credsMode=new, the new
       // connection already has the ACE webhook from createCredentialConnection.
       //
-      // v0.9.10 — "Pulse connection not found" is NOT a real failure here.
+      // v0.9.10 â€” "Pulse connection not found" is NOT a real failure here.
       // The user's calls + SMS already route to ACE via the DID's
       // connection_id + messaging_profile_id (set in Step 2 / 2.5). The
       // webhook repoint is only relevant if the OLD Pulse connection is
       // still listed in Telnyx and stealing events. If it's not there,
-      // nothing to do — log as a clean success ("skipped — no stale
+      // nothing to do â€” log as a clean success ("skipped â€” no stale
       // Pulse connection") instead of a scary red X.
       if (repointWebhook) {
         if (credsMode === 'new') {
@@ -5485,17 +5485,17 @@ export async function adminRoutes(app: FastifyInstance) {
           webhookRepointed = true;
         } else if (!pending.pulseConnectionName) {
           step(
-            'webhook repoint skipped — no Pulse connection name in CSV row (calls + SMS still route to ACE)',
+            'webhook repoint skipped â€” no Pulse connection name in CSV row (calls + SMS still route to ACE)',
             true,
           );
         } else {
           const conn = await telnyx.findConnectionByName(pending.pulseConnectionName);
           if (!conn.ok || !conn.data) {
-            // Pulse connection isn't in Telnyx — probably already removed,
+            // Pulse connection isn't in Telnyx â€” probably already removed,
             // renamed, or the CSV name was a placeholder. Either way, no
             // repoint needed because there's no stale webhook to flip.
             step(
-              `webhook repoint skipped — Pulse connection "${pending.pulseConnectionName}" not in Telnyx (likely already migrated; calls + SMS still route to ACE)`,
+              `webhook repoint skipped â€” Pulse connection "${pending.pulseConnectionName}" not in Telnyx (likely already migrated; calls + SMS still route to ACE)`,
               true,
             );
           } else {
@@ -5510,7 +5510,7 @@ export async function adminRoutes(app: FastifyInstance) {
         }
       }
 
-      // ── Step 4: Create the User row ─────────────────────────────────
+      // â”€â”€ Step 4: Create the User row â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
       // Normalize the DID to +E.164 so it matches the rest of the system.
       const digits = didNumber.replace(/[^\d]/g, '');
       const didE164 = didNumber.startsWith('+')
@@ -5523,7 +5523,7 @@ export async function adminRoutes(app: FastifyInstance) {
 
       let createdUser: { id: number; email: string; firstName: string | null; didNumber: string | null };
       try {
-        // v0.9.10 — recycle the soft-deactivated row if we found one earlier.
+        // v0.9.10 â€” recycle the soft-deactivated row if we found one earlier.
         // Lets admins re-invite users whose history blocked hard delete.
         createdUser = recyclePendingUserId
           ? await prisma.user.update({
@@ -5569,14 +5569,14 @@ export async function adminRoutes(app: FastifyInstance) {
         });
       }
 
-      // v0.10.0 — Ensure matching UserDid row (see lib/userDid.ts). Done
+      // v0.10.0 â€” Ensure matching UserDid row (see lib/userDid.ts). Done
       // here regardless of recycle vs create so the activeUserDidId
       // pointer and UserDid row exist for the SMS path + DidSwitcher.
       //
       // The variable holding the Telnyx connection id in this scope is
       // `newConnectionId` (set when we cloned a Credential Connection in
       // Step 1 with credsMode='new'). For credsMode='existing' it stays
-      // null — that's fine; ensureUserDid tolerates a null connectionId
+      // null â€” that's fine; ensureUserDid tolerates a null connectionId
       // and the DID itself is still routed correctly via Telnyx-side
       // connection_id binding. Hot-fix: this previously referenced an
       // unscoped `connectionId` and broke the Render build.
@@ -5592,7 +5592,7 @@ export async function adminRoutes(app: FastifyInstance) {
         step('link UserDid row', false, pendingInviteLinked.error ?? 'unknown error');
       }
 
-      // ── Step 5: Mark PendingUser as invited ─────────────────────────
+      // â”€â”€ Step 5: Mark PendingUser as invited â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
       await prisma.pendingUser.update({
         where: { id },
         data: {
@@ -5603,7 +5603,7 @@ export async function adminRoutes(app: FastifyInstance) {
       });
       step('mark PendingUser as invited', true);
 
-      // ── Step 6: Send welcome email (optional) ──────────────────────
+      // â”€â”€ Step 6: Send welcome email (optional) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
       if (sendEmail) {
         const sendRes = await sendWelcomeEmail({
           toEmail: createdUser.email,
@@ -5621,7 +5621,7 @@ export async function adminRoutes(app: FastifyInstance) {
         step('skip welcome email (admin opted out)', true);
       }
 
-      // ── Audit ───────────────────────────────────────────────────────
+      // â”€â”€ Audit â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
       await recordAudit(actor.sub, 'pending_user.invited', createdUser.id, {
         pendingUserId: pending.id,
         pendingEmail: pending.email,
@@ -5650,7 +5650,7 @@ export async function adminRoutes(app: FastifyInstance) {
     },
   );
 
-  // ── DELETE /admin/pending-users/:id (v0.9.7) ────────────────────────────
+  // â”€â”€ DELETE /admin/pending-users/:id (v0.9.7) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   // For PENDING rows: drops the staging row only.
   // For INVITED rows: cleans up Telnyx (unassign DID + delete Credential
   // Connection), deletes the linked User row, then drops the PendingUser row.
@@ -5675,7 +5675,7 @@ export async function adminRoutes(app: FastifyInstance) {
         steps.push({ step: name, ok, ...(error ? { error } : {}) });
       };
 
-      // PENDING — easy case: just drop the row.
+      // PENDING â€” easy case: just drop the row.
       if (pending.status !== 'invited') {
         await prisma.pendingUser.delete({ where: { id } });
         await recordAudit(actor.sub, 'pending_user.deleted', null, {
@@ -5686,7 +5686,7 @@ export async function adminRoutes(app: FastifyInstance) {
         return { ok: true, steps };
       }
 
-      // INVITED — clean up Telnyx + the linked User row.
+      // INVITED â€” clean up Telnyx + the linked User row.
       let didReleased: string | null = null;
       let connectionDeleted: string | null = null;
       let deletedUserId: number | null = null;
@@ -5700,13 +5700,13 @@ export async function adminRoutes(app: FastifyInstance) {
 
       if (user) {
         // We use the DID-based lookup pattern (same as the verify endpoint):
-        //  - DID → number record → connection_id → connection
+        //  - DID â†’ number record â†’ connection_id â†’ connection
         // This avoids Telnyx's broken filter[user_name] (it ignores it and
         // returns all connections), and gives us a connection_id we can
         // confidently delete.
         let connIdFromDid: string | null = null;
 
-        // 1) Un-assign DID → returns it to the unassigned pool (clears both
+        // 1) Un-assign DID â†’ returns it to the unassigned pool (clears both
         //    connection_id + messaging_profile_id).
         if (user.didNumber) {
           const lookup = await telnyx.findNumberByE164(user.didNumber);
@@ -5715,7 +5715,7 @@ export async function adminRoutes(app: FastifyInstance) {
           } else if (!lookup.data) {
             step(`look up DID ${user.didNumber}`, false, 'Number not found (already released?)');
           } else {
-            // Capture the connection_id BEFORE we unassign — once we unassign,
+            // Capture the connection_id BEFORE we unassign â€” once we unassign,
             // the number's connection_id will be null and we'd lose the trail
             // to the credential connection.
             connIdFromDid = lookup.data.connection_id ?? null;
@@ -5790,7 +5790,7 @@ export async function adminRoutes(app: FastifyInstance) {
         //    are plain (no cascade) and will block delete with an FK error.
         //    Behaviour:
         //      - Try the hard delete first.
-        //      - On FK failure: ANONYMIZE the User in place. v0.9.12 — admin
+        //      - On FK failure: ANONYMIZE the User in place. v0.9.12 â€” admin
         //        explicitly asked that deletes free the email for re-invite
         //        and strip every piece of PII while keeping FK-bound history
         //        rows (calls/SMS/voicemails) for audit integrity. The
@@ -5809,9 +5809,9 @@ export async function adminRoutes(app: FastifyInstance) {
           // Anonymize fallback so admin doesn't see a ghost user AND can
           // re-invite the same email later without a unique-constraint hit.
           try {
-            // v0.10.84 — Release UserDid rows before anonymize (same fix
+            // v0.10.84 â€” Release UserDid rows before anonymize (same fix
             // as the primary delete handler around line 1280; see that
-            // comment for the full rationale — Farheen/Shreya pattern).
+            // comment for the full rationale â€” Farheen/Shreya pattern).
             const releasedDids = await prisma.userDid
               .deleteMany({ where: { userId: user.id } })
               .catch((err) => {
@@ -5852,7 +5852,7 @@ export async function adminRoutes(app: FastifyInstance) {
               },
             });
             step(
-              `User #${user.id} had history — anonymized (email tombstoned, PII + SIP creds + DID + SSO link cleared; history rows retained)`,
+              `User #${user.id} had history â€” anonymized (email tombstoned, PII + SIP creds + DID + SSO link cleared; history rows retained)`,
               true,
             );
           } catch (e2) {
@@ -5890,10 +5890,10 @@ export async function adminRoutes(app: FastifyInstance) {
     },
   );
 
-  // ── PATCH /admin/pending-users/:id (v0.9.7) ─────────────────────────────
+  // â”€â”€ PATCH /admin/pending-users/:id (v0.9.7) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   // Edit any column on a staging row. For PENDING rows: free edit. For
   // INVITED/ACCEPTED rows: name+email also mirror onto the linked User row,
-  // but Pulse credentials (ext, number, password) are frozen — those values
+  // but Pulse credentials (ext, number, password) are frozen â€” those values
   // were already pushed to Telnyx so changing them in PendingUser would
   // silently drift from reality. Admin must delete + re-invite to change them.
   app.patch<{ Params: { id: string } }>(
@@ -5919,7 +5919,7 @@ export async function adminRoutes(app: FastifyInstance) {
         for (const f of blockedFields) {
           if (patch[f] !== undefined && patch[f] !== target[f]) {
             return reply.code(400).send({
-              error: "DID and SIP creds can't be edited after invite — delete + re-invite to change them",
+              error: "DID and SIP creds can't be edited after invite â€” delete + re-invite to change them",
               field: f,
             });
           }
@@ -5975,7 +5975,7 @@ export async function adminRoutes(app: FastifyInstance) {
       set('pulseUserStatus');
 
       if (Object.keys(data).length === 0) {
-        // No-op — return current row so the UI doesn't have to re-fetch.
+        // No-op â€” return current row so the UI doesn't have to re-fetch.
         return {
           ok: true,
           row: { ...target, pulseExtPassword: undefined, hasPassword: !!target.pulseExtPassword,
@@ -5999,7 +5999,7 @@ export async function adminRoutes(app: FastifyInstance) {
             await prisma.user.update({ where: { id: target.invitedUserId }, data: userPatch });
             mirroredToUser = true;
           } catch (e) {
-            // Don't fail the whole patch — log and continue.
+            // Don't fail the whole patch â€” log and continue.
             console.warn('[pending.patch] mirror to User failed', { id: target.invitedUserId, e });
           }
         }
@@ -6027,7 +6027,7 @@ export async function adminRoutes(app: FastifyInstance) {
     },
   );
 
-  // ── POST /admin/pending-users/:id/verify (v0.9.7) ───────────────────────
+  // â”€â”€ POST /admin/pending-users/:id/verify (v0.9.7) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   // Re-runs the Telnyx config for an already-invited user. Idempotent. Fixes
   // broken invites (wrong outbound voice profile, missing messaging binding,
   // etc.) without delete+re-invite. Returns the same step-log shape as the
@@ -6095,7 +6095,7 @@ export async function adminRoutes(app: FastifyInstance) {
 
       // Find user's connection. Telnyx /v2/credential_connections does NOT
       // support filter[user_name]; it only supports filter[connection_name].
-      // Strategy: look up the DID → read its connection_id → fetch that
+      // Strategy: look up the DID â†’ read its connection_id â†’ fetch that
       // connection. Fall back to a paginated scan filtered client-side by
       // user_name if the DID can't tell us.
       //
@@ -6103,7 +6103,7 @@ export async function adminRoutes(app: FastifyInstance) {
       let userConn: { id: string; user_name?: string } | null = null;
       let preFetchedFullConn: telnyx.FullCredentialConnection | null = null;
 
-      // ── Preferred path: via the DID ──
+      // â”€â”€ Preferred path: via the DID â”€â”€
       const didProbe = await telnyx.findNumberByE164(didE164);
       if (!didProbe.ok) {
         step(`find user's Telnyx connection via DID ${didE164}`, false,
@@ -6125,14 +6125,14 @@ export async function adminRoutes(app: FastifyInstance) {
           step(`find user's Telnyx connection via DID ${didE164} (${connId})`, true);
           if (preFetchedFullConn.user_name !== user.sipUsername) {
             step(
-              `sanity-check: connection.user_name=${preFetchedFullConn.user_name} ≠ sipUsername=${user.sipUsername} (proceeding)`,
+              `sanity-check: connection.user_name=${preFetchedFullConn.user_name} â‰  sipUsername=${user.sipUsername} (proceeding)`,
               true,
             );
           }
         }
       }
 
-      // ── Fallback: paginated scan of /credential_connections ──
+      // â”€â”€ Fallback: paginated scan of /credential_connections â”€â”€
       // Used only if the DID path didn't yield a connection.
       if (!userConn) {
         const MAX_PAGES = 5;
@@ -6179,10 +6179,10 @@ export async function adminRoutes(app: FastifyInstance) {
 
       // 3) PATCH the user's connection to mirror EVERY template setting
       // (v0.9.11). Previously this only copied anchorsite + encrypted_media +
-      // outbound_voice_profile_id + a couple of channel limits — silently
+      // outbound_voice_profile_id + a couple of channel limits â€” silently
       // skipping sip_uri_calling_preference, outbound.encrypted_media,
       // outbound.localization, rtcp_settings, dtmf_type, and a dozen others.
-      // Use the shared buildTemplateCloneBody helper so verify ↔ invite
+      // Use the shared buildTemplateCloneBody helper so verify â†” invite
       // stay in sync: anything new added to the helper applies to BOTH paths.
       //
       // We pass aniOverride = didE164 so the user's OWN DID is set as the
@@ -6192,12 +6192,12 @@ export async function adminRoutes(app: FastifyInstance) {
       if (Object.keys(patchBody).length > 0) {
         const patchRes = await telnyx.patchCredentialConnection(userConn.id, patchBody);
         if (patchRes.ok) {
-          step('PATCH user connection to match template (full clone — every field)', true);
+          step('PATCH user connection to match template (full clone â€” every field)', true);
         } else {
           step('PATCH user connection to match template', false, JSON.stringify(patchRes.error));
         }
       } else {
-        step('PATCH user connection — nothing to apply', true);
+        step('PATCH user connection â€” nothing to apply', true);
       }
 
       // 3.5) Explicit Caller ID Override step (v0.9.11). Even if the
@@ -6224,9 +6224,9 @@ export async function adminRoutes(app: FastifyInstance) {
         if (numLookup.data.connection_id !== userConn.id) {
           const assign = await telnyx.assignDidToConnection(numLookup.data.id, userConn.id);
           if (assign.ok) {
-            step(`re-bind DID ${didE164} → connection ${userConn.id}`, true);
+            step(`re-bind DID ${didE164} â†’ connection ${userConn.id}`, true);
           } else {
-            step(`re-bind DID ${didE164} → connection ${userConn.id}`, false, JSON.stringify(assign.error));
+            step(`re-bind DID ${didE164} â†’ connection ${userConn.id}`, false, JSON.stringify(assign.error));
           }
         } else {
           step(`DID ${didE164} already bound to user connection`, true);
@@ -6272,9 +6272,9 @@ export async function adminRoutes(app: FastifyInstance) {
     },
   );
 
-  // ── GET /admin/pending-users/:id/credentials ────────────────────────────
+  // â”€â”€ GET /admin/pending-users/:id/credentials â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   // Returns the unredacted SIP credentials for one staged row. Admin-only
-  // and audited — every reveal is logged so we can see who looked.
+  // and audited â€” every reveal is logged so we can see who looked.
   // The general LIST endpoint strips the password (returns `hasPassword`
   // boolean instead); this endpoint is the only way to recover the raw
   // value, intended for the invite-modal "Reveal credentials" button.
@@ -6314,9 +6314,9 @@ export async function adminRoutes(app: FastifyInstance) {
     },
   );
 
-  // ── POST /admin/backfill-anchorsites ─────────────────────────────────────
+  // â”€â”€ POST /admin/backfill-anchorsites â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   //
-  // v0.10.81 — One-time backfill. v0.10.64 introduced applyAceConnectionDefaults
+  // v0.10.81 â€” One-time backfill. v0.10.64 introduced applyAceConnectionDefaults
   // which PATCHes Telnyx Credential Connections with anchorsite_override based
   // on User.country. We were sending the wrong string values ('Chennai' and
   // 'Latency' instead of 'Chennai, India' and 'Latency Routing'). Telnyx
@@ -6336,14 +6336,14 @@ export async function adminRoutes(app: FastifyInstance) {
   //     headers: { Authorization: 'Bearer ' + sessionStorage.getItem('ace_token') },
   //   }).then(r => r.json()).then(console.log);
   //
-  // Idempotent — running it multiple times is safe. Returns per-connection
+  // Idempotent â€” running it multiple times is safe. Returns per-connection
   // outcome so admin can spot any individual failures.
   app.post(
     '/admin/backfill-anchorsites',
     { onRequest: [app.authenticate, requireAdmin] },
     async (request, reply) => {
       const actor = request.user as JwtPayload;
-      // Pull every UserDid → join up to user.country. Each DID is bound to
+      // Pull every UserDid â†’ join up to user.country. Each DID is bound to
       // a Credential Connection; users typically have one connection across
       // all their DIDs, but to be defensive we dedupe by connectionId.
       const dids = await prisma.userDid.findMany({
@@ -6355,11 +6355,11 @@ export async function adminRoutes(app: FastifyInstance) {
       });
       // Dedupe by connectionId. If somehow two users share a connection
       // (shouldn't happen in ACE's model, but legacy data might), pick the
-      // first user's country — both will route via the same anchor anyway.
+      // first user's country â€” both will route via the same anchor anyway.
       const byConnection = new Map<string, { country: string | null; userEmail: string }>();
       for (const d of dids) {
         if (!d.connectionId) continue;
-        // Defensive — Prisma types the user relation as nullable even though
+        // Defensive â€” Prisma types the user relation as nullable even though
         // every UserDid in our schema has an owner. Skip the row if the
         // relation somehow loaded null rather than crashing the whole backfill.
         if (!d.user) continue;
@@ -6395,12 +6395,12 @@ export async function adminRoutes(app: FastifyInstance) {
     },
   );
 
-  // ── GET /admin/telnyx-template-debug ─────────────────────────────────────
+  // â”€â”€ GET /admin/telnyx-template-debug â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   //
-  // v0.10.86 — Diagnostic helper. Fetches the master template Credential
+  // v0.10.86 â€” Diagnostic helper. Fetches the master template Credential
   // Connection from Telnyx and returns the raw JSON. Useful when a setting
   // toggled in Telnyx Mission Control isn't being inherited by new users
-  // — admin can compare what we send vs. what the API actually surfaces
+  // â€” admin can compare what we send vs. what the API actually surfaces
   // for the template, without needing terminal access or the API key.
   //
   // Triggerable from the browser console while signed in as admin:
@@ -6432,7 +6432,7 @@ export async function adminRoutes(app: FastifyInstance) {
       }
       const template = fetched.data.data;
       // Surface a compact summary at the top so admins can see at a glance
-      // which key fields the template currently has — without scrolling
+      // which key fields the template currently has â€” without scrolling
       // through the full JSON.
       const inb = (template.inbound ?? {}) as Record<string, unknown>;
       const out = (template.outbound ?? {}) as Record<string, unknown>;
@@ -6455,5 +6455,355 @@ export async function adminRoutes(app: FastifyInstance) {
       };
     },
   );
+  // v0.10.100 - Call Control voicemail migration (per-user).
+  app.get<{ Params: { id: string } }>(
+    '/admin/users/:id/voicemail-migration',
+    { onRequest: [app.authenticate, requireAdmin] },
+    async (request, reply) => {
+      const userId = Number(request.params.id);
+      if (!Number.isFinite(userId) || userId <= 0) {
+        return reply.code(400).send({ error: 'Invalid user id' });
+      }
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { id: true, email: true, firstName: true, lastName: true, sipUsername: true },
+      });
+      if (!user) return reply.code(404).send({ error: 'User not found' });
+      const dids = await prisma.userDid.findMany({
+        where: { userId },
+        select: {
+          id: true,
+          didNumber: true,
+          telnyxNumberId: true,
+          connectionId: true,
+          preMigrationConnectionId: true,
+          preMigrationHostedVmEnabled: true,
+          callControlMigratedAt: true,
+          isDefault: true,
+          label: true,
+        },
+        orderBy: [{ isDefault: 'desc' }, { id: 'asc' }],
+      });
+      const migrated = dids.filter((d) => d.callControlMigratedAt !== null).length;
+      return {
+        user: {
+          id: user.id,
+          email: user.email,
+          name: [user.firstName, user.lastName].filter(Boolean).join(' '),
+          sipUsername: user.sipUsername,
+        },
+        ccAppConfigured: !!config.telnyxVoicemailCcAppId,
+        totalDids: dids.length,
+        migratedDids: migrated,
+        dids: dids.map((d) => ({
+          id: d.id,
+          didNumber: d.didNumber,
+          label: d.label,
+          isDefault: d.isDefault,
+          migratedAt: d.callControlMigratedAt,
+          currentConnectionId: d.connectionId,
+          previousConnectionId: d.preMigrationConnectionId,
+          previousHostedVmEnabled: d.preMigrationHostedVmEnabled,
+        })),
+      };
+    },
+  );
 
+  app.post<{ Params: { id: string } }>(
+    '/admin/users/:id/voicemail-migrate',
+    { onRequest: [app.authenticate, requireAdmin] },
+    async (request, reply) => {
+      const actor = request.user as JwtPayload;
+      const userId = Number(request.params.id);
+      if (!Number.isFinite(userId) || userId <= 0) {
+        return reply.code(400).send({ error: 'Invalid user id' });
+      }
+      const ccAppId = config.telnyxVoicemailCcAppId?.trim();
+      if (!ccAppId) {
+        return reply.code(500).send({
+          error: 'TELNYX_VOICEMAIL_CC_APP_ID is not configured. Set it on the API service in Render and redeploy.',
+        });
+      }
+      if (!config.telnyxApiKey) {
+        return reply.code(500).send({ error: 'TELNYX_API_KEY not configured' });
+      }
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { id: true, email: true, firstName: true, lastName: true, sipUsername: true },
+      });
+      if (!user) return reply.code(404).send({ error: 'User not found' });
+      if (!user.sipUsername) {
+        return reply.code(400).send({
+          error: 'User has no SIP username - cannot migrate. Provision a SIP credential first.',
+        });
+      }
+      const dids = await prisma.userDid.findMany({
+        where: { userId },
+        select: {
+          id: true,
+          didNumber: true,
+          telnyxNumberId: true,
+          connectionId: true,
+          callControlMigratedAt: true,
+        },
+      });
+      if (dids.length === 0) {
+        return reply.code(400).send({ error: 'User has no DIDs to migrate' });
+      }
+      const results: Array<{
+        didId: number;
+        didNumber: string;
+        status: 'migrated' | 'already_migrated' | 'failed';
+        previousConnectionId?: string | null;
+        previousHostedVmEnabled?: boolean | null;
+        error?: string;
+      }> = [];
+      for (const d of dids) {
+        if (d.callControlMigratedAt) {
+          results.push({ didId: d.id, didNumber: d.didNumber, status: 'already_migrated' });
+          continue;
+        }
+        if (!d.telnyxNumberId) {
+          results.push({
+            didId: d.id,
+            didNumber: d.didNumber,
+            status: 'failed',
+            error: 'telnyxNumberId not cached on UserDid',
+          });
+          continue;
+        }
+        try {
+          const currentPhoneRes = await fetch(
+            `https://api.telnyx.com/v2/phone_numbers/${encodeURIComponent(d.telnyxNumberId)}`,
+            { headers: { Authorization: `Bearer ${config.telnyxApiKey}` } },
+          );
+          const currentPhoneJson = (await currentPhoneRes.json().catch(() => ({}))) as {
+            data?: { connection_id?: string };
+          };
+          const currentConnectionId = currentPhoneJson?.data?.connection_id ?? d.connectionId ?? null;
+          const currentVmRes = await fetch(
+            `https://api.telnyx.com/v2/phone_numbers/${encodeURIComponent(d.telnyxNumberId)}/voicemail`,
+            { headers: { Authorization: `Bearer ${config.telnyxApiKey}` } },
+          );
+          const currentVmJson = (await currentVmRes.json().catch(() => ({}))) as {
+            data?: { enabled?: boolean; pin?: string };
+          };
+          const currentVmEnabled = currentVmJson?.data?.enabled ?? null;
+          const currentVmPin = currentVmJson?.data?.pin ?? '1234';
+          const bindRes = await fetch(
+            `https://api.telnyx.com/v2/phone_numbers/${encodeURIComponent(d.telnyxNumberId)}`,
+            {
+              method: 'PATCH',
+              headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${config.telnyxApiKey}`,
+              },
+              body: JSON.stringify({ connection_id: ccAppId }),
+            },
+          );
+          if (!bindRes.ok) {
+            const errBody = await bindRes.text().catch(() => '');
+            results.push({
+              didId: d.id,
+              didNumber: d.didNumber,
+              status: 'failed',
+              error: `Telnyx PATCH connection_id failed: ${bindRes.status} ${errBody.slice(0, 200)}`,
+            });
+            continue;
+          }
+          const vmDisableRes = await fetch(
+            `https://api.telnyx.com/v2/phone_numbers/${encodeURIComponent(d.telnyxNumberId)}/voicemail`,
+            {
+              method: 'PATCH',
+              headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${config.telnyxApiKey}`,
+              },
+              body: JSON.stringify({ enabled: false, pin: currentVmPin }),
+            },
+          );
+          if (!vmDisableRes.ok) {
+            app.log.warn(
+              { telnyxNumberId: d.telnyxNumberId, status: vmDisableRes.status },
+              '[vm-migrate] Hosted VM disable failed - continuing anyway',
+            );
+          }
+          await prisma.userDid.update({
+            where: { id: d.id },
+            data: {
+              preMigrationConnectionId: currentConnectionId,
+              preMigrationHostedVmEnabled: currentVmEnabled,
+              callControlMigratedAt: new Date(),
+              connectionId: ccAppId,
+            },
+          });
+          results.push({
+            didId: d.id,
+            didNumber: d.didNumber,
+            status: 'migrated',
+            previousConnectionId: currentConnectionId,
+            previousHostedVmEnabled: currentVmEnabled,
+          });
+        } catch (e) {
+          results.push({
+            didId: d.id,
+            didNumber: d.didNumber,
+            status: 'failed',
+            error: e instanceof Error ? e.message : String(e),
+          });
+        }
+      }
+      const successCount = results.filter((r) => r.status === 'migrated').length;
+      const alreadyCount = results.filter((r) => r.status === 'already_migrated').length;
+      const failCount = results.filter((r) => r.status === 'failed').length;
+      await recordAudit(actor.sub, 'user.voicemail_migrate', userId, {
+        targetEmail: user.email,
+        ccAppId,
+        successCount,
+        alreadyCount,
+        failCount,
+        results,
+      });
+      return {
+        ok: failCount === 0,
+        user: {
+          id: user.id,
+          email: user.email,
+          name: [user.firstName, user.lastName].filter(Boolean).join(' '),
+        },
+        summary: { successCount, alreadyCount, failCount, total: results.length },
+        results,
+      };
+    },
+  );
+
+  app.post<{ Params: { id: string } }>(
+    '/admin/users/:id/voicemail-rollback',
+    { onRequest: [app.authenticate, requireAdmin] },
+    async (request, reply) => {
+      const actor = request.user as JwtPayload;
+      const userId = Number(request.params.id);
+      if (!Number.isFinite(userId) || userId <= 0) {
+        return reply.code(400).send({ error: 'Invalid user id' });
+      }
+      if (!config.telnyxApiKey) {
+        return reply.code(500).send({ error: 'TELNYX_API_KEY not configured' });
+      }
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { id: true, email: true, firstName: true, lastName: true },
+      });
+      if (!user) return reply.code(404).send({ error: 'User not found' });
+      const dids = await prisma.userDid.findMany({
+        where: { userId, callControlMigratedAt: { not: null } },
+        select: {
+          id: true,
+          didNumber: true,
+          telnyxNumberId: true,
+          preMigrationConnectionId: true,
+          preMigrationHostedVmEnabled: true,
+          callControlMigratedAt: true,
+        },
+      });
+      if (dids.length === 0) {
+        return { ok: true, message: 'Nothing to roll back.', results: [] };
+      }
+      const results: Array<{
+        didId: number;
+        didNumber: string;
+        status: 'rolled_back' | 'failed';
+        restoredConnectionId?: string | null;
+        restoredHostedVmEnabled?: boolean | null;
+        error?: string;
+      }> = [];
+      for (const d of dids) {
+        if (!d.telnyxNumberId) {
+          results.push({
+            didId: d.id,
+            didNumber: d.didNumber,
+            status: 'failed',
+            error: 'telnyxNumberId missing',
+          });
+          continue;
+        }
+        try {
+          const bindRes = await fetch(
+            `https://api.telnyx.com/v2/phone_numbers/${encodeURIComponent(d.telnyxNumberId)}`,
+            {
+              method: 'PATCH',
+              headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${config.telnyxApiKey}`,
+              },
+              body: JSON.stringify({ connection_id: d.preMigrationConnectionId }),
+            },
+          );
+          if (!bindRes.ok) {
+            const errBody = await bindRes.text().catch(() => '');
+            results.push({
+              didId: d.id,
+              didNumber: d.didNumber,
+              status: 'failed',
+              error: `Telnyx rebind failed: ${bindRes.status} ${errBody.slice(0, 200)}`,
+            });
+            continue;
+          }
+          if (d.preMigrationHostedVmEnabled !== null) {
+            await fetch(
+              `https://api.telnyx.com/v2/phone_numbers/${encodeURIComponent(d.telnyxNumberId)}/voicemail`,
+              {
+                method: 'PATCH',
+                headers: {
+                  'Content-Type': 'application/json',
+                  Authorization: `Bearer ${config.telnyxApiKey}`,
+                },
+                body: JSON.stringify({ enabled: d.preMigrationHostedVmEnabled, pin: '1234' }),
+              },
+            ).catch(() => undefined);
+          }
+          await prisma.userDid.update({
+            where: { id: d.id },
+            data: {
+              preMigrationConnectionId: null,
+              preMigrationHostedVmEnabled: null,
+              callControlMigratedAt: null,
+              connectionId: d.preMigrationConnectionId,
+            },
+          });
+          results.push({
+            didId: d.id,
+            didNumber: d.didNumber,
+            status: 'rolled_back',
+            restoredConnectionId: d.preMigrationConnectionId,
+            restoredHostedVmEnabled: d.preMigrationHostedVmEnabled,
+          });
+        } catch (e) {
+          results.push({
+            didId: d.id,
+            didNumber: d.didNumber,
+            status: 'failed',
+            error: e instanceof Error ? e.message : String(e),
+          });
+        }
+      }
+      const successCount = results.filter((r) => r.status === 'rolled_back').length;
+      const failCount = results.filter((r) => r.status === 'failed').length;
+      await recordAudit(actor.sub, 'user.voicemail_rollback', userId, {
+        targetEmail: user.email,
+        successCount,
+        failCount,
+        results,
+      });
+      return {
+        ok: failCount === 0,
+        user: {
+          id: user.id,
+          email: user.email,
+          name: [user.firstName, user.lastName].filter(Boolean).join(' '),
+        },
+        summary: { successCount, failCount, total: results.length },
+        results,
+      };
+    },
+  );
 }
