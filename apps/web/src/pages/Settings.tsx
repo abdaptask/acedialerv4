@@ -2165,6 +2165,10 @@ function BlockedNumbersSection() {
 //   - Can't demote the last remaining active admin.
 // ---------------------------------------------------------------------------
 function UsersAdminSection() {
+  // v0.10.94 — needed for the inline Call / SMS quick-action buttons that
+  // navigate the admin's own dialer to /keypad?to=<DID> and /messages?to=<DID>
+  // respectively. Lets admin reach any user from this page in two clicks.
+  const navigate = useNavigate();
   const [me, setMe] = useState<{ id: number; isAdmin: boolean } | null>(null);
   const [rows, setRows] = useState<AdminUserRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -2511,6 +2515,45 @@ function UsersAdminSection() {
                     : 'Never'}
                 </td>
                 <td className="users-admin-actions">
+                  {/* v0.10.94 — Quick-action buttons: Call + SMS the user
+                      directly. Routes admin's own dialer to /keypad?to=DID
+                      (call) or /messages?to=DID (SMS). Only shown when the
+                      user has a DID and isn't the admin themselves (you
+                      can't dial your own line). */}
+                  {(() => {
+                    const targetDid = r.didNumber || r.userDids[0]?.didNumber || null;
+                    if (!targetDid || isSelf) return null;
+                    return (
+                      <>
+                        <button
+                          type="button"
+                          className="icon-btn"
+                          aria-label={`Call ${[r.firstName, r.lastName].filter(Boolean).join(' ') || r.email}`}
+                          title={`Call ${targetDid}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            navigate(`/keypad?to=${encodeURIComponent(targetDid)}`);
+                          }}
+                          style={{ color: '#0a7d23', marginRight: 4 }}
+                        >
+                          <Phone size={16} />
+                        </button>
+                        <button
+                          type="button"
+                          className="icon-btn"
+                          aria-label={`Text ${[r.firstName, r.lastName].filter(Boolean).join(' ') || r.email}`}
+                          title={`Text ${targetDid}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            navigate(`/messages?to=${encodeURIComponent(targetDid)}`);
+                          }}
+                          style={{ color: '#0a84ff', marginRight: 4 }}
+                        >
+                          <MessageSquare size={16} />
+                        </button>
+                      </>
+                    );
+                  })()}
                   <button
                     type="button"
                     className="icon-btn"
