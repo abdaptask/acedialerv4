@@ -24,6 +24,14 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.94',
+    date: 'June 5, 2026',
+    highlight: 'One-click Call / SMS a user from the Admin Users table',
+    changes: [
+      { type: 'new', text: 'Settings → Admin → Users now shows a green phone icon and blue chat icon next to every active user (except yourself). Click the phone to open your dialpad with their number pre-filled, click chat to open Messages ready to text them. Skips users with no DID assigned.' },
+    ],
+  },
+  {
     version: '0.10.93',
     date: 'June 5, 2026',
     highlight: 'Send praise expanded into a full Broadcast system — 15 categories across 5 type groups',
