@@ -166,7 +166,57 @@ model User {
   /// the dialer header dropdown.
   userDids        UserDid[] @relation("UserOwnedDids")
 
+  /// v0.10.101 — Per-device tracking. Each device (Electron-win,
+  /// Electron-mac, web, future Android/iOS) the user signs into reports
+  /// its app version + last-seen timestamp via /me/heartbeat. Admin can
+  /// see each user's devices and request a force-update.
+  devices         UserDevice[] @relation("UserDevices")
+
   @@map("users")
+}
+
+/// v0.10.101 — Per-device heartbeat tracking for version visibility +
+/// force-update flow. The dialer client (Electron / web) sends a
+/// heartbeat on login + every minute + every focus, reporting its
+/// platform and app version. Admin can request a force-update by setting
+/// forceUpdateRequestedAt on a specific device row — the client reads
+/// this on the next heartbeat response and triggers Electron's
+/// autoUpdater.checkForUpdatesAndNotify() immediately.
+///
+/// Future-proofed for Android / iOS clients: the platform column accepts
+/// any string ('electron-win' | 'electron-mac' | 'web' | 'android' |
+/// 'ios') and clients just need to POST to /me/heartbeat with their
+/// own deviceId + appVersion to start appearing here.
+model UserDevice {
+  id                     Int       @id @default(autoincrement())
+  userId                 Int       @map("user_id")
+  user                   User      @relation("UserDevices", fields: [userId], references: [id], onDelete: Cascade)
+  /// Stable client-generated UUID. Stored in localStorage on web /
+  /// electron-store on desktop so the same device gets the same row
+  /// across logins. New devices get new rows.
+  deviceId               String    @unique @map("device_id")
+  /// 'electron-win' | 'electron-mac' | 'electron-linux' | 'web' |
+  /// 'android' | 'ios'. Anything the client sends.
+  platform               String
+  /// Semver-shaped string, e.g. '0.10.101'. Whatever the client reports.
+  appVersion             String    @map("app_version")
+  /// Optional OS info for diagnostics, e.g. 'Windows 11 23H2' or
+  /// 'macOS 14.5'. Free-form, just shown on the admin panel.
+  osLabel                String?   @map("os_label")
+  firstSeenAt            DateTime  @default(now()) @map("first_seen_at")
+  lastSeenAt             DateTime  @default(now()) @map("last_seen_at")
+  /// Set by admin via POST /admin/users/:id/devices/:deviceId/force-update.
+  /// On the next heartbeat, the client sees this in the response and
+  /// triggers an immediate update check. Cleared when the client
+  /// acknowledges via POST /me/heartbeat/ack-update.
+  forceUpdateRequestedAt DateTime? @map("force_update_requested_at")
+  /// Last time the client successfully ran autoUpdater after seeing the
+  /// force-update flag. If acked >= requested, the request is satisfied.
+  forceUpdateAckedAt     DateTime? @map("force_update_acked_at")
+
+  @@index([userId])
+  @@index([lastSeenAt])
+  @@map("user_devices")
 }
 
 /// v0.10.0 — Per-user phone-number ownership.

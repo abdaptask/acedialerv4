@@ -1,4 +1,4 @@
-﻿// Phase 6.13 â€” Admin Users panel.
+// Phase 6.13 â€” Admin Users panel.
 //
 // Endpoints for the in-app Users management UI. All routes require an
 // authenticated user with isAdmin=true. Every mutation writes an AuditLog
@@ -6804,6 +6804,57 @@ export async function adminRoutes(app: FastifyInstance) {
         summary: { successCount, failCount, total: results.length },
         results,
       };
+    },
+  );
+  app.get<{ Params: { id: string } }>(
+    '/admin/users/:id/devices',
+    { onRequest: [app.authenticate, requireAdmin] },
+    async (request, reply) => {
+      const userId = Number(request.params.id);
+      if (!Number.isFinite(userId) || userId <= 0) {
+        return reply.code(400).send({ error: 'Invalid user id' });
+      }
+      const devices = await prisma.userDevice.findMany({
+        where: { userId },
+        orderBy: { lastSeenAt: 'desc' },
+        select: {
+          id: true,
+          deviceId: true,
+          platform: true,
+          appVersion: true,
+          osLabel: true,
+          firstSeenAt: true,
+          lastSeenAt: true,
+          forceUpdateRequestedAt: true,
+          forceUpdateAckedAt: true,
+        },
+      });
+      return { devices };
+    },
+  );
+
+  app.post<{ Params: { id: string; deviceId: string } }>(
+    '/admin/users/:id/devices/:deviceId/force-update',
+    { onRequest: [app.authenticate, requireAdmin] },
+    async (request, reply) => {
+      const actor = request.user as JwtPayload;
+      const userId = Number(request.params.id);
+      const deviceId = request.params.deviceId;
+      if (!Number.isFinite(userId) || userId <= 0) {
+        return reply.code(400).send({ error: 'Invalid user id' });
+      }
+      if (!deviceId || deviceId.length < 4) {
+        return reply.code(400).send({ error: 'Invalid deviceId' });
+      }
+      const result = await prisma.userDevice.updateMany({
+        where: { userId, deviceId },
+        data: { forceUpdateRequestedAt: new Date() },
+      });
+      if (result.count === 0) {
+        return reply.code(404).send({ error: 'Device not found for this user' });
+      }
+      await recordAudit(actor.sub, 'user.device_force_update', userId, { deviceId });
+      return { ok: true };
     },
   );
 }

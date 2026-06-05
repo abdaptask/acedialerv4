@@ -652,4 +652,95 @@ export async function meRoutes(app: FastifyInstance) {
       };
     },
   );
+
+  // v0.10.101 - Device heartbeat. Called by the dialer client on login,
+  // on window focus, and once a minute while active. Reports the device's
+  // current app version + platform so admin can see who's on what
+  // version. Response signals whether admin has requested a force-update
+  // on this specific device.
+  app.post(
+    '/me/heartbeat',
+    { onRequest: [app.authenticate] },
+    async (request, reply) => {
+      const u = request.user as JwtPayload;
+      const body = (request.body ?? {}) as {
+        deviceId?: string;
+        platform?: string;
+        appVersion?: string;
+        osLabel?: string | null;
+      };
+      const deviceId = (body.deviceId ?? '').trim();
+      const platform = (body.platform ?? '').trim();
+      const appVersion = (body.appVersion ?? '').trim();
+      const osLabel = body.osLabel ? String(body.osLabel).slice(0, 200) : null;
+      if (!deviceId || deviceId.length < 8 || deviceId.length > 100) {
+        return reply.code(400).send({ error: 'Invalid deviceId' });
+      }
+      if (!platform || platform.length > 30) {
+        return reply.code(400).send({ error: 'Invalid platform' });
+      }
+      if (!appVersion || appVersion.length > 30) {
+        return reply.code(400).send({ error: 'Invalid appVersion' });
+      }
+
+      // Upsert by deviceId. New devices get a row; existing devices get
+      // lastSeenAt + appVersion + platform refreshed.
+      const now = new Date();
+      const saved = await prisma.userDevice.upsert({
+        where: { deviceId },
+        update: {
+          userId: u.sub,
+          platform,
+          appVersion,
+          osLabel,
+          lastSeenAt: now,
+        },
+        create: {
+          userId: u.sub,
+          deviceId,
+          platform,
+          appVersion,
+          osLabel,
+          firstSeenAt: now,
+          lastSeenAt: now,
+        },
+        select: {
+          forceUpdateRequestedAt: true,
+          forceUpdateAckedAt: true,
+        },
+      });
+
+      // Force-update is "pending" if requested AND not yet acked (or
+      // acked is older than requested).
+      const reqAt = saved.forceUpdateRequestedAt;
+      const ackAt = saved.forceUpdateAckedAt;
+      const forceUpdatePending = !!reqAt && (!ackAt || ackAt < reqAt);
+
+      return {
+        ok: true,
+        forceUpdate: forceUpdatePending,
+        forceUpdateRequestedAt: reqAt?.toISOString() ?? null,
+      };
+    },
+  );
+
+  // v0.10.101 - Client acks the force-update signal (after calling
+  // autoUpdater.checkForUpdatesAndNotify). We don't clear the requested
+  // timestamp; we stamp acked. Admin can re-request by setting a newer
+  // requested timestamp.
+  app.post(
+    '/me/heartbeat/ack-update',
+    { onRequest: [app.authenticate] },
+    async (request, reply) => {
+      const u = request.user as JwtPayload;
+      const body = (request.body ?? {}) as { deviceId?: string };
+      const deviceId = (body.deviceId ?? '').trim();
+      if (!deviceId) return reply.code(400).send({ error: 'Invalid deviceId' });
+      const result = await prisma.userDevice.updateMany({
+        where: { deviceId, userId: u.sub },
+        data: { forceUpdateAckedAt: new Date() },
+      });
+      return { ok: true, updated: result.count };
+    },
+  );
 }
