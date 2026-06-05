@@ -124,6 +124,11 @@ import {
   getCostReport,
   getRecruiterReport,
   getAlertsReport,
+  // v0.10.97 — Custom voicemail greeting API helpers.
+  getVoicemailGreeting,
+  uploadVoicemailGreeting,
+  deleteVoicemailGreeting,
+  type VoicemailGreeting,
   type AdminUserRow,
   type AuditLogEntry,
   type BulkImportRow,
@@ -278,7 +283,7 @@ const SECTIONS: SectionDef[] = [
   { key: 'diagnostics', category: 'Personal', label: 'Diagnostics', icon: Stethoscope, blurb: 'Download logs to share with support when you hit an issue', Component: DiagnosticsSection },
   { key: 'quick-replies', category: 'Personal', label: 'Quick replies', icon: MessageSquare, blurb: 'SMS templates', Component: QuickRepliesSection },
   { key: 'hold-music', category: 'Calling', label: 'Hold music', icon: Music, blurb: 'Play music when on hold', Component: HoldMusicSection },
-  { key: 'voicemail-greeting', category: 'Calling', label: 'Voicemail greeting', icon: Mic, blurb: 'Personal greeting (coming soon)', Component: VoicemailGreetingSection },
+  { key: 'voicemail-greeting', category: 'Calling', label: 'Voicemail greeting', icon: Mic, blurb: 'Upload a custom greeting callers hear', Component: VoicemailGreetingSection },
   { key: 'call-forwarding', category: 'Calling', label: 'Call forwarding', icon: PhoneForwarded, blurb: 'Forward calls to another number', Component: CallForwardingSection },
   { key: 'blocked-numbers', category: 'Calling', label: 'Blocked numbers', icon: ShieldOff, blurb: 'Reject calls & SMS from specific numbers', Component: BlockedNumbersSection },
   { key: 'data', category: 'Personal', label: 'Data', icon: Database, blurb: 'Backup & restore', Component: DataSection, adminOnly: true },
@@ -1244,40 +1249,239 @@ function HoldMusicSection() {
 // without exposing the broken upload UX. API endpoint + DB columns are
 // kept; they're harmless and ready for whichever path we pick.
 // ---------------------------------------------------------------------------
+// v0.10.97 — Voicemail greeting upload UI. Wired to the existing
+// /voicemail-greeting routes that:
+//   1. Accept a base64 audio upload
+//   2. Store the file in Supabase Storage (publicly fetchable URL)
+//   3. PATCH Telnyx /v2/phone_numbers/{id}/voicemail with greeting_audio_url
+//   4. Persist the URL + filename on the User row
+//
+// Telnyx support recently said the greeting_audio_url field doesn't exist on
+// their API, but our existing backend code targets that exact field. v0.10.97
+// is the first end-to-end test: admin uploads, calls their own DID, listens
+// for the custom greeting. If it plays → support was wrong, feature ships.
+// If Telnyx's default plays → we pivot to a Call Control voicemail flow.
 function VoicemailGreetingSection() {
+  const [greeting, setGreeting] = useState<VoicemailGreeting | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [okMsg, setOkMsg] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    const token = sessionStorage.getItem('ace_token');
+    if (!token) { setLoading(false); return; }
+    void getVoicemailGreeting(token)
+      .then(setGreeting)
+      .catch(() => setGreeting({ url: null, filename: null }))
+      .finally(() => setLoading(false));
+  }, []);
+
+  async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setError(null);
+    setOkMsg(null);
+
+    // Client-side validation — backend re-validates, but fail fast on
+    // the client so admin doesn't wait for a base64-encoded 5MB upload
+    // just to get a 413 back.
+    const MAX_BYTES = 2 * 1024 * 1024;
+    if (file.size > MAX_BYTES) {
+      setError(`File too large (${(file.size / 1024 / 1024).toFixed(1)} MB). Maximum is 2 MB.`);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
+    const allowedMimes = new Set([
+      'audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/x-wav', 'audio/wave',
+      'audio/m4a', 'audio/mp4', 'audio/x-m4a', 'audio/ogg', 'audio/aac',
+    ]);
+    if (file.type && !allowedMimes.has(file.type.toLowerCase())) {
+      setError(`Unsupported audio type: ${file.type}. Use MP3, WAV, M4A, AAC, or OGG.`);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      const token = sessionStorage.getItem('ace_token');
+      if (!token) { setError('Sign in again.'); return; }
+      const result = await uploadVoicemailGreeting(token, file);
+      setGreeting(result);
+      setOkMsg('Greeting saved. Test it: call your DID from another phone (e.g. your cell) and don\'t pick up. You should hear your greeting after the no-answer timeout.');
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function handleDelete() {
+    if (!confirm('Remove your custom greeting? Callers will hear Telnyx\'s default greeting instead.')) return;
+    setError(null);
+    setOkMsg(null);
+    setSubmitting(true);
+    try {
+      const token = sessionStorage.getItem('ace_token');
+      if (!token) { setError('Sign in again.'); return; }
+      await deleteVoicemailGreeting(token);
+      setGreeting({ url: null, filename: null });
+      setOkMsg('Custom greeting removed. Callers now hear the default greeting.');
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  if (loading) return <div className="muted">Loading…</div>;
+
+  const hasGreeting = !!greeting?.url;
+
   return (
     <div className="settings-section">
       <h2 className="settings-title">Voicemail greeting</h2>
       <p className="settings-blurb">
-        Record or upload a personal voicemail greeting that callers hear
-        before leaving a message.
+        Upload a custom audio file that callers hear before leaving you a
+        voicemail. Use a short MP3, WAV, M4A, AAC, or OGG file — 5-15
+        seconds is the sweet spot. Maximum file size is 2 MB. Leave it
+        empty to use Telnyx&apos;s default greeting.
       </p>
-      <div
+
+      {/* Current greeting display + audio preview */}
+      {hasGreeting ? (
+        <div
+          style={{
+            background: 'rgba(52, 199, 89, 0.08)',
+            border: '1px solid rgba(52, 199, 89, 0.3)',
+            borderRadius: 10,
+            padding: '14px 16px',
+            marginBottom: 16,
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+            <Mic size={18} style={{ color: '#34c759' }} />
+            <strong>Custom greeting set</strong>
+          </div>
+          <div className="muted small" style={{ marginBottom: 10 }}>
+            File: <code>{greeting?.filename || '(unnamed)'}</code>
+          </div>
+          {greeting?.url && (
+            <audio
+              controls
+              src={greeting.url}
+              style={{ width: '100%', maxWidth: 420 }}
+              preload="none"
+            />
+          )}
+          <div style={{ marginTop: 12, display: 'flex', gap: 8 }}>
+            <button
+              type="button"
+              className="device-action"
+              onClick={handleDelete}
+              disabled={submitting}
+            >
+              Remove greeting
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div
+          style={{
+            background: 'rgba(245, 158, 11, 0.08)',
+            border: '1px solid rgba(245, 158, 11, 0.3)',
+            borderRadius: 10,
+            padding: '14px 16px',
+            marginBottom: 16,
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Mic size={18} style={{ color: '#f59e0b' }} />
+            <strong>No custom greeting set</strong>
+          </div>
+          <p className="muted small" style={{ margin: '6px 0 0 0' }}>
+            Callers currently hear Telnyx&apos;s default &quot;please leave a
+            message&quot; greeting. Upload your own below.
+          </p>
+        </div>
+      )}
+
+      {/* Upload */}
+      <div style={{ marginBottom: 12 }}>
+        <label
+          className="fav-modal-label"
+          style={{ display: 'block', marginBottom: 6 }}
+        >
+          {hasGreeting ? 'Replace with new audio:' : 'Choose an audio file:'}
+        </label>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="audio/mpeg,audio/mp3,audio/wav,audio/x-wav,audio/m4a,audio/mp4,audio/ogg,audio/aac,.mp3,.wav,.m4a,.aac,.ogg"
+          onChange={handleFileChange}
+          disabled={submitting}
+        />
+        {submitting && (
+          <div className="muted small" style={{ marginTop: 8 }}>
+            Uploading and configuring with Telnyx — usually 2-5 seconds…
+          </div>
+        )}
+      </div>
+
+      {error && (
+        <div
+          className="error small"
+          style={{
+            marginTop: 12,
+            padding: '8px 12px',
+            background: 'rgba(215, 0, 21, 0.08)',
+            border: '1px solid rgba(215, 0, 21, 0.3)',
+            borderRadius: 6,
+            wordBreak: 'break-word',
+          }}
+        >
+          {error}
+        </div>
+      )}
+      {okMsg && (
+        <div
+          className="muted small"
+          style={{
+            marginTop: 12,
+            padding: '8px 12px',
+            background: 'rgba(52, 199, 89, 0.08)',
+            border: '1px solid rgba(52, 199, 89, 0.3)',
+            borderRadius: 6,
+            color: '#0a7d23',
+          }}
+        >
+          {okMsg}
+        </div>
+      )}
+
+      {/* How to test — guidance after upload */}
+      <details
         style={{
-          background: 'rgba(245, 158, 11, 0.08)',
-          border: '1px solid rgba(245, 158, 11, 0.3)',
-          borderRadius: 12,
-          padding: '1rem 1.25rem',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '0.5rem',
+          marginTop: 20,
+          padding: 12,
+          background: 'var(--bg-soft, #f8fafc)',
+          borderRadius: 8,
+          fontSize: 13,
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-          <Mic size={18} style={{ color: '#f59e0b' }} />
-          <strong>Coming soon</strong>
-        </div>
-        <p className="muted small" style={{ margin: 0 }}>
-          Telnyx&apos;s Hosted Voicemail service uses the default greeting
-          for now. We&apos;re working on a per-user greeting flow that won&apos;t
-          interfere with the live inbound-call path.
-        </p>
-        <p className="muted small" style={{ margin: 0 }}>
-          In the meantime, callers reach a generic &quot;please leave a
-          message&quot; prompt and the recording shows up in your Voicemail
-          tab as usual.
-        </p>
-      </div>
+        <summary style={{ cursor: 'pointer', fontWeight: 600 }}>
+          How to verify your greeting plays correctly
+        </summary>
+        <ol style={{ margin: '8px 0 0 0', paddingLeft: 20 }}>
+          <li>Upload your audio file above.</li>
+          <li>Wait a few seconds for Telnyx to register the change.</li>
+          <li>From a different phone (your cell, a colleague), call your ACE DID number.</li>
+          <li>Don&apos;t pick up — let the call ring through the no-answer timeout (~30s).</li>
+          <li>You should hear your custom greeting play. If you hear the default Telnyx greeting instead, the upload didn&apos;t apply at Telnyx — let your admin know.</li>
+        </ol>
+      </details>
     </div>
   );
 }
