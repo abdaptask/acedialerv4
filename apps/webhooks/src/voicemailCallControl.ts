@@ -294,17 +294,28 @@ export async function handleVoicemailCallControlEvent(event: TelnyxEventLike, lo
     case 'call.recording.saved': {
       logger({ callControlId, stage: state?.stage }, '[vm-cc] recording.saved');
       if (!callControlId) return;
-      const rec = payload.recording_urls;
+      // Telnyx v2 sends recording_urls as { mp3: 'url-string', wav: 'url-string' }
+      // (single strings, not arrays). Older docs / call flows sometimes send
+      // recording_urls.mp3 as an array. Also try public_recording_urls (the
+      // CDN-fronted version) as fallback. And payload.recording_url for the
+      // legacy single-URL field.
+      const rec = payload.recording_urls as unknown;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const pub = (payload as any).public_recording_urls as unknown;
       let recordingUrl: string | null = null;
-      if (rec && typeof rec === 'object' && !Array.isArray(rec) && Array.isArray(rec.mp3) && rec.mp3.length > 0) {
-        recordingUrl = rec.mp3[0];
-      } else if (Array.isArray(rec) && rec.length > 0) {
-        recordingUrl = String(rec[0]);
-      } else if (typeof rec === 'string') {
-        recordingUrl = rec;
-      } else if (typeof payload.recording_url === 'string') {
-        recordingUrl = payload.recording_url;
-      }
+      const tryExtract = (obj: unknown): string | null => {
+        if (!obj || typeof obj !== 'object') return null;
+        const o = obj as Record<string, unknown>;
+        if (typeof o.mp3 === 'string') return o.mp3;
+        if (Array.isArray(o.mp3) && o.mp3.length > 0 && typeof o.mp3[0] === 'string') return o.mp3[0];
+        if (typeof o.wav === 'string') return o.wav;
+        if (Array.isArray(o.wav) && o.wav.length > 0 && typeof o.wav[0] === 'string') return o.wav[0];
+        return null;
+      };
+      recordingUrl = tryExtract(rec) ?? tryExtract(pub);
+      if (!recordingUrl && typeof rec === 'string') recordingUrl = rec;
+      if (!recordingUrl && typeof payload.recording_url === 'string') recordingUrl = payload.recording_url;
+      logger({ callControlId, recordingUrl, hasRec: !!rec, hasPub: !!pub }, '[vm-cc] recording URL extraction');
       const toNumber = state?.toNumber ?? (payload.to ?? '').toString();
       const fromNumber = state?.fromNumber ?? (payload.from ?? '').toString();
       if (recordingUrl && toNumber) {
