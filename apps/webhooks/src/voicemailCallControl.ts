@@ -1,43 +1,18 @@
-// v0.10.100 - Full inbound-call flow over Telnyx Call Control.
+﻿// v0.10.100 + fix - Full inbound-call flow over Telnyx Call Control.
 //
-// REPLACES the legacy DID -> SIP-credential -> Hosted Voicemail routing.
-// All inbound calls to a migrated DID now flow through this handler.
-//
-// LIFECYCLE for one inbound call:
-//
-//   1. Caller dials DID -> Telnyx routes to the ACE Voicemail Voice API
-//      app -> we receive `call.initiated` for the inbound (caller) leg.
-//   2. We look up the user by DID. If found and they have a sipUsername,
-//      we issue `transfer` on the caller leg with target
-//      `sip:<sipUsername>@sip.telnyx.com` and `timeout_secs=25`. This
-//      makes Telnyx ring the user's softphone(s) (registered against
-//      that SIP credential) while keeping the caller leg alive and
-//      playing carrier ringback to them.
-//   3a. SOFTPHONE ANSWERS within 25s:
-//       - `call.bridged` fires for both legs -> audio flows.
-//       - When either party hangs up, `call.hangup` fires; we clean up.
-//       - NO voicemail row is written.
-//   3b. SOFTPHONE DOES NOT ANSWER (25s timeout, or rejected, or busy):
-//       - `call.hangup` fires for the TRANSFER (dial) leg with a cause
-//         other than `normal_clearing`/`call_completed`. The caller leg
-//         is still alive - Telnyx kept it because of the transfer.
-//       - We `answer` the caller leg, then play their custom greeting
-//         (audio / TTS / default) - picked based on the hangup cause
-//         (user_busy -> busy greeting; everything else -> no-answer
-//         greeting; falls back to the no-answer greeting if busy is not
-//         configured). Then record, then save a Voicemail row.
-//   4. CALLER hangs up at any point: `call.hangup` for the caller leg
-//      fires; we clean up and write no voicemail row.
-//
-// STATE - we pass everything via `client_state` (base64 JSON) on every
-// action so this handler stays stateless across crashes / instance
-// restarts. There is no in-memory map of in-flight calls.
+// FIXES vs the initial v0.10.100:
+//   1. We now SKIP the dial leg's own call.initiated event (Telnyx fires
+//      one for the transfer destination, with toNumber starting with
+//      "sip:"). We were trying to answer it and getting 422s.
+//   2. We maintain an in-memory call_session_id -> ClientState map so we
+//      can correlate the dial leg's call.hangup back to the caller leg
+//      that originated the transfer. Telnyx's transfer action only sets
+//      client_state on the caller leg, NOT on the dial leg.
 
 import { prisma } from '@ace/db';
 
 type LogFn = (obj: Record<string, unknown>, msg: string) => void;
 
-// How long to ring the softphone before falling to voicemail.
 const RING_TIMEOUT_SECS = 25;
 
 function defaultGreetingFor(firstName: string | null): string {
@@ -45,7 +20,6 @@ function defaultGreetingFor(firstName: string | null): string {
   return `You've reached ${name}'s voicemail. Please leave a message after the tone, and they'll get back to you as soon as possible.`;
 }
 
-// v0.10.100 - Swallow Telnyx error 90018 ("Call has already ended").
 async function callControlAction(
   callControlId: string,
   action: string,
@@ -54,27 +28,24 @@ async function callControlAction(
 ): Promise<{ ok: boolean; status: number; body: unknown }> {
   const apiKey = (process.env.TELNYX_API_KEY ?? '').trim();
   if (!apiKey) {
-    logger({ action, callControlId }, '[vm-cc] TELNYX_API_KEY missing - cannot issue command');
+    logger({ action, callControlId }, '[vm-cc] TELNYX_API_KEY missing');
     return { ok: false, status: 0, body: 'TELNYX_API_KEY missing' };
   }
   const url = `https://api.telnyx.com/v2/calls/${encodeURIComponent(callControlId)}/actions/${action}`;
   try {
     const res = await fetch(url, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
-      },
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
       body: JSON.stringify(body),
     });
     const respBody = await res.json().catch(() => ({}));
     if (!res.ok) {
       const errors = (respBody as { errors?: Array<{ code?: string }> })?.errors ?? [];
-      const isCallEnded = errors.some((e) => e?.code === '90018');
-      if (!isCallEnded) {
-        logger({ action, status: res.status, respBody }, '[vm-cc] action failed');
+      const benign = errors.some((e) => e?.code === '90018' || e?.code === '90102');
+      if (benign) {
+        logger({ action, callControlId, code: errors[0]?.code }, '[vm-cc] action skipped (benign error)');
       } else {
-        logger({ action, callControlId }, '[vm-cc] action skipped (call already ended)');
+        logger({ action, status: res.status, respBody }, '[vm-cc] action failed');
       }
     }
     return { ok: res.ok, status: res.status, body: respBody };
@@ -125,7 +96,6 @@ interface ClientState {
 function encodeState(s: ClientState): string {
   return Buffer.from(JSON.stringify(s)).toString('base64');
 }
-
 function decodeState(raw: unknown): ClientState | null {
   if (typeof raw !== 'string' || !raw) return null;
   try {
@@ -138,6 +108,13 @@ function decodeState(raw: unknown): ClientState | null {
   }
 }
 
+const sessionMap = new Map<string, ClientState>();
+function rememberSession(sessionId: string, state: ClientState) {
+  if (!sessionId) return;
+  sessionMap.set(sessionId, state);
+  setTimeout(() => sessionMap.delete(sessionId), 10 * 60 * 1000);
+}
+
 interface UserGreetingFields {
   firstName: string | null;
   voicemailGreetingUrl: string | null;
@@ -148,74 +125,57 @@ interface UserGreetingFields {
   voicemailBusyGreetingMode: string | null;
 }
 
-function pickGreeting(
-  user: UserGreetingFields,
-  reason: 'busy' | 'no_answer' | undefined,
-): { mode: string; url: string | null; text: string | null } {
+function pickGreeting(user: UserGreetingFields, reason: 'busy' | 'no_answer' | undefined) {
   if (reason === 'busy') {
     const mode = user.voicemailBusyGreetingMode;
     if (mode === 'audio' && user.voicemailBusyGreetingUrl) {
-      return { mode: 'audio', url: user.voicemailBusyGreetingUrl, text: null };
+      return { mode: 'audio', url: user.voicemailBusyGreetingUrl, text: null as string | null };
     }
     if (mode === 'tts' && user.voicemailBusyGreetingText) {
-      return { mode: 'tts', url: null, text: user.voicemailBusyGreetingText };
+      return { mode: 'tts', url: null as string | null, text: user.voicemailBusyGreetingText };
     }
-    // Busy not configured - fall back to no-answer.
   }
   const mode = user.voicemailGreetingMode ?? 'default';
   if (mode === 'audio' && user.voicemailGreetingUrl) {
-    return { mode: 'audio', url: user.voicemailGreetingUrl, text: null };
+    return { mode: 'audio', url: user.voicemailGreetingUrl, text: null as string | null };
   }
   if (mode === 'tts' && user.voicemailGreetingText) {
-    return { mode: 'tts', url: null, text: user.voicemailGreetingText };
+    return { mode: 'tts', url: null as string | null, text: user.voicemailGreetingText };
   }
-  return { mode: 'default', url: null, text: null };
+  return { mode: 'default', url: null as string | null, text: null as string | null };
 }
 
-async function playGreeting(
-  callerCallId: string,
-  user: UserGreetingFields,
-  state: ClientState,
-  logger: LogFn,
-) {
+async function playGreeting(callerCallId: string, user: UserGreetingFields, state: ClientState, logger: LogFn) {
   const picked = pickGreeting(user, state.reason);
   const clientState = encodeState(state);
-  logger(
-    { callerCallId, reason: state.reason, mode: picked.mode },
-    '[vm-cc] playing greeting',
-  );
+  logger({ callerCallId, reason: state.reason, mode: picked.mode }, '[vm-cc] playing greeting');
   if (picked.mode === 'audio' && picked.url) {
-    await callControlAction(
-      callerCallId,
-      'playback_start',
-      { audio_url: picked.url, client_state: clientState },
-      logger,
-    );
+    await callControlAction(callerCallId, 'playback_start', { audio_url: picked.url, client_state: clientState }, logger);
   } else if (picked.mode === 'tts' && picked.text) {
-    await callControlAction(
-      callerCallId,
-      'speak',
-      {
-        payload: picked.text,
-        voice: 'female',
-        language: 'en-US',
-        client_state: clientState,
-      },
-      logger,
-    );
+    await callControlAction(callerCallId, 'speak', { payload: picked.text, voice: 'female', language: 'en-US', client_state: clientState }, logger);
   } else {
-    await callControlAction(
-      callerCallId,
-      'speak',
-      {
-        payload: defaultGreetingFor(user.firstName),
-        voice: 'female',
-        language: 'en-US',
-        client_state: clientState,
-      },
-      logger,
-    );
+    await callControlAction(callerCallId, 'speak', { payload: defaultGreetingFor(user.firstName), voice: 'female', language: 'en-US', client_state: clientState }, logger);
   }
+}
+
+const BUSY_CAUSES = new Set(['user_busy', 'call_rejected']);
+const NO_ANSWER_CAUSES = new Set([
+  'originator_cancel', 'no_answer', 'no_user_response', 'no_answer_timeout',
+  'normal_temporary_failure', 'recovery_on_timer_expire', 'request_timeout', 'timeout',
+]);
+const DIAL_LEG_FAILED_CAUSES = new Set([...Array.from(BUSY_CAUSES), ...Array.from(NO_ANSWER_CAUSES)]);
+
+async function fallToVoicemail(state: ClientState, cause: string, logger: LogFn) {
+  const reason: 'busy' | 'no_answer' = BUSY_CAUSES.has(cause) ? 'busy' : 'no_answer';
+  logger({ callerCallId: state.callerCallId, cause, reason }, '[vm-cc] dial leg failed - falling to voicemail');
+  const vmState: ClientState = {
+    stage: 'voicemail_active',
+    callerCallId: state.callerCallId,
+    fromNumber: state.fromNumber,
+    toNumber: state.toNumber,
+    reason,
+  };
+  await callControlAction(state.callerCallId, 'answer', { client_state: encodeState(vmState) }, logger);
 }
 
 interface TelnyxEventLike {
@@ -233,37 +193,30 @@ interface TelnyxEventLike {
   };
 }
 
-export async function handleVoicemailCallControlEvent(
-  event: TelnyxEventLike,
-  loggerIn?: LogFn,
-): Promise<void> {
+export async function handleVoicemailCallControlEvent(event: TelnyxEventLike, loggerIn?: LogFn): Promise<void> {
   const logger: LogFn = loggerIn ?? ((o, m) => console.info(m, o));
   const payload = event.payload ?? {};
   const callControlId = payload.call_control_id ?? '';
+  const sessionId = (payload.call_session_id ?? '').toString();
   const state = decodeState(payload.client_state);
 
   switch (event.event_type) {
-    // 1. INITIAL inbound call from carrier - issue transfer to SIP creds.
     case 'call.initiated': {
-      if (state) {
-        logger(
-          { callControlId, stage: state.stage },
-          '[vm-cc] call.initiated for tagged leg - no-op',
-        );
-        return;
-      }
-
       const toNumber = (payload.to ?? '').toString();
       const fromNumber = (payload.from ?? '').toString();
-      logger({ callControlId, toNumber, fromNumber }, '[vm-cc] call.initiated (caller leg)');
+      if (toNumber.toLowerCase().startsWith('sip:')) {
+        logger({ callControlId, toNumber }, '[vm-cc] dial leg call.initiated (skipped, owned by transfer)');
+        return;
+      }
+      if (state) {
+        logger({ callControlId, stage: state.stage }, '[vm-cc] call.initiated for tagged leg - no-op');
+        return;
+      }
+      logger({ callControlId, toNumber, fromNumber, sessionId }, '[vm-cc] call.initiated (caller leg)');
       if (!callControlId) return;
-
       const found = await findUserByDid(toNumber, logger);
       if (!found || !found.user.sipUsername) {
-        logger(
-          { toNumber, hasUser: !!found, hasSip: !!found?.user.sipUsername },
-          '[vm-cc] cannot bridge - answering for voicemail directly',
-        );
+        logger({ toNumber, hasUser: !!found, hasSip: !!found?.user.sipUsername }, '[vm-cc] cannot bridge - answering for voicemail directly');
         const voicemailState: ClientState = {
           stage: 'voicemail_active',
           callerCallId: callControlId,
@@ -271,15 +224,10 @@ export async function handleVoicemailCallControlEvent(
           toNumber,
           reason: 'no_answer',
         };
-        await callControlAction(
-          callControlId,
-          'answer',
-          { client_state: encodeState(voicemailState) },
-          logger,
-        );
+        rememberSession(sessionId, voicemailState);
+        await callControlAction(callControlId, 'answer', { client_state: encodeState(voicemailState) }, logger);
         return;
       }
-
       const sipUri = `sip:${found.user.sipUsername}@sip.telnyx.com`;
       const transferState: ClientState = {
         stage: 'transfer_pending',
@@ -287,48 +235,34 @@ export async function handleVoicemailCallControlEvent(
         fromNumber,
         toNumber,
       };
-      logger(
-        { callControlId, toNumber, fromNumber, sipUri, timeout: RING_TIMEOUT_SECS },
-        '[vm-cc] issuing transfer to SIP credential',
-      );
-      await callControlAction(
-        callControlId,
-        'transfer',
-        {
-          to: sipUri,
-          from: fromNumber,
-          timeout_secs: RING_TIMEOUT_SECS,
-          client_state: encodeState(transferState),
-        },
-        logger,
-      );
+      rememberSession(sessionId, transferState);
+      logger({ callControlId, toNumber, fromNumber, sipUri, timeout: RING_TIMEOUT_SECS }, '[vm-cc] issuing transfer to SIP credential');
+      await callControlAction(callControlId, 'transfer', {
+        to: sipUri,
+        from: fromNumber,
+        timeout_secs: RING_TIMEOUT_SECS,
+        client_state: encodeState(transferState),
+      }, logger);
       break;
     }
 
-    // 2. Bridge succeeded - softphone picked up. Audio flowing.
     case 'call.bridged': {
-      logger({ callControlId, stage: state?.stage }, '[vm-cc] call.bridged');
+      logger({ callControlId, stage: state?.stage, sessionId }, '[vm-cc] call.bridged');
       break;
     }
 
-    // 3. Softphone answered, or we just answered the caller leg post-fail.
     case 'call.answered': {
       logger({ callControlId, stage: state?.stage }, '[vm-cc] call.answered');
       if (!state) return;
       if (state.stage === 'voicemail_active') {
         const found = await findUserByDid(state.toNumber, logger);
         if (!found) {
-          await callControlAction(
-            callControlId,
-            'speak',
-            {
-              payload: 'You have reached ACE Dialer. Please leave a message after the tone.',
-              voice: 'female',
-              language: 'en-US',
-              client_state: encodeState(state),
-            },
-            logger,
-          );
+          await callControlAction(callControlId, 'speak', {
+            payload: 'You have reached ACE Dialer. Please leave a message after the tone.',
+            voice: 'female',
+            language: 'en-US',
+            client_state: encodeState(state),
+          }, logger);
         } else {
           await playGreeting(callControlId, found.user, state, logger);
         }
@@ -336,45 +270,30 @@ export async function handleVoicemailCallControlEvent(
       break;
     }
 
-    // 4. Greeting finished -> start recording (with beep).
     case 'call.playback.ended':
     case 'call.speak.ended': {
-      logger(
-        { callControlId, ended: event.event_type, stage: state?.stage },
-        '[vm-cc] greeting ended; start recording',
-      );
+      logger({ callControlId, ended: event.event_type, stage: state?.stage }, '[vm-cc] greeting ended; start recording');
       if (!callControlId || state?.stage !== 'voicemail_active') return;
-      await callControlAction(
-        callControlId,
-        'record_start',
-        {
-          format: 'mp3',
-          channels: 'single',
-          play_beep: true,
-          max_length: 300,
-          timeout_secs: 4,
-          client_state: encodeState(state),
-        },
-        logger,
-      );
+      await callControlAction(callControlId, 'record_start', {
+        format: 'mp3',
+        channels: 'single',
+        play_beep: true,
+        max_length: 300,
+        timeout_secs: 4,
+        client_state: encodeState(state),
+      }, logger);
       break;
     }
 
-    // 5. Greeting just started - log cleanly (no longer "unhandled").
     case 'call.playback.started':
     case 'call.speak.started': {
-      logger(
-        { callControlId, started: event.event_type, stage: state?.stage },
-        '[vm-cc] greeting playing',
-      );
+      logger({ callControlId, started: event.event_type, stage: state?.stage }, '[vm-cc] greeting playing');
       break;
     }
 
-    // 6. Recording captured - write Voicemail row, hang up.
     case 'call.recording.saved': {
       logger({ callControlId, stage: state?.stage }, '[vm-cc] recording.saved');
       if (!callControlId) return;
-
       const rec = payload.recording_urls;
       let recordingUrl: string | null = null;
       if (rec && typeof rec === 'object' && !Array.isArray(rec) && Array.isArray(rec.mp3) && rec.mp3.length > 0) {
@@ -386,10 +305,8 @@ export async function handleVoicemailCallControlEvent(
       } else if (typeof payload.recording_url === 'string') {
         recordingUrl = payload.recording_url;
       }
-
       const toNumber = state?.toNumber ?? (payload.to ?? '').toString();
       const fromNumber = state?.fromNumber ?? (payload.from ?? '').toString();
-
       if (recordingUrl && toNumber) {
         const found = await findUserByDid(toNumber, logger);
         if (found) {
@@ -407,94 +324,57 @@ export async function handleVoicemailCallControlEvent(
                 receivedAt: new Date(),
               },
             });
-            logger(
-              { userId: found.user.id, fromNumber, toNumber },
-              '[vm-cc] voicemail row created',
-            );
+            logger({ userId: found.user.id, fromNumber, toNumber }, '[vm-cc] voicemail row created');
           } catch (e) {
-            logger(
-              { err: e instanceof Error ? e.message : String(e) },
-              '[vm-cc] voicemail row insert failed',
-            );
+            logger({ err: e instanceof Error ? e.message : String(e) }, '[vm-cc] voicemail row insert failed');
           }
         }
       }
-
-      await callControlAction(
-        callControlId,
-        'hangup',
-        {
-          client_state: encodeState(
-            state ?? {
-              stage: 'voicemail_active',
-              callerCallId: callControlId,
-              fromNumber,
-              toNumber,
-            },
-          ),
-        },
-        logger,
-      );
+      await callControlAction(callControlId, 'hangup', {
+        client_state: encodeState(state ?? {
+          stage: 'voicemail_active',
+          callerCallId: callControlId,
+          fromNumber,
+          toNumber,
+        }),
+      }, logger);
+      if (sessionId) sessionMap.delete(sessionId);
       break;
     }
 
-    // 7. Hangup - branch on which leg and what stage.
     case 'call.hangup': {
       const cause = (payload.hangup_cause ?? '').toString();
       const source = (payload.hangup_source ?? '').toString();
-      logger(
-        { callControlId, stage: state?.stage, cause, source },
-        '[vm-cc] call.hangup',
-      );
+      logger({ callControlId, stage: state?.stage, cause, source, sessionId }, '[vm-cc] call.hangup');
 
-      if (
-        state?.stage === 'transfer_pending' &&
-        callControlId === state.callerCallId
-      ) {
+      if (!state && source === 'callee' && DIAL_LEG_FAILED_CAUSES.has(cause)) {
+        const tracked = sessionId ? sessionMap.get(sessionId) : null;
+        if (tracked && tracked.stage === 'transfer_pending') {
+          sessionMap.delete(sessionId);
+          await fallToVoicemail(tracked, cause, logger);
+          return;
+        }
+        logger({ sessionId, cause }, '[vm-cc] dial leg failed but no tracked caller leg');
+        return;
+      }
+
+      if (state?.stage === 'transfer_pending' && callControlId === state.callerCallId && source === 'caller') {
         logger({ callControlId, cause }, '[vm-cc] caller hung up during ring');
+        if (sessionId) sessionMap.delete(sessionId);
         return;
       }
 
-      const busyCauses = new Set(['user_busy', 'call_rejected']);
-      const noAnswerCauses = new Set([
-        'originator_cancel',
-        'no_answer',
-        'no_user_response',
-        'no_answer_timeout',
-        'normal_temporary_failure',
-        'recovery_on_timer_expire',
-      ]);
-      const dialLegFailedCauses = new Set([...busyCauses, ...noAnswerCauses]);
-
-      if (state?.stage === 'transfer_pending' && dialLegFailedCauses.has(cause)) {
-        const reason: 'busy' | 'no_answer' = busyCauses.has(cause) ? 'busy' : 'no_answer';
-        logger(
-          { callerCallId: state.callerCallId, cause, reason },
-          '[vm-cc] dial leg failed - falling to voicemail',
-        );
-        const vmState: ClientState = {
-          stage: 'voicemail_active',
-          callerCallId: state.callerCallId,
-          fromNumber: state.fromNumber,
-          toNumber: state.toNumber,
-          reason,
-        };
-        await callControlAction(
-          state.callerCallId,
-          'answer',
-          { client_state: encodeState(vmState) },
-          logger,
-        );
+      if (state?.stage === 'transfer_pending' && DIAL_LEG_FAILED_CAUSES.has(cause)) {
+        if (sessionId) sessionMap.delete(sessionId);
+        await fallToVoicemail(state, cause, logger);
         return;
       }
 
+      if (sessionId) sessionMap.delete(sessionId);
       break;
     }
 
     default:
-      logger(
-        { eventType: event.event_type, stage: state?.stage },
-        '[vm-cc] unhandled event',
-      );
+      logger({ eventType: event.event_type, stage: state?.stage }, '[vm-cc] unhandled event');
   }
 }
