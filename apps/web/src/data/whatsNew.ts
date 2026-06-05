@@ -24,6 +24,14 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.97',
+    date: 'June 5, 2026',
+    highlight: 'Custom voicemail greeting — upload your own audio (admin testing)',
+    changes: [
+      { type: 'new', text: 'Settings → Calling → Voicemail greeting now lets you upload a personal audio file (MP3, WAV, M4A, AAC, or OGG, up to 2 MB). Callers hear your greeting before leaving a message instead of Telnyx\'s default. After uploading, call your DID from another phone and don\'t pick up — your greeting should play after the ring-out. If you hear the default Telnyx greeting instead, let your admin know.' },
+    ],
+  },
+  {
     version: '0.10.96',
     date: 'June 5, 2026',
     highlight: 'New releases go through admin review before reaching the team',
