@@ -141,8 +141,8 @@ export async function voicemailGreetingRoutes(app: FastifyInstance) {
         select: { [c.text]: true, [c.mode]: true },
       });
       return {
-        text: (saved as Record<string, string | null>)[c.text],
-        mode: (saved as Record<string, string | null>)[c.mode],
+        text: (saved as unknown as Record<string, string | null>)[c.text],
+        mode: (saved as unknown as Record<string, string | null>)[c.mode],
       };
     },
   );
@@ -167,7 +167,7 @@ export async function voicemailGreetingRoutes(app: FastifyInstance) {
         data: { [c.mode]: parsed.data.mode },
         select: { [c.mode]: true },
       });
-      return { mode: (saved as Record<string, string | null>)[c.mode] };
+      return { mode: (saved as unknown as Record<string, string | null>)[c.mode] };
     },
   );
 
@@ -235,9 +235,9 @@ export async function voicemailGreetingRoutes(app: FastifyInstance) {
       });
       app.log.info({ userId: u.sub, url: publicUrl, type }, '[vm-greeting] saved');
       return {
-        url: (saved as Record<string, string | null>)[c.url],
-        filename: (saved as Record<string, string | null>)[c.filename],
-        mode: (saved as Record<string, string | null>)[c.mode],
+        url: (saved as unknown as Record<string, string | null>)[c.url],
+        filename: (saved as unknown as Record<string, string | null>)[c.filename],
+        mode: (saved as unknown as Record<string, string | null>)[c.mode],
       };
     },
   );
