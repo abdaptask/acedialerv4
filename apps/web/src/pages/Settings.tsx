@@ -1,4 +1,4 @@
-﻿import * as React from 'react';
+import * as React from 'react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams, NavLink, Navigate } from 'react-router-dom';
 import {
@@ -133,6 +133,9 @@ import {
   migrateUserToCallControlVoicemail,
   rollbackUserFromCallControlVoicemail,
   getVoicemailMigrationStatus,
+  getUserDevices,
+  requestDeviceForceUpdate,
+  type UserDeviceRow,
   type VoicemailGreeting,
   type VoicemailGreetingMode,
   type VoicemailMigrationStatus,
@@ -2814,6 +2817,8 @@ function UsersAdminSection() {
   const [linesTarget, setLinesTarget] = useState<AdminUserRow | null>(null);
   // v0.10.100 — Voicemail Call Control migration modal target.
   const [voicemailMigrationTarget, setVoicemailMigrationTarget] = useState<AdminUserRow | null>(null);
+  // v0.10.101 — Per-user devices modal target.
+  const [devicesTarget, setDevicesTarget] = useState<AdminUserRow | null>(null);
   // v0.9.9 — Hide deactivated users by default (so "delete" feels like
   // delete even when FK constraints force soft-deactivate). Admin can
   // toggle to see the full list.
@@ -3294,6 +3299,20 @@ function UsersAdminSection() {
                         Voicemail migration
                       </button>
 
+                      {/* v0.10.101 — Show user's devices + version. Admin can
+                          request a force-update on a specific device. */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setOpenMenuId(null);
+                          setDevicesTarget(r);
+                        }}
+                        title="See which devices this user is signed into and what app version each one is running. Request a force-update on a specific device."
+                      >
+                        <Stethoscope size={14} />
+                        Devices
+                      </button>
+
                       {/* v0.10.60 — Per-user Connection Health beta toggle.
                           Smooths the disconnect/reconnect flicker and (in
                           a follow-up RC) responds to Telnyx-pushed eviction
@@ -3497,6 +3516,14 @@ function UsersAdminSection() {
             setVoicemailMigrationTarget(null);
             load();
           }}
+        />
+      )}
+
+      {/* v0.10.101 — Per-user devices modal */}
+      {devicesTarget && (
+        <UserDevicesModal
+          user={devicesTarget}
+          onClose={() => setDevicesTarget(null)}
         />
       )}
     </div>
@@ -8445,6 +8472,206 @@ function VoicemailMigrationModal({
           )}
           {!loading && !status && error && (
             <div className="error small" style={{ color: '#dc2626' }}>{error}</div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// v0.10.101 — Devices modal. Shows each device the user has signed into,
+// with platform / appVersion / lastSeen, plus a "Force update" button
+// that signals the client to run autoUpdater on its next heartbeat.
+function UserDevicesModal({
+  user,
+  onClose,
+}: {
+  user: AdminUserRow;
+  onClose: () => void;
+}) {
+  const [devices, setDevices] = useState<UserDeviceRow[] | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [busyDeviceId, setBusyDeviceId] = useState<string | null>(null);
+  const [okMsg, setOkMsg] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setError(null);
+    setLoading(true);
+    try {
+      const token = sessionStorage.getItem('ace_token');
+      if (!token) { setError('Sign in again.'); return; }
+      const list = await getUserDevices(token, user.id);
+      setDevices(list);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  }, [user.id]);
+
+  useEffect(() => { void load(); }, [load]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  async function handleForceUpdate(deviceId: string) {
+    if (!confirm('Send a force-update request to this device? It will trigger autoUpdater.checkForUpdatesAndNotify() on the user\'s next heartbeat (within 60 seconds).')) return;
+    setError(null);
+    setOkMsg(null);
+    setBusyDeviceId(deviceId);
+    try {
+      const token = sessionStorage.getItem('ace_token');
+      if (!token) { setError('Sign in again.'); return; }
+      await requestDeviceForceUpdate(token, user.id, deviceId);
+      setOkMsg('Force-update requested. The device will trigger an update check within ~60 seconds.');
+      await load();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusyDeviceId(null);
+    }
+  }
+
+  function fmtAge(iso: string): string {
+    const ms = Date.now() - new Date(iso).getTime();
+    if (ms < 0 || !Number.isFinite(ms)) return iso;
+    const sec = Math.floor(ms / 1000);
+    if (sec < 60) return sec + 's ago';
+    const min = Math.floor(sec / 60);
+    if (min < 60) return min + 'm ago';
+    const hr = Math.floor(min / 60);
+    if (hr < 24) return hr + 'h ago';
+    const day = Math.floor(hr / 24);
+    return day + 'd ago';
+  }
+
+  return (
+    <div
+      className="compose-modal-backdrop"
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+      style={{
+        position: 'fixed',
+        inset: 0,
+        background: 'rgba(0, 0, 0, 0.78)',
+        zIndex: 1000,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: 20,
+      }}
+    >
+      <div
+        className="compose-modal"
+        style={{
+          background: 'var(--bg, #fff)',
+          color: 'var(--fg, #111)',
+          borderRadius: 12,
+          maxWidth: 820,
+          width: '100%',
+          maxHeight: '85vh',
+          display: 'flex',
+          flexDirection: 'column',
+          boxShadow: '0 25px 50px -12px rgba(0,0,0,0.5)',
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div
+          style={{
+            padding: '14px 18px',
+            borderBottom: '1px solid var(--border, #e2e8f0)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexShrink: 0,
+          }}
+        >
+          <h3 style={{ margin: 0, fontSize: 17 }}>
+            <Stethoscope size={18} style={{ verticalAlign: 'middle', marginRight: 6 }} />
+            Devices &mdash; {[user.firstName, user.lastName].filter(Boolean).join(' ') || user.email}
+          </h3>
+          <button
+            type="button"
+            className="icon-btn"
+            onClick={onClose}
+            aria-label="Close"
+            style={{ fontSize: 20, lineHeight: 1 }}
+          >
+            x
+          </button>
+        </div>
+        <div className="modal-body" style={{ padding: 18, overflowY: 'auto', flex: 1 }}>
+          {loading && <div className="muted">Loading devices...</div>}
+          {!loading && devices && devices.length === 0 && (
+            <p className="muted small" style={{ marginTop: 0 }}>
+              This user has not reported any devices yet. The first heartbeat will appear
+              after they sign into the dialer with the v0.10.101 (or later) build.
+            </p>
+          )}
+          {!loading && devices && devices.length > 0 && (
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+              <thead>
+                <tr style={{ background: 'var(--bg-soft, #f8fafc)' }}>
+                  <th style={{ padding: 8, textAlign: 'left', borderBottom: '1px solid var(--border, #e2e8f0)' }}>Platform</th>
+                  <th style={{ padding: 8, textAlign: 'left', borderBottom: '1px solid var(--border, #e2e8f0)' }}>Version</th>
+                  <th style={{ padding: 8, textAlign: 'left', borderBottom: '1px solid var(--border, #e2e8f0)' }}>Last seen</th>
+                  <th style={{ padding: 8, textAlign: 'left', borderBottom: '1px solid var(--border, #e2e8f0)' }}>First seen</th>
+                  <th style={{ padding: 8, textAlign: 'right', borderBottom: '1px solid var(--border, #e2e8f0)' }}>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {devices.map((d) => {
+                  const reqAt = d.forceUpdateRequestedAt;
+                  const ackAt = d.forceUpdateAckedAt;
+                  const pending = !!reqAt && (!ackAt || new Date(ackAt) < new Date(reqAt));
+                  return (
+                    <tr key={d.id}>
+                      <td style={{ padding: 8, borderBottom: '1px solid var(--border, #e2e8f0)' }}>
+                        <code>{d.platform}</code>
+                        {d.osLabel && <div className="muted small" style={{ marginTop: 2, fontSize: 11 }}>{d.osLabel.slice(0, 60)}</div>}
+                      </td>
+                      <td style={{ padding: 8, borderBottom: '1px solid var(--border, #e2e8f0)' }}>
+                        <code>{d.appVersion}</code>
+                      </td>
+                      <td style={{ padding: 8, borderBottom: '1px solid var(--border, #e2e8f0)' }} title={d.lastSeenAt}>
+                        {fmtAge(d.lastSeenAt)}
+                      </td>
+                      <td style={{ padding: 8, borderBottom: '1px solid var(--border, #e2e8f0)' }} title={d.firstSeenAt}>
+                        {fmtAge(d.firstSeenAt)}
+                      </td>
+                      <td style={{ padding: 8, borderBottom: '1px solid var(--border, #e2e8f0)', textAlign: 'right' }}>
+                        {pending ? (
+                          <span style={{ color: '#d97706', fontSize: 12 }}>Update pending</span>
+                        ) : (
+                          <button
+                            type="button"
+                            className="device-action"
+                            onClick={() => handleForceUpdate(d.deviceId)}
+                            disabled={busyDeviceId !== null}
+                            style={{ fontSize: 12 }}
+                          >
+                            {busyDeviceId === d.deviceId ? 'Sending...' : 'Force update'}
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+          {error && (
+            <div className="error small" style={{ marginTop: 12, padding: 10, background: 'rgba(215, 0, 21, 0.08)', border: '1px solid rgba(215, 0, 21, 0.3)', borderRadius: 6, color: '#dc2626' }}>
+              {error}
+            </div>
+          )}
+          {okMsg && (
+            <div className="muted small" style={{ marginTop: 12, padding: 10, background: 'rgba(52, 199, 89, 0.08)', border: '1px solid rgba(52, 199, 89, 0.3)', borderRadius: 6, color: '#0a7d23' }}>
+              {okMsg}
+            </div>
           )}
         </div>
       </div>

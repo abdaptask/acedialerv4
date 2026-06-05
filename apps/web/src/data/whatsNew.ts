@@ -24,6 +24,16 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.101',
+    date: 'June 5, 2026',
+    highlight: 'Admin can now see what version each user is on \u2014 and request a force-update on a specific device',
+    changes: [
+      { type: 'new', text: 'Settings \u2192 Admin \u2192 Users \u2192 kebab menu \u2192 "Devices" \u2014 shows every device each user has signed in from, with platform, app version, last-seen time, and a per-device "Force update" button. The dialer reports its version to the server every minute (plus on focus + login) via a new /me/heartbeat endpoint.' },
+      { type: 'new', text: 'Force update flow: click the button on a specific device, and within ~60 seconds that device runs autoUpdater.checkForUpdatesAndNotify() and prompts the user to download + restart. Useful when you ship a critical fix and want a specific user updated immediately instead of waiting for the auto-update poll cycle.' },
+      { type: 'improved', text: 'Schema future-proofed for Android / iOS clients. The UserDevice table accepts any platform string \u2014 future native clients just need to POST to /me/heartbeat with their own deviceId + appVersion to start appearing in the admin Devices list.' },
+    ],
+  },
+  {
     version: '0.10.100',
     date: 'June 5, 2026',
     highlight: 'Voicemail v2 — softphone rings first, then your custom greeting picks up. Separate messages for busy vs not-available. Record straight from your mic.',
