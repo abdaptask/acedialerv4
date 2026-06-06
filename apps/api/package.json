@@ -1,6 +1,6 @@
 {
   "name": "@ace/api",
-  "version": "0.10.101",
+  "version": "0.10.102",
   "private": true,
   "type": "module",
   "main": "dist/main.js",

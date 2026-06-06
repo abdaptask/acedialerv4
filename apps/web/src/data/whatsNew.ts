@@ -24,6 +24,14 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.102',
+    date: 'June 6, 2026',
+    highlight: 'New app icon \u2014 modern keypad design replacing the default Electron logo',
+    changes: [
+      { type: 'improved', text: 'ACE Dialer now ships with a custom app icon (dark slate background, keypad grid with phone button accent). Replaces the default Electron logo on your desktop, taskbar, dock, and installer. Auto-applies on next launch after you install v0.10.102.' },
+    ],
+  },
+  {
     version: '0.10.101',
     date: 'June 5, 2026',
     highlight: 'Admin can now see what version each user is on \u2014 and request a force-update on a specific device',
