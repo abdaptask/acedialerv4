@@ -49,7 +49,7 @@ async function resolveUserId(opts: {
   sipUsername?: string | null;
   fromNumber?: string | null;
   toNumber?: string | null;
-}): Promise<number> {
+}): Promise<number | null> {
   const { userId } = await resolveUserAndDid(opts);
   return userId;
 }
@@ -76,16 +76,32 @@ async function resolveUserAndDid(opts: {
   sipUsername?: string | null;
   fromNumber?: string | null;
   toNumber?: string | null;
-  /** v0.10.24 — REQUIRED for correct line attribution. Inbound matches
-   *  toNumber (the dialed DID = which line rang). Outbound matches
-   *  fromNumber (the caller ID = which line was used). Old code matched
-   *  both, which produced wrong results when toNumber was a SIP URI. */
   direction?: 'inbound' | 'outbound';
-}): Promise<{ userId: number; userDidId: number | null }> {
-  // 1. SIP username (exact match). Tells us the user but not which of
-  // their DIDs was touched — we resolve userDidId via to/from numbers
-  // separately below.
+}): Promise<{ userId: number | null; userDidId: number | null }> {
+  // v0.10.108 CRITICAL FIX - Cross-user call attribution bug.
+  //
+  // PREVIOUS BEHAVIOR (broken): when nothing matched, fell back to
+  // FALLBACK_USER_ID (= PILOT_USER_ID env or 1 as default). For ApTask's
+  // production setup that meant EVERY unattributable call got stamped on
+  // user #1 (the admin). Other users had ZERO visible call history.
+  //
+  // NEW BEHAVIOR: returns userId=null when ownership can't be determined.
+  // Callers MUST handle that (skip row creation rather than silently
+  // dump on user 1).
+  //
+  // Resolution priority:
+  //   1. sipUsername field on webhook payload    -> User.sipUsername
+  //   2. toNumber matching User.sipUsername       -> handles SIP-delivery
+  //      legs where Telnyx fires call.initiated with to='aceuserabc'
+  //      (the recipient's SIP credential, no phone digits)
+  //   3. last-10-digit match on toNumber/fromNumber against UserDid.didNumber
+  //   4. For INBOUND, the DID owner is AUTHORITATIVE - if the DID match
+  //      yields a different user than the sipUsername match, prefer the
+  //      DID owner. The dialed phone number is the ground truth for which
+  //      user the call is for.
   let userId: number | null = null;
+
+  // Pass 1 - explicit sip_username field from the webhook payload.
   if (opts.sipUsername) {
     const u = await prisma.user.findFirst({
       where: { sipUsername: opts.sipUsername },
@@ -94,45 +110,53 @@ async function resolveUserAndDid(opts: {
     if (u) userId = u.id;
   }
 
-  // 2. DID match (gives us userDidId) — direction-aware.
-  //
-  // v0.10.24 — Match the CORRECT number based on direction.
-  //   - inbound:  match toNumber (which of OUR lines was rung)
-  //   - outbound: match fromNumber (which of OUR lines was used as caller ID)
-  //   - unknown direction: defensively match toNumber only, never fromNumber
-  //     (fromNumber-as-our-line is only valid for outbound; getting it wrong
-  //     on inbound stamps the caller's number as our user's line)
-  //
-  // Why this matters: Telnyx delivers the recipient leg of a TexML-routed
-  // call with toNumber set to a SIP URI (not the dialed DID), which last10
-  // strips to nothing. The PREVIOUS code fell through to fromNumber and
-  // matched the CALLER's caller-ID against our UserDids — sometimes by
-  // coincidence (caller's number happened to be one of our DIDs, e.g.
-  // self-calls during testing). Catastrophic line attribution either way.
+  // Pass 2 - toNumber as a sipUsername. Webhook event types where the
+  // SIP-delivery leg is the one firing (Telnyx -> dialer credential)
+  // arrive with to='<credential-username>' (no '+', no leading digit,
+  // no '@'). Match against User.sipUsername to attribute correctly.
+  if (userId === null && opts.toNumber) {
+    const candidate = opts.toNumber.toString().trim();
+    if (
+      candidate.length > 0 &&
+      !candidate.startsWith('+') &&
+      !candidate.startsWith('sip:') &&
+      !/^\d/.test(candidate) &&
+      !candidate.includes('@')
+    ) {
+      const u = await prisma.user.findFirst({
+        where: { sipUsername: candidate },
+        select: { id: true },
+      });
+      if (u) userId = u.id;
+    }
+  }
+
+  // Pass 3 - DID match. Authoritative for INBOUND because the dialed
+  // number is what the caller actually picked.
   let userDidId: number | null = null;
   const matchAgainst =
     opts.direction === 'outbound' ? opts.fromNumber : opts.toNumber;
   const matchLast10 = last10(matchAgainst ?? '');
   if (matchLast10.length === 10) {
-    // Restrict the lookup to the identified user's DIDs when we know
-    // who it is. Cross-user matches would be a different kind of bug.
+    // v0.10.108 - Search ALL UserDids, not just the identified user's.
+    // For inbound calls the DID owner overrides any earlier sipUsername
+    // attribution - the call belongs to whoever owns the dialed number.
     const allDids = await prisma.userDid.findMany({
-      where: userId !== null
-        ? { userId }
-        : { userId: { not: null } },
+      where: { userId: { not: null } },
       select: { id: true, userId: true, didNumber: true },
     });
     const match = allDids.find((d) => last10(d.didNumber) === matchLast10);
     if (match) {
       userDidId = match.id;
-      if (userId === null) userId = match.userId ?? null;
+      if (opts.direction === 'inbound') {
+        userId = match.userId ?? userId;
+      } else if (userId === null) {
+        userId = match.userId ?? null;
+      }
     }
   }
 
-  return {
-    userId: userId ?? FALLBACK_USER_ID,
-    userDidId,
-  };
+  return { userId, userDidId };
 }
 
 // Decode the client_state Telnyx echoes back on every call event. We use it
@@ -371,6 +395,17 @@ app.post('/webhooks/telnyx/calls', async (request) => {
           direction,           // v0.10.24 — direction-aware line attribution
         });
 
+        // v0.10.108 CRITICAL - skip Call row creation if we can't determine
+        // ownership. Previous behavior dumped these on user 1 (the admin),
+        // poisoning their Recents and stealing other users' call history.
+        if (ownerUserId === null) {
+          app.log.warn(
+            { eventType: event.event_type, callControlId, sessionId, direction, fromNumber, toNumber },
+            '[telnyx] could not attribute call to a user - skipping row creation',
+          );
+          break;
+        }
+
         // Phase 6.8 - number blocking: for INBOUND calls only, check if
         // the recipient user has blocked the caller. If so, hang up at
         // the Telnyx layer and store the row with status=blocked so the
@@ -564,22 +599,30 @@ app.post('/webhooks/telnyx/calls', async (request) => {
             fromNumber,
             toNumber,
           });
-          await prisma.call.create({
-            data: {
-              userId: ownerUserId,
-              telnyxCallId: callId,
-              sessionId: payload.call_session_id ?? null,
-              direction,
-              fromNumber,
-              toNumber,
-              status,
-              startedAt,
-              endedAt,
-              durationSeconds: duration,
-              hangupCause,
-              hangupSource: payload.hangup_source ?? null,
-            },
-          });
+          // v0.10.108 - if we can't attribute, skip the row.
+          if (ownerUserId === null) {
+            app.log.warn(
+              { eventType: event.event_type, callControlId, fromNumber, toNumber },
+              '[telnyx] hangup-create: could not attribute call - skipping',
+            );
+          } else {
+            await prisma.call.create({
+              data: {
+                userId: ownerUserId,
+                telnyxCallId: callId,
+                sessionId: payload.call_session_id ?? null,
+                direction,
+                fromNumber,
+                toNumber,
+                status,
+                startedAt,
+                endedAt,
+                durationSeconds: duration,
+                hangupCause,
+                hangupSource: payload.hangup_source ?? null,
+              },
+            });
+          }
         }
 
         // v0.10.0 Task 8 / v0.10.2 fix — Teams missed-call notification.
@@ -700,6 +743,15 @@ app.post('/webhooks/telnyx/calls', async (request) => {
             toNumber: vmTo,
             direction: 'inbound',
           });
+          // v0.10.108 - if we can't attribute the voicemail, skip it.
+          // Better to lose a voicemail than file it on the wrong user.
+          if (ownerUserId === null) {
+            app.log.warn(
+              { vmFrom, vmTo, telnyxCallId: callId },
+              '[vm] could not attribute voicemail - skipping create',
+            );
+            break;
+          }
           // Pre-fill transcription from Telnyx if they happen to include it
           // (we don't pay them for it, but if it's there, use it as a head-
           // start before our Deepgram call returns).
@@ -839,6 +891,14 @@ app.post('/webhooks/telnyx/sms', async (request) => {
           toNumber, fromNumber,
           direction: 'inbound',
         });
+        // v0.10.108 - skip storing SMS we can't attribute.
+        if (ownerUserId === null) {
+          app.log.warn(
+            { toNumber, fromNumber, telnyxMessageId },
+            '[sms] could not attribute message - skipping',
+          );
+          break;
+        }
 
         // Phase 6.8 - number blocking: silently drop SMS from blocked
         // senders. We ack the webhook (Telnyx requires 200) but skip
@@ -1285,6 +1345,14 @@ app.post('/webhooks/telnyx/voicemail', async (request) => {
       toNumber, fromNumber,
       direction: 'inbound',
     });
+    // v0.10.108 - skip storing voicemail we can't attribute.
+    if (ownerUserId === null) {
+      app.log.warn(
+        { toNumber, fromNumber, telnyxCallId },
+        '[telnyx-vm] could not attribute voicemail - skipping',
+      );
+      return { received: true };
+    }
 
     // Phase 6.12 - drop blocked voicemails. Telnyx Hosted Voicemail still
     // triggers on USER_BUSY (Telnyx Support confirmed they can't disable

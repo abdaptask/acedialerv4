@@ -200,6 +200,18 @@ export async function callsRoutes(app: FastifyInstance) {
     //     phone calls the user made.
     //   - Empty/placeholder phone numbers.
     // Result: Recents shows only real PSTN/external calls, like an iPhone.
+    // v0.10.108 - also exclude SIP-delivery-leg rows where toNumber is
+    // a credential username without a sip: prefix. Those rows are server
+    // infrastructure events, not real phone calls. Match against the set
+    // of known User.sipUsername values so we filter ANY user's SIP leg.
+    const allSipUsernames = await prisma.user.findMany({
+      where: { sipUsername: { not: null } },
+      select: { sipUsername: true },
+    });
+    const sipUsernameSet = allSipUsernames
+      .map((u) => u.sipUsername)
+      .filter((s): s is string => !!s);
+
     const calls = await prisma.call.findMany({
       where: {
         userId: user.sub,
@@ -208,6 +220,9 @@ export async function callsRoutes(app: FastifyInstance) {
           { NOT: { fromNumber: { startsWith: 'sip:' } } },
           { NOT: { toNumber: '' } },
           { NOT: { fromNumber: '' } },
+          ...(sipUsernameSet.length
+            ? [{ NOT: { toNumber: { in: sipUsernameSet } } }]
+            : []),
         ],
       },
       orderBy: { startedAt: 'desc' },

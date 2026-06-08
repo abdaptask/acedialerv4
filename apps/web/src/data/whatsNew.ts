@@ -24,6 +24,15 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.109',
+    date: 'June 8, 2026',
+    highlight: 'CRITICAL fix: every user can now see their own calls, voicemails, and SMS history (was being attributed to admin)',
+    changes: [
+      { type: 'fixed', text: 'CRITICAL ATTRIBUTION FIX: every call, voicemail, and SMS in the system was being stamped to user #1 (the admin) because the webhook resolver fell back to PILOT_USER_ID when it could not figure out who a call was for. This meant non-admin users could not see any of their own call history, and the admin got Teams notifications for everyone else\'s missed calls. Fix: the resolver now (1) matches toNumber against User.sipUsername for SIP-delivery legs, (2) treats the dialed DID as authoritative for inbound attribution, (3) refuses to attribute when ownership cannot be determined (skips row creation rather than dumping on user 1). Existing mis-attributed history is repairable via a new admin endpoint - run it once after deploy.' },
+      { type: 'fixed', text: 'Recents tab no longer shows SIP-delivery-leg infrastructure rows where toNumber was a credential username like "acesoheb1497ph". Those are internal server events, not real phone calls placed or received by anyone.' },
+    ],
+  },
+  {
     version: '0.10.108',
     date: 'June 8, 2026',
     highlight: 'Recents direction filter, cleaner Keypad, Admin shows all DIDs, and far more accurate missed-call labels',

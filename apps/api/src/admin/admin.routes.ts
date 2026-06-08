@@ -6857,4 +6857,146 @@ export async function adminRoutes(app: FastifyInstance) {
       return { ok: true };
     },
   );
+
+  // v0.10.108 CRITICAL backfill - repair existing Call/Voicemail/Message rows
+  // that were mis-attributed to user 1 because of the FALLBACK_USER_ID bug.
+  //
+  // Strategy: re-derive the rightful owner from toNumber/fromNumber +
+  // User.sipUsername and UserDid.didNumber, then UPDATE rows whose
+  // current userId doesn't match. Dry-run mode reports what would change
+  // without writing.
+  //
+  // Safety: only repairs rows where we can determine ownership with high
+  // confidence. Rows we can't confidently re-attribute are left as-is
+  // (still on user 1) and reported in the response so an admin can
+  // hand-fix or delete them.
+  app.post<{ Querystring: { apply?: string } }>(
+    '/admin/repair-attribution',
+    { onRequest: [app.authenticate, requireAdmin] },
+    async (request) => {
+      const apply = request.query.apply === '1' || request.query.apply === 'true';
+      const actor = request.user as JwtPayload;
+
+      // Build lookup tables once.
+      const users = await prisma.user.findMany({
+        where: { sipUsername: { not: null } },
+        select: { id: true, sipUsername: true },
+      });
+      const sipToUser = new Map<string, number>();
+      for (const u of users) {
+        if (u.sipUsername) sipToUser.set(u.sipUsername, u.id);
+      }
+      const userDids = await prisma.userDid.findMany({
+        where: { userId: { not: null } },
+        select: { id: true, userId: true, didNumber: true },
+      });
+      const last10ToOwner = new Map<string, { userId: number; didId: number }>();
+      for (const d of userDids) {
+        const l10 = (d.didNumber || '').replace(/[^\d]/g, '').slice(-10);
+        if (l10.length === 10 && d.userId != null) {
+          last10ToOwner.set(l10, { userId: d.userId, didId: d.id });
+        }
+      }
+
+      function resolveOwner(c: { direction: string; toNumber: string; fromNumber: string }):
+        { userId: number; userDidId: number | null } | null {
+        // For SIP-delivery legs (to=sipUsername), match against User.sipUsername.
+        const to = (c.toNumber || '').trim();
+        if (to && !to.startsWith('+') && !to.startsWith('sip:') && !/^\d/.test(to) && !to.includes('@')) {
+          const uid = sipToUser.get(to);
+          if (uid) return { userId: uid, userDidId: null };
+        }
+        // DID match - direction aware.
+        const matchAgainst = c.direction === 'outbound' ? c.fromNumber : c.toNumber;
+        const l10 = (matchAgainst || '').replace(/[^\d]/g, '').slice(-10);
+        if (l10.length === 10) {
+          const owner = last10ToOwner.get(l10);
+          if (owner) return { userId: owner.userId, userDidId: owner.didId };
+        }
+        return null;
+      }
+
+      // Repair Calls table.
+      const calls = await prisma.call.findMany({
+        select: { id: true, userId: true, userDidId: true, direction: true, toNumber: true, fromNumber: true },
+      });
+      let callsRepaired = 0;
+      let callsAlreadyCorrect = 0;
+      let callsCouldNotAttribute = 0;
+      const callsPlan: Array<{ id: number; from: number | null; to: number; toDid: number | null }> = [];
+      for (const c of calls) {
+        const owner = resolveOwner({ direction: c.direction, toNumber: c.toNumber, fromNumber: c.fromNumber });
+        if (!owner) { callsCouldNotAttribute++; continue; }
+        if (c.userId === owner.userId && c.userDidId === owner.userDidId) {
+          callsAlreadyCorrect++;
+          continue;
+        }
+        callsPlan.push({ id: c.id, from: c.userId, to: owner.userId, toDid: owner.userDidId });
+        if (apply) {
+          await prisma.call.update({
+            where: { id: c.id },
+            data: { userId: owner.userId, userDidId: owner.userDidId },
+          });
+        }
+        callsRepaired++;
+      }
+
+      // Repair Voicemails table.
+      const vms = await prisma.voicemail.findMany({
+        select: { id: true, userId: true, userDidId: true, fromNumber: true, toNumber: true },
+      });
+      let vmRepaired = 0;
+      let vmCouldNotAttribute = 0;
+      for (const v of vms) {
+        const owner = resolveOwner({ direction: 'inbound', toNumber: v.toNumber ?? '', fromNumber: v.fromNumber ?? '' });
+        if (!owner) { vmCouldNotAttribute++; continue; }
+        if (v.userId === owner.userId && v.userDidId === owner.userDidId) continue;
+        if (apply) {
+          await prisma.voicemail.update({
+            where: { id: v.id },
+            data: { userId: owner.userId, userDidId: owner.userDidId },
+          });
+        }
+        vmRepaired++;
+      }
+
+      // Repair Messages (SMS) table.
+      const msgs = await prisma.message.findMany({
+        select: { id: true, userId: true, userDidId: true, direction: true, fromNumber: true, toNumber: true },
+      });
+      let msgRepaired = 0;
+      let msgCouldNotAttribute = 0;
+      for (const m of msgs) {
+        const owner = resolveOwner({ direction: m.direction, toNumber: m.toNumber, fromNumber: m.fromNumber });
+        if (!owner) { msgCouldNotAttribute++; continue; }
+        if (m.userId === owner.userId && m.userDidId === owner.userDidId) continue;
+        if (apply) {
+          await prisma.message.update({
+            where: { id: m.id },
+            data: { userId: owner.userId, userDidId: owner.userDidId },
+          });
+        }
+        msgRepaired++;
+      }
+
+      if (apply) {
+        await recordAudit(actor.sub, 'admin.repair_attribution', null, {
+          callsRepaired, vmRepaired, msgRepaired,
+          callsCouldNotAttribute, vmCouldNotAttribute, msgCouldNotAttribute,
+        });
+      }
+
+      return {
+        applied: apply,
+        calls: {
+          repaired: callsRepaired,
+          alreadyCorrect: callsAlreadyCorrect,
+          couldNotAttribute: callsCouldNotAttribute,
+          examplesIfNotApplied: apply ? [] : callsPlan.slice(0, 10),
+        },
+        voicemails: { repaired: vmRepaired, couldNotAttribute: vmCouldNotAttribute },
+        messages: { repaired: msgRepaired, couldNotAttribute: msgCouldNotAttribute },
+      };
+    },
+  );
 }
