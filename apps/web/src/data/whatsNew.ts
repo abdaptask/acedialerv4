@@ -24,6 +24,17 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.103',
+    date: 'June 8, 2026',
+    highlight: 'Telnyx outage detector \u2014 a banner appears across the top of your dialer when Telnyx is having problems',
+    changes: [
+      { type: 'new', text: 'A colored strip appears across the top of the dialer whenever Telnyx (our voice provider) reports a degraded service or scheduled maintenance. Amber for minor issues, red for major outages. Click "Details" to open status.telnyx.com directly. The banner polls every 60 seconds and auto-hides when service is back to normal.' },
+      { type: 'new', text: 'Admins get a Microsoft Teams notification card the moment Telnyx flips into outage status \u2014 and another card when service recovers. No more wondering "is it just me?" when calls misbehave.' },
+      { type: 'fixed', text: 'The floating "Did you know?" tip in the bottom-right corner no longer covers the Voicemail tab. Moved up so both are clickable.' },
+      { type: 'improved', text: 'The v0.10.102 build was published with the new app icon but missed the Telnyx detector code; v0.10.103 ships everything together. If you saw the new icon but no banner during yesterday\'s Telnyx maintenance window, that\'s why.' },
+    ],
+  },
+  {
     version: '0.10.102',
     date: 'June 6, 2026',
     highlight: 'New app icon \u2014 modern keypad design replacing the default Electron logo',
