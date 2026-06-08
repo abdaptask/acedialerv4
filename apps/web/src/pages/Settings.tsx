@@ -8193,6 +8193,15 @@ function VoicemailMigrationModal({
   const [result, setResult] = useState<VoicemailMigrationResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const bodyRef = useRef<HTMLDivElement | null>(null);
+  // v0.10.109 - admin-supplied tag to stamp on the Telnyx DID after
+  // migration. Pre-fill with the user's display name so admins don't
+  // have to retype it each time, but they can edit before clicking.
+  const defaultTag = (() => {
+    const parts = [user.firstName, user.lastName].filter((s): s is string => !!s && s.trim().length > 0);
+    if (parts.length > 0) return parts.join(' ').trim();
+    return (user.email || '').split('@')[0] || '';
+  })();
+  const [migrationTag, setMigrationTag] = useState<string>(defaultTag);
 
   const load = useCallback(async () => {
     setError(null);
@@ -8223,10 +8232,19 @@ function VoicemailMigrationModal({
       setError('TELNYX_VOICEMAIL_CC_APP_ID is not configured on the API service. Set it in Render env vars and redeploy.');
       return;
     }
+    const tagTrim = migrationTag.trim();
+    if (!tagTrim) {
+      setError('Enter a tag (e.g. user name) so the DID stays identifiable in Telnyx after migration.');
+      return;
+    }
     if (!confirm(
-      'Migrate all ' + status.totalDids + ' DID(s) for ' + (status.user.name || status.user.email) + ' to the Call Control voicemail flow?\n\n' +
-      'This switches inbound call routing from their SIP credential to the ACE Voicemail Voice API app. Their softphone will continue to ring; on no-answer or busy, the new custom-greeting flow takes over.\n\n' +
-      'You can roll back from this same modal at any time.',
+      'Migrate ' + status.totalDids + ' DID(s) for ' + (status.user.name || status.user.email) + ' to the Call Control voicemail flow?\n\n' +
+      'WHAT HAPPENS:\n' +
+      ' \u2022 The DID(s) will move OFF the user\'s Credential Connection in Telnyx and onto the Voicemail Voice API app.\n' +
+      ' \u2022 Inbound calls will route through our webhook server before reaching the user\'s dialer (one extra hop than the standard SIP-direct flow).\n' +
+      ' \u2022 The DID(s) will be tagged "' + tagTrim + '" in Telnyx so admins can identify them in the Numbers panel.\n' +
+      ' \u2022 The user\'s Credential Connection stays ENABLED (do not disable it) - it\'s still required for SIP registration and transferred call delivery.\n\n' +
+      'You can roll back from this same modal at any time. Continue?',
     )) return;
     setError(null);
     setResult(null);
@@ -8234,7 +8252,7 @@ function VoicemailMigrationModal({
     try {
       const token = sessionStorage.getItem('ace_token');
       if (!token) { setError('Sign in again.'); return; }
-      const r = await migrateUserToCallControlVoicemail(token, user.id);
+      const r = await migrateUserToCallControlVoicemail(token, user.id, tagTrim);
       setResult(r);
       await load();
     } catch (e) {
@@ -8402,6 +8420,66 @@ function VoicemailMigrationModal({
                     ))}
                   </tbody>
                 </table>
+              )}
+              {/* v0.10.109 - tag input + safety warning before Migrate */}
+              {status.migratedDids < status.totalDids && (
+                <>
+                  <div
+                    style={{
+                      background: '#fef3c7',
+                      border: '1px solid #fbbf24',
+                      borderRadius: 8,
+                      padding: '12px 14px',
+                      marginBottom: 12,
+                      fontSize: 13,
+                      color: '#78350f',
+                      lineHeight: 1.5,
+                    }}
+                  >
+                    <strong>Before migrating:</strong> the DID(s) will move
+                    off this user&apos;s Credential Connection in Telnyx
+                    and onto the Voicemail Voice API app. The Credential
+                    Connection itself stays enabled (don&apos;t disable
+                    it - it&apos;s still needed for SIP registration).
+                    Calls will route through our webhook server instead
+                    of direct SIP delivery, so any webhook outage will
+                    mean missed calls until rollback.
+                  </div>
+                  <label
+                    style={{
+                      display: 'block',
+                      marginBottom: 12,
+                      fontSize: 13,
+                      fontWeight: 500,
+                      color: '#374151',
+                    }}
+                  >
+                    Telnyx tag for the DID (so admins can identify whose
+                    number it is in the Numbers panel after it moves):
+                    <input
+                      type="text"
+                      value={migrationTag}
+                      onChange={(e) => setMigrationTag(e.target.value)}
+                      placeholder="e.g. Bhuvesh Kumar"
+                      maxLength={80}
+                      style={{
+                        display: 'block',
+                        width: '100%',
+                        marginTop: 6,
+                        padding: '8px 10px',
+                        borderRadius: 6,
+                        border: '1px solid #d1d5db',
+                        fontSize: 14,
+                        boxSizing: 'border-box',
+                      }}
+                    />
+                    <span style={{ fontSize: 11, color: '#6b7280', fontWeight: 400 }}>
+                      Pre-filled from user&apos;s name. Edit if you want
+                      a different identifier. Used as a Telnyx phone-number
+                      tag for searchability.
+                    </span>
+                  </label>
+                </>
               )}
               <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
                 <button

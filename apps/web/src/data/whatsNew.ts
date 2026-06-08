@@ -24,6 +24,15 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.110',
+    date: 'June 8, 2026',
+    highlight: 'Voicemail migration safer: tag DIDs with user name + clearer warning before migrating',
+    changes: [
+      { type: 'new', text: 'Voicemail migration modal now has a Telnyx tag field. Pre-filled with the user\'s name, the value gets stamped onto the DID as a Telnyx tag during migration so admins can identify whose number it is in the Telnyx Numbers panel after the DID moves off the user\'s Credential Connection.' },
+      { type: 'improved', text: 'Voicemail migration modal now shows an upfront warning explaining what happens to the DID and Credential Connection during migration. Includes a do-not-disable note for the Credential Connection (it\'s still needed for SIP registration even after the DID moves elsewhere).' },
+    ],
+  },
+  {
     version: '0.10.109',
     date: 'June 8, 2026',
     highlight: 'CRITICAL fix: every user can now see their own calls, voicemails, and SMS history (was being attributed to admin)',

@@ -6509,7 +6509,7 @@ export async function adminRoutes(app: FastifyInstance) {
     },
   );
 
-  app.post<{ Params: { id: string } }>(
+  app.post<{ Params: { id: string }; Body: { tag?: string } }>(
     '/admin/users/:id/voicemail-migrate',
     { onRequest: [app.authenticate, requireAdmin] },
     async (request, reply) => {
@@ -6518,6 +6518,14 @@ export async function adminRoutes(app: FastifyInstance) {
       if (!Number.isFinite(userId) || userId <= 0) {
         return reply.code(400).send({ error: 'Invalid user id' });
       }
+      // v0.10.109 - admin-supplied tag to stamp on the Telnyx phone number,
+      // so the DID stays identifiable in the Telnyx Numbers panel after it
+      // moves off the user's named Credential Connection. Sanitized for
+      // Telnyx's tag format (no special chars, capped length).
+      const rawTag = (request.body?.tag ?? '').toString().trim();
+      const cleanTag = rawTag
+        .replace(/[^a-zA-Z0-9 _.\-@]/g, '')
+        .slice(0, 80);
       const ccAppId = config.telnyxVoicemailCcAppId?.trim();
       if (!ccAppId) {
         return reply.code(500).send({
@@ -6590,6 +6598,13 @@ export async function adminRoutes(app: FastifyInstance) {
           };
           const currentVmEnabled = currentVmJson?.data?.enabled ?? null;
           const currentVmPin = currentVmJson?.data?.pin ?? '1234';
+          // v0.10.109 - if admin supplied a tag, stamp it on the
+          // Telnyx phone number so it remains identifiable in the
+          // Numbers panel after moving off the user's Credential Conn.
+          const patchBody: Record<string, unknown> = { connection_id: ccAppId };
+          if (cleanTag) {
+            patchBody.tags = [cleanTag];
+          }
           const bindRes = await fetch(
             `https://api.telnyx.com/v2/phone_numbers/${encodeURIComponent(d.telnyxNumberId)}`,
             {
@@ -6598,7 +6613,7 @@ export async function adminRoutes(app: FastifyInstance) {
                 'Content-Type': 'application/json',
                 Authorization: `Bearer ${config.telnyxApiKey}`,
               },
-              body: JSON.stringify({ connection_id: ccAppId }),
+              body: JSON.stringify(patchBody),
             },
           );
           if (!bindRes.ok) {

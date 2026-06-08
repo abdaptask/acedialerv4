@@ -867,10 +867,12 @@ export async function getVoicemailMigrationStatus(
 export async function migrateUserToCallControlVoicemail(
   token: string,
   userId: number,
+  tag?: string,
 ): Promise<VoicemailMigrationResponse> {
   const res = await fetch(`${API_URL}/admin/users/${userId}/voicemail-migrate`, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${token}` },
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify(tag ? { tag } : {}),
   });
   if (!res.ok) {
     const err = (await res.json().catch(() => ({}))) as { error?: string };
