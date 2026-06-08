@@ -4126,6 +4126,12 @@ function MigrateFromPulseModal({
                   required
                   disabled={submitting}
                 />
+                {/* v0.10.110 - drives ACE email + Telnyx connection name */}
+                <span style={{ fontSize: 11, color: '#6b7280', marginTop: 4, display: 'block' }}>
+                  This email becomes their ACE account email AND drives
+                  the Telnyx Credential Connection name - please type
+                  carefully.
+                </span>
               </label>
               <label className="fav-modal-field" style={{ marginBottom: 8 }}>
                 <span className="fav-modal-label">Pulse password *</span>
@@ -4928,6 +4934,11 @@ function InviteUserModal({
               autoFocus
               required
             />
+            {/* v0.10.110 - this email also names the Telnyx connection */}
+            <span style={{ fontSize: 11, color: '#6b7280', marginTop: 4, display: 'block' }}>
+              This email is also used to name the user&apos;s Telnyx
+              Credential Connection - please type carefully.
+            </span>
           </label>
 
           <div className="fav-modal-row">
@@ -8193,15 +8204,10 @@ function VoicemailMigrationModal({
   const [result, setResult] = useState<VoicemailMigrationResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const bodyRef = useRef<HTMLDivElement | null>(null);
-  // v0.10.109 - admin-supplied tag to stamp on the Telnyx DID after
-  // migration. Pre-fill with the user's display name so admins don't
-  // have to retype it each time, but they can edit before clicking.
-  const defaultTag = (() => {
-    const parts = [user.firstName, user.lastName].filter((s): s is string => !!s && s.trim().length > 0);
-    if (parts.length > 0) return parts.join(' ').trim();
-    return (user.email || '').split('@')[0] || '';
-  })();
-  const [migrationTag, setMigrationTag] = useState<string>(defaultTag);
+  // v0.10.110 - admin-supplied EMAIL for the Telnyx DID tag.
+  // Always empty - admin must type explicitly so the right person
+  // gets tagged (no stale prefill).
+  const [migrationTag, setMigrationTag] = useState<string>('');
 
   const load = useCallback(async () => {
     setError(null);
@@ -8234,7 +8240,11 @@ function VoicemailMigrationModal({
     }
     const tagTrim = migrationTag.trim();
     if (!tagTrim) {
-      setError('Enter a tag (e.g. user name) so the DID stays identifiable in Telnyx after migration.');
+      setError('Enter the user email - required so the DID stays identifiable in Telnyx after migration.');
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(tagTrim)) {
+      setError('Enter a valid email address (e.g. user@example.com).');
       return;
     }
     if (!confirm(
@@ -8454,13 +8464,15 @@ function VoicemailMigrationModal({
                       color: '#374151',
                     }}
                   >
-                    Telnyx tag for the DID (so admins can identify whose
-                    number it is in the Numbers panel after it moves):
+                    User email (required) - stamped onto the DID as a
+                    Telnyx tag so the number stays identifiable in the
+                    Numbers panel after it moves:
                     <input
-                      type="text"
+                      type="email"
                       value={migrationTag}
                       onChange={(e) => setMigrationTag(e.target.value)}
-                      placeholder="e.g. Bhuvesh Kumar"
+                      placeholder="e.g. bhuvesh@aptask.com"
+                      autoComplete="off"
                       maxLength={80}
                       style={{
                         display: 'block',
@@ -8474,9 +8486,8 @@ function VoicemailMigrationModal({
                       }}
                     />
                     <span style={{ fontSize: 11, color: '#6b7280', fontWeight: 400 }}>
-                      Pre-filled from user&apos;s name. Edit if you want
-                      a different identifier. Used as a Telnyx phone-number
-                      tag for searchability.
+                      Type the user&apos;s email. No autofill - explicit
+                      entry every time so the right person gets tagged.
                     </span>
                   </label>
                 </>

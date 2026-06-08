@@ -513,6 +513,32 @@ function mapTelnyxMdrCsvRow(
   };
 }
 
+
+// v0.10.110 - Telnyx Credential Connection naming.
+//
+// Old format: '<firstName>-ace-<5chars>' (e.g. 'bhuvesh-ace-atjyy')
+// Problem: two users with the same first name produced near-identical
+// connection names and admins couldn't tell them apart in the Telnyx UI.
+//
+// New format: '<sanitized-email>' (e.g. 'bhuvesh-kumar-aptask-com').
+// Email is unique per user, so the connection name is too. Sanitized for
+// Telnyx's connection_name rules (alphanumeric + hyphens).
+function buildConnectionNameFromEmail(email: string): string {
+  const lower = (email || '').trim().toLowerCase();
+  if (!lower) {
+    // Fallback: random hex if we somehow have no email. Better than crashing.
+    return 'ace-' + Math.random().toString(36).slice(2, 10);
+  }
+  // Replace '@' and '.' with '-', strip everything else not alphanumeric or hyphen,
+  // collapse runs of '-', trim leading/trailing '-'.
+  return lower
+    .replace(/[@.]/g, '-')
+    .replace(/[^a-z0-9-]/g, '')
+    .replace(/-+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80) || ('ace-' + Math.random().toString(36).slice(2, 10));
+}
+
 export async function adminRoutes(app: FastifyInstance) {
   // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ GET /admin/users â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   app.get(
@@ -702,13 +728,15 @@ export async function adminRoutes(app: FastifyInstance) {
         steps.push({ step: label, ok, ...(error ? { error } : {}) });
 
       // 1) Create Telnyx Credential Connection
-      const slug = (firstName || normEmail.split('@')[0])
+      // v0.10.110 - use the user's email (sanitized) so connection names
+      // stay unique even when two users share a first name.
+      const connectionName = buildConnectionNameFromEmail(normEmail);
+      // Telnyx user_name still uses a slug + random suffix because it
+      // has strict rules (letters + digits only, no separators).
+      const userNameSlug = (firstName || normEmail.split('@')[0])
         .toLowerCase()
-        .replace(/[^a-z0-9-]/gi, '');
-      const connectionName = `${slug}-ace-${Date.now().toString(36).slice(-5)}`;
-      // Telnyx user_name: letters + digits only â€” no underscores, hyphens,
-      // or spaces (see Telnyx error code 10015).
-      const userName = `ace${slug.replace(/[^a-z0-9]/gi, '').slice(0, 20)}${Date.now().toString(36).slice(-6)}`;
+        .replace(/[^a-z0-9]/gi, '');
+      const userName = `ace${userNameSlug.slice(0, 20)}${Date.now().toString(36).slice(-6)}`;
 
       // v0.9.7 â€” template-clone path. If the template DID/ID resolves, clone
       // its outbound voice profile + channel limits + codecs onto the new
@@ -3874,11 +3902,13 @@ export async function adminRoutes(app: FastifyInstance) {
       step(`look up DID on Telnyx (current connection: ${previousConnectionId ?? 'none'})`, true);
 
       // 5) Create a Telnyx Credential Connection for the new ACE user
-      const slug = (payload.first_name || normEmail.split('@')[0])
+      // v0.10.110 - use email (sanitized) so two users with the same
+      // first name produce different connection names.
+      const connectionName = buildConnectionNameFromEmail(normEmail);
+      const userNameSlug = (payload.first_name || normEmail.split('@')[0])
         .toLowerCase()
-        .replace(/[^a-z0-9-]/gi, '');
-      const connectionName = `${slug}-ace-${Date.now().toString(36).slice(-5)}`;
-      const userName = `ace${slug.replace(/[^a-z0-9]/gi, '').slice(0, 20)}${Date.now().toString(36).slice(-6)}`;
+        .replace(/[^a-z0-9]/gi, '');
+      const userName = `ace${userNameSlug.slice(0, 20)}${Date.now().toString(36).slice(-6)}`;
 
       let sipUsername = '';
       let sipPassword = '';

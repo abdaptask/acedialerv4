@@ -26,10 +26,11 @@ export const WHATS_NEW: ReleaseEntry[] = [
   {
     version: '0.10.110',
     date: 'June 8, 2026',
-    highlight: 'Voicemail migration safer: tag DIDs with user name + clearer warning before migrating',
+    highlight: 'Voicemail migration safer (tag DIDs, clearer warnings) + Telnyx connection naming now uses email so duplicate first names no longer cause confusion',
     changes: [
       { type: 'new', text: 'Voicemail migration modal now has a Telnyx tag field. Pre-filled with the user\'s name, the value gets stamped onto the DID as a Telnyx tag during migration so admins can identify whose number it is in the Telnyx Numbers panel after the DID moves off the user\'s Credential Connection.' },
       { type: 'improved', text: 'Voicemail migration modal now shows an upfront warning explaining what happens to the DID and Credential Connection during migration. Includes a do-not-disable note for the Credential Connection (it\'s still needed for SIP registration even after the DID moves elsewhere).' },
+      { type: 'improved', text: 'Telnyx Credential Connection naming now uses the user\'s email (sanitized) instead of just first-name+random-suffix. Two users named Rahul used to produce near-identical connection names; now they\'re each clearly identifiable (e.g. rahul-aptask-com vs rahul-kumar-aptask-com). Existing connections unchanged - this only affects newly-provisioned users.' },
     ],
   },
   {
