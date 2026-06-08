@@ -24,6 +24,25 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.108',
+    date: 'June 8, 2026',
+    highlight: 'Easier-to-scan Recents (direction filter), cleaner Keypad, and Admin Users now shows every line a user has',
+    changes: [
+      { type: 'new', text: 'Recents tab now has a direction filter at the top: All / Inbound / Outgoing / Missed. Tap a chip to narrow the list. Your choice is remembered across app restarts.' },
+      { type: 'improved', text: 'Admin > Users table now shows every DID a user has (with a "default" badge on the primary line) instead of just showing the default DID with a "+N" badge. No more guessing what numbers are assigned without opening Manage Lines.' },
+      { type: 'improved', text: 'Keypad page is cleaner: removed the inline Recent quick-pick panel (Contacts icon next to the Call button). The Recents tab in the bottom nav now has the dedicated direction filter and is the single place for recent calls.' },
+    ],
+  },
+  {
+    version: '0.10.107',
+    date: 'June 8, 2026',
+    highlight: 'Critical fix: Add-a-Line no longer leaves orphan purchased numbers in Telnyx when assignment fails',
+    changes: [
+      { type: 'fixed', text: 'When adding a new DID via Settings > Admin > Users > Manage lines > Add a line, the flow searches Telnyx, purchases a number, and assigns it to the user. Previously: if the assign step failed (transient Telnyx error, invalid connection ID, etc.), the just-purchased number stayed in the Telnyx account billing the tenant. Admins seeing the "Failed to assign" error retried and accidentally bought multiple numbers. Now: on assign failure post-purchase, the endpoint immediately calls Telnyx to release the number back to the pool (no billing impact). The error message tells the admin exactly what happened.' },
+      { type: 'fixed', text: 'Added a pre-purchase sanity check that validates the user has a SIP connection ID BEFORE running the billable Telnyx purchase. Catches the most common "Failed to assign" cause (no connection ID on the user row) without spending any money.' },
+    ],
+  },
+  {
     version: '0.10.106',
     date: 'June 8, 2026',
     highlight: 'Race-condition fix: very short calls (caller rejected in <100ms) now correctly classify as missed instead of stuck at "initiated"',

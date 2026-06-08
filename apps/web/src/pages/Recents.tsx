@@ -85,12 +85,39 @@ function last10(s: string | undefined | null): string {
   return (s ?? '').replace(/[^\d]/g, '').slice(-10);
 }
 
+// v0.10.108 — Call-direction filter. Lets users narrow Recents to
+// just inbound, outgoing, or missed calls. Persists in localStorage
+// so the filter survives tab switches and app restarts.
+type DirectionFilter = 'all' | 'inbound' | 'outgoing' | 'missed';
+
+const DIRECTION_FILTER_KEY = 'ace.recents.directionFilter';
+
+function readSavedDirectionFilter(): DirectionFilter {
+  try {
+    const v = localStorage.getItem(DIRECTION_FILTER_KEY);
+    if (v === 'all' || v === 'inbound' || v === 'outgoing' || v === 'missed') return v;
+  } catch {
+    /* ignore — localStorage unavailable in some sandboxes */
+  }
+  return 'all';
+}
+
 export default function Recents() {
   const [calls, setCalls] = useState<CallRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [search, setSearch] = useState('');
+  const [directionFilter, setDirectionFilter] = useState<DirectionFilter>(readSavedDirectionFilter);
+
+  // Persist filter choice across sessions.
+  useEffect(() => {
+    try {
+      localStorage.setItem(DIRECTION_FILTER_KEY, directionFilter);
+    } catch {
+      /* ignore */
+    }
+  }, [directionFilter]);
   // "Add to favorites" modal — pre-filled with the row's phone + (when known)
   // first/last name parsed from the JobDiva contact. User can edit before
   // saving so favorites always carry friendly names.
@@ -156,6 +183,15 @@ export default function Recents() {
         return last10(other) === contactWant;
       });
     }
+    // v0.10.108 — Then narrow by call direction (All / Inbound / Outgoing / Missed).
+    if (directionFilter !== 'all') {
+      base = base.filter((c) => {
+        if (directionFilter === 'missed') return isMissed(c);
+        if (directionFilter === 'inbound') return c.direction === 'inbound';
+        if (directionFilter === 'outgoing') return c.direction === 'outbound';
+        return true;
+      });
+    }
     const q = search.trim().toLowerCase();
     if (!q) return base;
     const qDigits = q.replace(/[^\d]/g, '');
@@ -170,7 +206,7 @@ export default function Recents() {
       if (cachedName && cachedName.toLowerCase().includes(q)) return true;
       return false;
     });
-  }, [calls, search, contactWant]);
+  }, [calls, search, contactWant, directionFilter]);
 
   // Contact label for the back bar — use the cached JobDiva name if available,
   // otherwise fall back to a formatted phone number.
@@ -355,6 +391,32 @@ export default function Recents() {
             <X size={14} />
           </button>
         )}
+      </div>
+
+      {/* v0.10.108 — Call-direction filter chips. */}
+      <div className="recents-filter-row" role="tablist" aria-label="Call direction">
+        {(
+          [
+            { v: 'all', label: 'All' },
+            { v: 'inbound', label: 'Inbound' },
+            { v: 'outgoing', label: 'Outgoing' },
+            { v: 'missed', label: 'Missed' },
+          ] as Array<{ v: DirectionFilter; label: string }>
+        ).map((opt) => {
+          const active = directionFilter === opt.v;
+          return (
+            <button
+              key={opt.v}
+              type="button"
+              role="tab"
+              aria-selected={active}
+              className={`recents-filter-chip${active ? ' is-active' : ''}`}
+              onClick={() => setDirectionFilter(opt.v)}
+            >
+              {opt.label}
+            </button>
+          );
+        })}
       </div>
 
       {error && <div className="error" style={{ margin: '0 1rem 1rem' }}>{error}</div>}

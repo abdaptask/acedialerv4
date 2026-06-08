@@ -1,13 +1,13 @@
+// v0.10.108 — Recent-numbers quick-pick panel removed from the Dialpad.
+// The dedicated Recents tab in the bottom nav makes the inline panel
+// redundant. BookUser/Clock/X icons and the getCalls/CallRecord/
+// formatPhone/favorite/JobDiva helpers were only used by that panel.
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
-import { Phone, Delete, BookUser, Clock, X } from 'lucide-react';
+import { Phone, Delete } from 'lucide-react';
 import { AsYouType, parsePhoneNumberFromString, getCountryCallingCode } from 'libphonenumber-js/min';
 import type { CountryCode } from 'libphonenumber-js/min';
 import { useSip } from '../contexts/SipContext';
-import { getCalls, type CallRecord } from '../api';
-import { formatPhone } from '../lib/phone';
-import { getCachedJobDivaName } from '../hooks/useJobDivaContact';
-import { getFavoriteName } from '../lib/userPrefs';
 
 interface DialpadLocationState {
   addCall?: boolean;
@@ -205,42 +205,8 @@ export default function Dialpad() {
     | { state: 'error'; message: string }
   >({ state: 'idle' });
 
-  const [showContacts, setShowContacts] = useState(false);
-  const [recentNumbers, setRecentNumbers] = useState<{ phone: string; label: string; when: string }[]>([]);
-
-  // Lazy-load recents the first time the user opens the contacts panel.
-  useEffect(() => {
-    if (!showContacts) return;
-    const token = sessionStorage.getItem('ace_token');
-    if (!token) return;
-    getCalls(token)
-      .then((calls: CallRecord[]) => {
-        // Dedupe by the other party's number, keep latest per contact.
-        const seen = new Map<string, { phone: string; label: string; when: string }>();
-        for (const c of calls) {
-          const other = c.direction === 'inbound' ? c.fromNumber : c.toNumber;
-          if (!other) continue;
-          const key = other.replace(/[^\d]/g, '').slice(-10);
-          if (seen.has(key)) continue;
-          // Friendly-name resolution mirrors the rest of the dialer:
-          // user-saved favorite name beats JobDiva name beats formatted phone.
-          // Without the favorite lookup here, a starred contact would still
-          // show as the raw number in the contacts quick-pick. (#161 follow-up)
-          const name =
-            getFavoriteName(other) ??
-            getCachedJobDivaName(other) ??
-            null;
-          seen.set(key, {
-            phone: other,
-            label: name ?? formatPhone(other) ?? other,
-            when: c.startedAt,
-          });
-          if (seen.size >= 15) break;
-        }
-        setRecentNumbers(Array.from(seen.values()));
-      })
-      .catch(() => { /* ignore */ });
-  }, [showContacts]);
+  // v0.10.108 — Inline contacts/recent quick-pick removed. Users get to
+  // recent numbers via the Recents tab in the bottom nav.
 
   const append = useCallback((d: string) => setNumber((n) => n + d), []);
   const backspace = useCallback(() => setNumber((n) => n.slice(0, -1)), []);
@@ -478,15 +444,9 @@ export default function Dialpad() {
       </div>
 
       <div className="dialpad-actions">
-        <button
-          type="button"
-          className="contacts-btn"
-          onClick={() => setShowContacts(true)}
-          aria-label="Contacts"
-          title="Recent calls"
-        >
-          <BookUser size={28} />
-        </button>
+        {/* v0.10.108 — Left slot is a spacer to keep the Call button
+            centered now that the Recent button is gone. */}
+        <span className="contacts-btn-spacer" aria-hidden="true" />
         <button
           type="button"
           className="call-btn"
@@ -517,51 +477,6 @@ export default function Dialpad() {
           <span className="contacts-btn-spacer" aria-hidden="true" />
         )}
       </div>
-
-      {showContacts && (
-        <div className="contacts-quickpick" role="dialog" aria-label="Contacts">
-          <div className="contacts-quickpick-box">
-            <div className="contacts-quickpick-header">
-              <span>Quick pick</span>
-              <button
-                type="button"
-                className="icon-btn"
-                onClick={() => setShowContacts(false)}
-                aria-label="Close"
-              >
-                <X size={16} />
-              </button>
-            </div>
-
-            <div className="contacts-quickpick-section">
-              <Clock size={12} /> Recent
-            </div>
-            <ul className="contacts-quickpick-list">
-              {recentNumbers.length === 0 && (
-                <li className="muted small" style={{ padding: '0.5rem 0.75rem' }}>
-                  No recent calls yet.
-                </li>
-              )}
-              {recentNumbers.map((r) => (
-                <li key={r.phone}>
-                  <button
-                    type="button"
-                    className="contacts-quickpick-item"
-                    onClick={() => {
-                      setNumber(r.phone);
-                      setShowContacts(false);
-                      setTimeout(() => inputRef.current?.focus(), 0);
-                    }}
-                  >
-                    <span className="contacts-quickpick-name">{r.label}</span>
-                    <span className="contacts-quickpick-phone">{formatPhone(r.phone)}</span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

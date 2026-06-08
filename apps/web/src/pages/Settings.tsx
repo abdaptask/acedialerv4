@@ -3113,29 +3113,44 @@ function UsersAdminSection() {
                       (from UserDid rows) instead of the legacy
                       User.didNumber, which doesn't track adds/changes.
                       If they have more than one line, show "+N" badge. */}
+                  {/* v0.10.108 — Show ALL DIDs assigned to the user, not
+                      just the default + "+N" badge. Default DID gets a
+                      blue "default" pill; the rest stack underneath. */}
                   {(() => {
-                    const def = r.userDids.find((d) => d.isDefault) ?? r.userDids[0];
-                    const display = def?.didNumber ?? r.didNumber ?? null;
-                    const extra = Math.max(0, r.userDids.length - 1);
-                    if (!display) return '—';
+                    if (r.userDids.length === 0) {
+                      return r.didNumber || '—';
+                    }
+                    const sorted = [...r.userDids].sort((a, b) => {
+                      if (a.isDefault && !b.isDefault) return -1;
+                      if (!a.isDefault && b.isDefault) return 1;
+                      return a.didNumber.localeCompare(b.didNumber);
+                    });
                     return (
-                      <span>
-                        {display}
-                        {extra > 0 && (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                        {sorted.map((d) => (
                           <span
-                            style={{
-                              marginLeft: 6,
-                              padding: '1px 6px',
-                              borderRadius: 6,
-                              fontSize: '0.7rem',
-                              background: 'rgba(0,0,0,0.06)',
-                            }}
-                            title={`This user has ${extra + 1} lines. Click the kebab → Manage lines to see all.`}
+                            key={d.didNumber}
+                            style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                            title={d.isDefault ? 'Default line' : 'Additional line'}
                           >
-                            +{extra}
+                            {d.didNumber}
+                            {d.isDefault && sorted.length > 1 && (
+                              <span
+                                style={{
+                                  fontSize: '0.65rem',
+                                  padding: '1px 5px',
+                                  borderRadius: 4,
+                                  background: 'rgba(59,130,246,0.12)',
+                                  color: '#1d4ed8',
+                                  fontWeight: 600,
+                                }}
+                              >
+                                default
+                              </span>
+                            )}
                           </span>
-                        )}
-                      </span>
+                        ))}
+                      </div>
                     );
                   })()}
                 </td>

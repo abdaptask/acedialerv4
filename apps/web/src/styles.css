@@ -2893,6 +2893,52 @@ body {
 .icon-btn .spin { animation: spin 0.8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
+/* v0.10.108 — Direction filter chips above the call list. Compact pill
+   buttons that highlight when active. */
+.recents-filter-row {
+  display: flex;
+  gap: 0.4rem;
+  padding: 0.25rem 1rem 0.6rem;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.recents-filter-row::-webkit-scrollbar { display: none; }
+.recents-filter-chip {
+  flex-shrink: 0;
+  padding: 0.35rem 0.85rem;
+  border-radius: 999px;
+  font-size: 0.82rem;
+  font-weight: 500;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.78);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+.recents-filter-chip:hover {
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
+}
+.recents-filter-chip.is-active {
+  background: #3b82f6;
+  color: #fff;
+  border-color: #3b82f6;
+}
+[data-theme="light"] .recents-filter-chip {
+  background: rgba(0, 0, 0, 0.05);
+  color: #444;
+  border-color: rgba(0, 0, 0, 0.08);
+}
+[data-theme="light"] .recents-filter-chip:hover {
+  background: rgba(0, 0, 0, 0.09);
+  color: #111;
+}
+[data-theme="light"] .recents-filter-chip.is-active {
+  background: #2563eb;
+  color: #fff;
+  border-color: #2563eb;
+}
+
 .call-list {
   list-style: none;
   margin: 0;
