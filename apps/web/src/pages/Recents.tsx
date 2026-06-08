@@ -184,10 +184,16 @@ export default function Recents() {
       });
     }
     // v0.10.108 — Then narrow by call direction (All / Inbound / Outgoing / Missed).
+    // The four buckets are mutually exclusive:
+    //   - inbound  = answered incoming calls
+    //   - outgoing = outbound calls (answered or not)
+    //   - missed   = inbound calls that didn't connect (missed/no_answer/rejected/failed/blocked)
+    // This matches user expectation: clicking "Inbound" shouldn't include
+    // calls that already show up under "Missed".
     if (directionFilter !== 'all') {
       base = base.filter((c) => {
         if (directionFilter === 'missed') return isMissed(c);
-        if (directionFilter === 'inbound') return c.direction === 'inbound';
+        if (directionFilter === 'inbound') return c.direction === 'inbound' && !isMissed(c);
         if (directionFilter === 'outgoing') return c.direction === 'outbound';
         return true;
       });
