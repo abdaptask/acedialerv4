@@ -78,6 +78,7 @@ export function resetPulsePoolForRetry() {
 export async function pingPulseMysql(): Promise<{
   ok: boolean;
   error?: string;
+  errorDetails?: Record<string, unknown>;
   durationMs?: number;
 }> {
   const start = Date.now();
@@ -89,10 +90,25 @@ export async function pingPulseMysql(): Promise<{
     const [rows] = await p.query<mysql.RowDataPacket[]>('SELECT 1 AS ping');
     const ok = Array.isArray(rows) && rows[0]?.ping === 1;
     return { ok, durationMs: Date.now() - start };
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    recordPoolError(`pingPulseMysql query failed: ${msg}`);
-    return { ok: false, error: msg, durationMs: Date.now() - start };
+  } catch (e: unknown) {
+    // v0.10.109 - capture full error shape so we can diagnose
+    // empty-message errors from cloud MySQL providers (SSL, etc.)
+    const err = e as Record<string, unknown>;
+    const msg = (err?.message as string) || (err?.code as string) || (err?.toString?.() as string) || 'unknown';
+    const details = {
+      message: err?.message ?? null,
+      code: err?.code ?? null,
+      errno: err?.errno ?? null,
+      sqlState: err?.sqlState ?? null,
+      sqlMessage: err?.sqlMessage ?? null,
+      fatal: err?.fatal ?? null,
+      syscall: err?.syscall ?? null,
+      address: err?.address ?? null,
+      port: err?.port ?? null,
+      stack: (err?.stack as string)?.split('\n').slice(0, 5).join('\n') ?? null,
+    };
+    recordPoolError(`pingPulseMysql failed: ${msg} (code=${details.code})`);
+    return { ok: false, error: msg, errorDetails: details, durationMs: Date.now() - start };
   }
 }
 
@@ -114,6 +130,12 @@ function getPool(): mysql.Pool | null {
     return null;
   }
   const port = parseInt((process.env.PULSE_DB_PORT ?? '3306').trim(), 10);
+  // v0.10.109 - SSL support. Many managed MySQL providers require TLS.
+  // Set PULSE_DB_SSL=true (or =require) on Render to enable. We disable
+  // cert verification (rejectUnauthorized: false) because most managed
+  // providers ship self-signed certs; that's standard MySQL client behavior.
+  const sslEnv = (process.env.PULSE_DB_SSL ?? '').trim().toLowerCase();
+  const useSsl = sslEnv === 'true' || sslEnv === '1' || sslEnv === 'require';
   try {
     pool = mysql.createPool({
       host, port, user, password, database,
@@ -121,6 +143,7 @@ function getPool(): mysql.Pool | null {
       connectionLimit: 5,
       connectTimeout: 10_000,
       idleTimeout: 30_000,
+      ...(useSsl ? { ssl: { rejectUnauthorized: false } } : {}),
     });
     return pool;
   } catch (e) {
