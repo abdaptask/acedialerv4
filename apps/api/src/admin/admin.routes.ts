@@ -34,7 +34,7 @@ import { sendWelcomeEmail, sendLineAssignedEmail } from '../email/sendgrid.js';
 import { sendLineAssignedCard } from '../lib/teamsNotify.js';
 import { backfillMigratedDidHistory } from '../lib/migrationBackfill.js';
 import { loginToPulse, decodePulseJwt } from '../lib/pulseApi.js';
-import { countPulseMessagesForUser } from '../lib/pulseBackfill.js';
+import { countPulseMessagesForUser, getPulseMysqlHealth, pingPulseMysql, resetPulsePoolForRetry } from '../lib/pulseBackfill.js';
 import {
   buildAuthorizeUrl,
   exchangeCodeForTokens,
@@ -7140,6 +7140,24 @@ export async function adminRoutes(app: FastifyInstance) {
       });
 
       return { ok: true, userDid: updated };
+    },
+  );
+
+  // v0.10.109 - Pulse MySQL health diagnostic. Returns env-var presence,
+  // pool state, last connection error, and pings the live MySQL with
+  // SELECT 1 to surface the actual failure reason. Used to diagnose
+  // why SMS backfill is returning 0 messages.
+  // Optional ?retry=1 query resets initFailed so the pool retries.
+  app.get<{ Querystring: { retry?: string } }>(
+    '/admin/pulse-mysql-health',
+    { onRequest: [app.authenticate, requireAdmin] },
+    async (request) => {
+      const retry = request.query.retry === '1' || request.query.retry === 'true';
+      if (retry) resetPulsePoolForRetry();
+      const config = getPulseMysqlHealth();
+      const ping = await pingPulseMysql();
+      const refreshedConfig = getPulseMysqlHealth();
+      return { retry, config, ping, configAfter: refreshedConfig };
     },
   );
 }

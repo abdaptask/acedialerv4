@@ -23,6 +23,78 @@ import mysql from 'mysql2/promise';
 
 let pool: mysql.Pool | null = null;
 let initFailed = false;
+// v0.10.109 - capture the last reason getPool() returned null so admins
+// can diagnose why Pulse MySQL backfill is silently failing.
+let lastPoolError: string | null = null;
+let lastPoolErrorAt: string | null = null;
+
+function recordPoolError(msg: string) {
+  lastPoolError = msg;
+  lastPoolErrorAt = new Date().toISOString();
+  console.error('[pulseBackfill]', msg);
+}
+
+export function getPulseMysqlHealth() {
+  const host = (process.env.PULSE_DB_HOST ?? '').trim();
+  const user = (process.env.PULSE_DB_USER ?? '').trim();
+  const password = (process.env.PULSE_DB_PASS ?? '').trim();
+  const database = (process.env.PULSE_DB_NAME ?? '').trim();
+  const port = (process.env.PULSE_DB_PORT ?? '').trim();
+  return {
+    envVarsPresent: {
+      PULSE_DB_HOST: !!host,
+      PULSE_DB_USER: !!user,
+      PULSE_DB_PASS: !!password,
+      PULSE_DB_NAME: !!database,
+      PULSE_DB_PORT: !!port,
+    },
+    hostLength: host.length,
+    userLength: user.length,
+    dbName: database || null,
+    portValue: port || '3306 (default)',
+    poolInitialized: pool !== null,
+    initFailed,
+    lastPoolError,
+    lastPoolErrorAt,
+  };
+}
+
+/** Force a fresh connection attempt - clears the initFailed flag so
+ *  the next getPool() call retries instead of returning null. Used by
+ *  /admin/pulse-mysql-health?retry=1 after the admin fixes env vars
+ *  or networking, so we don't have to restart the API service. */
+export function resetPulsePoolForRetry() {
+  if (pool) {
+    try { pool.end().catch(() => {}); } catch { /* noop */ }
+  }
+  pool = null;
+  initFailed = false;
+  lastPoolError = null;
+  lastPoolErrorAt = null;
+}
+
+/** Attempt a live MySQL connection and run a trivial query. Returns
+ *  diagnostic info about the actual failure so admins can fix it. */
+export async function pingPulseMysql(): Promise<{
+  ok: boolean;
+  error?: string;
+  durationMs?: number;
+}> {
+  const start = Date.now();
+  const p = getPool();
+  if (!p) {
+    return { ok: false, error: lastPoolError ?? 'env vars missing or pool init failed' };
+  }
+  try {
+    const [rows] = await p.query<mysql.RowDataPacket[]>('SELECT 1 AS ping');
+    const ok = Array.isArray(rows) && rows[0]?.ping === 1;
+    return { ok, durationMs: Date.now() - start };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    recordPoolError(`pingPulseMysql query failed: ${msg}`);
+    return { ok: false, error: msg, durationMs: Date.now() - start };
+  }
+}
 
 function getPool(): mysql.Pool | null {
   if (initFailed) return null;
@@ -32,6 +104,13 @@ function getPool(): mysql.Pool | null {
   const password = (process.env.PULSE_DB_PASS ?? '').trim();
   const database = (process.env.PULSE_DB_NAME ?? '').trim();
   if (!host || !user || !password || !database) {
+    const missing = [
+      !host && 'PULSE_DB_HOST',
+      !user && 'PULSE_DB_USER',
+      !password && 'PULSE_DB_PASS',
+      !database && 'PULSE_DB_NAME',
+    ].filter(Boolean).join(', ');
+    recordPoolError(`missing env vars: ${missing}`);
     return null;
   }
   const port = parseInt((process.env.PULSE_DB_PORT ?? '3306').trim(), 10);
@@ -40,16 +119,12 @@ function getPool(): mysql.Pool | null {
       host, port, user, password, database,
       waitForConnections: true,
       connectionLimit: 5,
-      // Connect timeout: don't hang the migration forever if Pulse
-      // is unreachable. Backfill is best-effort.
       connectTimeout: 10_000,
-      // Idle connections close after 30s — Pulse DB doesn't need to
-      // keep our pool alive while we're not migrating.
       idleTimeout: 30_000,
     });
     return pool;
   } catch (e) {
-    console.error('[pulseBackfill] failed to create MySQL pool', e);
+    recordPoolError(`createPool threw: ${e instanceof Error ? e.message : String(e)}`);
     initFailed = true;
     return null;
   }
