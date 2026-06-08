@@ -393,7 +393,17 @@ app.post('/webhooks/telnyx/calls', async (request) => {
         await prisma.call.upsert({
           where: { telnyxCallId: callId },
           update: {
-            status: blocked ? 'blocked' : 'initiated',
+            // v0.10.106 fix - DON'T overwrite status in the update branch.
+            // call.initiated and call.hangup can arrive race-close together
+            // (Telnyx fires both within a few ms for very short calls). If
+            // hangup wins the race and creates the row with status='rejected'
+            // (or 'missed'), call.initiated's update mustn't clobber that
+            // back to 'initiated'. Status is only set on CREATE; subsequent
+            // events (call.answered, call.bridged, call.hangup) drive the
+            // state machine forward. EXCEPTION: if the call is blocked we
+            // DO want to overwrite, since the block decision is authoritative
+            // and only known at call.initiated time.
+            ...(blocked ? { status: 'blocked' } : {}),
             ...(callControlId ? { callControlId } : {}),
             ...(userDidId ? { userDidId } : {}),
           },

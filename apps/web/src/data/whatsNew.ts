@@ -24,6 +24,14 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.106',
+    date: 'June 8, 2026',
+    highlight: 'Race-condition fix: very short calls (caller rejected in <100ms) now correctly classify as missed instead of stuck at "initiated"',
+    changes: [
+      { type: 'fixed', text: 'When a caller hung up or was rejected within milliseconds of dialing (e.g., Telnyx-side SIP rejection because of momentary registration flap), the call.initiated and call.hangup webhook events arrived back-to-back. The call.initiated handler\'s upsert UPDATE branch was unconditionally setting status=\'initiated\', which overwrote the call.hangup\'s correctly-classified status (\'missed\' / \'rejected\'). Now call.initiated\'s UPDATE branch leaves status alone — only the call.hangup classifier sets the final state.' },
+    ],
+  },
+  {
     version: '0.10.105',
     date: 'June 8, 2026',
     highlight: 'Voicemails now actually mark as listened when you play them (real fix this time)',
