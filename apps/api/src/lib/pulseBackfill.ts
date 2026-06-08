@@ -40,6 +40,8 @@ export function getPulseMysqlHealth() {
   const password = (process.env.PULSE_DB_PASS ?? '').trim();
   const database = (process.env.PULSE_DB_NAME ?? '').trim();
   const port = (process.env.PULSE_DB_PORT ?? '').trim();
+  const sslEnv = (process.env.PULSE_DB_SSL ?? '').trim().toLowerCase();
+  const sslEnabled = sslEnv === 'true' || sslEnv === '1' || sslEnv === 'require';
   return {
     envVarsPresent: {
       PULSE_DB_HOST: !!host,
@@ -47,11 +49,13 @@ export function getPulseMysqlHealth() {
       PULSE_DB_PASS: !!password,
       PULSE_DB_NAME: !!database,
       PULSE_DB_PORT: !!port,
+      PULSE_DB_SSL: sslEnv || '(unset)',
     },
     hostLength: host.length,
     userLength: user.length,
     dbName: database || null,
     portValue: port || '3306 (default)',
+    sslEnabled,
     poolInitialized: pool !== null,
     initFailed,
     lastPoolError,
