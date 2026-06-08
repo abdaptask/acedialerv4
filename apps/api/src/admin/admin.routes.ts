@@ -3551,7 +3551,7 @@ export async function adminRoutes(app: FastifyInstance) {
       if (parsed.data.type === 'voice') {
         const callRows = rows
           .map((r) => mapTelnyxCdrCsvRow(r, userId, userDid.id))
-          .filter((x): x is NonNullable<typeof x> => x !== null);
+          .filter(<T,>(x: T): x is NonNullable<T> => x !== null);
         const result = await prisma.call.createMany({
           data: callRows,
           skipDuplicates: true,
@@ -7007,6 +7007,139 @@ export async function adminRoutes(app: FastifyInstance) {
         voicemails: { repaired: vmRepaired, couldNotAttribute: vmCouldNotAttribute },
         messages: { repaired: msgRepaired, couldNotAttribute: msgCouldNotAttribute },
       };
+    },
+  );
+
+  // v0.10.109 - List UserDid rows whose userId points at a soft-deleted
+  // user (a ghost). Used after the cross-user attribution backfill to
+  // identify DIDs that still need manual remapping to an active user.
+  app.get(
+    '/admin/ghost-dids',
+    { onRequest: [app.authenticate, requireAdmin] },
+    async () => {
+      // Pull every UserDid that has a userId set.
+      const dids = await prisma.userDid.findMany({
+        where: { userId: { not: null } },
+        select: {
+          id: true,
+          didNumber: true,
+          userId: true,
+          label: true,
+          isDefault: true,
+        },
+        orderBy: { didNumber: 'asc' },
+      });
+
+      // Cross-reference owners. Soft-deleted users have emails ending
+      // in '@deleted.ace.local'. We keep their old fields so the admin
+      // can recognize who the DID used to belong to.
+      type DidRow = typeof dids[number];
+      const ownerIds = Array.from(new Set(dids.map((d: DidRow) => d.userId).filter((x: number | null): x is number => x != null)));
+      const owners = await prisma.user.findMany({
+        where: { id: { in: ownerIds } },
+        select: {
+          id: true,
+          email: true,
+          firstName: true,
+          lastName: true,
+          sipUsername: true,
+          isActive: true,
+        },
+      });
+      const ownerById = new Map<number, (typeof owners)[number]>();
+      for (const u of owners) ownerById.set(u.id, u);
+
+      const ghosts = dids
+        .map((d: DidRow) => {
+          const owner = d.userId != null ? ownerById.get(d.userId) : null;
+          if (!owner) {
+            // userId references a User row that's been hard-deleted - even more ghost
+            return {
+              userDidId: d.id,
+              didNumber: d.didNumber,
+              label: d.label,
+              isDefault: d.isDefault,
+              oldUserId: d.userId,
+              status: 'user-row-missing' as const,
+              oldEmail: null as string | null,
+              oldName: null as string | null,
+              oldSipUsername: null as string | null,
+            };
+          }
+          const isSoftDeleted = owner.email.endsWith('@deleted.ace.local');
+          if (!isSoftDeleted && owner.isActive) return null; // active owner - not a ghost
+          return {
+            userDidId: d.id,
+            didNumber: d.didNumber,
+            label: d.label,
+            isDefault: d.isDefault,
+            oldUserId: owner.id,
+            status: isSoftDeleted ? ('soft-deleted' as const) : ('inactive' as const),
+            oldEmail: owner.email,
+            oldName: [owner.firstName, owner.lastName].filter(Boolean).join(' ') || null,
+            oldSipUsername: owner.sipUsername,
+          };
+        })
+        .filter(<T,>(x: T): x is NonNullable<T> => x !== null);
+
+      return { count: ghosts.length, ghosts };
+    },
+  );
+
+  // v0.10.109 - Reassign a UserDid to a different (active) user. Used by
+  // admin to recover DIDs whose previous owner was soft-deleted. After
+  // reassignment, re-run /admin/repair-attribution to sweep up the
+  // now-attributable Call/Voicemail/Message rows.
+  app.post<{ Params: { didId: string }; Body: { newUserId: number } }>(
+    '/admin/userdids/:didId/reassign',
+    { onRequest: [app.authenticate, requireAdmin] },
+    async (request, reply) => {
+      const actor = request.user as JwtPayload;
+      const didId = Number(request.params.didId);
+      const newUserId = Number(request.body?.newUserId);
+      if (!Number.isFinite(didId) || didId <= 0) {
+        return reply.code(400).send({ error: 'Invalid didId' });
+      }
+      if (!Number.isFinite(newUserId) || newUserId <= 0) {
+        return reply.code(400).send({ error: 'Invalid newUserId' });
+      }
+
+      // Validate target user exists and is not soft-deleted.
+      const newUser = await prisma.user.findUnique({
+        where: { id: newUserId },
+        select: { id: true, email: true, isActive: true },
+      });
+      if (!newUser || newUser.email.endsWith('@deleted.ace.local')) {
+        return reply.code(400).send({ error: 'Target user not found or soft-deleted' });
+      }
+      if (!newUser.isActive) {
+        return reply.code(400).send({ error: 'Target user is inactive' });
+      }
+
+      const existing = await prisma.userDid.findUnique({
+        where: { id: didId },
+        select: { id: true, didNumber: true, userId: true, isDefault: true },
+      });
+      if (!existing) return reply.code(404).send({ error: 'UserDid not found' });
+
+      const prevUserId = existing.userId;
+
+      // Reassign + clear isDefault. New user may or may not want this
+      // as their default - they can flip that separately.
+      const updated = await prisma.userDid.update({
+        where: { id: didId },
+        data: { userId: newUserId, isDefault: false },
+        select: { id: true, didNumber: true, userId: true, isDefault: true },
+      });
+
+      await recordAudit(actor.sub, 'user_did.reassigned', newUserId, {
+        userDidId: didId,
+        didNumber: existing.didNumber,
+        fromUserId: prevUserId,
+        toUserId: newUserId,
+      });
+
+      return { ok: true, userDid: updated };
     },
   );
 }
