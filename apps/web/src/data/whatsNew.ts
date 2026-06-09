@@ -24,6 +24,14 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.113',
+    date: 'June 9, 2026',
+    highlight: 'CRITICAL: fixes Telnyx \'not_found\' inbound routing bug where calls went directly to voicemail despite the dialer being registered',
+    changes: [
+      { type: 'fixed', text: 'CRITICAL: many users were receiving inbound calls directly to voicemail without their dialer ringing - even though their dialer showed Registered (green) and OUTBOUND calls worked fine. Root cause: Telnyx\'s internal Contact-to-WebSocket routing was going stale over time. Their server thought our SIP credential was unreachable and routed inbound INVITEs to Hosted Voicemail without delivery. Standard REGISTER refreshes did NOT clear this state. Fix: the dialer now tears down its entire JsSIP connection + WebSocket every 60 seconds and rebuilds from scratch (skipped during active calls). This forces Telnyx to refresh its inbound routing table, capping the failure window at 60 seconds instead of "until the user restarts." Trade-off: ~2-5 seconds of disconnected state per cycle; incoming calls in that brief window still fail, but the overall reliability improves dramatically.' },
+    ],
+  },
+  {
     version: '0.10.112',
     date: 'June 9, 2026',
     highlight: 'Admin can now see what dialer version each user is on',

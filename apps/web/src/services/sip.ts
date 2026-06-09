@@ -713,6 +713,9 @@ export class SipService {
     // v0.10.77 — Proactive 60s force-REGISTER on top of the 10s heartbeat
     // and visibility recovery. See installForceRegisterTimer() for why.
     this.installForceRegisterTimer();
+    // v0.10.113 - periodic full UA reconnect every 60s while idle to
+    // fight Telnyx's stale-Contact / not_found inbound routing bug.
+    this.installPeriodicReconnectTimer();
     this.saveConfigForReconnect(config);
   }
 
@@ -836,6 +839,12 @@ export class SipService {
       clearInterval(this.forceRegisterTimer);
       this.forceRegisterTimer = null;
     }
+    // v0.10.113 — same for the periodic reconnect timer. connect() will
+    // re-install it; we don't want it firing again mid-reconnect.
+    if (this.periodicReconnectTimer) {
+      clearInterval(this.periodicReconnectTimer);
+      this.periodicReconnectTimer = null;
+    }
     if (!cfg) {
       console.warn('[sip] reconnect: no saved config — refresh the page');
       return;
@@ -858,6 +867,24 @@ export class SipService {
    * recovering the routing before the next inbound call misses.
    */
   private forceRegisterTimer: ReturnType<typeof setInterval> | null = null;
+
+  /**
+   * v0.10.113 — Periodic FULL UA reconnect to fight Telnyx's not_found
+   * routing bug. Even with REGISTER refreshing every 15s, Telnyx's
+   * internal Contact-to-WS-path mapping can go stale, causing inbound
+   * INVITEs to fail with hangup_cause='not_found' while OUTBOUND calls
+   * keep working (asymmetric SIP signaling). The only reliable fix is
+   * to tear down the entire UA + WebSocket every 60s and rebuild from
+   * scratch, which forces Telnyx to refresh its routing table.
+   *
+   * Trade-off: ~2-5 second disconnect window every cycle. Any incoming
+   * INVITE during that window still fails — but we cap the failure
+   * window at 60s instead of "until the user restarts the dialer."
+   *
+   * Skipped during active calls (terminating the UA mid-call would
+   * break audio).
+   */
+  private periodicReconnectTimer: ReturnType<typeof setInterval> | null = null;
 
   /**
    * v0.10.80 — Stale-contact eviction state.
@@ -987,6 +1014,31 @@ export class SipService {
         console.warn('[sip] 15s force-register threw', e);
       }
     }, 15_000);
+  }
+
+  /**
+   * v0.10.113 — 60-second periodic full UA reconnect. See field comment
+   * on periodicReconnectTimer for full rationale.
+   *
+   * Lifecycle: created in connect(), torn down in disconnect() and
+   * reconnect() (reconnect re-installs it after the new UA is ready).
+   */
+  private installPeriodicReconnectTimer(): void {
+    if (this.periodicReconnectTimer) return;
+    this.periodicReconnectTimer = setInterval(() => {
+      if (!this.ua) return;
+      // Never tear down during an active call — would kill audio.
+      if (this.calls.size > 0 || this.incomingCallId !== null) {
+        console.log('[sip] 60s periodic reconnect skipped — active call');
+        return;
+      }
+      console.log('[sip] 60s periodic reconnect firing (v0.10.113: forces Telnyx to refresh inbound INVITE routing)');
+      try {
+        this.reconnect();
+      } catch (e) {
+        console.warn('[sip] 60s periodic reconnect threw', e);
+      }
+    }, 60_000);
   }
 
   /**
@@ -2635,6 +2687,11 @@ export class SipService {
     if (this.forceRegisterTimer) {
       clearInterval(this.forceRegisterTimer);
       this.forceRegisterTimer = null;
+    }
+    // v0.10.113 — tear down the periodic full-reconnect timer too.
+    if (this.periodicReconnectTimer) {
+      clearInterval(this.periodicReconnectTimer);
+      this.periodicReconnectTimer = null;
     }
     // v0.9.13 — also cancel any pending first-login retry so a logout/
     // page-close during the 2-8s backoff window doesn't fire a stray
