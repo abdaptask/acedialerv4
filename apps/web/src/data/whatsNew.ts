@@ -24,6 +24,15 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.111',
+    date: 'June 9, 2026',
+    highlight: 'Auto-update finally reaches users (was sitting as draft releases on GitHub) + re-release of all v0.10.110 fixes',
+    changes: [
+      { type: 'fixed', text: 'Auto-update fix: previous v0.10.110 builds were being published as GitHub draft releases, which Electron\'s auto-updater cannot detect. Users on older versions never saw the update prompt. Changed releaseType from "draft" to "release" so every future build is immediately visible to the auto-updater. If you\'re seeing this what\'s-new screen, auto-update is working again - thank you for restarting.' },
+      { type: 'improved', text: 'This release also includes all the v0.10.110 fixes: critical silent-eviction fix (calls-going-to-voicemail-during-inactivity), voicemail migration tag field, Telnyx connection naming via email, and helper text on user creation forms. See v0.10.110 entry below for details.' },
+    ],
+  },
+  {
     version: '0.10.110',
     date: 'June 8, 2026',
     highlight: 'CRITICAL: fixes calls-going-straight-to-voicemail-during-inactivity bug + voicemail migration safer + Telnyx connection naming uses email',
