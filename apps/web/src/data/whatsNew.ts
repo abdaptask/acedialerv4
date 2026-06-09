@@ -24,6 +24,16 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.115',
+    date: 'June 9, 2026',
+    highlight: 'CANARY: webhook attribution now identifies users by Telnyx connection_id (handles Call Control voicemail migration correctly)',
+    changes: [
+      { type: 'improved', text: 'Webhook user attribution now uses Telnyx connection_id as the PRIMARY signal for figuring out which user an incoming call/SMS/voicemail belongs to. The old approach (sip_username + to-number matching) had edge cases where the wrong user got attributed, especially when the webhook fired for the SIP-delivery leg vs the PSTN leg of the same call. connection_id is set by Telnyx routing config, doesn\'t vary between legs, and uniquely identifies the user.' },
+      { type: 'improved', text: 'Handles two important edge cases for migrated users: (1) When connection_id is the SHARED Voicemail Call Control App ID (TELNYX_VOICEMAIL_CC_APP_ID) or PILOT_SIP_CONNECTION_ID, the lookup is skipped because it would match multiple users arbitrarily. (2) The lookup checks BOTH UserDid.connectionId AND UserDid.preMigrationConnectionId, since migrated users\' SIP-delivery-leg events still fire with their original personal connection ID.' },
+      { type: 'fixed', text: 'CANARY release - distributed manually to selected testers before broad rollout. If issues are found, rollback is just "don\'t publish" - existing users on prior versions are unaffected because this release is a GitHub draft.' },
+    ],
+  },
+  {
     version: '0.10.114',
     date: 'June 9, 2026',
     highlight: 'Hotfix: Admin > Users page was throwing a 500 (broken Prisma relation reference in the Version column code)',

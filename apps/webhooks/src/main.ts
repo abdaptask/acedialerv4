@@ -49,6 +49,7 @@ async function resolveUserId(opts: {
   sipUsername?: string | null;
   fromNumber?: string | null;
   toNumber?: string | null;
+  connectionId?: string | null;
 }): Promise<number | null> {
   const { userId } = await resolveUserAndDid(opts);
   return userId;
@@ -77,6 +78,12 @@ async function resolveUserAndDid(opts: {
   fromNumber?: string | null;
   toNumber?: string | null;
   direction?: 'inbound' | 'outbound';
+  /** v0.10.115 - Telnyx connection_id from the webhook payload.
+   *  Most reliable signal for user attribution because Telnyx populates
+   *  it on every call event from every leg, it's stable per user, and
+   *  doesn't depend on payload fields that vary between PSTN-leg and
+   *  SIP-delivery-leg events. */
+  connectionId?: string | null;
 }): Promise<{ userId: number | null; userDidId: number | null }> {
   // v0.10.108 CRITICAL FIX - Cross-user call attribution bug.
   //
@@ -100,9 +107,63 @@ async function resolveUserAndDid(opts: {
   //      DID owner. The dialed phone number is the ground truth for which
   //      user the call is for.
   let userId: number | null = null;
+  let userDidId: number | null = null;
+
+  // v0.10.115 Pass 0 (PREFERRED) - look up by Telnyx connection_id.
+  // This is the most reliable identifier because:
+  //   - Telnyx populates it on every call event from every leg
+  //   - It is stable per user (matches their Credential Connection ID)
+  //   - It does NOT depend on sip_username / to-number fields that
+  //     vary between PSTN-leg and SIP-delivery-leg webhook events
+  //
+  // TWO IMPORTANT EDGE CASES handled below:
+  //
+  // Edge case A — SHARED connection IDs (skip the lookup):
+  //   For users migrated to Call Control voicemail, the PSTN leg's
+  //   webhook fires with connection_id = TELNYX_VOICEMAIL_CC_APP_ID
+  //   (the same Voice API App ID for ALL migrated users). Looking
+  //   that up in UserDid would match the first migrated user we
+  //   happened to write the row for - completely wrong. Same risk
+  //   with PILOT_SIP_CONNECTION_ID if it was ever shared across
+  //   pilot users. When the inbound connection_id matches one of
+  //   these known shared IDs, skip Pass 0 and let later passes
+  //   (sip_username, then DID number lookup) attribute correctly.
+  //
+  // Edge case B — preMigrationConnectionId (also check this column):
+  //   When a user is migrated, UserDid.connectionId is overwritten
+  //   with the shared CC App ID, but their ORIGINAL personal
+  //   Credential Connection ID is preserved in preMigrationConnectionId.
+  //   SIP-delivery-leg webhook events (Telnyx -> user's SIP credential
+  //   after the transfer action) fire with connection_id = that
+  //   personal connection ID. So our lookup must check BOTH columns.
+  if (opts.connectionId) {
+    const sharedIds = [
+      (process.env.TELNYX_VOICEMAIL_CC_APP_ID ?? '').trim(),
+      (process.env.PILOT_SIP_CONNECTION_ID ?? '').trim(),
+    ].filter((s) => s.length > 0);
+    const isSharedConnId = sharedIds.includes(opts.connectionId);
+    if (!isSharedConnId) {
+      // Check both connectionId AND preMigrationConnectionId so the
+      // lookup works for both migrated and non-migrated users.
+      const did = await prisma.userDid.findFirst({
+        where: {
+          OR: [
+            { connectionId: opts.connectionId },
+            { preMigrationConnectionId: opts.connectionId },
+          ],
+          userId: { not: null },
+        },
+        select: { id: true, userId: true },
+      });
+      if (did?.userId != null) {
+        userId = did.userId;
+        userDidId = did.id;
+      }
+    }
+  }
 
   // Pass 1 - explicit sip_username field from the webhook payload.
-  if (opts.sipUsername) {
+  if (userId === null && opts.sipUsername) {
     const u = await prisma.user.findFirst({
       where: { sipUsername: opts.sipUsername },
       select: { id: true },
@@ -133,7 +194,6 @@ async function resolveUserAndDid(opts: {
 
   // Pass 3 - DID match. Authoritative for INBOUND because the dialed
   // number is what the caller actually picked.
-  let userDidId: number | null = null;
   const matchAgainst =
     opts.direction === 'outbound' ? opts.fromNumber : opts.toNumber;
   const matchLast10 = last10(matchAgainst ?? '');
@@ -393,6 +453,7 @@ app.post('/webhooks/telnyx/calls', async (request) => {
           fromNumber,
           toNumber,
           direction,           // v0.10.24 — direction-aware line attribution
+          connectionId: payload.connection_id ?? null,  // v0.10.115 - most reliable signal
         });
 
         // v0.10.108 CRITICAL - skip Call row creation if we can't determine
@@ -598,6 +659,7 @@ app.post('/webhooks/telnyx/calls', async (request) => {
             sipUsername: payload.sip_username ?? payload.client_username ?? null,
             fromNumber,
             toNumber,
+            connectionId: payload.connection_id ?? null,  // v0.10.115
           });
           // v0.10.108 - if we can't attribute, skip the row.
           if (ownerUserId === null) {
@@ -742,6 +804,7 @@ app.post('/webhooks/telnyx/calls', async (request) => {
             fromNumber: vmFrom,
             toNumber: vmTo,
             direction: 'inbound',
+            connectionId: payload.connection_id ?? null,  // v0.10.115
           });
           // v0.10.108 - if we can't attribute the voicemail, skip it.
           // Better to lose a voicemail than file it on the wrong user.
@@ -890,6 +953,7 @@ app.post('/webhooks/telnyx/sms', async (request) => {
         const { userId: ownerUserId, userDidId } = await resolveUserAndDid({
           toNumber, fromNumber,
           direction: 'inbound',
+          connectionId: payload.connection_id ?? null,  // v0.10.115
         });
         // v0.10.108 - skip storing SMS we can't attribute.
         if (ownerUserId === null) {
@@ -1310,6 +1374,7 @@ app.post('/webhooks/telnyx/voicemail', async (request) => {
     let telnyxCallId: string | undefined;
     let receivedAt: Date = new Date();
     let transcription: string | undefined;
+    let connectionId: string | undefined;  // v0.10.115 - capture for resolveUserAndDid
 
     if (event?.payload) {
       const payload = event.payload;
@@ -1323,6 +1388,7 @@ app.post('/webhooks/telnyx/voicemail', async (request) => {
       telnyxCallId = payload.call_session_id ?? payload.call_control_id;
       if (payload.start_time) receivedAt = new Date(payload.start_time);
       transcription = payload.transcription?.text;
+      connectionId = payload.connection_id;
     } else {
       // Variant B — minimal custom shape.
       fromNumber = body?.from;
@@ -1332,6 +1398,7 @@ app.post('/webhooks/telnyx/voicemail', async (request) => {
       telnyxCallId = body?.telnyx_call_id;
       transcription = body?.transcription;
       if (body?.received_at) receivedAt = new Date(body.received_at);
+      connectionId = body?.connection_id;
     }
 
     if (!fromNumber || !recordingUrl) {
@@ -1344,6 +1411,7 @@ app.post('/webhooks/telnyx/voicemail', async (request) => {
     const { userId: ownerUserId, userDidId } = await resolveUserAndDid({
       toNumber, fromNumber,
       direction: 'inbound',
+      connectionId: connectionId ?? null,  // v0.10.115
     });
     // v0.10.108 - skip storing voicemail we can't attribute.
     if (ownerUserId === null) {
