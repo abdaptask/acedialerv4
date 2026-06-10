@@ -1439,16 +1439,32 @@ export class SipService {
     // ready() immediately. Safety net: 1500ms hard timeout from the first
     // candidate, so even if srflx never arrives we don't hang past Telnyx's
     // progress timer.
+    // v0.10.116 (Telnyx-confirmed bug fix) - wait for RELAY candidate
+    // before shipping SDP. Previous code shipped on first srflx, which
+    // cut off TURN gathering and caused ONE-WAY AUDIO for users behind
+    // symmetric NAT (no relay fallback = media path back to client
+    // cannot be established). New strategy:
+    //   1. Wait for first RELAY candidate (best case).
+    //   2. If no relay by 2500ms after first candidate, ship anyway
+    //      (still inside Telnyx 5-sec progress window). Log loudly.
+    //   3. Hard 4500ms safety net regardless of state.
     let iceReadyCalled = false;
-    let iceReadyTimer: number | null = null;
+    let iceFallbackTimer: number | null = null;
+    let iceHardTimer: number | null = null;
+    let firstCandidateAt = 0;
+    let hasRelay = false;
+    let hasSrflx = false;
+    let candidateCount = 0;
     const fireReady = (ready: () => void, reason: string): void => {
       if (iceReadyCalled) return;
       iceReadyCalled = true;
-      if (iceReadyTimer !== null) {
-        window.clearTimeout(iceReadyTimer);
-        iceReadyTimer = null;
+      if (iceFallbackTimer !== null) { window.clearTimeout(iceFallbackTimer); iceFallbackTimer = null; }
+      if (iceHardTimer !== null) { window.clearTimeout(iceHardTimer); iceHardTimer = null; }
+      const elapsed = firstCandidateAt ? Date.now() - firstCandidateAt : 0;
+      console.log('[sip] iceReady -', reason, '| candidates:', candidateCount, '| relay:', hasRelay, '| srflx:', hasSrflx, '| gather-ms:', elapsed);
+      if (!hasRelay) {
+        console.warn('[sip] WARN: shipping SDP without TURN relay candidate. Users on symmetric NAT may experience one-way audio. Check TURN credentials + reachability if this user reports audio issues.');
       }
-      console.log('[sip] forcing JsSIP iceReady -', reason);
       try { ready(); } catch (e) { console.warn('[sip] ready() threw', e); }
     };
     session.on('icecandidate', (data: {
@@ -1459,14 +1475,20 @@ export class SipService {
       const ready = data?.ready;
       console.log('[sip] icecandidate', cand?.type, cand?.protocol, cand?.address);
       if (!ready) return;
-      if (!iceReadyCalled && cand?.type === 'srflx') {
-        fireReady(ready, 'srflx ' + (cand.address ?? ''));
+      if (iceReadyCalled) return;
+      candidateCount++;
+      if (!firstCandidateAt) firstCandidateAt = Date.now();
+      if (cand?.type === 'relay') {
+        hasRelay = true;
+        fireReady(ready, 'relay ' + (cand.address ?? ''));
         return;
       }
-      if (!iceReadyCalled && iceReadyTimer === null) {
-        iceReadyTimer = window.setTimeout(() => {
-          fireReady(ready, 'timeout-1500ms');
-        }, 1500);
+      if (cand?.type === 'srflx') hasSrflx = true;
+      if (iceFallbackTimer === null) {
+        iceFallbackTimer = window.setTimeout(() => { fireReady(ready, 'fallback-2500ms (no relay)'); }, 2500);
+      }
+      if (iceHardTimer === null) {
+        iceHardTimer = window.setTimeout(() => { fireReady(ready, 'hard-timeout-4500ms'); }, 4500);
       }
     });
     session.on('sdp', (data: { type?: string; sdp?: string; originator?: string }) => {

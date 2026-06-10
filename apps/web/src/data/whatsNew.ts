@@ -24,6 +24,15 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.116',
+    date: 'June 10, 2026',
+    highlight: 'CRITICAL audio fix: one-way audio resolved — wait for TURN relay candidates before shipping SIP offer/answer',
+    changes: [
+      { type: 'fixed', text: 'CRITICAL one-way audio fix (Telnyx-confirmed root cause): the dialer was cutting off ICE candidate gathering as soon as the first server-reflexive (srflx) candidate arrived, before TURN relay candidates could be collected. For users behind symmetric NAT (common on corporate / ISP networks), relay candidates are REQUIRED as a fallback when direct UDP connectivity fails — without them, the media path from Telnyx back to the client cannot be established, resulting in the caller hearing the callee but the callee not hearing the caller. New strategy: wait for first RELAY candidate (best case), with a 2.5-second fallback timeout that ships whatever candidates are available (still inside Telnyx\'s 5-second progress window), plus a 4.5-second hard safety net. Logs a warning when shipping SDP without relay so we can spot symmetric-NAT users proactively.' },
+      { type: 'improved', text: 'Diagnostic visibility: every iceReady event now logs candidate counts (host/srflx/relay), gathering time, and the reason ready was fired. Makes it trivial to spot ICE issues in user diagnostic exports.' },
+    ],
+  },
+  {
     version: '0.10.115',
     date: 'June 9, 2026',
     highlight: 'CANARY: webhook attribution now identifies users by Telnyx connection_id (handles Call Control voicemail migration correctly)',
