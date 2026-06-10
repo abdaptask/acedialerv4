@@ -1,29 +1,48 @@
 // ===========================================================================
-// apply-sql-migration.ts — apply one of our raw SQL migration files against
+// apply-sql-migration.ts - apply one of our raw SQL migration files against
 // the database referenced by DATABASE_URL. Reads .env at repo root (same as
 // db:push), so the same connection string used by the apps gets used here.
 //
-// Usage:
-//   npx tsx packages/db/scripts/apply-sql-migration.ts <relative-sql-path>
+// Usage (any one of these works):
+//   npx tsx packages/db/scripts/apply-sql-migration.ts migrations/2026-06-texml-voicemail.sql
+//   npx tsx packages/db/scripts/apply-sql-migration.ts packages/db/migrations/2026-06-texml-voicemail.sql
+//   npx tsx packages/db/scripts/apply-sql-migration.ts /abs/path/to/file.sql
 //
-// Example:
-//   npx tsx packages/db/scripts/apply-sql-migration.ts \
-//     packages/db/migrations/2026-06-texml-voicemail.sql
+// We resolve the path by trying multiple candidates (cwd-relative, repo-
+// root-relative, and absolute), since npm workspaces sets cwd to the
+// workspace dir which makes "packages/db/migrations/..." double-path.
 //
-// We don't use Prisma's migrate engine because this repo's history uses
-// raw SQL files under packages/db/migrations/ rather than Prisma Migrate.
-// Each migration file should be idempotent (CREATE TABLE IF NOT EXISTS, ADD
-// COLUMN IF NOT EXISTS) so re-running is safe.
-//
-// IMPORTANT: This runs the ENTIRE file as one statement batch. That works
-// for our migrations because we use raw multi-statement SQL with semicolons
-// and the underlying pg driver accepts that via `Client.query`. If you need
-// transactional behavior, wrap the file contents in BEGIN; ... COMMIT;.
+// We do NOT use Prisma migrate engine because this repo's history uses raw
+// SQL files under packages/db/migrations/. Each migration should be
+// idempotent (CREATE TABLE IF NOT EXISTS, ADD COLUMN IF NOT EXISTS) so
+// re-running is safe.
 // ===========================================================================
 
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { resolve, isAbsolute } from 'node:path';
 import { PrismaClient } from '@prisma/client';
+
+function findSqlFile(arg: string): string | null {
+  // Try (in order):
+  //  1. absolute path verbatim
+  //  2. relative to cwd
+  //  3. relative to cwd with leading "packages/db/" stripped (npm workspace cwd quirk)
+  //  4. relative to "<cwd>/../.." (repo root) if cwd is packages/db
+  const candidates: string[] = [];
+  if (isAbsolute(arg)) {
+    candidates.push(arg);
+  } else {
+    candidates.push(resolve(process.cwd(), arg));
+    if (arg.startsWith('packages/db/')) {
+      candidates.push(resolve(process.cwd(), arg.slice('packages/db/'.length)));
+    }
+    candidates.push(resolve(process.cwd(), '..', '..', arg));
+  }
+  for (const c of candidates) {
+    if (existsSync(c)) return c;
+  }
+  return null;
+}
 
 async function main() {
   const arg = process.argv[2];
@@ -31,14 +50,13 @@ async function main() {
     console.error('Usage: tsx apply-sql-migration.ts <path-to-sql-file>');
     process.exit(2);
   }
-  const sqlPath = isAbsolute(arg) ? arg : resolve(process.cwd(), arg);
-  let sql: string;
-  try {
-    sql = readFileSync(sqlPath, 'utf-8');
-  } catch (e) {
-    console.error(`Failed to read ${sqlPath}: ${e instanceof Error ? e.message : String(e)}`);
+  const sqlPath = findSqlFile(arg);
+  if (!sqlPath) {
+    console.error(`Failed to locate \"${arg}\" - tried cwd-relative + repo-root-relative + absolute.`);
+    console.error(`cwd: ${process.cwd()}`);
     process.exit(2);
   }
+  const sql = readFileSync(sqlPath, 'utf-8');
   console.log(`[migration] ${sqlPath} (${sql.length} bytes)`);
 
   if (!process.env.DATABASE_URL) {
@@ -48,10 +66,9 @@ async function main() {
 
   const prisma = new PrismaClient();
   try {
-    // Prisma's $executeRawUnsafe runs arbitrary SQL via the underlying engine.
-    // Multi-statement files work because the engine forwards the full string
-    // to PostgreSQL's protocol. We don't get per-statement timing but for
-    // idempotent migrations this is fine.
+    // Prisma's $executeRawUnsafe runs arbitrary SQL via the engine. Multi-
+    // statement files work because the engine forwards the full string to
+    // PostgreSQL's protocol.
     await prisma.$executeRawUnsafe(sql);
     console.log('[migration] applied successfully');
   } catch (e) {
