@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { PhoneIncoming, PhoneOutgoing, PhoneMissed, Phone, RefreshCcw, Play, Search, X, MessageSquare, ArrowLeft, Star, Ban } from 'lucide-react';
 import { getCalls, addBlockedNumber, type CallRecord } from '../api';
@@ -152,6 +152,20 @@ export default function Recents() {
     | null
     | { phone: string; firstName: string; lastName: string }
   >(null);
+  // v0.10.118 - explicit focus on firstName when modal opens. autoFocus
+  // prop is unreliable when the modal mounts during a parent re-render
+  // (which can happen when JobDiva lookups are settling async). A useRef
+  // + setTimeout-deferred focus call always lands.
+  const favFirstNameRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (addFavTarget) {
+      const handle = window.setTimeout(() => {
+        favFirstNameRef.current?.focus();
+        favFirstNameRef.current?.select();
+      }, 50);
+      return () => window.clearTimeout(handle);
+    }
+  }, [addFavTarget?.phone]);
   // Bumped whenever favorites change so star icons re-render their state.
   const [, setFavTick] = useState(0);
   useEffect(() => {
@@ -529,7 +543,7 @@ export default function Recents() {
                     onChange={(e) =>
                       setAddFavTarget({ ...addFavTarget, firstName: e.target.value })
                     }
-                    autoFocus
+                    ref={favFirstNameRef}
                     autoComplete="off"
                     autoCorrect="off"
                     spellCheck={false}

@@ -18,9 +18,31 @@
 // (curated content first, custom appends at the end of the cycle).
 
 import { useEffect, useRef, useState } from 'react';
-import { Lightbulb, X, ChevronRight } from 'lucide-react';
+import { Lightbulb, X, ChevronRight, EyeOff } from 'lucide-react';
 import { listMyTips, type Tip } from '../api';
 import { useSip } from '../contexts/SipContext';
+
+// v0.10.118 - persistent "hide tips" preference stored in localStorage.
+// Banner re-shows automatically when a new tip is added (signature mismatch).
+const TIPS_HIDDEN_KEY = 'ace_tips_hidden_v1';
+const TIPS_SIGNATURE_KEY = 'ace_tips_signature_at_hide';
+function computeTipSignature(tips: Tip[]): string {
+  return tips.map((t) => t.id).sort().join('|');
+}
+function isHiddenForCurrentTips(tips: Tip[]): boolean {
+  try {
+    if (localStorage.getItem(TIPS_HIDDEN_KEY) !== '1') return false;
+    const stored = localStorage.getItem(TIPS_SIGNATURE_KEY) ?? '';
+    return stored === computeTipSignature(tips);
+  } catch { return false; }
+}
+function persistHideTips(tips: Tip[]): void {
+  try {
+    localStorage.setItem(TIPS_HIDDEN_KEY, '1');
+    localStorage.setItem(TIPS_SIGNATURE_KEY, computeTipSignature(tips));
+    window.dispatchEvent(new Event('ace:tips-hidden-changed'));
+  } catch { /* noop */ }
+}
 
 // User-facing requirement: each tip stays at least 10s. We use a slightly
 // longer auto-advance so the tip is actually readable for the full window.
@@ -37,6 +59,8 @@ export default function TipBanner() {
   // banner reappears so users see new tips without us needing to track
   // per-user-per-tip read state on the server.
   const [dismissed, setDismissed] = useState(false);
+  // v0.10.118 - persistent hide state, refreshes on storage events.
+  const [hiddenPersistent, setHiddenPersistent] = useState(false);
   const { callState } = useSip();
 
   // Don't show while on a call — same suppression rule as PraiseModal.
@@ -83,7 +107,16 @@ export default function TipBanner() {
     }
   }, [currentIdx, tips.length]);
 
-  if (dismissed || callActive || tips.length === 0) return null;
+  // v0.10.118 - recompute hidden-persistent state whenever tips change OR
+  // another part of the app fires the change event (e.g. Settings toggle).
+  useEffect(() => {
+    const recompute = () => setHiddenPersistent(isHiddenForCurrentTips(tips));
+    recompute();
+    window.addEventListener('ace:tips-hidden-changed', recompute);
+    return () => window.removeEventListener('ace:tips-hidden-changed', recompute);
+  }, [tips]);
+
+  if (dismissed || callActive || tips.length === 0 || hiddenPersistent) return null;
 
   const current = tips[currentIdx % tips.length];
   if (!current) return null;
@@ -93,6 +126,9 @@ export default function TipBanner() {
   }
   function handleDismiss() {
     setDismissed(true);
+  }
+  function handleHidePersistent() {
+    persistHideTips(tips);
   }
 
   return (
@@ -157,6 +193,25 @@ export default function TipBanner() {
           }}
         >
           <X size={16} />
+        </button>
+        {/* v0.10.118 - hide persistently. Re-shows on new tips. */}
+        <button
+          type="button"
+          onClick={handleHidePersistent}
+          aria-label="Hide tips until a new one is added"
+          title="Hide tips. The banner will reappear when a new tip is added. Re-enable anytime in Settings > Personal > Appearance."
+          style={{
+            background: 'transparent',
+            border: 'none',
+            color: 'var(--text-muted, #64748b)',
+            cursor: 'pointer',
+            padding: 2,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          <EyeOff size={14} />
         </button>
         {tips.length > 1 && (
           <button

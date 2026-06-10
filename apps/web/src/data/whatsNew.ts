@@ -24,6 +24,16 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.118',
+    date: 'June 10, 2026',
+    highlight: 'Tips can be hidden persistently, favorites name input fixed, Voicemail Migration paused',
+    changes: [
+      { type: 'new', text: 'You can now permanently hide the floating "Did you know?" tips banner. Click the new eye-off icon on the banner to hide it, or toggle it on/off any time from Settings > Personal > Appearance. The banner will reappear automatically only when a new tip is added - so you stay informed about important new features without seeing the same tips repeatedly.' },
+      { type: 'fixed', text: 'Saving a number to Favorites: the First Name field is now properly focused when the modal opens, so you can start typing immediately. Previously the field looked focused but keystrokes were ignored until you clicked elsewhere or refreshed. Now uses an explicit focus + select on open, which is more reliable than the browser autofocus behavior.' },
+      { type: 'improved', text: 'Voicemail migration to Call Control is now PAUSED - the button in Settings > Users is disabled with an explanatory tooltip. The Call Control voicemail flow had reliability issues for some migrated users (intermittent "not in service" reports). We are rebuilding this on Telnyx TeXML, which is more declarative and reliable, and will re-enable migrations in a future release. Users currently on the legacy Hosted Voicemail flow are unaffected and continue to work normally.' },
+    ],
+  },
+  {
     version: '0.10.117',
     date: 'June 10, 2026',
     highlight: 'Voicemail-routed calls now show in Recents (alongside Voicemail tab) + Telnyx status banner is admin-only',

@@ -682,6 +682,29 @@ function AccountSection() {
 // ---------------------------------------------------------------------------
 function AppearanceSection() {
   const [theme, setLocalTheme] = useState<ThemePref>(() => getTheme());
+  // v0.10.118 - Tips banner visibility toggle.
+  const [tipsHidden, setTipsHiddenLocal] = useState<boolean>(() => {
+    try { return localStorage.getItem('ace_tips_hidden_v1') === '1'; } catch { return false; }
+  });
+  useEffect(() => {
+    const sync = () => {
+      try { setTipsHiddenLocal(localStorage.getItem('ace_tips_hidden_v1') === '1'); } catch { /* noop */ }
+    };
+    window.addEventListener('ace:tips-hidden-changed', sync);
+    return () => window.removeEventListener('ace:tips-hidden-changed', sync);
+  }, []);
+  function toggleTips() {
+    try {
+      if (tipsHidden) {
+        localStorage.removeItem('ace_tips_hidden_v1');
+        localStorage.removeItem('ace_tips_signature_at_hide');
+      } else {
+        localStorage.setItem('ace_tips_hidden_v1', '1');
+        localStorage.removeItem('ace_tips_signature_at_hide');
+      }
+      window.dispatchEvent(new Event('ace:tips-hidden-changed'));
+    } catch { /* noop */ }
+  }
 
   function pick(t: ThemePref) {
     setLocalTheme(t);
@@ -720,6 +743,55 @@ function AppearanceSection() {
       <p className="settings-blurb" style={{ marginTop: '1rem' }}>
         {options.find((o) => o.key === theme)?.desc}
       </p>
+
+      {/* v0.10.118 - Did You Know tips toggle. */}
+      <div style={{ marginTop: 28, paddingTop: 20, borderTop: '1px solid var(--border, #e2e8f0)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
+          <div>
+            <div style={{ fontWeight: 500, marginBottom: 4 }}>
+              Show feature tips (&quot;Did you know?&quot; banner)
+            </div>
+            <div className="settings-blurb" style={{ margin: 0 }}>
+              When on, a small floating banner shows rotating tips about dialer
+              features. When off, the banner stays hidden &mdash; but reappears
+              automatically when new tips are added so you don&apos;t miss
+              important updates.
+            </div>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={!tipsHidden}
+            onClick={toggleTips}
+            style={{
+              flexShrink: 0,
+              width: 44,
+              height: 24,
+              borderRadius: 12,
+              border: 'none',
+              background: tipsHidden ? '#cbd5e1' : '#3b82f6',
+              position: 'relative',
+              cursor: 'pointer',
+              transition: 'background 0.15s ease',
+            }}
+            title={tipsHidden ? 'Show feature tips' : 'Hide feature tips'}
+          >
+            <span
+              style={{
+                position: 'absolute',
+                top: 2,
+                left: tipsHidden ? 2 : 22,
+                width: 20,
+                height: 20,
+                borderRadius: '50%',
+                background: '#ffffff',
+                transition: 'left 0.15s ease',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+              }}
+            />
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -3344,16 +3416,20 @@ function UsersAdminSection() {
                       {/* v0.10.100 — Migrate this user's DIDs from Hosted VM to
                           the new Call Control voicemail flow (ring softphone
                           first, fall to custom greeting on no-answer). */}
+                      {/* v0.10.118 - Voicemail migration is PAUSED. The Call
+                          Control voicemail flow caused intermittent "not in
+                          service" reports for migrated users. We are
+                          rebuilding this on Telnyx TeXML which is more
+                          declarative and reliable. Until that ships, the
+                          migrate action is disabled. */}
                       <button
                         type="button"
-                        onClick={() => {
-                          setOpenMenuId(null);
-                          setVoicemailMigrationTarget(r);
-                        }}
-                        title="Switch this user from legacy Hosted Voicemail to the new Call Control voicemail (ring + fallback)"
+                        disabled
+                        title="Paused - Call Control voicemail flow was unreliable. Rebuilding on TeXML; will return in a future release."
+                        style={{ opacity: 0.5, cursor: 'not-allowed' }}
                       >
                         <Mic size={14} />
-                        Voicemail migration
+                        Voicemail migration (paused)
                       </button>
 
                       {/* v0.10.101 — Show user's devices + version. Admin can
