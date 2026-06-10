@@ -1565,6 +1565,16 @@ app.get('/texml/voicemail/dial-status', async (request, reply) => {
 // the row lands in the same place as Hosted-VM voicemails and shows up in
 // Voicemail tab + Recents.
 app.post('/texml/voicemail/recording-complete', async (request, reply) => {
+  // v0.10.119 - log every hit at the very top so we know whether Telnyx
+  // is reaching us at all, regardless of payload shape.
+  app.log.info(
+    {
+      query: request.query,
+      bodyKeys: Object.keys((request.body ?? {}) as Record<string, unknown>),
+      headers: { 'content-type': request.headers['content-type'], 'user-agent': request.headers['user-agent'] },
+    },
+    '[texml-vm] recording-complete HIT',
+  );
   try {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const body = (request.body ?? {}) as any;
