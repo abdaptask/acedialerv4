@@ -24,12 +24,12 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
-    version: '0.10.122',
+    version: '0.10.123',
     date: 'June 11, 2026',
-    highlight: 'Reply with Text now available on the floating call popup. Plus a silent fix for duplicate voicemails.',
+    highlight: 'Fixes the duplicate voicemail issue (server-side, was already live). Reverts the v0.10.122 client release that had install issues.',
     changes: [
-      { type: 'new', text: 'The floating call popup (the small green window that pops up bottom-right when a call comes in) now has a Reply with Text button between Decline and Accept. Same behavior as the Reply button on the full-screen ringer: tapping it declines the call AND opens the quick-reply sheet so you can fire off an SMS to the caller without picking up. Only shows when you are not already on another call and when the caller is a real phone number (internal SIP callers cannot receive SMS).' },
-      { type: 'fixed', text: 'Silent server-side fix shipped as 0.10.121 (no client update needed): some voicemails were appearing twice in the Voicemail tab because two different code paths (the Telnyx recording-completed callback and our per-call polling workaround) were using different identifier types as the dedup key. They are now aligned on call_session_id, so a single voicemail only ever produces one row regardless of which path processes it. Existing duplicate rows from before this fix are not auto-cleaned - if you have a duplicate that bugs you, delete it manually from the Voicemail tab.' },
+      { type: 'fixed', text: 'Duplicate voicemails fix is now permanently in place. Some voicemails were appearing twice in the Voicemail tab because two different code paths (the Telnyx recording-completed callback and our per-call polling workaround) were using different identifier types as the dedup key. They are now aligned on call_session_id, so a single voicemail only ever produces one row regardless of which path processes it. (Server-side change; took effect when 0.10.121 was deployed.) Existing duplicate rows from before this fix are not auto-cleaned - delete duplicates manually from the Voicemail tab if any bug you.' },
+      { type: 'fixed', text: 'Rolled back the v0.10.122 client release because the installer produced an app that vanished on startup. The new Reply with Text button on the floating call popup, which was the v0.10.122 client feature, is temporarily disabled while we investigate. The Reply button on the full-screen ringer continues to work as before. The Hold and Accept feature from v0.10.120 also continues to work.' },
     ],
   },
   {

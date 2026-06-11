@@ -111,30 +111,6 @@ export default function IncomingCall() {
 
   const callerLabel = getFavoriteName(callerNumber) ?? jd?.name ?? formatNumber(callerNumber);
 
-  // v0.10.122 - subscribe to ace:reply-with-text-request from the Electron
-  // floater. When the user clicks Reply with Text in the floating ringer
-  // popup, main process forwards via this IPC. We dispatch the same
-  // CustomEvent that handleReplyWithMessage dispatches below, then call
-  // declineCall - exact same flow as if the user had clicked Reply on the
-  // in-app full-screen ringer. We re-subscribe whenever the caller info
-  // changes (callerNumber / callerLabel may load async via JD lookup) so
-  // the captured closure always uses the latest values. Placed AFTER the
-  // callerLabel declaration to keep TSC happy about temporal-dead-zone.
-  useEffect(() => {
-    if (!incoming) return;
-    const offReply = window.ace?.onReplyWithTextRequest?.(() => {
-      const to = callerNumber;
-      if (!to) return;
-      window.dispatchEvent(new CustomEvent('ace:reply-after-decline', {
-        detail: { number: to, label: callerLabel },
-      }));
-      declineCall();
-    });
-    return () => {
-      if (offReply) offReply();
-    };
-  }, [incoming, callerNumber, callerLabel, declineCall]);
-
   // Reply button: only for real phone numbers (not SIP-URI internal calls),
   // and hidden during Hold & Accept (3 buttons already shown).
   const replyableNumber = (callerNumber || '').replace(/[\s()-]/g, '');

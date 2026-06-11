@@ -430,34 +430,6 @@ function createRingerWindow(callerNumber?: string, hasActiveCall: boolean = fals
     ? `<div class="action-label">Hold &amp; Accept</div>`
     : `<div class="action-label">Accept</div>`;
 
-  // v0.10.122 - Reply with Text button. Mirrors the in-app full-screen
-  // ringer's existing reply behavior (IncomingCall.tsx). Only shown when:
-  //   (a) user is NOT on an active call - active-call case stays at the
-  //       2-button Decline + Hold & Accept layout from v0.10.120 because
-  //       the user has a meaningful "take the new call too" option there.
-  //   (b) caller is a real phone number, not a SIP URI. Internal SIP
-  //       callers can't receive a text reply, so the button would be
-  //       useless / misleading.
-  // Click sends ace:reply-with-text IPC to main, which forwards to the
-  // main-window React renderer; SipContext/IncomingCall dispatches the
-  // existing ace:reply-after-decline CustomEvent that PostDeclineReply
-  // (mounted in Layout) is already listening for - so the reply modal
-  // surfaces exactly the same way as if the user had clicked Reply on
-  // the in-app ringer.
-  const replyableDigits = (callerNumber ?? '').replace(/[\s()+\-]/g, '');
-  const canReply = !hasActiveCall && /^\d+$/.test(replyableDigits);
-  const replyButtonHtml = canReply
-    ? `<button class="reply" id="reply" title="Reply with a text message and decline the call">
-        <svg viewBox="0 0 24 24"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
-      </button>`
-    : '';
-  const replyLabelHtml = canReply
-    ? `<div class="action-label">Reply</div>`
-    : '';
-  const replyColHtml = canReply
-    ? `<div class="col">${replyButtonHtml}${replyLabelHtml}</div>`
-    : '';
-
   const html = `<!doctype html>
 <html><head><meta charset="utf-8"><title>Incoming Call</title>
 <style>
@@ -486,7 +458,6 @@ function createRingerWindow(callerNumber?: string, hasActiveCall: boolean = fals
   button.accept { background: #22c55e; }
   button.hold-accept { background: #22c55e; }
   button.decline { background: #ef4444; }
-  button.reply { background: #3b82f6; }
   button svg { width: 30px; height: 30px; fill: none; stroke: #fff;
     stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 </style></head>
@@ -504,7 +475,6 @@ function createRingerWindow(callerNumber?: string, hasActiveCall: boolean = fals
         </button>
         <div class="action-label">Decline</div>
       </div>
-      ${replyColHtml}
       <div class="col">
         ${acceptButtonHtml}
         ${acceptLabelHtml}
@@ -524,14 +494,6 @@ function createRingerWindow(callerNumber?: string, hasActiveCall: boolean = fals
         holdAcceptBtn.addEventListener('click', function () {
           if (window.ace && window.ace.holdAndAcceptCall) {
             window.ace.holdAndAcceptCall();
-          }
-        });
-      }
-      var replyBtn = document.getElementById('reply');
-      if (replyBtn) {
-        replyBtn.addEventListener('click', function () {
-          if (window.ace && window.ace.replyWithText) {
-            window.ace.replyWithText();
           }
         });
       }
@@ -654,26 +616,6 @@ ipcMain.on('ace:hold-and-accept', () => {
     }
   } catch (e) {
     console.error('[main] hold-and-accept forward failed', e);
-  }
-  closeRingerWindow();
-});
-
-// v0.10.122 - new IPC: floater "Reply with Text" button click. The floater
-// dispatches the action; the main window's IncomingCall component (which
-// already owns the reply-modal flow via the ace:reply-after-decline
-// CustomEvent that PostDeclineReply listens for) handles the rest. We also
-// bring the main window to focus because the reply modal opens there and
-// the user may have been in another app when the floater popped up.
-ipcMain.on('ace:reply-with-text', () => {
-  try {
-    mainWindow?.webContents.send('ace:reply-with-text-request');
-    if (mainWindow) {
-      if (mainWindow.isMinimized()) mainWindow.restore();
-      mainWindow.show();
-      mainWindow.focus();
-    }
-  } catch (e) {
-    console.error('[main] reply-with-text forward failed', e);
   }
   closeRingerWindow();
 });

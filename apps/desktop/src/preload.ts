@@ -33,13 +33,6 @@ contextBridge.exposeInMainWorld('ace', {
   // Main forwards to main window via ace:hold-and-accept-request which
   // SipContext subscribes to and routes to sipService.holdAndAcceptCall.
   holdAndAcceptCall: () => ipcRenderer.send('ace:hold-and-accept'),
-  // v0.10.122 - new bridge: floater click on Reply with Text goes here.
-  // Main forwards to main window via ace:reply-with-text-request; the
-  // IncomingCall React component subscribes there and dispatches the
-  // existing ace:reply-after-decline CustomEvent that PostDeclineReply
-  // listens for (same flow as clicking Reply on the in-app full-screen
-  // ringer).
-  replyWithText: () => ipcRenderer.send('ace:reply-with-text'),
   notifyCallEnded: () => ipcRenderer.send('ace:call-ended'),
   onAcceptRequest: (cb: () => void) => {
     const handler = () => cb();
@@ -57,13 +50,6 @@ contextBridge.exposeInMainWorld('ace', {
     const handler = () => cb();
     ipcRenderer.on('ace:hold-and-accept-request', handler);
     return () => ipcRenderer.removeListener('ace:hold-and-accept-request', handler);
-  },
-  // v0.10.122 - main window subscribes; fires when the floater user picked
-  // Reply with Text. Returns an unsubscribe fn (matches existing patterns).
-  onReplyWithTextRequest: (cb: () => void) => {
-    const handler = () => cb();
-    ipcRenderer.on('ace:reply-with-text-request', handler);
-    return () => ipcRenderer.removeListener('ace:reply-with-text-request', handler);
   },
   onClose: (cb: () => void) => {
     const handler = () => cb();
