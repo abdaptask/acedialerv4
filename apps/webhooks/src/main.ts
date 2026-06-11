@@ -1722,6 +1722,53 @@ async function processVoicemail(
     { source, voicemailId: created.id, fromNumber: payload.fromNumber, durationSeconds: payload.durationSeconds },
     '[vm] voicemail recorded',
   );
+
+  // v0.10.119 cleanup - Fire-and-forget Deepgram transcription. Updates
+  // the Voicemail row's transcription field when done. This was dropped
+  // when we refactored the Hosted VM handler into processVoicemail();
+  // restoring it here also enables transcription for the TeXML flow.
+  if (payload.recordingUrl) {
+    void transcribeAndUpdateVoicemail(created.id, payload.recordingUrl, ownerUserId);
+  }
+
+  // v0.10.119 cleanup - Create a Call row with status='missed' so this
+  // voicemail surfaces in the Recents tab. For Hosted VM flow there's
+  // ALSO a call.* webhook that creates this row; the upsert keeps both
+  // paths idempotent. For TeXML flow there are no call.* webhooks, so
+  // this insert is the only source of the Recents entry.
+  if (payload.telnyxCallId) {
+    try {
+      await prisma.call.upsert({
+        where: { telnyxCallId: payload.telnyxCallId },
+        update: {
+          ...(userDidId ? { userDidId } : {}),
+          status: 'missed',
+          endedAt: new Date(),
+        },
+        create: {
+          userId: ownerUserId,
+          telnyxCallId: payload.telnyxCallId,
+          direction: 'inbound',
+          fromNumber: payload.fromNumber,
+          toNumber: payload.toNumber ?? PILOT_NUMBER,
+          status: 'missed',
+          startedAt: payload.receivedAt,
+          endedAt: new Date(),
+          userDidId: userDidId ?? null,
+        },
+      });
+      app.log.info(
+        { source, voicemailId: created.id, telnyxCallId: payload.telnyxCallId },
+        '[vm] Call row upserted (missed) - voicemail will appear in Recents',
+      );
+    } catch (e) {
+      app.log.warn(
+        { err: e instanceof Error ? e.message : String(e), telnyxCallId: payload.telnyxCallId },
+        '[vm] Call row upsert failed - non-fatal, Voicemail row already created',
+      );
+    }
+  }
+
   return { stored: true, voicemailId: created.id };
 }
 
