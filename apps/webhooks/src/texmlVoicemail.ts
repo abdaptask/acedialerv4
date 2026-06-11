@@ -298,3 +298,238 @@ export function buildDialStatusTeXML(opts: {
     didNumber: opts.didNumber,
   });
 }
+
+
+// ===========================================================================
+// v0.10.119 hotfix3 - Telnyx Recordings API polling.
+//
+// Background: Telnyx confirmed via support ticket that <Record recordingStatusCallback>
+// inside a Dial-then-Record TeXML flow does NOT fire the callback (their bug,
+// engineering investigating, ETA unknown). The recording IS being created
+// successfully and is accessible via their List Recordings API. This module
+// implements the recommended workaround:
+//
+//   1. PRIMARY: per-call polling - when /texml/voicemail/app-status fires
+//      with CallStatus=no-answer (or busy/failed), schedule a delayed poll
+//      that queries GET /v2/recordings?filter[from]=..&filter[to]=..&filter[created_at][gte]=..
+//      Retries with backoff up to ~45 sec total. Fast voicemail capture
+//      latency in the common case.
+//
+//   2. SAFETY NET: 5-min sweep - runs every 5 min in the background. Queries
+//      Telnyx for recordings created in the last 10 min, imports any that
+//      aren't already in our DB (dedup by recording.id). Catches recordings
+//      missed by per-call polling (e.g., webhooks service restarted mid-poll).
+//
+// Dedup: we use recording.id as the telnyxCallId on the Voicemail row. The
+// existing processVoicemail() helper's dedup-by-telnyxCallId check then
+// prevents duplicate inserts across the two polling paths.
+// ===========================================================================
+
+export interface TelnyxRecording {
+  id: string;
+  call_session_id?: string;
+  call_leg_id?: string;
+  from?: string;
+  to?: string;
+  duration_millis?: number;
+  recording_started_at?: string;
+  recording_ended_at?: string;
+  status?: string;
+  download_urls?: { mp3?: string; wav?: string };
+}
+
+// Normalized payload shape passed to processVoicemail() in main.ts. We
+// re-declare it here so this module doesn't have to import from main.ts.
+export interface NormalizedVmPayload {
+  fromNumber: string;
+  toNumber?: string;
+  recordingUrl: string;
+  durationSeconds: number;
+  telnyxCallId?: string;
+  receivedAt: Date;
+  transcription?: string;
+  connectionId?: string;
+}
+
+export type ProcessVoicemailFn = (
+  payload: NormalizedVmPayload,
+  source: string,
+) => Promise<{ stored: boolean; reason?: string; voicemailId?: number }>;
+
+type LogFn = (obj: Record<string, unknown>, msg: string) => void;
+
+// ---------------------------------------------------------------------------
+// listTelnyxRecordings - thin wrapper over GET /v2/recordings with the
+// filter shape we need. Returns at most `pageSize` matching recordings,
+// most recent first.
+// ---------------------------------------------------------------------------
+export async function listTelnyxRecordings(opts: {
+  telnyxApiKey: string;
+  from?: string;
+  to?: string;
+  createdAtGte?: Date;
+  createdAtLte?: Date;
+  pageSize?: number;
+  log?: LogFn;
+}): Promise<TelnyxRecording[]> {
+  const params = new URLSearchParams();
+  if (opts.from) params.set('filter[from]', opts.from);
+  if (opts.to) params.set('filter[to]', opts.to);
+  if (opts.createdAtGte) params.set('filter[created_at][gte]', opts.createdAtGte.toISOString());
+  if (opts.createdAtLte) params.set('filter[created_at][lte]', opts.createdAtLte.toISOString());
+  params.set('page[size]', String(opts.pageSize ?? 25));
+  const url = `${TELNYX_API}/recordings?${params.toString()}`;
+  const res = await fetch(url, {
+    headers: { Authorization: `Bearer ${opts.telnyxApiKey}` },
+  });
+  if (!res.ok) {
+    const errText = await res.text().catch(() => '');
+    opts.log?.(
+      { status: res.status, body: errText.slice(0, 300), url },
+      '[texml-vm] listTelnyxRecordings failed',
+    );
+    return [];
+  }
+  const json = (await res.json().catch(() => ({}))) as { data?: TelnyxRecording[] };
+  return Array.isArray(json.data) ? json.data : [];
+}
+
+// Reshape a TelnyxRecording into our NormalizedVmPayload shape.
+function recordingToPayload(rec: TelnyxRecording): NormalizedVmPayload {
+  const url = rec.download_urls?.mp3 ?? rec.download_urls?.wav ?? '';
+  const durationSeconds = rec.duration_millis ? Math.floor(rec.duration_millis / 1000) : 0;
+  const receivedAt = rec.recording_started_at ? new Date(rec.recording_started_at) : new Date();
+  return {
+    fromNumber: rec.from ?? '',
+    toNumber: rec.to,
+    recordingUrl: url,
+    durationSeconds,
+    // Use recording.id as the dedup key. Distinct from call_control_id used
+    // by Hosted-VM flow, so the two paths never collide.
+    telnyxCallId: rec.id,
+    receivedAt,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// pollAndImportPerCall - PRIMARY workaround path. Called from app-status
+// handler when CallStatus=no-answer (or other terminal status that may have
+// produced a recording). Polls Telnyx Recordings API with retries.
+//
+// Schedules itself with setTimeout. Returns immediately (fire-and-forget).
+// Retry schedule: 10s, 15s, 25s (total ~50s). Each attempt fetches
+// recordings created since callStartedAt, filtered by from + to, and
+// imports the first match.
+// ---------------------------------------------------------------------------
+export function pollAndImportPerCall(opts: {
+  telnyxApiKey: string;
+  from: string;
+  to: string;
+  callStartedAt: Date;
+  processVoicemail: ProcessVoicemailFn;
+  log: LogFn;
+  attemptDelays?: number[]; // override for tests; default [10000, 15000, 25000]
+}): void {
+  const delays = opts.attemptDelays ?? [10_000, 15_000, 25_000];
+
+  function tryOnce(attemptIdx: number): void {
+    setTimeout(async () => {
+      try {
+        const recordings = await listTelnyxRecordings({
+          telnyxApiKey: opts.telnyxApiKey,
+          from: opts.from,
+          to: opts.to,
+          createdAtGte: opts.callStartedAt,
+          pageSize: 5,
+          log: opts.log,
+        });
+        if (recordings.length === 0) {
+          opts.log(
+            { attemptIdx, from: opts.from, to: opts.to, callStartedAt: opts.callStartedAt.toISOString() },
+            '[texml-vm] poll: no recordings yet',
+          );
+          if (attemptIdx + 1 < delays.length) {
+            tryOnce(attemptIdx + 1);
+          } else {
+            opts.log(
+              { from: opts.from, to: opts.to },
+              '[texml-vm] poll: gave up after all attempts - safety net sweep will catch later',
+            );
+          }
+          return;
+        }
+        // Found at least one recording. Import the most recent (data is
+        // ordered newest first per Telnyx default).
+        const rec = recordings[0]!;
+        const payload = recordingToPayload(rec);
+        if (!payload.recordingUrl) {
+          opts.log({ recordingId: rec.id }, '[texml-vm] poll: recording has no download URL - skipping');
+          return;
+        }
+        const result = await opts.processVoicemail(payload, 'texml-vm-poll');
+        opts.log(
+          { recordingId: rec.id, stored: result.stored, reason: result.reason, voicemailId: result.voicemailId },
+          '[texml-vm] poll: imported recording',
+        );
+      } catch (err) {
+        opts.log(
+          { err: err instanceof Error ? err.message : String(err) },
+          '[texml-vm] poll: attempt threw',
+        );
+        if (attemptIdx + 1 < delays.length) tryOnce(attemptIdx + 1);
+      }
+    }, delays[attemptIdx]!);
+  }
+
+  tryOnce(0);
+}
+
+// ---------------------------------------------------------------------------
+// sweepRecentRecordings - SAFETY NET path. Called periodically (every 5
+// min) from a setInterval in main.ts. Queries the last 10 min of recordings
+// account-wide, filters to TEXML_TRIAL_DIDS, attempts to import each.
+//
+// Dedup is handled by processVoicemail()'s existing telnyxCallId check
+// (which we set to recording.id). So calling this repeatedly is safe.
+// ---------------------------------------------------------------------------
+export async function sweepRecentRecordings(opts: {
+  telnyxApiKey: string;
+  trialDids: string[]; // E.164 list, the DIDs we care about
+  lookbackMinutes?: number; // default 10
+  processVoicemail: ProcessVoicemailFn;
+  log: LogFn;
+}): Promise<{ checked: number; imported: number }> {
+  if (opts.trialDids.length === 0) {
+    return { checked: 0, imported: 0 };
+  }
+  const lookback = opts.lookbackMinutes ?? 10;
+  const since = new Date(Date.now() - lookback * 60_000);
+  let checked = 0;
+  let imported = 0;
+  // Telnyx List Recordings supports filter[to]=<one number>. Loop one per DID.
+  for (const did of opts.trialDids) {
+    try {
+      const recordings = await listTelnyxRecordings({
+        telnyxApiKey: opts.telnyxApiKey,
+        to: did,
+        createdAtGte: since,
+        pageSize: 25,
+        log: opts.log,
+      });
+      checked += recordings.length;
+      for (const rec of recordings) {
+        const payload = recordingToPayload(rec);
+        if (!payload.recordingUrl) continue;
+        const result = await opts.processVoicemail(payload, 'texml-vm-sweep');
+        if (result.stored) imported++;
+      }
+    } catch (err) {
+      opts.log(
+        { err: err instanceof Error ? err.message : String(err), did },
+        '[texml-vm] sweep: per-DID error',
+      );
+    }
+  }
+  opts.log({ checked, imported, lookbackMinutes: lookback }, '[texml-vm] sweep: complete');
+  return { checked, imported };
+}

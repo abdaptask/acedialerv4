@@ -30,6 +30,8 @@ import {
   buildVoicemailTeXML,
   buildDialStatusTeXML,
   lookupDidOwner,
+  pollAndImportPerCall,
+  sweepRecentRecordings,
 } from './texmlVoicemail.js';
 
 const SERVICE_NAME = 'ace-dialer-webhooks';
@@ -1478,16 +1480,40 @@ app.post('/texml/voicemail', async (request, reply) => {
 app.post('/texml/voicemail/app-status', async (request, reply) => {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const body = (request.body ?? {}) as any;
+  const callStatus: string = (body.CallStatus ?? '').toString().toLowerCase();
+  const callSid: string | undefined = typeof body.CallSid === 'string' ? body.CallSid : undefined;
+  const from: string | undefined = typeof body.From === 'string' ? body.From : undefined;
+  const to: string | undefined = typeof body.To === 'string' ? body.To : undefined;
   app.log.info(
-    {
-      callStatus: body.CallStatus,
-      callSid: body.CallSid,
-      from: body.From,
-      to: body.To,
-    },
+    { callStatus, callSid, from, to },
     '[texml-vm] app-status received',
   );
   reply.code(200).send('');
+
+  // v0.10.119 hotfix3 - Telnyx confirmed recordingStatusCallback isn't
+  // firing for Dial-then-Record TeXML flows (their bug, engineering
+  // investigating). Workaround: when a call ends without being answered
+  // (no-answer, busy, failed, canceled), there's likely a recording
+  // sitting in their cloud storage. Schedule a polling job to fetch
+  // it via List Recordings API and feed it into our voicemail pipeline.
+  //
+  // For 'completed' / 'answered' the call was bridged successfully - no
+  // voicemail to capture - skip polling.
+  const TERMINAL_NO_ANSWER = new Set(['no-answer', 'busy', 'failed', 'canceled', 'no_answer']);
+  if (TERMINAL_NO_ANSWER.has(callStatus) && from && to && TELNYX_API_KEY) {
+    pollAndImportPerCall({
+      telnyxApiKey: TELNYX_API_KEY,
+      from,
+      to,
+      callStartedAt: new Date(Date.now() - 60_000), // include the last 60s to be safe
+      processVoicemail: (payload, source) => processVoicemail(payload, source),
+      log: (o, m) => app.log.info(o, m),
+    });
+    app.log.info(
+      { from, to, callStatus, callSid },
+      '[texml-vm] scheduled per-call recording poll (workaround for Telnyx recordingStatusCallback bug)',
+    );
+  }
 });
 
 // v0.10.119 - Dial-status callback. Telnyx POSTs urlencoded form body here
@@ -1834,6 +1860,32 @@ startTelnyxStatusPoller((obj, msg) => app.log.info(obj, msg));
     );
   }
 })();
+
+// v0.10.119 hotfix3 - SAFETY NET sweep. Every 5 min, fetch recordings
+// from Telnyx for our trial DIDs in case the per-call poll missed any
+// (e.g., webhooks service was restarted mid-poll, Telnyx took > 50s to
+// finalize a recording). Dedup happens via processVoicemail's
+// telnyxCallId check.
+const TEXML_SWEEP_INTERVAL_MS = 5 * 60 * 1000;
+setInterval(() => {
+  const trialDids = (process.env.TEXML_TRIAL_DIDS ?? '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+  if (trialDids.length === 0 || !TELNYX_API_KEY) return;
+  sweepRecentRecordings({
+    telnyxApiKey: TELNYX_API_KEY,
+    trialDids,
+    lookbackMinutes: 10,
+    processVoicemail: (payload, source) => processVoicemail(payload, source),
+    log: (o, m) => app.log.info(o, m),
+  }).catch((err) => {
+    app.log.warn(
+      { err: err instanceof Error ? err.message : String(err) },
+      '[texml-vm] sweep: top-level error',
+    );
+  });
+}, TEXML_SWEEP_INTERVAL_MS);
 
   await app.listen({ port, host });
   app.log.info({ port, host }, `[${SERVICE_NAME}] listening`);
