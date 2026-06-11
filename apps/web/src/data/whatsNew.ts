@@ -24,6 +24,15 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.122',
+    date: 'June 11, 2026',
+    highlight: 'Reply with Text now available on the floating call popup. Plus a silent fix for duplicate voicemails.',
+    changes: [
+      { type: 'new', text: 'The floating call popup (the small green window that pops up bottom-right when a call comes in) now has a Reply with Text button between Decline and Accept. Same behavior as the Reply button on the full-screen ringer: tapping it declines the call AND opens the quick-reply sheet so you can fire off an SMS to the caller without picking up. Only shows when you are not already on another call and when the caller is a real phone number (internal SIP callers cannot receive SMS).' },
+      { type: 'fixed', text: 'Silent server-side fix shipped as 0.10.121 (no client update needed): some voicemails were appearing twice in the Voicemail tab because two different code paths (the Telnyx recording-completed callback and our per-call polling workaround) were using different identifier types as the dedup key. They are now aligned on call_session_id, so a single voicemail only ever produces one row regardless of which path processes it. Existing duplicate rows from before this fix are not auto-cleaned - if you have a duplicate that bugs you, delete it manually from the Voicemail tab.' },
+    ],
+  },
+  {
     version: '0.10.120',
     date: 'June 11, 2026',
     highlight: 'Hotfix: Hold & Accept now works from the floating call popup so a second incoming call no longer merges with your active one',
