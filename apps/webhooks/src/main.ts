@@ -5,6 +5,7 @@ import { startTelnyxStatusPoller, getTelnyxStatus } from './telnyxStatus.js';
 import cors from '@fastify/cors';
 import formbody from '@fastify/formbody';
 import { prisma } from '@ace/db';
+import { emitToUser } from './socket.js';
 import { transcribeAndUpdateVoicemail } from './deepgram.js';
 import {
   notifyInboundSms,
@@ -749,6 +750,8 @@ app.post('/webhooks/telnyx/calls', async (request) => {
             callDbId: row.id,
             telnyxCallId: callId,
           });
+
+          emitToUser(row.userId, 'badge:update', { type: 'missed_call' });
         }
 
         break;
@@ -866,6 +869,12 @@ app.post('/webhooks/telnyx/calls', async (request) => {
             },
             select: { id: true },
           });
+
+          const unreadCount = await prisma.voicemail.count({
+            where: { userId: ownerUserId, listenedAt: null },
+          });
+          emitToUser(ownerUserId, 'badge:update', { type: 'voicemail', count: unreadCount });
+
           app.log.info(
             { fromNumber: vmFrom, recordingUrl, durationSeconds: durSec, voicemailId: created.id },
             '[vm] voicemail saved from Telnyx Hosted Voicemail',
@@ -1028,6 +1037,12 @@ app.post('/webhooks/telnyx/sms', async (request) => {
             },
             select: { id: true, direction: true },
           });
+
+          const unreadCount = await prisma.message.count({
+            where: { userId: ownerUserId, direction: 'inbound', readAt: null },
+          });
+          emitToUser(ownerUserId, 'badge:update', { type: 'sms', count: unreadCount });
+
           // First-time inbound delivery — fire Teams card.
           if (created.direction === 'inbound') {
             void notifyInboundSms({
@@ -1705,6 +1720,48 @@ async function processVoicemail(
       return { stored: false, reason: 'duplicate', voicemailId: dupCheck.id };
     }
   }
+  // v0.10.126 - behavioral dedup safety-net. The telnyxCallId-based check
+  // above only catches dupes when both code paths used the EXACT same
+  // identifier string. v0.10.121 attempted to align all paths on
+  // call_session_id but in practice the TeXML form-field CallSid that
+  // Telnyx sends to /texml/voicemail/recording-complete is NOT the same
+  // identifier as the call_session_id field returned by the List
+  // Recordings API used by the polling paths. So dedup-by-telnyxCallId
+  // still misses across those two paths.
+  //
+  // As a second line of defense, also reject a row when there's already
+  // a voicemail with the same user + same caller created within the
+  // last 30 seconds. Both code paths almost always fire within a few
+  // seconds of each other, so 30s catches them. The tradeoff is that a
+  // legitimate back-to-back voicemail from the same caller within 30s
+  // would be dropped - extremely rare in practice (callers don't
+  // re-call and re-leave a fresh voicemail that quickly after hanging
+  // up from the first one).
+  const behavioralDup = await prisma.voicemail.findFirst({
+    where: {
+      userId: ownerUserId,
+      fromNumber: payload.fromNumber,
+      receivedAt: {
+        gte: new Date(payload.receivedAt.getTime() - 30 * 1000),
+        lte: new Date(payload.receivedAt.getTime() + 30 * 1000),
+      },
+    },
+    select: { id: true, telnyxCallId: true },
+  });
+  if (behavioralDup) {
+    app.log.info(
+      {
+        source,
+        ownerUserId,
+        fromNumber: payload.fromNumber,
+        existingVoicemailId: behavioralDup.id,
+        existingTelnyxCallId: behavioralDup.telnyxCallId,
+        incomingTelnyxCallId: payload.telnyxCallId,
+      },
+      '[vm] behavioral dedup: row from same caller within 30s window - skipping',
+    );
+    return { stored: false, reason: 'duplicate_behavioral', voicemailId: behavioralDup.id };
+  }
   const created = await prisma.voicemail.create({
     data: {
       userId: ownerUserId,
@@ -1718,6 +1775,12 @@ async function processVoicemail(
       userDidId,
     },
   });
+
+  const unreadCount = await prisma.voicemail.count({
+    where: { userId: ownerUserId, listenedAt: null },
+  });
+  emitToUser(ownerUserId, 'badge:update', { type: 'voicemail', count: unreadCount });
+
   app.log.info(
     { source, voicemailId: created.id, fromNumber: payload.fromNumber, durationSeconds: payload.durationSeconds },
     '[vm] voicemail recorded',
@@ -1920,31 +1983,4 @@ setInterval(() => {
     .map((s) => s.trim())
     .filter((s) => s.length > 0);
   if (trialDids.length === 0 || !TELNYX_API_KEY) return;
-  sweepRecentRecordings({
-    telnyxApiKey: TELNYX_API_KEY,
-    trialDids,
-    lookbackMinutes: 10,
-    processVoicemail: (payload, source) => processVoicemail(payload, source),
-    log: (o, m) => app.log.info(o, m),
-  }).catch((err) => {
-    app.log.warn(
-      { err: err instanceof Error ? err.message : String(err) },
-      '[texml-vm] sweep: top-level error',
-    );
-  });
-}, TEXML_SWEEP_INTERVAL_MS);
-
-  await app.listen({ port, host });
-  app.log.info({ port, host }, `[${SERVICE_NAME}] listening`);
-} catch (err) {
-  app.log.error(err);
-  process.exit(1);
-}
-
-const shutdown = async (signal: string) => {
-  app.log.info({ signal }, `[${SERVICE_NAME}] shutting down`);
-  await app.close();
-  process.exit(0);
-};
-process.on('SIGTERM', () => shutdown('SIGTERM'));
-process.on('SIGINT', () => shutdown('SIGINT'));
+  sweepRecentRecordin
