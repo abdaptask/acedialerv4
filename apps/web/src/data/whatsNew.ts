@@ -24,6 +24,20 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.119',
+    date: 'June 11, 2026',
+    highlight: 'Personalized voicemail greetings now work — first DID is live in a controlled trial; rolling out gradually',
+    changes: [
+      { type: 'new', text: 'Personalized voicemail greetings now play to callers when you do not pick up. Record (or upload, or type-as-TTS) your own greeting in Settings > Calling > Voicemail greeting, and that is what callers hear instead of the generic Telnyx default. Greetings include a brief silence trim and a beep, then the caller can leave a message of up to 5 minutes.' },
+      { type: 'improved', text: 'Voicemails from the new personalized-greeting flow show up everywhere a Hosted Voicemail would — in the Voicemail tab with full recording + transcription, AND as a missed-call entry in Recents. No more "I see the voicemail but not the missed call" gap.' },
+      { type: 'fixed', text: 'Voicemail transcription was silently broken in recent releases — captured voicemails were stored but the transcription field stayed null because a Deepgram call was dropped during a refactor. The transcribe step is restored for all voicemail flows (Hosted VM, Call Control, and the new TeXML voicemail flow). New voicemails get transcribed within ~5-15 seconds of being recorded.' },
+      { type: 'fixed', text: 'Stability: when a recording is created on Telnyx but the recording-status webhook is not delivered (intermittent Telnyx-side issue we filed a support ticket about and they confirmed), the dialer now polls the Telnyx Recordings API on its own — first immediately after each call, then again as a background safety-net sweep every 5 minutes — so no voicemail goes missing even if Telnyx misses a callback. Dedup ensures no duplicate rows when Telnyx eventually does deliver.' },
+      { type: 'improved', text: 'Greeting playback no longer loops when the caller pauses mid-message. The Record verb is now followed by an explicit Hangup so a 5+ second silence does not cause Telnyx to loop back to the greeting and start over. Silence-tolerance bumped 5s → 10s.' },
+      { type: 'new', text: 'Admin notes / trial scope: this release is a CONTROLLED ROLLOUT. Only DIDs explicitly listed in the TEXML_TRIAL_DIDS env var (currently just +16467379912) go through the new flow; everyone else stays on Hosted Voicemail. Admins can migrate / rollback per-user via /admin/users/:id/voicemail-texml-migrate and /voicemail-texml-rollback endpoints. Per-DID greeting UI is shared with the v0.10.100 stack so it works the same way users already know.' },
+      { type: 'new', text: 'Admin notes / diagnostics: new helper scripts under packages/db/scripts/ — lookup-did, recent-voicemails, apply-sql-migration — let admins inspect migration state and recent voicemail rows without psql. New SystemConfig table caches the Telnyx TeXML Application ID across webhooks-service restarts so we are not creating a new App every deploy.' },
+    ],
+  },
+  {
     version: '0.10.118',
     date: 'June 10, 2026',
     highlight: 'Tips can be hidden persistently, favorites name input fixed, Voicemail Migration paused',

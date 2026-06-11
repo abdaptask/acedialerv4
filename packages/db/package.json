@@ -1,6 +1,6 @@
 {
   "name": "@ace/db",
-  "version": "0.10.118",
+  "version": "0.10.119",
   "private": true,
   "type": "module",
   "main": "dist/index.js",
@@ -18,14 +18,3 @@
     "recent-voicemails": "tsx --env-file=../../.env scripts/recent-voicemails.ts"
   },
   "dependencies": {
-    "@prisma/client": "^5.18.0",
-    "bcryptjs": "^2.4.3"
-  },
-  "devDependencies": {
-    "@types/bcryptjs": "^2.4.6",
-    "@types/node": "^20.11.0",
-    "dotenv-cli": "^8.0.0",
-    "prisma": "^5.18.0",
-    "tsx": "^4.7.0"
-  }
-}
