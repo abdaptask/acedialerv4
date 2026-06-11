@@ -165,7 +165,8 @@ export function buildDialTeXML(opts: {
       '<?xml version="1.0" encoding="UTF-8"?>',
       '<Response>',
       '  <Say voice="Polly.Joanna">The person you are calling is not available. Please leave a message after the tone.</Say>',
-      `  <Record maxLength="300" playBeep="true" timeout="5" recordingStatusCallback="${xmlEscape(recordingActionUrl)}" recordingStatusCallbackMethod="POST" />`,
+      `  <Record maxLength="300" playBeep="true" timeout="10" recordingStatusCallback="${xmlEscape(recordingActionUrl)}" recordingStatusCallbackMethod="POST" />`,
+      '  <Hangup/>',
       '</Response>',
     ].join('\n');
   }
@@ -207,7 +208,8 @@ export function buildVoicemailTeXML(opts: {
     '<?xml version="1.0" encoding="UTF-8"?>',
     '<Response>',
     greetingLine,
-    `  <Record maxLength="300" playBeep="true" timeout="5" recordingStatusCallback="${xmlEscape(recordingActionUrl)}" recordingStatusCallbackMethod="POST" />`,
+    `  <Record maxLength="300" playBeep="true" timeout="10" recordingStatusCallback="${xmlEscape(recordingActionUrl)}" recordingStatusCallbackMethod="POST" />`,
+      '  <Hangup/>',
     '</Response>',
   ].join('\n');
 }
