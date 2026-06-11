@@ -258,6 +258,36 @@ export function SipProvider({ children }: { children: React.ReactNode }) {
       sipService.declineCall();
       setIncoming(null);
     });
+    // v0.10.120 - Hold & Accept request from the Electron floater. When the
+    // user is already on a connected call and a second one rings, the floater
+    // shows Decline + Hold & Accept (no plain Accept) to prevent the merge-
+    // on-pickup bug. This mirrors the context-level holdAndAcceptCall logic
+    // (defined further down in `value`) so the floater path and the
+    // full-screen ringer path behave identically:
+    //   1. Snapshot the active call's display so the held-strip can render
+    //   2. Call sipService.holdActiveAndAccept() (which is what the service
+    //      actually exposes - the context wrapper is just state plumbing)
+    //   3. If a heldId came back, populate the second-call state
+    //   4. Clear the incoming banner and notify the Electron floater to
+    //      close itself.
+    const offHoldAndAccept = window.ace?.onHoldAndAcceptRequest?.(() => {
+      const current = callStateRef.current;
+      const priorOther =
+        current.direction === 'inbound'
+          ? current.fromNumber ?? current.number
+          : current.toNumber ?? current.number;
+      const heldId = sipService.holdActiveAndAccept();
+      if (heldId) {
+        setSecondCallNumber(priorOther ?? null);
+        setSecondCallId(heldId);
+        setHasSecondCall(true);
+      }
+      setIncoming(null);
+      currentIncomingRef.current = null;
+      if (window.ace?.notifyCallEnded) {
+        try { window.ace.notifyCallEnded(); } catch { /* noop */ }
+      }
+    });
 
     // SIP-failed watchdog: if the SIP UA stays in 'failed' for 30s the
     // user has effectively been disconnected (creds rotated, network died,
@@ -275,7 +305,12 @@ export function SipProvider({ children }: { children: React.ReactNode }) {
         currentIncomingRef.current = e.callId ?? null;
         if (window.ace?.onIncomingCall) {
           try {
-            window.ace.onIncomingCall(e.fromNumber ?? e.number, e.callId);
+            // v0.10.120 - tell the Electron main process whether we're
+            // already on a connected call. When true, the floating ringer
+            // renders Decline + Hold & Accept (no plain Accept) to prevent
+            // the audio-stream-merge bug on pickup.
+            const onConnectedCall = callStateRef.current.state === 'connected';
+            window.ace.onIncomingCall(e.fromNumber ?? e.number, e.callId, onConnectedCall);
           } catch (err) {
             console.warn('[sip] electron bridge failed', err);
           }
@@ -340,6 +375,8 @@ export function SipProvider({ children }: { children: React.ReactNode }) {
       offQuality();
       if (offAccept) offAccept();
       if (offDecline) offDecline();
+      // v0.10.120 - clean up Hold & Accept IPC subscription on unmount.
+      if (offHoldAndAccept) offHoldAndAccept();
       if (offSipWake) offSipWake();
       window.removeEventListener('beforeunload', onUnload);
       window.removeEventListener('pagehide', onUnload);

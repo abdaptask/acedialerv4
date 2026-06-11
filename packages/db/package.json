@@ -1,6 +1,6 @@
 {
   "name": "@ace/db",
-  "version": "0.10.119",
+  "version": "0.10.120",
   "private": true,
   "type": "module",
   "main": "dist/index.js",
@@ -15,7 +15,9 @@
     "create-user": "tsx --env-file=../../.env prisma/create-user.ts",
     "apply-sql": "tsx --env-file=../../.env scripts/apply-sql-migration.ts",
     "lookup-did": "tsx --env-file=../../.env scripts/lookup-did.ts",
-    "recent-voicemails": "tsx --env-file=../../.env scripts/recent-voicemails.ts"
+    "recent-voicemails": "tsx --env-file=../../.env scripts/recent-voicemails.ts",
+    "find-trial-users": "tsx --env-file=../../.env scripts/find-trial-users.ts",
+    "backfill-telnyx-number-ids": "tsx --env-file=../../.env scripts/backfill-telnyx-number-ids.ts"
   },
   "dependencies": {
     "@prisma/client": "^5.18.0",

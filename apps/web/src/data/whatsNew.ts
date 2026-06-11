@@ -24,6 +24,16 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.120',
+    date: 'June 11, 2026',
+    highlight: 'Hotfix: Hold & Accept now works from the floating call popup so a second incoming call no longer merges with your active one',
+    changes: [
+      { type: 'fixed', text: 'CRITICAL fix for the floating call-popup (the small green window that pops up bottom-right when a call comes in). Previously, if you were already on a call and a SECOND call arrived, the popup only offered Accept and Decline. Tapping Accept answered the new call WITHOUT putting the first one on hold, so both audio streams played at once and it sounded like the two calls had merged. The popup now detects that you are on a connected call and switches the right-hand button from Accept to Hold and Accept. Clicking it parks your current caller on hold and bridges you to the new one cleanly. The held call shows in the in-call screen exactly like Add Call. This matches how the full-screen ringing UI has worked since Phase 6.3.' },
+      { type: 'improved', text: 'The floating popup now includes a one-line hint under the caller name saying you are already on a call when applicable, and the action buttons are labelled (Decline / Hold and Accept) so the consequence of each click is obvious before you tap.' },
+      { type: 'new', text: 'This release also brings users on older versions (0.10.115 / 0.10.116 / 0.10.117 / 0.10.118) up to date with everything that shipped in between, including: critical one-way-audio fix (0.10.116), voicemail-routed calls now appearing in Recents (0.10.117), persistent Tips banner hide (0.10.118), Favorites focus fix (0.10.118), and the personalized voicemail greeting infrastructure (0.10.119, still in controlled trial scope so you will only see TeXML-flow voicemails if your DID is on the trial allowlist).' },
+    ],
+  },
+  {
     version: '0.10.119',
     date: 'June 11, 2026',
     highlight: 'Personalized voicemail greetings now work — first DID is live in a controlled trial; rolling out gradually',

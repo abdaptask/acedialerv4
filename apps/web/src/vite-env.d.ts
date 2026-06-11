@@ -7,12 +7,19 @@ declare const __APP_VERSION__: string;
 interface AceElectronBridge {
   isElectron: boolean;
   appVersion?: string;
-  onIncomingCall: (number?: string, callId?: string) => void;
+  // v0.10.120 - 3rd arg hasActiveCall. When true, floater hides plain
+  // Accept (which would merge calls) and renders Hold & Accept instead.
+  onIncomingCall: (number?: string, callId?: string, hasActiveCall?: boolean) => void;
   acceptCall: () => void;
   declineCall: () => void;
+  // v0.10.120 - floater Hold & Accept click bridge.
+  holdAndAcceptCall?: () => void;
   notifyCallEnded: () => void;
   onAcceptRequest: (cb: () => void) => () => void;
   onDeclineRequest: (cb: () => void) => () => void;
+  // v0.10.120 - main-window subscription fired when the floater user
+  // clicked Hold & Accept. Optional so older preloads still typecheck.
+  onHoldAndAcceptRequest?: (cb: () => void) => () => void;
   onClose: (cb: () => void) => () => void;
   getQueryParam: (name: string) => string | null;
   // Phase 7 — Microsoft SSO bridge

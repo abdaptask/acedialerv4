@@ -20,11 +20,19 @@ contextBridge.exposeInMainWorld('aceDesktop', {
 contextBridge.exposeInMainWorld('ace', {
   isElectron: true,
   appVersion: process.env.npm_package_version,
-  onIncomingCall: (number?: string, callId?: string) => {
-    ipcRenderer.send('ace:incoming-call', { number, callId });
+  // v0.10.120 - third arg hasActiveCall. When true, the floating ringer
+  // popup MUST hide the plain Accept button and only offer Decline + Hold
+  // & Accept, otherwise tapping Accept while already on a call merges the
+  // two audio streams (the original bug that triggered this hotfix).
+  onIncomingCall: (number?: string, callId?: string, hasActiveCall?: boolean) => {
+    ipcRenderer.send('ace:incoming-call', { number, callId, hasActiveCall: !!hasActiveCall });
   },
   acceptCall: () => ipcRenderer.send('ace:accept'),
   declineCall: () => ipcRenderer.send('ace:decline'),
+  // v0.10.120 - new bridge: floater click on Hold & Accept goes here.
+  // Main forwards to main window via ace:hold-and-accept-request which
+  // SipContext subscribes to and routes to sipService.holdAndAcceptCall.
+  holdAndAcceptCall: () => ipcRenderer.send('ace:hold-and-accept'),
   notifyCallEnded: () => ipcRenderer.send('ace:call-ended'),
   onAcceptRequest: (cb: () => void) => {
     const handler = () => cb();
@@ -36,12 +44,18 @@ contextBridge.exposeInMainWorld('ace', {
     ipcRenderer.on('ace:decline-request', handler);
     return () => ipcRenderer.removeListener('ace:decline-request', handler);
   },
+  // v0.10.120 - main window subscribes; fires when the floater user picked
+  // Hold & Accept. Returns an unsubscribe fn (matches existing patterns).
+  onHoldAndAcceptRequest: (cb: () => void) => {
+    const handler = () => cb();
+    ipcRenderer.on('ace:hold-and-accept-request', handler);
+    return () => ipcRenderer.removeListener('ace:hold-and-accept-request', handler);
+  },
   onClose: (cb: () => void) => {
     const handler = () => cb();
     ipcRenderer.on('ace:close-ringer', handler);
     return () => ipcRenderer.removeListener('ace:close-ringer', handler);
   },
-  // For the ringer window to read the caller info passed in the URL.
   getQueryParam: (name: string): string | null => {
     try {
       return new URLSearchParams(window.location.search).get(name);
@@ -49,54 +63,26 @@ contextBridge.exposeInMainWorld('ace', {
       return null;
     }
   },
-  // ── Microsoft SSO bridge (Phase 7) ──
-  // openExternal: ask main to open a https:// URL in the system browser
-  // (used for the Microsoft authorize page — Microsoft blocks embedded
-  // webviews for OAuth + Conditional Access often requires a real browser).
   openExternal: (url: string): Promise<boolean> =>
     ipcRenderer.invoke('ace:open-external', url),
-  // onSsoCallback: renderer subscribes so it gets the ace-dialer://auth/callback
-  // URL the OS handed us when Microsoft redirected back. Returns an unsubscribe
-  // function for the React useEffect cleanup pattern.
   onSsoCallback: (cb: (url: string) => void) => {
     const handler = (_e: unknown, url: string) => cb(url);
     ipcRenderer.on('ace:sso-callback', handler);
     return () => ipcRenderer.removeListener('ace:sso-callback', handler);
   },
-  // notifyReadyForSso: renderer pings main when it's ready to receive
-  // cold-start protocol URLs (used to flush a buffered URL from the
-  // first launch's argv).
   notifyReadyForSso: () => ipcRenderer.send('ace:sso-ready'),
-
-  // ── Deep-link bridge (v0.10.4 Task 10) ──
-  // For ace-dialer://call?to=+1... and ace-dialer://sms?to=+1...
-  // triggered when a user clicks a Teams card button. The web /auto/call
-  // and /auto/sms pages fire the protocol; the OS forwards to this app
-  // via 'second-instance' / 'open-url'; main parses the URL and emits
-  // 'ace:deep-link' with the action + recipient.
   onDeepLink: (cb: (data: { action: 'call' | 'sms'; to: string }) => void) => {
     const handler = (_e: unknown, data: { action: 'call' | 'sms'; to: string }) =>
       cb(data);
     ipcRenderer.on('ace:deep-link', handler);
     return () => ipcRenderer.removeListener('ace:deep-link', handler);
   },
-  // Tell main "I'm mounted, flush any cold-start deep link you buffered."
-  // Mirrors notifyReadyForSso.
   notifyReadyForDeepLink: () => ipcRenderer.send('ace:deep-link-ready'),
-
-  // ── System power events bridge (v0.10.9) ──
-  // Renderer subscribes; main pings on resume/unlock so SipContext can
-  // force-refresh registration before the user tries to take a call.
   onSipWake: (cb: (data: { reason: string }) => void) => {
     const handler = (_e: unknown, data: { reason: string }) => cb(data);
     ipcRenderer.on('ace:sip-wake', handler);
     return () => ipcRenderer.removeListener('ace:sip-wake', handler);
   },
-
-  // ── Silent auto-update bridge (Phase 7.1) ──
-  // Renderer subscribes so UpdateBanner can show a "Restart to install"
-  // button once electron-updater has downloaded the new version in the
-  // background. Returns an unsubscribe fn for the React useEffect pattern.
   onUpdateAvailable: (cb: (info: { version: string | null }) => void) => {
     const handler = (_e: unknown, info: { version: string | null }) => cb(info);
     ipcRenderer.on('ace:update-available', handler);
@@ -112,33 +98,18 @@ contextBridge.exposeInMainWorld('ace', {
     ipcRenderer.on('ace:update-downloaded', handler);
     return () => ipcRenderer.removeListener('ace:update-downloaded', handler);
   },
-  // v0.9.1 — auto-update failure event. Fires for any electron-updater
-  // 'error' (download failed, installer rejected by Windows, GitHub 403,
-  // etc.). UpdateBanner subscribes so the user actually SEES the failure
-  // instead of staring at a stuck "Downloading 100%" forever.
   onUpdateError: (cb: (info: { message: string }) => void) => {
     const handler = (_e: unknown, info: { message: string }) => cb(info);
     ipcRenderer.on('ace:update-error', handler);
     return () => ipcRenderer.removeListener('ace:update-error', handler);
   },
-  // v0.8.8 — query the current auto-update state on demand. Closes the
-  // "stuck at 100%" gap where the UpdateBanner mounted AFTER electron-
-  // updater already fired the one-shot 'update-downloaded' event. The
-  // banner now polls this on mount and immediately flips to "Restart to
-  // install" if the download has already completed.
   getUpdateState: (): Promise<{
     phase: 'idle' | 'checking' | 'available' | 'downloading' | 'downloaded' | 'error';
     version?: string | null;
     percent?: number;
     message?: string;
   }> => ipcRenderer.invoke('ace:get-update-state'),
-  // Trigger install-now. Main process quits, runs the installer, and
-  // relaunches the new build.
   installUpdate: (): Promise<boolean> => ipcRenderer.invoke('ace:install-update'),
-  // Manual check-for-updates from the user-dropdown menu. Returns one of:
-  //   { state: 'no_update', message }
-  //   { state: 'update_found', version, message }   (download starts in bg)
-  //   { state: 'error', message }
   checkForUpdates: (): Promise<{ state: string; version?: string | null; message?: string }> =>
     ipcRenderer.invoke('ace:check-for-updates'),
 });

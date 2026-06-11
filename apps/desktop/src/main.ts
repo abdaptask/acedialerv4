@@ -350,7 +350,12 @@ function createTray(): void {
 }
 
 // ---------- Floating ringer window ----------
-function createRingerWindow(callerNumber?: string): void {
+// v0.10.120 - hasActiveCall param: when true, the renderer is already on a
+// connected call, so the floater MUST show Decline + Hold & Accept and HIDE
+// the plain Accept button. Plain Accept while already connected merges the
+// two audio streams (the bug this hotfix exists for). When false (no
+// connected call), the floater shows the original Decline + Accept.
+function createRingerWindow(callerNumber?: string, hasActiveCall: boolean = false): void {
   if (ringerWindow && !ringerWindow.isDestroyed()) {
     try {
       ringerWindow.show();
@@ -398,6 +403,33 @@ function createRingerWindow(callerNumber?: string): void {
   });
   try { ringerWindow.setAlwaysOnTop(true, 'screen-saver'); } catch { /* noop */ }
 
+  // v0.10.120 - When hasActiveCall is true (user already on a connected
+  // call), the right-side button is Hold & Accept (forward icon, green).
+  // When false (idle), it's the plain Accept (phone icon, green). The
+  // Decline button (red) is always the same. We render two completely
+  // separate button HTMLs to avoid any FOUC where the wrong button briefly
+  // appears before being hidden.
+  const acceptButtonHtml = hasActiveCall
+    ? `<button class="hold-accept" id="hold-accept" title="Hold current call and accept">
+        <svg viewBox="0 0 24 24"><polyline points="19 15 24 12 19 9"/><line x1="6" y1="12" x2="24" y2="12"/><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+      </button>`
+    : `<button class="accept" id="accept" title="Accept">
+        <svg viewBox="0 0 24 24"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+      </button>`;
+
+  // Tag line under "Incoming call" - reminds user they're already connected
+  // and choosing Hold & Accept will park the current caller.
+  const subtleHtml = hasActiveCall
+    ? `<div class="subtle">You're already on a call</div>`
+    : '';
+
+  // Label under the button so the user understands at a glance what action
+  // they're about to take. Especially important for Hold & Accept since the
+  // icon by itself could be ambiguous.
+  const acceptLabelHtml = hasActiveCall
+    ? `<div class="action-label">Hold &amp; Accept</div>`
+    : `<div class="action-label">Accept</div>`;
+
   const html = `<!doctype html>
 <html><head><meta charset="utf-8"><title>Incoming Call</title>
 <style>
@@ -411,14 +443,20 @@ function createRingerWindow(callerNumber?: string): void {
     text-transform: uppercase; }
   .caller { font-size: 28px; font-weight: 700; margin-top: 6px;
     word-break: break-all; }
+  .subtle { font-size: 13px; opacity: .65; margin-top: 4px;
+    font-style: italic; }
   .row { display: flex; justify-content: space-around; gap: 16px;
     margin-top: 14px; -webkit-app-region: no-drag; }
+  .col { display: flex; flex-direction: column; align-items: center;
+    gap: 6px; }
+  .action-label { font-size: 11px; opacity: .85; letter-spacing: .04em; }
   button { width: 72px; height: 72px; border-radius: 50%; border: none;
     color: #fff; cursor: pointer; display: flex; align-items: center;
     justify-content: center; box-shadow: 0 6px 18px rgba(0,0,0,.35);
     transition: transform .1s; }
   button:active { transform: scale(.95); }
   button.accept { background: #22c55e; }
+  button.hold-accept { background: #22c55e; }
   button.decline { background: #ef4444; }
   button svg { width: 30px; height: 30px; fill: none; stroke: #fff;
     stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
@@ -428,21 +466,37 @@ function createRingerWindow(callerNumber?: string): void {
     <div>
       <div class="tag">Incoming call</div>
       <div class="caller" id="caller">…</div>
+      ${subtleHtml}
     </div>
     <div class="row">
-      <button class="decline" id="decline" title="Decline">
-        <svg viewBox="0 0 24 24"><path d="M10.68 13.31a16 16 0 0 0 3.41 2.6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7 2 2 0 0 1 1.72 2v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91"/><line x1="23" y1="1" x2="1" y2="23"/></svg>
-      </button>
-      <button class="accept" id="accept" title="Accept">
-        <svg viewBox="0 0 24 24"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
-      </button>
+      <div class="col">
+        <button class="decline" id="decline" title="Decline">
+          <svg viewBox="0 0 24 24"><path d="M10.68 13.31a16 16 0 0 0 3.41 2.6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7 2 2 0 0 1 1.72 2v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91"/><line x1="23" y1="1" x2="1" y2="23"/></svg>
+        </button>
+        <div class="action-label">Decline</div>
+      </div>
+      <div class="col">
+        ${acceptButtonHtml}
+        ${acceptLabelHtml}
+      </div>
     </div>
   </div>
   <script>
     (function () {
-      document.getElementById('accept').addEventListener('click', function () {
-        if (window.ace) window.ace.acceptCall();
-      });
+      var acceptBtn = document.getElementById('accept');
+      if (acceptBtn) {
+        acceptBtn.addEventListener('click', function () {
+          if (window.ace) window.ace.acceptCall();
+        });
+      }
+      var holdAcceptBtn = document.getElementById('hold-accept');
+      if (holdAcceptBtn) {
+        holdAcceptBtn.addEventListener('click', function () {
+          if (window.ace && window.ace.holdAndAcceptCall) {
+            window.ace.holdAndAcceptCall();
+          }
+        });
+      }
       document.getElementById('decline').addEventListener('click', function () {
         if (window.ace) window.ace.declineCall();
       });
@@ -496,7 +550,10 @@ function closeRingerWindow(): void {
 }
 
 // ----- IPC: incoming call from the main window -----
-ipcMain.on('ace:incoming-call', (_event, payload: { number?: string; callId?: string }) => {
+// v0.10.120 - payload now includes hasActiveCall. When true, the floating
+// ringer renders Decline + Hold & Accept (no plain Accept) to prevent the
+// merge-on-pickup bug (#2 hotfix).
+ipcMain.on('ace:incoming-call', (_event, payload: { number?: string; callId?: string; hasActiveCall?: boolean }) => {
   const win = mainWindow;
   if (!win) return;
 
@@ -513,7 +570,7 @@ ipcMain.on('ace:incoming-call', (_event, payload: { number?: string; callId?: st
     console.error('[main] surface failed', e);
   }
 
-  createRingerWindow(payload?.number);
+  createRingerWindow(payload?.number, !!payload?.hasActiveCall);
 });
 
 ipcMain.on('ace:accept', () => {
@@ -544,6 +601,23 @@ ipcMain.on('ace:call-ended', () => {
   try {
     if (mainWindow && process.platform === 'win32') mainWindow.flashFrame(false);
   } catch { /* noop */ }
+});
+
+// v0.10.120 - new IPC: floater "Hold & Accept" button click. Forwards to
+// the main window so SipContext can dispatch sipService.holdAndAcceptCall.
+// Same shape/lifecycle as ace:accept.
+ipcMain.on('ace:hold-and-accept', () => {
+  try {
+    mainWindow?.webContents.send('ace:hold-and-accept-request');
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.show();
+      mainWindow.focus();
+    }
+  } catch (e) {
+    console.error('[main] hold-and-accept forward failed', e);
+  }
+  closeRingerWindow();
 });
 
 function buildMenu() {
