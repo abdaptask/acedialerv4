@@ -24,6 +24,14 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.125',
+    date: 'June 11, 2026',
+    highlight: 'Reply with Text now available on the floating call popup (the feature originally tried in v0.10.122, safely re-introduced now that the startup crash is fixed).',
+    changes: [
+      { type: 'new', text: 'The floating call popup (the small green window that pops up bottom-right when a call comes in) now has a Reply with Text button between Decline and Accept. Tapping it declines the call AND opens the quick-reply sheet so you can fire off an SMS to the caller without picking up. Only shows when you are not already on another call and when the caller is a real phone number (internal SIP callers cannot receive SMS). This was originally attempted in v0.10.122 but had to be rolled back because of an unrelated startup bug that we fixed in v0.10.124. With that fixed, the feature is back.' },
+    ],
+  },
+  {
     version: '0.10.124',
     date: 'June 11, 2026',
     highlight: 'CRITICAL fix: the dialer app was vanishing at startup after install. Root-cause identified and restored.',

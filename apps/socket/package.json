@@ -1,6 +1,6 @@
 {
   "name": "@ace/socket",
-  "version": "0.10.124",
+  "version": "0.10.125",
   "private": true,
   "type": "module",
   "main": "dist/main.js",

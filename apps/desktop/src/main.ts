@@ -430,6 +430,25 @@ function createRingerWindow(callerNumber?: string, hasActiveCall: boolean = fals
     ? `<div class="action-label">Hold &amp; Accept</div>`
     : `<div class="action-label">Accept</div>`;
 
+  // v0.10.125 - Reply with Text button (originally v0.10.122, safe to
+  // re-introduce now that the main.ts truncation bug from v0.10.122 is
+  // fixed in v0.10.124). Only shown when:
+  //   (a) user is NOT on an active call - active-call case stays 2-button
+  //   (b) caller is a real phone number, not a SIP URI
+  const replyableDigits = (callerNumber ?? '').replace(/[\s()+\-]/g, '');
+  const canReply = !hasActiveCall && /^\d+$/.test(replyableDigits);
+  const replyButtonHtml = canReply
+    ? `<button class="reply" id="reply" title="Reply with a text message and decline the call">
+        <svg viewBox="0 0 24 24"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
+      </button>`
+    : '';
+  const replyLabelHtml = canReply
+    ? `<div class="action-label">Reply</div>`
+    : '';
+  const replyColHtml = canReply
+    ? `<div class="col">${replyButtonHtml}${replyLabelHtml}</div>`
+    : '';
+
   const html = `<!doctype html>
 <html><head><meta charset="utf-8"><title>Incoming Call</title>
 <style>
@@ -458,6 +477,7 @@ function createRingerWindow(callerNumber?: string, hasActiveCall: boolean = fals
   button.accept { background: #22c55e; }
   button.hold-accept { background: #22c55e; }
   button.decline { background: #ef4444; }
+  button.reply { background: #3b82f6; }
   button svg { width: 30px; height: 30px; fill: none; stroke: #fff;
     stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 </style></head>
@@ -475,6 +495,7 @@ function createRingerWindow(callerNumber?: string, hasActiveCall: boolean = fals
         </button>
         <div class="action-label">Decline</div>
       </div>
+      ${replyColHtml}
       <div class="col">
         ${acceptButtonHtml}
         ${acceptLabelHtml}
@@ -494,6 +515,14 @@ function createRingerWindow(callerNumber?: string, hasActiveCall: boolean = fals
         holdAcceptBtn.addEventListener('click', function () {
           if (window.ace && window.ace.holdAndAcceptCall) {
             window.ace.holdAndAcceptCall();
+          }
+        });
+      }
+      var replyBtn = document.getElementById('reply');
+      if (replyBtn) {
+        replyBtn.addEventListener('click', function () {
+          if (window.ace && window.ace.replyWithText) {
+            window.ace.replyWithText();
           }
         });
       }
@@ -616,6 +645,23 @@ ipcMain.on('ace:hold-and-accept', () => {
     }
   } catch (e) {
     console.error('[main] hold-and-accept forward failed', e);
+  }
+  closeRingerWindow();
+});
+
+// v0.10.125 - floater "Reply with Text" button click. Forwards to the
+// main window's IncomingCall component which already owns the reply-modal
+// flow via the ace:reply-after-decline CustomEvent.
+ipcMain.on('ace:reply-with-text', () => {
+  try {
+    mainWindow?.webContents.send('ace:reply-with-text-request');
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.show();
+      mainWindow.focus();
+    }
+  } catch (e) {
+    console.error('[main] reply-with-text forward failed', e);
   }
   closeRingerWindow();
 });
