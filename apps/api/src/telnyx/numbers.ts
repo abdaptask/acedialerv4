@@ -148,7 +148,7 @@ export function purchaseDid(
  * number to a different Connection).
  *
  * Used by the invite endpoint in the "use existing DID + reroute" path
- * to flip the user's Pulse DID over to ACE's Connection.
+ * to flip the user's Pulse DID over to AptLink's Connection.
  */
 export async function findNumberByE164(
   phoneNumber: string,
@@ -187,10 +187,10 @@ export function assignDidToConnection(
 }
 
 /**
- * Bind a number to ACE's Messaging Profile so inbound SMS flows to ACE's
+ * Bind a number to AptLink's Messaging Profile so inbound SMS flows to AptLink's
  * messaging webhook. Called from the invite flow regardless of which DID
  * mode the admin picked — by the time the user logs in, their texts
- * should arrive in ACE, not the old dialer.
+ * should arrive in AptLink, not the old dialer.
  *
  * Telnyx splits voice and messaging settings across separate sub-resources.
  * The base /phone_numbers/:id PATCH only accepts voice-related fields
@@ -244,7 +244,7 @@ export function deleteCredentialConnection(
  * working immediately. Reversible — can be PATCH'd back to active=true.
  *
  * Used by the "deactivate-or-delete after migration" admin prompt: after
- * a DID is re-bound from Pulse to ACE, the admin chooses whether the old
+ * a DID is re-bound from Pulse to AptLink, the admin chooses whether the old
  * Pulse Credential Connection should be deactivated (recoverable) or
  * deleted (irreversible).
  */
@@ -260,7 +260,7 @@ export function deactivateCredentialConnection(
 /**
  * v0.9.7 — Fetch the FULL config of a single Credential Connection by id.
  * Used as the "template" probe: at invite time we read the working
- * `ace-dialer` connection (the one Abdulla uses today) and mirror its
+ * `aptlink` connection (the one Abdulla uses today) and mirror its
  * settings on every new connection — so new users get a fully-configured
  * SIP endpoint without any admin guesswork.
  *
@@ -460,7 +460,7 @@ export function generateSipPassword(): string {
  * becomes the SIP REGISTER username the dialer logs in with. If you don't
  * pass a `password`, we generate a secure one and include it in the response.
  *
- * webhookEventUrl defaults to ACE's webhook so new connections route call
+ * webhookEventUrl defaults to AptLink's webhook so new connections route call
  * events to our backend. Override if testing.
  */
 export interface CreateCredentialConnectionInput {
@@ -486,10 +486,10 @@ export function createCredentialConnection(
     connection_name: input.connectionName,
     user_name: input.userName,
     password,
-    // Sensible ACE defaults so new connections behave like the existing
-    // `ace-dialer` connection: latency-optimized routing, Krisp noise
+    // Sensible AptLink defaults so new connections behave like the existing
+    // `aptlink` connection: latency-optimized routing, Krisp noise
     // suppression, encrypted media. Mirrors what we observed in the
-    // Telnyx probe of the existing ACE connection. Template overrides
+    // Telnyx probe of the existing AptLink connection. Template overrides
     // (when provided by createConnectionFromTemplate) win.
     anchorsite_override: input.anchorsiteOverride ?? 'Latency',
     encrypted_media: input.encryptedMedia === null ? null : (input.encryptedMedia ?? 'SRTP'),
@@ -823,7 +823,7 @@ export async function createConnectionFromTemplate(
  * itself — `PATCH /v2/phone_numbers/:id` does not accept caller_id_override
  * for credential connections).
  *
- * For ACE invited users we want the user's OWN DID to always be presented
+ * For AptLink invited users we want the user's OWN DID to always be presented
  * as the caller ID on outbound calls placed via the WebRTC dialer, so:
  *   outbound.ani_override      = the user's E.164 DID (e.g. "+17325551234")
  *   outbound.ani_override_type = "always"
@@ -846,9 +846,9 @@ export function setConnectionCallerIdOverride(
 
 /**
  * PATCH a Credential Connection's webhook URL. Used by the invite endpoint
- * for the "repoint webhook to ACE" toggle — flips a Pulse user's connection
- * from pulse.aptask.com → ace-dialer-webhooks.onrender.com so call events
- * start flowing into ACE's database instead of Pulse.
+ * for the "repoint webhook to AptLink" toggle — flips a Pulse user's connection
+ * from pulse.aptask.com → aptlink-webhooks.onrender.com so call events
+ * start flowing into AptLink's database instead of Pulse.
  *
  * This is the "instant cutover" lever: once we PATCH this, Pulse stops
  * receiving call events for the user (their dialer still REGISTERs, but
@@ -951,7 +951,7 @@ export async function listUnassignedNumbers(): Promise<TelnyxResult<UnassignedNu
 //
 // MigrationCandidate is a Telnyx DID that:
 //   • HAS a connection_id set (currently routed somewhere — usually Pulse)
-//   • Is NOT yet in ACE's UserDid table (caller filters that)
+//   • Is NOT yet in AptLink's UserDid table (caller filters that)
 //
 // The admin route GET /admin/telnyx/migration-candidates calls this, then
 // cross-references against the local DB to drop any already-claimed DIDs.
@@ -990,8 +990,8 @@ export async function listMigrationCandidates(): Promise<TelnyxResult<MigrationC
 
     for (const n of batch) {
       // Migration candidates: DIDs currently routed to ANY connection.
-      // We don't try to identify "Pulse vs ACE" at this layer — admin route
-      // strips out connection_ids that ACE already owns by checking the
+      // We don't try to identify "Pulse vs AptLink" at this layer — admin route
+      // strips out connection_ids that AptLink already owns by checking the
       // local UserDid table.
       if (n.connection_id) {
         out.push({
@@ -1019,7 +1019,7 @@ export async function listMigrationCandidates(): Promise<TelnyxResult<MigrationC
 
 // ═════════════════════════════════════════════════════════════════════════
 // v0.10.22 — Phase 2 of migration: pull 30d of voice + SMS history from
-// Telnyx for the migrated number and insert into ACE's Call + Message
+// Telnyx for the migrated number and insert into AptLink's Call + Message
 // tables. Called fire-and-forget from the migrate endpoint.
 //
 // Voice CDRs: GET /v2/detail_records?filter[record_type]=voice

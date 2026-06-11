@@ -49,7 +49,7 @@ export default function DiagnosticsSection() {
   // includes who it came from. Decoded without validation — only used
   // for filename display; security-critical decisions happen server-side.
   useEffect(() => {
-    const token = sessionStorage.getItem('ace_token');
+    const token = sessionStorage.getItem('aptlink_token');
     if (!token) return;
     try {
       const payload = JSON.parse(atob(token.split('.')[1] ?? ''));
@@ -66,7 +66,7 @@ export default function DiagnosticsSection() {
       const text = getLogsAsText({ email, version: APP_VERSION });
       const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
       const url = URL.createObjectURL(blob);
-      // Filename: ace-dialer-logs-{email-or-anon}-v{version}-{datetime}.txt
+      // Filename: aptlink-logs-{email-or-anon}-v{version}-{datetime}.txt
       // Date is local time stamped into the filename so users can sort
       // multiple exports without opening them.
       const userPart = (email || 'anonymous').replace(/[^a-zA-Z0-9.@-]/g, '_');
@@ -74,7 +74,7 @@ export default function DiagnosticsSection() {
         .toISOString()
         .replace(/[:.]/g, '-')
         .slice(0, 19); // 2026-06-04T14-32-18
-      const filename = `ace-dialer-logs-${userPart}-v${APP_VERSION}-${stamp}.txt`;
+      const filename = `aptlink-logs-${userPart}-v${APP_VERSION}-${stamp}.txt`;
       const a = document.createElement('a');
       a.href = url;
       a.download = filename;

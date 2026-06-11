@@ -24,8 +24,8 @@ let isQuittingForReal = false;
 // ────────────────────────────────────────────────────────────────────────
 // Microsoft SSO deep-link handling (Phase 7).
 //
-// We register ace-dialer:// as a custom URL scheme so when Microsoft
-// redirects the user's browser to ace-dialer://auth/callback?code=... the
+// We register aptlink:// as a custom URL scheme so when Microsoft
+// redirects the user's browser to aptlink://auth/callback?code=... the
 // OS launches (or focuses) our app and we can deliver the auth code to
 // the renderer for exchange.
 //
@@ -39,7 +39,7 @@ let isQuittingForReal = false;
 let pendingSsoUrl: string | null = null;
 
 /** v0.10.4 — Same pattern for deep links (call / sms from Teams cards).
- *  When the OS launches us cold from `ace-dialer://call?to=...`, we
+ *  When the OS launches us cold from `aptlink://call?to=...`, we
  *  buffer the action here until the renderer signals it's ready via
  *  'ace:deep-link-ready'. */
 interface PendingDeepLink {
@@ -48,11 +48,11 @@ interface PendingDeepLink {
 }
 let pendingDeepLink: PendingDeepLink | null = null;
 
-/** Find an ace-dialer:// URL in an argv array. Windows passes it as the
+/** Find an aptlink:// URL in an argv array. Windows passes it as the
  *  last positional argument when the OS launches us from a protocol click. */
 function findProtocolUrl(argv: readonly string[]): string | null {
   for (const arg of argv) {
-    if (typeof arg === 'string' && arg.startsWith('ace-dialer://')) return arg;
+    if (typeof arg === 'string' && arg.startsWith('aptlink://')) return arg;
   }
   return null;
 }
@@ -72,8 +72,8 @@ function handleSsoCallback(url: string) {
 }
 
 /** v0.10.4 Task 10 — Deliver a deep-link action to the renderer. Mirrors
- *  handleSsoCallback's pattern. Used for ace-dialer://call?to=...
- *  and ace-dialer://sms?to=... events triggered from Teams card
+ *  handleSsoCallback's pattern. Used for aptlink://call?to=...
+ *  and aptlink://sms?to=... events triggered from Teams card
  *  buttons (via the /auto/call and /auto/sms web pages). */
 function handleDeepLink(action: 'call' | 'sms', to: string) {
   if (mainWindow && !mainWindow.isDestroyed()) {
@@ -88,13 +88,13 @@ function handleDeepLink(action: 'call' | 'sms', to: string) {
 }
 
 /** v0.10.4 Task 10 — Route a protocol URL by its path / host segment.
- *  ace-dialer://auth/callback?code=...   → SSO callback (existing)
- *  ace-dialer://call?to=+1...            → focus dialer + prefill (NEW)
- *  ace-dialer://sms?to=+1...             → focus composer + prefill (NEW)
+ *  aptlink://auth/callback?code=...   → SSO callback (existing)
+ *  aptlink://call?to=+1...            → focus dialer + prefill (NEW)
+ *  aptlink://sms?to=+1...             → focus composer + prefill (NEW)
  *  Anything else → no-op (log only).
  *
- *  URL parser quirk: for ace-dialer://call?to=..., the WHATWG URL
- *  parser treats "call" as the HOST. For ace-dialer://auth/callback
+ *  URL parser quirk: for aptlink://call?to=..., the WHATWG URL
+ *  parser treats "call" as the HOST. For aptlink://auth/callback
  *  it treats "auth" as the host and "/callback" as the path. So our
  *  router checks hostname first, falling through to a substring
  *  match for the SSO case (defensive against parsing differences). */
@@ -142,7 +142,7 @@ function createWindow() {
     // window smaller than this.
     minWidth: 900,
     minHeight: 800,
-    title: 'ACE Dialer',
+    title: 'AptLink',
     backgroundColor: '#000',
     show: false,
     webPreferences: {
@@ -280,7 +280,7 @@ function createWindow() {
     if (process.platform === 'win32' && tray && !tray.isDestroyed()) {
       try {
         tray.displayBalloon({
-          title: 'ACE Dialer is still running',
+          title: 'AptLink is still running',
           content: 'Calls keep working in the background. Right-click the tray icon to quit.',
         });
       } catch { /* noop */ }
@@ -319,7 +319,7 @@ function createTray(): void {
     console.warn('[tray] failed to create tray icon', e);
     return;
   }
-  tray.setToolTip('ACE Dialer');
+  tray.setToolTip('AptLink');
 
   const showWindow = () => {
     if (!mainWindow) {
@@ -332,7 +332,7 @@ function createTray(): void {
   };
 
   const contextMenu = Menu.buildFromTemplate([
-    { label: 'Open ACE Dialer', click: showWindow },
+    { label: 'Open AptLink', click: showWindow },
     { type: 'separator' },
     {
       label: 'Quit (end any active call)',
@@ -702,7 +702,7 @@ function buildMenu() {
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
-// Register ace-dialer:// as the default app for that protocol on the OS.
+// Register aptlink:// as the default app for that protocol on the OS.
 // Without this, Windows shows a "no app to open this link" dialog when
 // Microsoft redirects. On Mac, this gets recorded in Info.plist by
 // electron-builder, but we register at runtime too as a safety net for
@@ -711,10 +711,10 @@ if (process.defaultApp) {
   // We're running under `electron .` in dev — pass argv[1] (the script
   // path) to setAsDefaultProtocolClient so Windows knows what to launch.
   if (process.argv.length >= 2) {
-    app.setAsDefaultProtocolClient('ace-dialer', process.execPath, [path.resolve(process.argv[1])]);
+    app.setAsDefaultProtocolClient('aptlink', process.execPath, [path.resolve(process.argv[1])]);
   }
 } else {
-  app.setAsDefaultProtocolClient('ace-dialer');
+  app.setAsDefaultProtocolClient('aptlink');
 }
 
 // Single-instance lock — if the OS tries to launch us a second time (which
@@ -740,7 +740,7 @@ if (!gotLock) {
 // macOS routes protocol launches through 'open-url' instead of argv.
 app.on('open-url', (event, url) => {
   event.preventDefault();
-  if (url.startsWith('ace-dialer://')) routeProtocolUrl(url);
+  if (url.startsWith('aptlink://')) routeProtocolUrl(url);
 });
 
 // Cold-start: Windows passes the protocol URL in our own argv when the
@@ -1000,7 +1000,7 @@ ipcMain.handle('ace:check-for-updates', async () => {
       friendly = 'Update server denied the request (auth). Contact your administrator.';
     }
     // Log the full error to main-process console so we can diagnose later
-    // if the user pastes their `~/Library/Logs/ACE Dialer/main.log`.
+    // if the user pastes their `~/Library/Logs/AptLink/main.log`.
     console.warn('[auto-update] manual check failed:', raw);
     return { state: 'error', message: friendly };
   }

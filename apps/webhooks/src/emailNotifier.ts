@@ -31,11 +31,11 @@ const consoleWarn: LogFn = (obj, msg) => console.warn(msg, obj);
 
 type EventType = 'missed_call' | 'sms' | 'voicemail';
 
-const APP_URL = (process.env.WEB_BASE_URL ?? 'https://ace-dialer.vercel.app').replace(/\/+$/, '');
+const APP_URL = (process.env.WEB_BASE_URL ?? 'https://aptlink.vercel.app').replace(/\/+$/, '');
 
 /**
  * Build a deep-link URL that opens the Electron desktop app via the
- * ace-dialer:// protocol handler when one is installed, with the web app
+ * aptlink:// protocol handler when one is installed, with the web app
  * as the fallback. Mirrors what the Teams cards do (see teamsCards/types.ts):
  * we point the CTA at /auto/call or /auto/sms on the web app, and the
  * AutoRoute page does the protocol launch + close-tab dance.
@@ -163,7 +163,7 @@ function renderEmail(chrome: EmailChrome): { html: string; text: string } {
     <tr><td align="center">
       <table role="presentation" width="560" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border-radius:12px;box-shadow:0 1px 3px rgba(15,23,42,0.06);overflow:hidden;">
         <tr><td style="padding:24px 28px 12px 28px;border-bottom:1px solid #e2e8f0;">
-          <p style="margin:0;font-size:12px;text-transform:uppercase;letter-spacing:0.05em;color:#64748b;font-weight:600;">ACE Dialer</p>
+          <p style="margin:0;font-size:12px;text-transform:uppercase;letter-spacing:0.05em;color:#64748b;font-weight:600;">AptLink</p>
           <h1 style="margin:6px 0 0 0;font-size:20px;font-weight:600;color:#0f172a;">${escapeHtml(chrome.headerTitle)}</h1>
           <p style="margin:4px 0 0 0;font-size:14px;color:#64748b;">${escapeHtml(chrome.headerSubtitle)}</p>
         </td></tr>
@@ -173,7 +173,7 @@ function renderEmail(chrome: EmailChrome): { html: string; text: string } {
         </td></tr>
         <tr><td style="padding:16px 28px 22px 28px;border-top:1px solid #e2e8f0;background:#fafbfc;">
           <p style="margin:0;font-size:12px;color:#64748b;">
-            You're getting this because email notifications are enabled on your ACE Dialer account.
+            You're getting this because email notifications are enabled on your AptLink account.
             <a href="${escapeHtml(settingsUrl)}" style="color:#0284c7;text-decoration:none;">Manage your preferences</a>
             or contact <a href="mailto:${escapeHtml(supportEmail)}" style="color:#0284c7;text-decoration:none;">${escapeHtml(supportEmail)}</a>.
           </p>
@@ -267,7 +267,7 @@ export async function notifyMissedCallByEmail(opts: {
     </table>`;
 
   // v0.10.80 — CTA goes through /auto/call so the Electron desktop app
-  // opens via the ace-dialer:// protocol when installed (with web
+  // opens via the aptlink:// protocol when installed (with web
   // fallback). Previously the CTA opened the web dialer even when
   // Electron was already running.
   const callBackUrl = buildDeepLink('call', call.fromNumber);
@@ -276,7 +276,7 @@ export async function notifyMissedCallByEmail(opts: {
     ``,
     `Missed call from ${fromDisplay}${lineSuffix} at ${when}.`,
     ``,
-    `Call back in ACE Dialer: ${callBackUrl}`,
+    `Call back in AptLink: ${callBackUrl}`,
     ``,
     `Manage email notifications: ${APP_URL}/settings/email-notifications`,
   ].join('\n');
@@ -285,7 +285,7 @@ export async function notifyMissedCallByEmail(opts: {
     headerTitle: 'Missed call',
     headerSubtitle: when,
     bodyHtml,
-    ctaLabel: 'Call back in ACE Dialer',
+    ctaLabel: 'Call back in AptLink',
     ctaUrl: callBackUrl,
     text,
   });
@@ -380,7 +380,7 @@ export async function notifyInboundSmsByEmail(opts: {
     ``,
     preview || '(no message body — likely an MMS attachment)',
     ``,
-    `Reply in ACE Dialer: ${replyUrl}`,
+    `Reply in AptLink: ${replyUrl}`,
     ``,
     `Manage email notifications: ${APP_URL}/settings/email-notifications`,
   ].join('\n');
@@ -389,7 +389,7 @@ export async function notifyInboundSmsByEmail(opts: {
     headerTitle: `New text from ${fromDisplay}`,
     headerSubtitle: when,
     bodyHtml,
-    ctaLabel: 'Reply in ACE Dialer',
+    ctaLabel: 'Reply in AptLink',
     ctaUrl: replyUrl,
     text,
   });
@@ -468,7 +468,7 @@ export async function notifyVoicemailByEmail(opts: {
     const transcriptHtml = transcript
       ? `<p style="margin:14px 0 6px 0;font-size:13px;font-weight:600;color:#0f172a;">Transcript</p>
          <p style="margin:0;padding:12px 14px;background:#f8fafc;border-radius:8px;font-size:14px;color:#334155;white-space:pre-wrap;word-break:break-word;">${escapeHtml(transcript)}</p>`
-      : `<p style="margin:14px 0 0 0;font-size:13px;color:#64748b;font-style:italic;">Transcript still processing — open ACE Dialer to listen.</p>`;
+      : `<p style="margin:14px 0 0 0;font-size:13px;color:#64748b;font-style:italic;">Transcript still processing — open AptLink to listen.</p>`;
 
     const bodyHtml = `
       <p style="margin:0 0 12px 0;font-size:15px;color:#0f172a;">Hi ${escapeHtml(firstName)},</p>
@@ -489,10 +489,10 @@ export async function notifyVoicemailByEmail(opts: {
       ``,
       `Voicemail from ${fromDisplay}${lineSuffix} at ${when}${duration ? ` (${duration})` : ''}.`,
       ``,
-      transcript ? `Transcript:` : `Transcript still processing — open ACE Dialer to listen.`,
+      transcript ? `Transcript:` : `Transcript still processing — open AptLink to listen.`,
       transcript || '',
       ``,
-      `Call back in ACE Dialer: ${callBackUrl}`,
+      `Call back in AptLink: ${callBackUrl}`,
       ``,
       `Manage email notifications: ${APP_URL}/settings/email-notifications`,
     ].filter(Boolean).join('\n');
@@ -501,7 +501,7 @@ export async function notifyVoicemailByEmail(opts: {
       headerTitle: `New voicemail`,
       headerSubtitle: `${fromDisplay} · ${when}`,
       bodyHtml,
-      ctaLabel: 'Call back in ACE Dialer',
+      ctaLabel: 'Call back in AptLink',
       ctaUrl: callBackUrl,
       text,
     });

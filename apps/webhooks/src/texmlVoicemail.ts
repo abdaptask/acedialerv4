@@ -64,7 +64,7 @@ export async function ensureTeXMLApp(opts: {
 
   const voiceUrl = `${opts.publicBaseUrl.replace(/\/+$/, '')}/texml/voicemail`;
   const statusCallbackUrl = `${opts.publicBaseUrl.replace(/\/+$/, '')}/texml/voicemail/app-status`;
-  const FRIENDLY_NAME = 'ACE Dialer - TeXML Voicemail';
+  const FRIENDLY_NAME = 'AptLink - TeXML Voicemail';
 
   const cachedId = await getSystemConfig(SYSTEM_CONFIG_KEY_APP_ID);
   if (cachedId) {

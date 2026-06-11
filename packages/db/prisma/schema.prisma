@@ -1,4 +1,4 @@
-// ACE Dialer 2.0 — Prisma schema.
+// AptLink 2.0 — Prisma schema.
 // Phase 1: users.
 // Phase 5.1: calls.
 // Phase 5.3: messages (SMS/MMS).
@@ -140,6 +140,9 @@ model User {
   /// Settings → Personal → Ringtone. Persisted server-side so the choice
   /// follows the user across devices.
   ringtone        String?   @map("ringtone")
+  /// v0.11.0 — User presence status ('available' | 'dnd' | 'away').
+  /// Used by the softphone to instantly reject calls and visually in chat.
+  status          String    @default("available") @map("status") @db.VarChar(50)
   lastLoginAt     DateTime? @map("last_login_at")
   createdAt       DateTime  @default(now()) @map("created_at")
   updatedAt       DateTime  @updatedAt      @map("updated_at")
@@ -251,7 +254,7 @@ model UserDid {
   /// e.g. "Main", "Sales", "Personal". Defaults to "Line".
   label           String   @default("Line")
   /// Hex color for the inbound-DID tag pill that renders in Recents /
-  /// Messages / Voicemail. Default = ACE blue.
+  /// Messages / Voicemail. Default = AptLink blue.
   colorHex        String   @default("#3b82f6") @map("color_hex")
   /// Exactly one UserDid per user should have isDefault=true. Enforced
   /// in application code at the API layer.
@@ -265,14 +268,14 @@ model UserDid {
 
   /// v0.10.100 — Call Control migration tracking. When an admin migrates
   /// this DID from the legacy SIP-credential routing (Telnyx Hosted VM)
-  /// to the new ACE Voicemail Call Control App, we:
+  /// to the new AptLink Voicemail Call Control App, we:
   ///   1. Snapshot the current connection_id into preMigrationConnectionId
   ///      (so rollback can put it back).
   ///   2. Snapshot the current Telnyx Hosted VM enabled flag into
   ///      preMigrationHostedVmEnabled.
   ///   3. Stamp callControlMigratedAt.
   ///   4. PATCH the DID's connection_id at Telnyx to TELNYX_VOICEMAIL_CC_APP_ID
-  ///      (the ACE Voicemail Voice API app).
+  ///      (the AptLink Voicemail Voice API app).
   ///   5. Disable Hosted Voicemail at Telnyx (so it doesn't fire — it can't
   ///      anyway since the DID is no longer bound to a SIP credential, but
   ///      we explicitly turn it off for cleanliness).
@@ -539,7 +542,7 @@ model InternalMessage {
 }
 
 // ---------------------------------------------------------------------------
-// PendingUser — Pulse-to-ACE migration staging.
+// PendingUser — Pulse-to-AptLink migration staging.
 //
 // Loaded from a CSV upload of existing Pulse users (firstName, lastName,
 // email + their Telnyx-side voip_ext / voip_number / ext_password). Rows
@@ -579,7 +582,7 @@ model PendingUser {
   /// route a new DID to it.
   pulseConnectionName String?   @map("pulse_connection_name")
   /// Pulse-internal status code (CSV: user_status). Kept for reference;
-  /// not used by ACE logic.
+  /// not used by AptLink logic.
   pulseUserStatus     String?   @map("pulse_user_status")
   /// Lifecycle: pending (default) → invited (admin clicked Confirm) or
   /// skipped (admin explicitly marked as "don't migrate"). Filter the
@@ -632,7 +635,7 @@ model AuditLog {
   @@map("audit_logs")
 }
 
-/// v0.10.22 — Microsoft Graph OAuth tokens for the ACE Bot service account
+/// v0.10.22 — Microsoft Graph OAuth tokens for the AptLink Bot service account
 /// (acebot@aptask.com). Single-row table (key = account email).
 ///
 /// An admin signs in ONCE via /admin/microsoft/oauth/initiate → Microsoft
@@ -780,7 +783,7 @@ model Tip {
 /// the recipient as a big modal that pops over the dialer once their
 /// active call (if any) ends. Two targeting modes:
 ///   * toUserId set    — one specific recipient
-///   * toUserId NULL   — broadcast to everyone (every active ACE user)
+///   * toUserId NULL   — broadcast to everyone (every active AptLink user)
 ///
 /// Read state is tracked per-user via PraiseRead so a broadcast praise
 /// can be marked read by recipient A without disappearing for recipient
@@ -801,8 +804,8 @@ model Praise {
   category      String
   /// Display name of the person being celebrated. For a targeted praise
   /// this is usually toUser.firstName + lastName, BUT admin may want to
-  /// celebrate someone external to ACE (e.g. a candidate who got an
-  /// offer — not an ACE user). For broadcasts this is whoever the praise
+  /// celebrate someone external to AptLink (e.g. a candidate who got an
+  /// offer — not an AptLink user). For broadcasts this is whoever the praise
   /// is ABOUT (e.g. "Team hit Q2 quota!").
   recipientName String?   @map("recipient_name")
   /// v0.10.89 — Optional admin-authored headline override. When set, the
@@ -939,7 +942,7 @@ model SystemSetting {
   /// Setting value. May be a short string or a multi-MB base64 blob.
   /// Postgres TEXT type accommodates both; we don't enforce limits here.
   value     String
-  /// ACE user id of the admin who last set this. Null for system defaults.
+  /// AptLink user id of the admin who last set this. Null for system defaults.
   updatedBy Int?     @map("updated_by")
   updatedAt DateTime @updatedAt @map("updated_at")
   createdAt DateTime @default(now()) @map("created_at")

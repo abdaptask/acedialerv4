@@ -6,7 +6,7 @@
 import { useEffect, useRef } from 'react';
 import { sendHeartbeat, ackForceUpdate } from '../api';
 
-const DEVICE_ID_KEY = 'ace_device_id';
+const DEVICE_ID_KEY = 'aptlink_device_id';
 
 function getOrCreateDeviceId(): string {
   try {
@@ -60,7 +60,7 @@ export default function HeartbeatReporter() {
 
     async function beat() {
       if (cancelled) return;
-      const token = sessionStorage.getItem('ace_token');
+      const token = sessionStorage.getItem('aptlink_token');
       if (!token) return;
       try {
         const r = await sendHeartbeat(token, {

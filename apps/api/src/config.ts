@@ -32,15 +32,15 @@ export const config = {
   // Voice → Call Control Apps → <your app> → API ID.
   telnyxCcConnectionId: optional('TELNYX_CC_CONNECTION_ID'),
   pilotFromNumber: optional('PILOT_TELNYX_NUMBER', '+17322001305'),
-  // ACE's call-event webhook endpoint. Used by:
+  // AptLink's call-event webhook endpoint. Used by:
   //   • createCredentialConnection (new connections route events here)
   //   • patchConnectionWebhook (the "repoint webhook" toggle in the invite
   //     modal flips Pulse user connections from pulse.aptask.com → here)
-  // Default matches the URL on the existing `ace-dialer` Credential
+  // Default matches the URL on the existing `aptlink` Credential
   // Connection in Telnyx. Override in Render env vars for staging.
   telnyxWebhookUrl: optional(
     'TELNYX_WEBHOOK_URL',
-    'https://ace-dialer-webhooks.onrender.com/webhooks/telnyx/calls',
+    'https://aptlink-webhooks.onrender.com/webhooks/telnyx/calls',
   ),
 
   // v0.9.7 — Template Credential Connection used to clone settings (outbound
@@ -52,13 +52,13 @@ export const config = {
   telnyxTemplateConnectionDid: optional('TELNYX_TEMPLATE_CONNECTION_DID', '+17322001305'),
   telnyxTemplateConnectionId: optional('TELNYX_TEMPLATE_CONNECTION_ID'),
 
-  // v0.10.100 — Telnyx Voice API Application ID for the "ACE Voicemail"
+  // v0.10.100 — Telnyx Voice API Application ID for the "AptLink Voicemail"
   // app (created in Mission Control → Voice API Applications). Used by
   // the admin migration endpoint (POST /admin/users/:id/migrate-voicemail)
   // to re-bind a user's DIDs from their SIP credential to this app, so
   // inbound calls flow through our /webhooks/telnyx/voicemail-cc handler
   // (ring softphone → fall to custom voicemail on no-answer).
-  // Find the ID in Mission Control: Voice → Voice API Apps → ACE Voicemail
+  // Find the ID in Mission Control: Voice → Voice API Apps → AptLink Voicemail
   // → Application ID at the top of the Details tab.
   telnyxVoicemailCcAppId: optional('TELNYX_VOICEMAIL_CC_APP_ID'),
 
@@ -82,7 +82,7 @@ export const config = {
   msTenantId: optional('MS_TENANT_ID'),
   msClientSecret: optional('MS_CLIENT_SECRET'),
 
-  // SendGrid — welcome emails for newly-invited users (Phase 8, Pulse→ACE).
+  // SendGrid — welcome emails for newly-invited users (Phase 8, Pulse→AptLink).
   // - sendGridApiKey: "SG.xxxxxxxx..." from app.sendgrid.com → Settings → API Keys.
   //   Scope just "Mail Send" (don't grant broader perms).
   // - sendGridFromEmail: the verified sender. Must already be authenticated in
@@ -93,7 +93,7 @@ export const config = {
   //   for help"). Defaults to the same as FROM but can be a real human inbox.
   sendGridApiKey: optional('SENDGRID_API_KEY'),
   sendGridFromEmail: optional('SENDGRID_FROM_EMAIL', 'noreply@aptask.com'),
-  sendGridFromName: optional('SENDGRID_FROM_NAME', 'ACE Dialer'),
+  sendGridFromName: optional('SENDGRID_FROM_NAME', 'AptLink'),
   aceSupportEmail: optional('ACE_SUPPORT_EMAIL', 'it@aptask.com'),
 
   // v0.9.13 — Cloudflare TURN failover for WebRTC audio when Telnyx TURN

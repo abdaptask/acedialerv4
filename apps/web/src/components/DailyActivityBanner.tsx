@@ -10,13 +10,13 @@
 //
 // Privacy note: this banner shows aggregate counts only. No message
 // bodies, no contact names. Nothing leaves the browser beyond the
-// authenticated API request to ACE's own backend.
+// authenticated API request to AptLink's own backend.
 
 import { useEffect, useState } from 'react';
 import { PhoneMissed, MessageSquare, Voicemail, X } from 'lucide-react';
 import { getActivitySummary, type ActivitySummary } from '../api';
 
-const SHOWN_KEY = 'ace_daily_summary_last_shown';
+const SHOWN_KEY = 'aptlink_daily_summary_last_shown';
 
 // Returns today's date as YYYY-MM-DD in the user's local timezone.
 // Used as the once-per-day suppression key.
@@ -58,7 +58,7 @@ export default function DailyActivityBanner() {
     const today = todayLocalKey();
     if (last === today) return;
 
-    const token = sessionStorage.getItem('ace_token');
+    const token = sessionStorage.getItem('aptlink_token');
     if (!token) return;
 
     const { since, until } = yesterdayWindow();

@@ -117,9 +117,9 @@ export function SipProvider({ children }: { children: React.ReactNode }) {
     // SSO callback flows and password updates from Settings → Account.
     let connected = false;
     function readAndConnect(): boolean {
-      const sessionSipUsername = sessionStorage.getItem('ace_sip_username');
-      const sessionSipPassword = sessionStorage.getItem('ace_sip_password');
-      const sessionDid = sessionStorage.getItem('ace_did');
+      const sessionSipUsername = sessionStorage.getItem('aptlink_sip_username');
+      const sessionSipPassword = sessionStorage.getItem('aptlink_sip_password');
+      const sessionDid = sessionStorage.getItem('aptlink_did');
 
       const username =
         sessionSipUsername ||
@@ -153,7 +153,7 @@ export function SipProvider({ children }: { children: React.ReactNode }) {
       // persistSipCreds after /auth/me lands). When true, the SipService
       // applies the disconnect-debounce-with-escalation behavior described
       // in services/sip.ts. Default false for everyone not in the pilot.
-      const connectionHealthBeta = sessionStorage.getItem('ace_conn_health_beta') === '1';
+      const connectionHealthBeta = sessionStorage.getItem('aptlink_conn_health_beta') === '1';
 
       // v0.9.13 — Connect immediately with Telnyx-TURN-only so the user
       // isn't delayed by the Cloudflare-credentials round-trip. Then
@@ -162,7 +162,7 @@ export function SipProvider({ children }: { children: React.ReactNode }) {
       sipService.connect({ username, password, callerNumber, wssUri, connectionHealthBeta });
       connected = true;
 
-      const token = sessionStorage.getItem('ace_token');
+      const token = sessionStorage.getItem('aptlink_token');
       if (token) {
         void (async () => {
           const turn = await getTurnCredentials(token);
@@ -398,7 +398,7 @@ export function SipProvider({ children }: { children: React.ReactNode }) {
     if (callState.state !== 'connected') return;
     const telnyxCallId = callState.callId;
     if (!telnyxCallId) return;
-    const token = sessionStorage.getItem('ace_token');
+    const token = sessionStorage.getItem('aptlink_token');
     if (!token) return;
 
     // Hints for the API's fuzzy fallback — the SDK's call.id often doesn't
@@ -491,7 +491,7 @@ export function SipProvider({ children }: { children: React.ReactNode }) {
     // Phase 5.4 (rebuild): Transfer goes through the API → Telnyx Call Control.
     // Waits up to 10s for the leg's callControlId to arrive if needed.
     transferCall: async (destination) => {
-      const token = sessionStorage.getItem('ace_token');
+      const token = sessionStorage.getItem('aptlink_token');
       if (!token) return { ok: false, error: 'not_authenticated' };
       if (!activeCallControlIdRef.current) {
         const start = Date.now();
@@ -620,7 +620,7 @@ async function logCallEvent(
   log: Map<string, CallLogState>,
   rejected: Set<string>,
 ): Promise<void> {
-  const token = sessionStorage.getItem('ace_token');
+  const token = sessionStorage.getItem('aptlink_token');
   if (!token) return;
   if (!event.callId) return;
 

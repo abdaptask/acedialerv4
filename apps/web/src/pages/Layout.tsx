@@ -32,6 +32,7 @@ import UpdateBanner from '../components/UpdateBanner';
 import PraiseModal from '../components/PraiseModal';
 // v0.10.92 — Floating tip banner that rotates feature suggestions.
 import TipBanner from '../components/TipBanner';
+import StatusDropdown from '../components/StatusDropdown';
 import { getTenantHoldMusic } from '../api';
 import {
   getHoldMusicDataUrl,
@@ -41,6 +42,7 @@ import {
 } from '../lib/userPrefs';
 import DidSwitcher from '../components/DidSwitcher';
 import { useSip } from '../contexts/SipContext';
+import { useSocket } from '../contexts/SocketContext';
 import { ensureNotificationPermission } from '../lib/notify';
 import {
   getNotificationPrefs,
@@ -85,15 +87,15 @@ export default function Layout({ user, onLogout }: Props) {
   const location = useLocation();
   const { callState, sipState } = useSip();
 
-  // Bottom-nav unread/missed counts. Polled every 15s while the app is open.
-  // When the user clicks a tab, mark that tab visited (resets its count).
   const [unread, setUnread] = useState<{ messages: number; missed: number; voicemail: number; chat: number }>({
     messages: 0, missed: 0, voicemail: 0, chat: 0,
   });
+  const { socket } = useSocket();
+
   useEffect(() => {
     let cancelled = false;
     const refresh = async () => {
-      const token = sessionStorage.getItem('ace_token');
+      const token = sessionStorage.getItem('aptlink_token');
       if (!token) return;
       try {
         const [m, c, v, chat] = await Promise.all([
@@ -106,23 +108,38 @@ export default function Layout({ user, onLogout }: Props) {
       } catch { /* silent */ }
     };
     void refresh();
-    const id = window.setInterval(refresh, 15000);
-    // Also refresh when any tab visit event fires (clears the badge instantly).
+    
     const onTabVisit = () => { void refresh(); };
     window.addEventListener('ace:tabVisited', onTabVisit);
-    // v0.10.67 — Also refresh when any page fires
-    // `ace:unreadCountChanged` (e.g. voicemail listened, SMS thread opened
-    // and marked read). Without this, the badge could lag up to 15s
-    // behind reality and users complained that even after listening to
-    // a voicemail it still showed unread.
     window.addEventListener('ace:unreadCountChanged', onTabVisit);
+
+    const onBadgeUpdate = (data: { type: string, count?: number }) => {
+      if (data.count !== undefined) {
+        setUnread(prev => {
+          if (data.type === 'sms') return { ...prev, messages: data.count! };
+          if (data.type === 'voicemail') return { ...prev, voicemail: data.count! };
+          if (data.type === 'chat') return { ...prev, chat: data.count! };
+          return prev;
+        });
+      }
+      if (data.type === 'missed_call' || data.count === undefined) {
+        void refresh();
+      }
+    };
+
+    if (socket) {
+      socket.on('badge:update', onBadgeUpdate);
+    }
+
     return () => {
       cancelled = true;
-      window.clearInterval(id);
       window.removeEventListener('ace:tabVisited', onTabVisit);
       window.removeEventListener('ace:unreadCountChanged', onTabVisit);
+      if (socket) {
+        socket.off('badge:update', onBadgeUpdate);
+      }
     };
-  }, []);
+  }, [socket]);
 
   // Stamp last-visit when route changes to one of the badged tabs.
   useEffect(() => {
@@ -241,7 +258,7 @@ export default function Layout({ user, onLogout }: Props) {
   // tenant-wide default via Settings, every user picks it up the next
   // time they sign in — no manual action needed.
   useEffect(() => {
-    const token = sessionStorage.getItem('ace_token');
+    const token = sessionStorage.getItem('aptlink_token');
     if (!token) return;
     // Only fetch if the user has no local hold music yet. Local override
     // (manually uploaded by the user) always wins.
@@ -310,7 +327,7 @@ export default function Layout({ user, onLogout }: Props) {
             <Phone size={14} strokeWidth={2.5} />
           </div>
           <div className="brand-block">
-            <span className="brand">ACE Dialer</span>
+            <span className="brand">AptLink</span>
             <span className="version">
               v{__APP_VERSION__}
               <span className="version-sep">·</span>
@@ -345,10 +362,21 @@ export default function Layout({ user, onLogout }: Props) {
           />
         </div>
 
-        <div className="header-user" ref={menuRef}>
-          <button
-            type="button"
-            className={`user-chip ${menuOpen ? 'open' : ''}`}
+        <div className="app-header-right flex items-center gap-3">
+          {sessionStorage.getItem('aptlink_token') && (
+            <StatusDropdown 
+              user={user} 
+              token={sessionStorage.getItem('aptlink_token')!} 
+              onStatusChange={(status) => {
+                // The dropdown handles sessionStorage internally.
+                console.log('[layout] global status changed to', status);
+              }}
+            />
+          )}
+          <div className="header-user" ref={menuRef}>
+            <button
+              type="button"
+              className={`user-chip ${menuOpen ? 'open' : ''}`}
             onClick={() => setMenuOpen((v) => !v)}
             aria-haspopup="menu"
             aria-expanded={menuOpen}
@@ -436,9 +464,10 @@ export default function Layout({ user, onLogout }: Props) {
                 }}
               >
                 <LogOut size={16} /> Sign out
-              </button>
-            </div>
-          )}
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </header>
 

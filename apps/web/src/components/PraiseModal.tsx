@@ -107,7 +107,7 @@ export default function PraiseModal({}: PraiseModalProps) {
   useEffect(() => {
     const fetchNow = async () => {
       if (inFlightRef.current) return;
-      const token = sessionStorage.getItem('ace_token');
+      const token = sessionStorage.getItem('aptlink_token');
       if (!token) return;
       inFlightRef.current = true;
       try {
@@ -155,7 +155,7 @@ export default function PraiseModal({}: PraiseModalProps) {
   async function handleDismiss() {
     if (submitting) return;
     setSubmitting(true);
-    const token = sessionStorage.getItem('ace_token');
+    const token = sessionStorage.getItem('aptlink_token');
     if (token) {
       try {
         await markPraiseRead(token, current.id);

@@ -5,7 +5,7 @@
 // Visual structure:
 //   - Outer .auth-shell-v2 — gradient backdrop, centered content
 //   - .auth-card-v2 — glass-effect card with proper shadow + radius
-//   - Brand block at top (icon + ACE Dialer wordmark + tagline)
+//   - Brand block at top (icon + AptLink wordmark + tagline)
 //   - Microsoft button (dark variant per Microsoft brand guidance)
 //   - "Other ways to sign in" link → expands to password form
 //   - Footer line with "by ApTask" + version
@@ -21,8 +21,8 @@ interface Props {
 
 function consumeLogoutReason(): 'jwt_expired' | 'sip_failed' | null {
   try {
-    const v = sessionStorage.getItem('ace_logout_reason');
-    if (v) sessionStorage.removeItem('ace_logout_reason');
+    const v = sessionStorage.getItem('aptlink_logout_reason');
+    if (v) sessionStorage.removeItem('aptlink_logout_reason');
     if (v === 'jwt_expired' || v === 'sip_failed') return v;
   } catch { /* noop */ }
   return null;
@@ -30,8 +30,8 @@ function consumeLogoutReason(): 'jwt_expired' | 'sip_failed' | null {
 
 function consumeSsoError(): string | null {
   try {
-    const v = sessionStorage.getItem('ace_sso_error');
-    if (v) sessionStorage.removeItem('ace_sso_error');
+    const v = sessionStorage.getItem('aptlink_sso_error');
+    if (v) sessionStorage.removeItem('aptlink_sso_error');
     return v;
   } catch { return null; }
 }
@@ -81,7 +81,7 @@ export default function Login({ onSuccess }: Props) {
 
     // Phase 7 — Electron SSO callback subscription.
     // After the user signs in at Microsoft, the OS routes the
-    // ace-dialer://auth/callback?code=... URL to our app, which forwards
+    // aptlink://auth/callback?code=... URL to our app, which forwards
     // it here via window.ace.onSsoCallback. We parse code+state, verify
     // state matches what we stashed, do the exchange, and onSuccess()
     // hands the JWT to App.tsx.
@@ -108,7 +108,7 @@ export default function Login({ onSuccess }: Props) {
           setStartingSso(false);
           return;
         }
-        const redirectUri = 'ace-dialer://auth/callback';
+        const redirectUri = 'aptlink://auth/callback';
         const { token, user } = await exchangeMicrosoftCode(code, redirectUri, codeVerifier);
         onSuccess(token, user);
       } catch (e) {
@@ -146,7 +146,7 @@ export default function Login({ onSuccess }: Props) {
         // Electron: open Microsoft authorize page in the system browser.
         // Microsoft blocks embedded webviews for OAuth and Conditional Access
         // policies usually require a full browser session for MFA. The OS
-        // will then route ace-dialer://auth/callback back to our app via
+        // will then route aptlink://auth/callback back to our app via
         // the registered protocol handler (see preload.ts onSsoCallback).
         await window.ace.openExternal(url);
         // Don't reset startingSso — the user is now in another window and
@@ -190,7 +190,7 @@ export default function Login({ onSuccess }: Props) {
           <div className="auth-brand-mark" aria-hidden="true">
             <Phone size={22} strokeWidth={2.5} />
           </div>
-          <h1 className="auth-brand-name">ACE Dialer</h1>
+          <h1 className="auth-brand-name">AptLink</h1>
           <p className="auth-brand-tagline">Sign in with your ApTask account</p>
         </div>
 
@@ -277,7 +277,7 @@ export default function Login({ onSuccess }: Props) {
 
         {/* Footer */}
         <div className="auth-footer">
-          <span>ACE Dialer · v{version}</span>
+          <span>AptLink · v{version}</span>
           <span className="auth-footer-sep">·</span>
           <span>by ApTask</span>
         </div>

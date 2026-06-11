@@ -68,7 +68,7 @@ export default function UserLinesManagerModal({ userId, userLabel, onClose }: Pr
   const bodyRef = useRef<HTMLDivElement | null>(null);
 
   function load() {
-    const token = sessionStorage.getItem('ace_token');
+    const token = sessionStorage.getItem('aptlink_token');
     if (!token) return;
     setLoading(true);
     setError(null);
@@ -99,7 +99,7 @@ export default function UserLinesManagerModal({ userId, userLabel, onClose }: Pr
 
   async function handleSetDefault(row: AdminUserDidRow) {
     if (row.isDefault) return;
-    const token = sessionStorage.getItem('ace_token');
+    const token = sessionStorage.getItem('aptlink_token');
     if (!token) return;
     setBusyId(row.id);
     const res = await patchUserDid(token, userId, row.id, { isDefault: true });
@@ -122,7 +122,7 @@ export default function UserLinesManagerModal({ userId, userLabel, onClose }: Pr
     const trimmed = editingLabelValue.trim();
     setEditingLabelId(null);
     if (!trimmed || trimmed === row.label) return;
-    const token = sessionStorage.getItem('ace_token');
+    const token = sessionStorage.getItem('aptlink_token');
     if (!token) return;
     setBusyId(row.id);
     const res = await patchUserDid(token, userId, row.id, { label: trimmed });
@@ -136,7 +136,7 @@ export default function UserLinesManagerModal({ userId, userLabel, onClose }: Pr
 
   async function handleSetColor(row: AdminUserDidRow, color: string) {
     if (color === row.colorHex) return;
-    const token = sessionStorage.getItem('ace_token');
+    const token = sessionStorage.getItem('aptlink_token');
     if (!token) return;
     setBusyId(row.id);
     const res = await patchUserDid(token, userId, row.id, { colorHex: color });
@@ -157,7 +157,7 @@ export default function UserLinesManagerModal({ userId, userLabel, onClose }: Pr
       `loses the line tag on those historical rows).`,
     );
     if (!ok) return;
-    const token = sessionStorage.getItem('ace_token');
+    const token = sessionStorage.getItem('aptlink_token');
     if (!token) return;
     setBusyId(row.id);
     const res = await removeUserDid(token, userId, row.id);
@@ -364,7 +364,7 @@ function AddLineSubModal({ userId, onClose, onAdded }: AddLineProps) {
   // 'unassigned' (renamed in UI to "Add an available number from Telnyx")
   // still picks from unassigned DIDs; 'migrate' picks from DIDs that ARE
   // currently bound to another connection (Pulse) and re-binds them to
-  // this ACE user's connection without losing the phone number.
+  // this AptLink user's connection without losing the phone number.
   const [mode, setMode] = useState<'pick' | 'unassigned' | 'purchase' | 'migrate' | 'cleanup'>('pick');
   // v0.10.21 — After a successful migration, we land on the 'cleanup' step
   // and offer to deactivate/delete the OLD SIP connection that previously
@@ -379,7 +379,7 @@ function AddLineSubModal({ userId, onClose, onAdded }: AddLineProps) {
   const [unassigned, setUnassigned] = useState<UnassignedTelnyxNumber[]>([]);
   const [loadingUnassigned, setLoadingUnassigned] = useState(false);
   // v0.10.20 — Migration candidate list (Telnyx DIDs currently bound to
-  // another connection, not yet in ACE). Lazy-loaded when mode === 'migrate'.
+  // another connection, not yet in AptLink). Lazy-loaded when mode === 'migrate'.
   const [migrationCandidates, setMigrationCandidates] = useState<MigrationCandidate[]>([]);
   const [loadingCandidates, setLoadingCandidates] = useState(false);
   const [pickedMigrationDid, setPickedMigrationDid] = useState<string>('');
@@ -417,7 +417,7 @@ function AddLineSubModal({ userId, onClose, onAdded }: AddLineProps) {
   // Lazy-load the unassigned list only when the admin enters that mode.
   useEffect(() => {
     if (mode !== 'unassigned') return;
-    const token = sessionStorage.getItem('ace_token');
+    const token = sessionStorage.getItem('aptlink_token');
     if (!token) return;
     setLoadingUnassigned(true);
     listUnassignedTelnyxNumbers(token)
@@ -429,7 +429,7 @@ function AddLineSubModal({ userId, onClose, onAdded }: AddLineProps) {
   // v0.10.20 — Lazy-load migration candidates when admin enters migrate mode.
   useEffect(() => {
     if (mode !== 'migrate') return;
-    const token = sessionStorage.getItem('ace_token');
+    const token = sessionStorage.getItem('aptlink_token');
     if (!token) return;
     setLoadingCandidates(true);
     setError(null);
@@ -440,7 +440,7 @@ function AddLineSubModal({ userId, onClose, onAdded }: AddLineProps) {
   }, [mode]);
 
   async function handleSubmit() {
-    const token = sessionStorage.getItem('ace_token');
+    const token = sessionStorage.getItem('aptlink_token');
     if (!token) return;
     setError(null);
     setSubmitting(true);
@@ -465,14 +465,14 @@ function AddLineSubModal({ userId, onClose, onAdded }: AddLineProps) {
 
   // v0.10.20 — Migrate flow submit. Different endpoint from regular Add-Line.
   // POSTs to /admin/users/:id/dids/migrate which re-binds the picked Telnyx
-  // DID's connection_id to this user's ACE connection (Pulse stops receiving),
+  // DID's connection_id to this user's AptLink connection (Pulse stops receiving),
   // then creates a UserDid row.
   //
   // v0.10.21 — On success we LAND ON the cleanup step instead of closing.
   // The cleanup step lets the admin decide what to do with the old SIP
   // connection that previously served this number (deactivate / delete / skip).
   async function handleMigrateSubmit() {
-    const token = sessionStorage.getItem('ace_token');
+    const token = sessionStorage.getItem('aptlink_token');
     if (!token) return;
     setError(null);
     setSubmitting(true);
@@ -514,7 +514,7 @@ function AddLineSubModal({ userId, onClose, onAdded }: AddLineProps) {
       onAdded();
       return;
     }
-    const token = sessionStorage.getItem('ace_token');
+    const token = sessionStorage.getItem('aptlink_token');
     if (!token) return;
     setError(null);
     setCleanupBusy(action);
@@ -589,8 +589,8 @@ function AddLineSubModal({ userId, onClose, onAdded }: AddLineProps) {
               {/* v0.10.17 — Migrate Existing User to New Dialer.
                   Picks from Telnyx DIDs that ARE currently bound to a
                   Credential Connection (likely Pulse) but haven't been
-                  claimed by ACE yet. Re-binds the DID to this ACE user's
-                  Credential Connection, so calls now route through ACE
+                  claimed by AptLink yet. Re-binds the DID to this AptLink user's
+                  Credential Connection, so calls now route through AptLink
                   without the user losing their phone number. Pulse stops
                   receiving calls for that number immediately. */}
               <button
@@ -603,7 +603,7 @@ function AddLineSubModal({ userId, onClose, onAdded }: AddLineProps) {
                   <div className="lines-mode-title">Migrate Existing User to New Dialer</div>
                   <div className="lines-mode-desc">
                     Take over a number that's currently working on the old dialer (Pulse).
-                    Re-binds it to this user's ACE connection without changing the phone number.
+                    Re-binds it to this user's AptLink connection without changing the phone number.
                   </div>
                 </div>
               </button>
@@ -687,7 +687,7 @@ function AddLineSubModal({ userId, onClose, onAdded }: AddLineProps) {
               <p className="muted" style={{ marginTop: '0.5rem', fontSize: '0.85rem' }}>
                 Picks a phone number that's currently bound to another
                 connection in Telnyx (usually the old dialer) and re-binds
-                it to this user's ACE connection. The number stays the
+                it to this user's AptLink connection. The number stays the
                 same; the old dialer stops receiving calls for it
                 immediately.
               </p>
@@ -699,7 +699,7 @@ function AddLineSubModal({ userId, onClose, onAdded }: AddLineProps) {
                 ) : migrationCandidates.length === 0 ? (
                   <p className="muted">
                     No numbers found that are currently bound to another
-                    connection. Either all your DIDs are already in ACE,
+                    connection. Either all your DIDs are already in AptLink,
                     or none are bound to anything in Telnyx yet.
                   </p>
                 ) : (
@@ -772,7 +772,7 @@ function AddLineSubModal({ userId, onClose, onAdded }: AddLineProps) {
                 <AlertCircle size={14} />
                 <span>
                   Heads-up: migrating will stop the old dialer from
-                  receiving calls on this number. Only ACE will ring after.
+                  receiving calls on this number. Only AptLink will ring after.
                 </span>
               </div>
 
@@ -817,7 +817,7 @@ function AddLineSubModal({ userId, onClose, onAdded }: AddLineProps) {
                 <Check size={16} />
                 <span>
                   Number {formatPhone(postMigrate.didNumber)} migrated
-                  successfully. ACE is now receiving its calls and SMS.
+                  successfully. AptLink is now receiving its calls and SMS.
                 </span>
               </div>
 

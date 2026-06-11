@@ -13,7 +13,7 @@
 //   - version "1.4" — supported by current Teams clients including
 //     mobile. Don't bump without checking Teams Adaptive Card
 //     compatibility table.
-//   - Use Action.OpenUrl with `ace-dialer://...` deep links for
+//   - Use Action.OpenUrl with `aptlink://...` deep links for
 //     call/SMS callbacks (handled by the desktop main process).
 //   - Voicemail Listen button links to the web app's playback page,
 //     since browsers can't honor a custom protocol on click reliably
@@ -128,23 +128,23 @@ export function formatTimeForDisplay(d: Date | string | number): string {
  * History:
  *
  * v0.10.5: web /auto/call → protocol attempt → web fallback. The /auto/*
- *   pages did: `window.location.href = 'ace-dialer://...'` → if no
+ *   pages did: `window.location.href = 'aptlink://...'` → if no
  *   handler responded in 3s, redirect to /keypad?to=... in the same
  *   browser. Works universally.
  *
- * v0.10.10: switched to emitting `ace-dialer://` URLs DIRECTLY in the
+ * v0.10.10: switched to emitting `aptlink://` URLs DIRECTLY in the
  *   card buttons, betting that Teams Action.OpenUrl would just hand
  *   off to the OS protocol handler. **Doesn't work in practice.** Teams
  *   desktop AND Teams web silently swallow non-http(s) URLs in card
  *   buttons. Result: clicking Reply/Call in a card did nothing.
  *
  * v0.10.24: REVERTED to the v0.10.5 web-URL approach. Card buttons
- *   point at `https://ace-dialer.vercel.app/auto/call?to=...` and
+ *   point at `https://aptlink.vercel.app/auto/call?to=...` and
  *   `.../auto/sms?to=...`. The web page does the protocol launch
  *   (with browser permission prompt) and falls back to the in-browser
  *   dialer after 3s. Works on:
  *     • Teams desktop (Windows/Mac) — protocol prompt, user picks
- *       "Open ACE Dialer"
+ *       "Open AptLink"
  *     • Teams web client — same
  *     • Teams mobile — no protocol handler, falls back to web dialer
  *
@@ -153,7 +153,7 @@ export function formatTimeForDisplay(d: Date | string | number): string {
  *
  * `WEB_BASE_URL` is the Vercel origin used for all card action URLs. */
 function webBase(): string {
-  return (process.env.WEB_BASE_URL ?? 'https://ace-dialer.vercel.app').replace(/\/+$/, '');
+  return (process.env.WEB_BASE_URL ?? 'https://aptlink.vercel.app').replace(/\/+$/, '');
 }
 
 export function buildCallDeepLink(toNumber: string): string {

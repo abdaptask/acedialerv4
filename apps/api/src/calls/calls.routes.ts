@@ -485,7 +485,7 @@ export async function callsRoutes(app: FastifyInstance) {
     if (!config.telnyxApiKey) {
       return reply.code(501).send({
         error: 'TELNYX_API_KEY not set on the API server',
-        hint: 'Set TELNYX_API_KEY in the Render dashboard for ace-dialer-api, then redeploy.',
+        hint: 'Set TELNYX_API_KEY in the Render dashboard for aptlink-api, then redeploy.',
       });
     }
     try {

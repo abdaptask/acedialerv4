@@ -1,4 +1,4 @@
-// v0.10.64 — ACE Telnyx defaults helpers.
+// v0.10.64 — AptLink Telnyx defaults helpers.
 //
 // Centralizes the "every new or migrated user's Telnyx config must look
 // like THIS" rules in one place. Two surfaces:
@@ -21,7 +21,7 @@
 // Both functions are best-effort: they LOG warnings on failure but never
 // throw. The user is already created at the point we call these, so a
 // Telnyx config hiccup shouldn't roll back the migration; admin can use
-// the future "Re-apply ACE Telnyx defaults" button to retry.
+// the future "Re-apply AptLink Telnyx defaults" button to retry.
 
 import { config } from '../config.js';
 
@@ -59,7 +59,7 @@ async function telnyxPatch(path: string, body: Record<string, unknown>): Promise
 }
 
 /**
- * Translate ACE's User.country code to a Telnyx anchorsite_override value.
+ * Translate AptLink's User.country code to a Telnyx anchorsite_override value.
  *
  * v0.10.85 — THIRD ATTEMPT, this time with the actual Telnyx-published
  * values. The previous two attempts both got rejected with error 10015:
@@ -174,7 +174,7 @@ export async function applyAceConnectionDefaults(
 }
 
 /**
- * v0.10.64 — Apply per-DID ACE defaults to a phone number. Sets:
+ * v0.10.64 — Apply per-DID AptLink defaults to a phone number. Sets:
  *
  *   • hd_voice: true        — HD audio codec when both ends support
  *   • cnam_listing_enabled: true with cnam_listing_details: "ApTask"

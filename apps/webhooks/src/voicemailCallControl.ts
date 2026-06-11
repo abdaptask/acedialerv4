@@ -380,7 +380,7 @@ export async function handleVoicemailCallControlEvent(event: TelnyxEventLike, lo
         const found = await findUserByDid(state.toNumber, logger);
         if (!found) {
           await callControlAction(callControlId, 'speak', {
-            payload: 'You have reached ACE Dialer. Please leave a message after the tone.',
+            payload: 'You have reached AptLink. Please leave a message after the tone.',
             voice: 'female',
             language: 'en-US',
             client_state: encodeState(state),

@@ -88,8 +88,10 @@ export async function authRoutes(app: FastifyInstance) {
       // disconnect-display debounce + socket.io reconnect listener.
       connectionHealthBeta: user.connectionHealthBeta,
       // v0.10.75 — Ringtone preference ('classic' / 'modern' / 'chime' /
+      // v0.10.75 - Ringtone preference ('classic' / 'modern' / 'chime' /
       // 'pulse'). NULL means use the default.
       ringtone: user.ringtone,
+      status: user.status,
     };
   });
 

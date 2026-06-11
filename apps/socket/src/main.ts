@@ -1,11 +1,14 @@
-// ACE Dialer Socket — real-time WebSocket service.
+// AptLink Socket — real-time WebSocket service.
 // Phase 0: just registers and accepts connections; emits ping/pong.
 // Phase 1 onward: implement the 31 chatSocket events from Pulse.
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import { Server as SocketIOServer } from 'socket.io';
+import { createAdapter } from '@socket.io/redis-adapter';
+import { Redis } from 'ioredis';
+import jwt from 'jsonwebtoken';
 
-const SERVICE_NAME = 'ace-dialer-socket';
+const SERVICE_NAME = 'aptlink-socket';
 const START_TIME = new Date().toISOString();
 
 const app = Fastify({
@@ -52,16 +55,53 @@ const io = new SocketIOServer(app.server, {
   },
 });
 
+const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
+const pubClient = new Redis(redisUrl);
+const subClient = pubClient.duplicate();
+io.adapter(createAdapter(pubClient, subClient));
+
+const jwtSecret = process.env.JWT_SECRET;
+if (!jwtSecret) {
+  app.log.error('JWT_SECRET is not set');
+  process.exit(1);
+}
+
+io.use((socket, next) => {
+  const token = socket.handshake.auth?.token;
+  if (!token) return next(new Error('Authentication error: Missing token'));
+  try {
+    const decoded = jwt.verify(token, jwtSecret) as unknown as { sub: number };
+    socket.data.userId = decoded.sub;
+    next();
+  } catch (err) {
+    next(new Error('Authentication error: Invalid token'));
+  }
+});
+
 io.on('connection', (socket) => {
-  app.log.info({ socketId: socket.id }, '[socket] client connected');
+  const userId = socket.data.userId;
+  socket.join(`user:${userId}`);
+  app.log.info({ socketId: socket.id, userId }, '[socket] client connected');
   socket.emit('connected', { id: socket.id, ts: Date.now() });
 
   socket.on('ping', () => {
     socket.emit('pong', { ts: Date.now() });
   });
 
+  socket.on('chat:typing_start', (data: { recipientId: number }) => {
+    if (data?.recipientId) {
+      socket.to(`user:${data.recipientId}`).emit('chat:typing_start', { senderId: userId });
+    }
+  });
+
+  socket.on('chat:typing_stop', (data: { recipientId: number }) => {
+    if (data?.recipientId) {
+      socket.to(`user:${data.recipientId}`).emit('chat:typing_stop', { senderId: userId });
+    }
+  });
+
   socket.on('disconnect', (reason) => {
-    app.log.info({ socketId: socket.id, reason }, '[socket] client disconnected');
+    app.log.info({ socketId: socket.id, userId, reason }, '[socket] client disconnected');
   });
 });
 

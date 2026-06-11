@@ -7,6 +7,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { prisma } from '@ace/db';
 import { config } from '../config.js';
 import { sendMessageImmediate } from './sendMessage.js';
+import { emitToUser } from '../lib/socket.js';
 
 interface JwtPayload {
   sub: number;
@@ -322,6 +323,14 @@ export async function messagesRoutes(app: FastifyInstance) {
         },
         data: { readAt: new Date() },
       });
+
+      if (result.count > 0) {
+        const unreadCount = await prisma.message.count({
+          where: { userId: user.sub, direction: 'inbound', readAt: null },
+        });
+        emitToUser(user.sub, 'badge:update', { type: 'sms', count: unreadCount });
+      }
+
       return { ok: true, marked: result.count };
     },
   );
@@ -355,6 +364,12 @@ export async function messagesRoutes(app: FastifyInstance) {
         where: { id: latest.id },
         data: { readAt: null },
       });
+
+      const unreadCount = await prisma.message.count({
+        where: { userId: user.sub, direction: 'inbound', readAt: null },
+      });
+      emitToUser(user.sub, 'badge:update', { type: 'sms', count: unreadCount });
+
       return { ok: true, messageId: latest.id };
     },
   );
@@ -388,6 +403,12 @@ export async function messagesRoutes(app: FastifyInstance) {
         data: { readAt: body.read ? new Date() : null },
         select: { id: true, readAt: true },
       });
+
+      const unreadCount = await prisma.message.count({
+        where: { userId: user.sub, direction: 'inbound', readAt: null },
+      });
+      emitToUser(user.sub, 'badge:update', { type: 'sms', count: unreadCount });
+
       return { ok: true, id: updated.id, readAt: updated.readAt };
     },
   );

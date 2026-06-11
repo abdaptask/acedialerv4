@@ -2,7 +2,7 @@
   "name": "@ace/desktop",
   "version": "0.10.125",
   "private": true,
-  "description": "ACE Dialer desktop app (Electron)",
+  "description": "AptLink desktop app (Electron)",
   "author": "ApTask",
   "main": "dist/main.js",
   "scripts": {
@@ -17,7 +17,7 @@
   },
   "build": {
     "appId": "com.aptask.acedialer",
-    "productName": "ACE Dialer",
+    "productName": "AptLink",
     "electronVersion": "31.7.7",
     "asar": true,
     "directories": {
@@ -53,7 +53,9 @@
           ]
         }
       ],
-      "publisherName": "ApTask"
+      "signtoolOptions": {
+        "publisherName": "ApTask"
+      }
     },
     "nsis": {
       "oneClick": false,
@@ -61,7 +63,7 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "ACE Dialer"
+      "shortcutName": "AptLink"
     },
     "mac": {
       "target": [
@@ -89,14 +91,14 @@
       "extendInfo": {
         "CFBundleURLTypes": [
           {
-            "CFBundleURLName": "ACE Dialer",
+            "CFBundleURLName": "AptLink",
             "CFBundleURLSchemes": [
-              "ace-dialer"
+              "aptlink"
             ]
           }
         ],
-        "NSMicrophoneUsageDescription": "ACE Dialer needs access to your microphone to make and receive phone calls.",
-        "NSCameraUsageDescription": "ACE Dialer does not currently use the camera but the runtime may probe it."
+        "NSMicrophoneUsageDescription": "AptLink needs access to your microphone to make and receive phone calls.",
+        "NSCameraUsageDescription": "AptLink does not currently use the camera but the runtime may probe it."
       }
     },
     "linux": {
@@ -106,9 +108,9 @@
     },
     "protocols": [
       {
-        "name": "ACE Dialer",
+        "name": "AptLink",
         "schemes": [
-          "ace-dialer"
+          "aptlink"
         ]
       }
     ],
@@ -122,7 +124,7 @@
         "releaseType": "draft"
       }
     ],
-    "artifactName": "ACE-Dialer-${version}-${arch}.${ext}"
+    "artifactName": "AptLink-Dialer-${version}-${arch}.${ext}"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",

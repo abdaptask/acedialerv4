@@ -11,8 +11,8 @@
 // to Microsoft and the redirect back. They're cleared after the callback
 // page reads them.
 
-const STATE_KEY = 'ace_ms_oauth_state';
-const VERIFIER_KEY = 'ace_ms_oauth_verifier';
+const STATE_KEY = 'aptlink_ms_oauth_state';
+const VERIFIER_KEY = 'aptlink_ms_oauth_verifier';
 
 // Generate cryptographically random bytes and return them base64url-encoded
 // without padding (the OAuth 2.0 PKCE spec requires URL-safe characters).
@@ -94,7 +94,7 @@ export function buildMicrosoftAuthUrl(args: {
 // ── Phase 7: Electron-aware redirect URI selection ──
 //
 // Web browsers redirect to our own /auth/microsoft/callback page.
-// Electron uses the custom ace-dialer:// protocol so the OS launches our
+// Electron uses the custom aptlink:// protocol so the OS launches our
 // app instead of trying to load the URL inside a webview. Whichever URI
 // we use during /authorize MUST match what we send to /token in the
 // exchange step — Microsoft validates them as a pair.
@@ -103,6 +103,6 @@ export function isElectron(): boolean {
 }
 
 export function getRedirectUri(): string {
-  if (isElectron()) return 'ace-dialer://auth/callback';
+  if (isElectron()) return 'aptlink://auth/callback';
   return `${window.location.origin}/auth/microsoft/callback`;
 }

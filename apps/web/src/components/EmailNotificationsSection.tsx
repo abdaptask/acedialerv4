@@ -33,10 +33,10 @@ const EVENT_LABELS: Record<EmailNotifyEventType, string> = {
 
 const EVENT_DESCRIPTIONS: Record<EmailNotifyEventType, string> = {
   missed_call:
-    'When someone calls you and you don\'t answer — get an email with caller info + a link to call back in ACE.',
+    'When someone calls you and you don\'t answer — get an email with caller info + a link to call back in AptLink.',
   sms: 'When someone texts you — get an email with the message preview. Note: this sends ONE email per inbound text, no batching.',
   voicemail:
-    'When a caller leaves a voicemail — get an email with the transcript + a link to listen in ACE.',
+    'When a caller leaves a voicemail — get an email with the transcript + a link to listen in AptLink.',
 };
 
 export default function EmailNotificationsSection() {
@@ -56,7 +56,7 @@ export default function EmailNotificationsSection() {
   >(null);
 
   useEffect(() => {
-    const token = sessionStorage.getItem('ace_token');
+    const token = sessionStorage.getItem('aptlink_token');
     if (!token) return;
     setLoading(true);
     getEmailNotifications(token)
@@ -83,7 +83,7 @@ export default function EmailNotificationsSection() {
   }
 
   async function handleSave() {
-    const token = sessionStorage.getItem('ace_token');
+    const token = sessionStorage.getItem('aptlink_token');
     if (!token) return;
     setSaving(true);
     setError(null);
@@ -102,7 +102,7 @@ export default function EmailNotificationsSection() {
   }
 
   async function handleTest() {
-    const token = sessionStorage.getItem('ace_token');
+    const token = sessionStorage.getItem('aptlink_token');
     if (!token) return;
     if (dirty) {
       // Save first so future events use whatever the user just changed.
@@ -131,7 +131,7 @@ export default function EmailNotificationsSection() {
               <strong>Email notifications aren't enabled in your organization yet.</strong>
             </p>
             <p className="muted small">
-              Once your admin configures the email sender for ACE Dialer,
+              Once your admin configures the email sender for AptLink,
               you'll be able to receive missed-call, SMS, and voicemail
               notifications by email. Ask IT or your dialer admin to set the
               SendGrid integration.
@@ -225,7 +225,7 @@ export default function EmailNotificationsSection() {
       <p className="muted small" style={{ marginTop: 18 }}>
         <Mail size={12} style={{ verticalAlign: '-2px', marginRight: 4 }} />
         These are email-only notifications — you can't reply from your inbox to call back or text.
-        Use the ACE Dialer app for that.
+        Use the AptLink app for that.
       </p>
     </div>
   );

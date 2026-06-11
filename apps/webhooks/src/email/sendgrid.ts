@@ -9,7 +9,7 @@
 // Env vars (same names as apps/api — keep them in sync):
 //   SENDGRID_API_KEY        — Mail Send-scoped API key from app.sendgrid.com.
 //   SENDGRID_FROM_EMAIL     — Verified sender (default: noreply@aptask.com).
-//   SENDGRID_FROM_NAME      — Display name (default: "ACE Dialer").
+//   SENDGRID_FROM_NAME      — Display name (default: "AptLink").
 //   ACE_SUPPORT_EMAIL       — Reply-to address (default: it@aptask.com).
 //
 // API reference: https://docs.sendgrid.com/api-reference/mail-send/mail-send
@@ -35,7 +35,7 @@ export interface SendOptions {
 function readEnv() {
   const apiKey = (process.env.SENDGRID_API_KEY ?? '').trim();
   const fromEmail = (process.env.SENDGRID_FROM_EMAIL ?? 'noreply@aptask.com').trim();
-  const fromName = (process.env.SENDGRID_FROM_NAME ?? 'ACE Dialer').trim();
+  const fromName = (process.env.SENDGRID_FROM_NAME ?? 'AptLink').trim();
   const supportEmail = (process.env.ACE_SUPPORT_EMAIL ?? 'it@aptask.com').trim();
   return { apiKey, fromEmail, fromName, supportEmail };
 }

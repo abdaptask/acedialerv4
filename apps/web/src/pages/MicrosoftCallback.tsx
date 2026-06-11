@@ -40,7 +40,7 @@ export default function MicrosoftCallback({ onSuccess }: Props) {
     // surface that and bounce to /login.
     if (oauthError) {
       const msg = oauthErrorDesc || oauthError;
-      sessionStorage.setItem('ace_sso_error', `Microsoft sign-in failed: ${msg}`);
+      sessionStorage.setItem('aptlink_sso_error', `Microsoft sign-in failed: ${msg}`);
       navigate('/login');
       return;
     }
@@ -83,7 +83,7 @@ export default function MicrosoftCallback({ onSuccess }: Props) {
             : err.code === 'account_disabled'
               ? 'Your dialer account has been deactivated. Contact your admin.'
               : err.message;
-        sessionStorage.setItem('ace_sso_error', friendly);
+        sessionStorage.setItem('aptlink_sso_error', friendly);
         navigate('/login');
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps

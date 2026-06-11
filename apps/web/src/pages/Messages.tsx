@@ -39,6 +39,7 @@ import {
 import { telnyxErrorBlurb } from '../lib/telnyxErrorBlurb';
 import { useJobDivaContact, getCachedJobDivaName } from '../hooks/useJobDivaContact';
 import { useSip } from '../contexts/SipContext';
+import { useSocket } from '../contexts/SocketContext';
 import {
   getQuickReplies,
   isFavorite,
@@ -128,6 +129,7 @@ type UnifiedRow =
   | { kind: 'chat'; chat: InternalChatThread; lastAt: string; preview: string };
 
 export default function Messages() {
+  const { socket } = useSocket();
   const [threads, setThreads] = useState<ThreadSummary[]>([]);
   // v0.10.13 — internal chat threads merged into the same list.
   const [chatThreads, setChatThreads] = useState<InternalChatThread[]>([]);
@@ -156,7 +158,7 @@ export default function Messages() {
   }, [searchParams]);
 
   const loadThreads = useCallback(() => {
-    const token = sessionStorage.getItem('ace_token');
+    const token = sessionStorage.getItem('aptlink_token');
     if (!token) return;
     setLoading(true);
     setError(null);
@@ -181,7 +183,17 @@ export default function Messages() {
 
   useEffect(() => {
     loadThreads();
-  }, [loadThreads]);
+    if (!socket) return;
+    const onBadgeUpdate = (data: { type: string }) => {
+      if (data.type === 'sms') {
+        loadThreads();
+      }
+    };
+    socket.on('badge:update', onBadgeUpdate);
+    return () => {
+      socket.off('badge:update', onBadgeUpdate);
+    };
+  }, [loadThreads, socket]);
 
   // For each thread, which side number is "the other party"?
   const otherParty = (t: ThreadSummary) => t.threadKey;
@@ -376,6 +388,7 @@ function ThreadDetail({ number, onBack }: ThreadDetailProps) {
   const jd = useJobDivaContact(number);
   const navigate = useNavigate();
   const { sipState, call } = useSip();
+  const { socket } = useSocket();
   const [messages, setMessages] = useState<MessageRecord[]>([]);
   // Resolve the display name with the favorites lookup taking precedence
   // over JobDiva, so a user-chosen friendly name always wins. (#161)
@@ -396,7 +409,7 @@ function ThreadDetail({ number, onBack }: ThreadDetailProps) {
   useEffect(() => {
     if (!number) return;
     markThreadVisited(number);
-    const token = sessionStorage.getItem('ace_token');
+    const token = sessionStorage.getItem('aptlink_token');
     if (token) {
       void markThreadRead(token, number)
         .then(() => {
@@ -456,7 +469,7 @@ function ThreadDetail({ number, onBack }: ThreadDetailProps) {
   // Cap at ~9 lines (200px) so the textarea doesn't dominate the screen
   // for very long drafts; at that point the user has clear scroll affordance.
   useEffect(() => {
-    const token = sessionStorage.getItem('ace_token');
+    const token = sessionStorage.getItem('aptlink_token');
     if (!token) return;
     listMySmsTemplates(token)
       .then((items) => setTemplates(items))
@@ -473,7 +486,7 @@ function ThreadDetail({ number, onBack }: ThreadDetailProps) {
   // whenever a new one is created/edited/canceled. Cheap query (server caps
   // at 200) so we just refetch instead of locally mutating.
   const loadPendingSchedules = useCallback(() => {
-    const token = sessionStorage.getItem('ace_token');
+    const token = sessionStorage.getItem('aptlink_token');
     if (!token || !number) return;
     listMyScheduledMessages(token, { status: 'pending', threadKey: number })
       .then((rows) => setPendingSchedules(rows))
@@ -511,7 +524,7 @@ function ThreadDetail({ number, onBack }: ThreadDetailProps) {
   const [history, setHistory] = useState<ContactHistory | null>(null);
   const [showHistory, setShowHistory] = useState(false);
   useEffect(() => {
-    const token = sessionStorage.getItem('ace_token');
+    const token = sessionStorage.getItem('aptlink_token');
     if (!token || !number) return;
     let cancelled = false;
     getContactHistory(token, number)
@@ -535,7 +548,7 @@ function ThreadDetail({ number, onBack }: ThreadDetailProps) {
   // The block is fully managed in Settings → Blocked numbers. (#159)
   async function handleBlock() {
     if (!number) return;
-    const token = sessionStorage.getItem('ace_token');
+    const token = sessionStorage.getItem('aptlink_token');
     if (!token) return;
     const friendly = favName ?? jd?.name ?? formatNumber(number);
     if (
@@ -589,7 +602,7 @@ function ThreadDetail({ number, onBack }: ThreadDetailProps) {
   }
 
   const load = useCallback(() => {
-    const token = sessionStorage.getItem('ace_token');
+    const token = sessionStorage.getItem('aptlink_token');
     if (!token) return;
     setLoading(true);
     setError(null);
@@ -601,10 +614,17 @@ function ThreadDetail({ number, onBack }: ThreadDetailProps) {
 
   useEffect(() => {
     load();
-    // Soft poll every 8s so inbound replies show up without refresh.
-    const id = setInterval(load, 8000);
-    return () => clearInterval(id);
-  }, [load]);
+    if (!socket) return;
+    const onBadgeUpdate = (data: { type: string }) => {
+      if (data.type === 'sms') {
+        load();
+      }
+    };
+    socket.on('badge:update', onBadgeUpdate);
+    return () => {
+      socket.off('badge:update', onBadgeUpdate);
+    };
+  }, [load, socket]);
 
   // Auto-scroll to the bottom whenever the message list changes. We jump
   // immediately (so text-only threads land at the bottom on open), then
@@ -631,7 +651,7 @@ function ThreadDetail({ number, onBack }: ThreadDetailProps) {
 
   const handleSend = async () => {
     if (!draft.trim() && attached.length === 0) return;
-    const token = sessionStorage.getItem('ace_token');
+    const token = sessionStorage.getItem('aptlink_token');
     if (!token) return;
     setSending(true);
     try {
@@ -670,7 +690,7 @@ function ThreadDetail({ number, onBack }: ThreadDetailProps) {
     const file = e.target.files?.[0];
     e.target.value = ''; // reset so the same file can be picked again
     if (!file) return;
-    const token = sessionStorage.getItem('ace_token');
+    const token = sessionStorage.getItem('aptlink_token');
     if (!token) return;
     setUploading(true);
     try {
@@ -703,7 +723,7 @@ function ThreadDetail({ number, onBack }: ThreadDetailProps) {
     }
     if (imageFiles.length === 0) return; // not an image paste — let default fire
     e.preventDefault();
-    const token = sessionStorage.getItem('ace_token');
+    const token = sessionStorage.getItem('aptlink_token');
     if (!token) return;
     setUploading(true);
     try {
@@ -933,7 +953,7 @@ function ThreadDetail({ number, onBack }: ThreadDetailProps) {
                 className="icon-btn pending-schedule-action"
                 onClick={async () => {
                   if (!window.confirm('Cancel this scheduled message?')) return;
-                  const token = sessionStorage.getItem('ace_token');
+                  const token = sessionStorage.getItem('aptlink_token');
                   if (!token) return;
                   const r = await cancelScheduledMessage(token, row.id);
                   if (r.ok) loadPendingSchedules();
@@ -1377,7 +1397,7 @@ function ScheduleMessageModal({
 
   async function handleSave() {
     setError(null);
-    const token = sessionStorage.getItem('ace_token');
+    const token = sessionStorage.getItem('aptlink_token');
     if (!token) return;
     const when = new Date(whenStr);
     if (Number.isNaN(when.getTime())) {

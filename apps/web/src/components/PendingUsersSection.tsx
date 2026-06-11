@@ -1,4 +1,4 @@
-// Phase 8 (#216-220) — Pulse-to-ACE migration UI.
+// Phase 8 (#216-220) — Pulse-to-AptLink migration UI.
 //
 // Admin-only Settings tab. Workflow:
 //   1. Upload a CSV of Pulse users (one-time per batch). Rows land in the
@@ -7,7 +7,7 @@
 //   3. Per-row Invite button opens a modal with 3 toggles:
 //        a. DID:    Use existing pulse number  /  Purchase new
 //        b. Creds:  Use existing pulse creds   /  Generate new
-//        c. Repoint webhook to ACE? (default ON)
+//        c. Repoint webhook to AptLink? (default ON)
 //      + a "Send welcome email" checkbox (default ON).
 //   4. Clicking Confirm executes the per-user Telnyx + DB + email orchestration
 //      via POST /admin/pending-users/:id/invite. The result modal shows the
@@ -71,7 +71,7 @@ const STATUS_LETTER: Record<DerivedStatus, string> = {
 };
 
 export default function PendingUsersSection() {
-  const token = sessionStorage.getItem('ace_token');
+  const token = sessionStorage.getItem('aptlink_token');
   const [filter, setFilter] = useState<StatusFilter>('pending');
   const [data, setData] = useState<PendingUserList | null>(null);
   const [loading, setLoading] = useState(false);
@@ -127,7 +127,7 @@ export default function PendingUsersSection() {
         <div>
           <h2>Pending Users</h2>
           <p className="settings-section-blurb">
-            Stage Pulse users from a CSV, then invite them to ACE Dialer one at a time.
+            Stage Pulse users from a CSV, then invite them to AptLink one at a time.
             Nothing on Telnyx changes until you click <strong>Confirm</strong> on a specific row.
           </p>
         </div>
@@ -430,7 +430,7 @@ function CsvUploadModal({
   onClose: () => void;
   onImported: () => Promise<void>;
 }) {
-  const token = sessionStorage.getItem('ace_token')!;
+  const token = sessionStorage.getItem('aptlink_token')!;
   const [text, setText] = useState('');
   const [parsing, setParsing] = useState(false);
   const [parsed, setParsed] = useState<PendingUserRow[] | null>(null);
@@ -616,7 +616,7 @@ function InviteModal({
   onClose: () => void;
   onResult: (r: InvitePendingResult) => void;
 }) {
-  const token = sessionStorage.getItem('ace_token')!;
+  const token = sessionStorage.getItem('aptlink_token')!;
   const [didMode, setDidMode] = useState<'existing' | 'new' | 'unassigned'>('existing');
   const [credsMode, setCredsMode] = useState<'existing' | 'new'>('existing');
   const [repointWebhook, setRepointWebhook] = useState(true);
@@ -624,7 +624,7 @@ function InviteModal({
   const [newDidAreaCode, setNewDidAreaCode] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
-  // Unassigned ACE numbers picker — lazy-loaded when the admin picks the
+  // Unassigned AptLink numbers picker — lazy-loaded when the admin picks the
   // 'unassigned' radio. Saves a Telnyx round-trip for admins who never use it.
   const [unassigned, setUnassigned] = useState<UnassignedTelnyxNumber[] | null>(null);
   const [unassignedLoading, setUnassignedLoading] = useState(false);
@@ -803,7 +803,7 @@ function InviteModal({
               </div>
             )}
 
-            {/* Third option: reuse an ACE-owned number that isn't currently
+            {/* Third option: reuse an AptLink-owned number that isn't currently
                 routed anywhere. Loads the list lazily when picked. */}
             <label className="pending-toggle">
               <input
@@ -889,7 +889,7 @@ function InviteModal({
                 onChange={() => setCredsMode('new')}
               />
               <span>
-                <strong>Generate new ACE credentials</strong>
+                <strong>Generate new AptLink credentials</strong>
                 <span className="pending-toggle-help">
                   Telnyx creates a fresh Credential Connection. Pulse credentials stay untouched
                   (user can keep Pulse running until ready to switch).
@@ -908,11 +908,11 @@ function InviteModal({
                 onChange={(e) => setRepointWebhook(e.target.checked)}
               />
               <span>
-                <strong>Repoint webhook to ACE</strong>
+                <strong>Repoint webhook to AptLink</strong>
                 <span className="pending-toggle-help">
                   {credsMode === 'new'
-                    ? 'Always on for new credentials (the new connection points at ACE by default).'
-                    : 'PATCH the user\'s Pulse Credential Connection so call events flow to ACE\'s database instead of Pulse.'}
+                    ? 'Always on for new credentials (the new connection points at AptLink by default).'
+                    : 'PATCH the user\'s Pulse Credential Connection so call events flow to AptLink\'s database instead of Pulse.'}
                 </span>
               </span>
             </label>
@@ -1015,7 +1015,7 @@ function ResultModal({ result, onClose }: { result: InvitePendingResult; onClose
                     {result.credsCreated ? ' (newly generated)' : ' (kept from Pulse)'}
                   </li>
                 )}
-                {result.webhookRepointed && <li>Webhook repointed to ACE ✓</li>}
+                {result.webhookRepointed && <li>Webhook repointed to AptLink ✓</li>}
                 {result.emailSent && <li>Welcome email sent ✓</li>}
               </ul>
             </div>
@@ -1069,7 +1069,7 @@ function EditPendingUserModal({
   onClose: () => void;
   onSaved: () => Promise<void>;
 }) {
-  const token = sessionStorage.getItem('ace_token')!;
+  const token = sessionStorage.getItem('aptlink_token')!;
   const d = deriveStatus(target);
   const isInvited = d === 'invited' || d === 'accepted';
 
@@ -1253,7 +1253,7 @@ function DeletePendingUserModal({
   onClose: () => void;
   onDeleted: (result: DeletePendingUserResult) => Promise<void>;
 }) {
-  const token = sessionStorage.getItem('ace_token')!;
+  const token = sessionStorage.getItem('aptlink_token')!;
   const d = deriveStatus(target);
   const isInvited = d === 'invited' || d === 'accepted';
   const [confirmText, setConfirmText] = useState('');
@@ -1294,7 +1294,7 @@ function DeletePendingUserModal({
           ) : (
             <>
               <p>
-                This will permanently clean up <strong>{target.email}</strong> from ACE and Telnyx:
+                This will permanently clean up <strong>{target.email}</strong> from AptLink and Telnyx:
               </p>
               <ul className="pending-delete-bullets">
                 <li>Un-assign DID <strong>{niceDid}</strong> back to inventory</li>

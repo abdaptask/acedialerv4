@@ -1,4 +1,4 @@
-// In-app banner that surfaces when a newer version of ACE Dialer is live.
+// In-app banner that surfaces when a newer version of AptLink is live.
 //
 // Two paths, depending on what the runtime supports:
 //
@@ -27,7 +27,7 @@ import { Download, X, RefreshCcw, AlertTriangle } from 'lucide-react';
 import { getApiVersion } from '../api';
 
 const RELEASES_URL = 'https://github.com/abdaptask/acedialerv4/releases/latest';
-const DISMISS_KEY_PREFIX = 'ace_update_dismissed_';
+const DISMISS_KEY_PREFIX = 'aptlink_update_dismissed_';
 const POLL_INTERVAL_MS = 15 * 60 * 1000; // every 15 minutes (web/fallback path)
 
 function parseSemver(v: string): number[] {

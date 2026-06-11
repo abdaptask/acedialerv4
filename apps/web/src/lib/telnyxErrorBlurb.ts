@@ -109,7 +109,7 @@ const BLURBS: Record<string, TelnyxErrorBlurb> = {
   // 40010 — Messaging profile not configured
   '40010': {
     short: 'SMS routing not set up',
-    detail: 'The Telnyx Messaging Profile isn\'t configured for your DID. Admin needs to bind your number to the ACE messaging profile in Telnyx Portal.',
+    detail: 'The Telnyx Messaging Profile isn\'t configured for your DID. Admin needs to bind your number to the AptLink messaging profile in Telnyx Portal.',
     retryable: false,
   },
 };

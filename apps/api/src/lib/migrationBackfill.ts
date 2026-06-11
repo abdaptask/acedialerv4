@@ -1,8 +1,8 @@
 // v0.10.22 — Phase 2 of the "Migrate Existing User to New Dialer" flow.
 //
-// After a DID is re-bound to the user's ACE connection in Telnyx, this
+// After a DID is re-bound to the user's AptLink connection in Telnyx, this
 // function pulls the last 30 days of call + SMS history from Telnyx for
-// that number and inserts it into ACE's Call + Message tables. The user
+// that number and inserts it into AptLink's Call + Message tables. The user
 // opens Recents / Messages and sees their history reconstructed.
 //
 // Design:
@@ -12,7 +12,7 @@
 //   - Dedupe via the unique constraints on Call.telnyxCallId and
 //     Message.telnyxMessageId — Prisma's createMany({ skipDuplicates: true })
 //     handles overlap with rows already in the table (e.g. if the user had
-//     this number partly working via ACE before formally migrating).
+//     this number partly working via AptLink before formally migrating).
 //   - Voicemails NOT included — Pulse-side voicemails are in Pulse's DB,
 //     not Telnyx. Telnyx may have call recordings but not voicemail audio
 //     specifically; out of scope for this phase.
@@ -52,7 +52,7 @@ const noopLog: LogFn = () => undefined;
 
 /**
  * Pull 30d of voice + SMS history for `didNumber` from Telnyx and insert
- * into ACE's Call + Message tables. Fire-and-forget — never throws.
+ * into AptLink's Call + Message tables. Fire-and-forget — never throws.
  */
 export async function backfillMigratedDidHistory(
   args: {
@@ -61,14 +61,14 @@ export async function backfillMigratedDidHistory(
     didNumber: string;          // E.164
     daysBack?: number;          // default 30
     /** v0.10.35 — Optional override for the Pulse user_id lookup.
-     *  Use when ACE email doesn't match the Pulse email (different
+     *  Use when AptLink email doesn't match the Pulse email (different
      *  casing/domain/etc). Admin can find the right pulseUserId via
      *  GET /admin/pulse/search?q=... and pass it explicitly. */
     pulseUserIdOverride?: number;
     /** v0.10.36 — Optional Pulse user email + password to log into the
      *  Pulse REST API and pull that user's call logs. Required only for
      *  the per-user call-log path; SMS uses the MySQL path which doesn't
-     *  need a password. Email defaults to the ACE user's email if
+     *  need a password. Email defaults to the AptLink user's email if
      *  omitted; password is used once for login then discarded. */
     pulseUserEmail?: string;
     pulseUserPassword?: string;
@@ -171,14 +171,14 @@ export async function backfillMigratedDidHistory(
   // v0.10.34 — Pull from Pulse MySQL when the PULSE_DB_* env vars are
   // set. Catches users whose history isn't in Telnyx (Pulse may have
   // routed via Twilio for some accounts, etc.). Reads ONCE during the
-  // migration; the data ends up in ACE's Postgres, after which there's
+  // migration; the data ends up in AptLink's Postgres, after which there's
   // no ongoing Pulse dependency.
   //
   // Lookup chain:
-  //   1. Find user's email in ACE
+  //   1. Find user's email in AptLink
   //   2. Find their pulse user_id by email match in Pulse's users table
   //   3. Pull messages + twilio_call_logs filtered by that pulse user_id
-  //   4. Map to ACE Call/Message rows, insert with skipDuplicates
+  //   4. Map to AptLink Call/Message rows, insert with skipDuplicates
   //
   // If PULSE_DB_* not configured, all sub-calls return [] silently.
   try {
@@ -259,7 +259,7 @@ export async function backfillMigratedDidHistory(
   //
   // Only runs when pulseUserPassword is supplied. Logs into Pulse as the
   // target user, pulls /telnyx/getCallLogs (up to 200 latest calls), and
-  // inserts the ones inside the daysBack window into ACE's Call table.
+  // inserts the ones inside the daysBack window into AptLink's Call table.
   // SMS is NOT pulled via REST — Pulse's API doesn't serve message bodies
   // (verified live 2026-05-29). SMS uses the MySQL path above.
   if (args.pulseUserPassword) {
@@ -313,7 +313,7 @@ export async function backfillMigratedDidHistory(
   return result;
 }
 
-// ─── v0.10.36 — Pulse REST call row → ACE Call row ────────────────────────
+// ─── v0.10.36 — Pulse REST call row → AptLink Call row ────────────────────────
 
 function mapPulseRestCallRowToCall(
   row: PulseRestCallRow,
@@ -386,7 +386,7 @@ function mapPulseRestCallRowToCall(
   };
 }
 
-// ─── Pulse row → ACE schema mappers ─────────────────────────────────────
+// ─── Pulse row → AptLink schema mappers ─────────────────────────────────────
 
 function mapPulseMessageRowToMessage(
   row: PulseMessageRow,

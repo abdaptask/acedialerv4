@@ -27,7 +27,7 @@ import { config } from '../config.js';
 
 const ExchangeSchema = z.object({
   code: z.string().min(1),
-  // Allow https:// (web) AND custom schemes like ace-dialer:// (Electron).
+  // Allow https:// (web) AND custom schemes like aptlink:// (Electron).
   redirectUri: z.string().min(1).refine(
     (v) => /^(https?|[a-z][a-z0-9+.-]*):\/\//i.test(v),
     { message: 'redirectUri must be an absolute URL with a scheme' },
@@ -44,7 +44,7 @@ type AnyMsalClient = ConfidentialClientApplication | PublicClientApplication;
  *
  * Azure registers redirect URIs under platforms:
  *   - "Web" platform (https URLs) → confidential client, sends client_secret
- *   - "Mobile and desktop" platform (custom schemes like ace-dialer://) →
+ *   - "Mobile and desktop" platform (custom schemes like aptlink://) →
  *     public client, PKCE-only, NO client_secret allowed
  *
  * Sending a client_secret for a custom-scheme redirect URI registered as
@@ -53,7 +53,7 @@ type AnyMsalClient = ConfidentialClientApplication | PublicClientApplication;
 function getMsalClient(redirectUri: string): AnyMsalClient | null {
   if (!config.msClientId || !config.msTenantId) return null;
   const authority = `https://login.microsoftonline.com/${config.msTenantId}`;
-  // Custom URL schemes (ace-dialer://) → public client.
+  // Custom URL schemes (aptlink://) → public client.
   if (!/^https?:\/\//i.test(redirectUri)) {
     return new PublicClientApplication({
       auth: { clientId: config.msClientId, authority },
@@ -93,7 +93,7 @@ export async function microsoftAuthRoutes(app: FastifyInstance) {
     const { code, redirectUri, codeVerifier } = parsed.data;
 
     // Pick the right MSAL client class based on whether this is a web
-    // (https) redirect or an Electron custom-scheme (ace-dialer://) redirect.
+    // (https) redirect or an Electron custom-scheme (aptlink://) redirect.
     const msal = getMsalClient(redirectUri);
     if (!msal) {
       return reply.code(501).send({

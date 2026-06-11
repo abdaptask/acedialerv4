@@ -14,7 +14,7 @@
 //   └──────────────────────────────────────────┘
 //
 // The two action buttons launch the desktop app via the
-// `ace-dialer://` protocol. If the user is on mobile / doesn't have
+// `aptlink://` protocol. If the user is on mobile / doesn't have
 // the desktop installed, the OS will show a "no app" prompt — that's
 // acceptable for v0.10.0; we can add a graceful web fallback later.
 

@@ -14,6 +14,7 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { prisma } from '@ace/db';
+import { emitToUser } from '../lib/socket.js';
 
 interface JwtPayload {
   sub: number;
@@ -59,6 +60,7 @@ export async function internalChatRoutes(app: FastifyInstance) {
           email: true,
           firstName: true,
           lastName: true,
+          status: true,
         },
         orderBy: [{ firstName: 'asc' }, { email: 'asc' }],
       });
@@ -174,7 +176,7 @@ export async function internalChatRoutes(app: FastifyInstance) {
       const ids = Array.from(seen.keys());
       const users = await prisma.user.findMany({
         where: { id: { in: ids } },
-        select: { id: true, firstName: true, lastName: true, email: true },
+        select: { id: true, firstName: true, lastName: true, email: true, status: true },
       });
       const userById = new Map(users.map((u) => [u.id, u]));
       return Array.from(seen.values()).map((t) => ({
@@ -227,6 +229,14 @@ export async function internalChatRoutes(app: FastifyInstance) {
           mediaUrl: mediaUrl ?? null,
         },
       });
+
+      emitToUser(recipientId, 'chat:message', saved);
+      
+      const unreadCount = await prisma.internalMessage.count({
+        where: { recipientId, readAt: null },
+      });
+      emitToUser(recipientId, 'badge:update', { type: 'chat', count: unreadCount });
+
       return saved;
     },
   );
@@ -248,6 +258,15 @@ export async function internalChatRoutes(app: FastifyInstance) {
         },
         data: { readAt: new Date() },
       });
+
+      if (result.count > 0) {
+        const unreadCount = await prisma.internalMessage.count({
+          where: { recipientId: me, readAt: null },
+        });
+        emitToUser(me, 'badge:update', { type: 'chat', count: unreadCount });
+        emitToUser(otherId, 'chat:read', { byUserId: me });
+      }
+
       return { ok: true, marked: result.count };
     },
   );

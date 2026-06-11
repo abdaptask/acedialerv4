@@ -73,7 +73,7 @@ export default function IncomingCall() {
       return;
     }
     let cancelled = false;
-    const token = sessionStorage.getItem('ace_token');
+    const token = sessionStorage.getItem('aptlink_token');
     if (!token) return;
     void getRecentInboundCall(token, callerNumber).then((call) => {
       if (cancelled) return;

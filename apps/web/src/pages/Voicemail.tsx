@@ -26,6 +26,7 @@ import {
   type VoicemailRecord,
 } from '../api';
 import { useSip } from '../contexts/SipContext';
+import { useSocket } from '../contexts/SocketContext';
 import { useJobDivaContact, getCachedJobDivaName } from '../hooks/useJobDivaContact';
 import LineBadge from '../components/LineBadge';
 import { formatPhone } from '../lib/phone';
@@ -86,11 +87,12 @@ export default function Voicemail() {
   // per session. Used to render the "Auto-deletes in X days" countdown.
   const [retentionDays, setRetentionDays] = useState(30);
   useEffect(() => {
-    const token = sessionStorage.getItem('ace_token');
+    const token = sessionStorage.getItem('aptlink_token');
     if (!token) return;
     getVoicemailRetentionDays(token).then(setRetentionDays).catch(() => undefined);
   }, []);
   const { sipState, call } = useSip();
+  const { socket } = useSocket();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   // Contact-filter mode (entered via ?phone=...&from=...)
@@ -152,7 +154,7 @@ export default function Voicemail() {
   }
 
   const load = useCallback(() => {
-    const token = sessionStorage.getItem('ace_token');
+    const token = sessionStorage.getItem('aptlink_token');
     if (!token) return;
     setLoading(true);
     setError(null);
@@ -164,7 +166,17 @@ export default function Voicemail() {
 
   useEffect(() => {
     load();
-  }, [load]);
+    if (!socket) return;
+    const onBadgeUpdate = (data: { type: string }) => {
+      if (data.type === 'voicemail') {
+        load();
+      }
+    };
+    socket.on('badge:update', onBadgeUpdate);
+    return () => {
+      socket.off('badge:update', onBadgeUpdate);
+    };
+  }, [load, socket]);
 
   // Auto-poll the list while any voicemail is still missing a transcript.
   // v0.9.15: tightened from 4s → 2s polling for snappier perceived latency,
@@ -184,7 +196,7 @@ export default function Voicemail() {
         return;
       }
       // Only refetch — don't show the loading spinner, this is silent.
-      const token = sessionStorage.getItem('ace_token');
+      const token = sessionStorage.getItem('aptlink_token');
       if (!token) return;
       getVoicemails(token).then(setItems).catch(() => undefined);
     }, 2000);
@@ -198,7 +210,7 @@ export default function Voicemail() {
     const next = expandedId === vm.id ? null : vm.id;
     setExpandedId(next);
     if (next && !vm.listenedAt) {
-      const token = sessionStorage.getItem('ace_token');
+      const token = sessionStorage.getItem('aptlink_token');
       if (!token) return;
       try {
         await markVoicemailListened(token, vm.id, true);
@@ -217,7 +229,7 @@ export default function Voicemail() {
   }
 
   async function handleDelete(vm: VoicemailRecord) {
-    const token = sessionStorage.getItem('ace_token');
+    const token = sessionStorage.getItem('aptlink_token');
     if (!token) return;
     if (!confirm('Delete this voicemail?')) return;
     try {
@@ -229,7 +241,7 @@ export default function Voicemail() {
   }
 
   async function handleBulkDelete() {
-    const token = sessionStorage.getItem('ace_token');
+    const token = sessionStorage.getItem('aptlink_token');
     if (!token || selected.size === 0) return;
     if (!confirm(`Delete ${selected.size} voicemail${selected.size === 1 ? '' : 's'}?`)) return;
     const ids = Array.from(selected);
@@ -240,7 +252,7 @@ export default function Voicemail() {
   }
 
   async function handleBulkMark(listened: boolean) {
-    const token = sessionStorage.getItem('ace_token');
+    const token = sessionStorage.getItem('aptlink_token');
     if (!token || selected.size === 0) return;
     const ids = Array.from(selected);
     // Optimistic UI flip first.
@@ -259,7 +271,7 @@ export default function Voicemail() {
   }
 
   async function handleToggleUnread(vm: VoicemailRecord) {
-    const token = sessionStorage.getItem('ace_token');
+    const token = sessionStorage.getItem('aptlink_token');
     if (!token) return;
     const nowListened = !vm.listenedAt;
     try {
@@ -620,7 +632,7 @@ function VoicemailRow({
               // actually plays, in case the row-expand mark didn't stick
               // (network race, optimistic-update lost, etc).
               if (vm.listenedAt) return;
-              const token = sessionStorage.getItem('ace_token');
+              const token = sessionStorage.getItem('aptlink_token');
               if (!token) return;
               try {
                 const { markVoicemailListened } = await import('../api');

@@ -3,7 +3,7 @@
 // IncomingCall, ringtone, etc.) read from here so behaviour stays consistent.
 
 // ---------- Quick replies (SMS templates) ----------
-const QUICK_REPLIES_KEY = 'ace_quick_replies';
+const QUICK_REPLIES_KEY = 'aptlink_quick_replies';
 
 export const DEFAULT_QUICK_REPLIES: string[] = [
   "I'll call you back shortly.",
@@ -92,8 +92,8 @@ export interface FavoriteContact {
   }>;
 }
 
-const FAVORITES_KEY = 'ace_favorites';
-const MIGRATION_FLAG_KEY = 'ace_favorites_migrated_v1';
+const FAVORITES_KEY = 'aptlink_favorites';
+const MIGRATION_FLAG_KEY = 'aptlink_favorites_migrated_v1';
 
 // In-memory cache. Key = last-10 digits of the phone, so lookups are tolerant
 // of "+15551234567" vs "(555) 123-4567" vs "5551234567" formatting drift.
@@ -138,7 +138,7 @@ function emit(): void {
  * Safe to call multiple times; subsequent calls just refresh the cache.
  */
 export async function loadFavoritesFromServer(token?: string): Promise<void> {
-  const t = token ?? sessionStorage.getItem('ace_token') ?? '';
+  const t = token ?? sessionStorage.getItem('aptlink_token') ?? '';
   if (!t) return;
   try {
     const rows = await apiListFavorites(t);
@@ -314,7 +314,7 @@ export function addFavorite(
   favoritesByKey.set(key, optimistic);
   emit();
   // Fire-and-forget server sync.
-  const token = sessionStorage.getItem('ace_token');
+  const token = sessionStorage.getItem('aptlink_token');
   if (!token) return;
   const p = addFavoriteApi(token, {
     phone,
@@ -344,7 +344,7 @@ export function removeFavorite(phone: string): void {
   if (!entry) return;
   favoritesByKey.delete(key);
   emit();
-  const token = sessionStorage.getItem('ace_token');
+  const token = sessionStorage.getItem('aptlink_token');
   if (!token) return;
   // If a POST is still in flight for this number, wait for it to settle so
   // we have a server id to DELETE against. Otherwise we'd leak the row.
@@ -396,7 +396,7 @@ export function updateFavoriteName(
   };
   favoritesByKey.set(key, updated);
   emit();
-  const token = sessionStorage.getItem('ace_token');
+  const token = sessionStorage.getItem('aptlink_token');
   if (!token) return;
   (async () => {
     // Wait for any in-flight add to land so we have an id to PATCH.
@@ -427,9 +427,9 @@ export function updateFavoriteName(
 // Stored as a data URL (base64) in localStorage. Cap the file size at 2 MB so
 // we don't blow past the localStorage quota. For larger files we'd switch to
 // IndexedDB but most hold-music loops are short MP3s well under this size.
-const HOLD_MUSIC_KEY = 'ace_hold_music_data_url';
-const HOLD_MUSIC_NAME_KEY = 'ace_hold_music_filename';
-const HOLD_MUSIC_ENABLED_KEY = 'ace_hold_music_enabled';
+const HOLD_MUSIC_KEY = 'aptlink_hold_music_data_url';
+const HOLD_MUSIC_NAME_KEY = 'aptlink_hold_music_filename';
+const HOLD_MUSIC_ENABLED_KEY = 'aptlink_hold_music_enabled';
 export const HOLD_MUSIC_MAX_BYTES = 2 * 1024 * 1024;
 
 export function getHoldMusicEnabled(): boolean {
@@ -459,7 +459,7 @@ export function clearHoldMusic(): void {
 
 // ---------- Theme preference ----------
 export type ThemePref = 'system' | 'light' | 'dark';
-const THEME_KEY = 'ace_theme';
+const THEME_KEY = 'aptlink_theme';
 
 export function getTheme(): ThemePref {
   const v = localStorage.getItem(THEME_KEY);
@@ -512,7 +512,7 @@ export function watchSystemTheme(): () => void {
 // newer than that point. Cheaper than per-item read flags.
 export type TabKey = 'messages' | 'recents' | 'voicemail';
 function visitKey(tab: TabKey): string {
-  return `ace_last_visit_${tab}`;
+  return `aptlink_last_visit_${tab}`;
 }
 export function getLastVisit(tab: TabKey): string {
   return localStorage.getItem(visitKey(tab)) || new Date(0).toISOString();
@@ -525,7 +525,7 @@ export function markTabVisited(tab: TabKey): void {
 // ---------- Per-thread last-visit (for unread highlight per message thread)
 // Key = E.164 of the other party. Stored as ISO timestamp.
 function threadVisitKey(threadKey: string): string {
-  return `ace_last_visit_thread_${threadKey.replace(/[^\d+]/g, '')}`;
+  return `aptlink_last_visit_thread_${threadKey.replace(/[^\d+]/g, '')}`;
 }
 export function getThreadLastVisit(threadKey: string): string {
   return localStorage.getItem(threadVisitKey(threadKey)) || new Date(0).toISOString();
@@ -553,7 +553,7 @@ export interface NotificationPrefs {
   voicemailNotification: boolean;
 }
 
-const NOTIF_KEY = 'ace_notification_prefs';
+const NOTIF_KEY = 'aptlink_notification_prefs';
 
 export const DEFAULT_NOTIFICATION_PREFS: NotificationPrefs = {
   inAppToast: true,

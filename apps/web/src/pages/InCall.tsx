@@ -76,7 +76,7 @@ export default function InCall() {
   const [showAudio, setShowAudio] = useState(false);
   const [audioDevices, setAudioDevices] = useState<MediaDeviceInfo[]>([]);
   const [activeAudioId, setActiveAudioId] = useState<string>(() =>
-    localStorage.getItem('ace_speaker') ?? 'default',
+    localStorage.getItem('aptlink_speaker') ?? 'default',
   );
   const navigate = useNavigate();
 

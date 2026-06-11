@@ -4,8 +4,8 @@
 // Cards (Call back / Send text / Reply). They unify desktop + web
 // behaviour:
 //
-//   1. Try to launch the desktop ACE Dialer via the custom protocol
-//      ace-dialer://call?to=... (or ...sms?to=...). On the user's
+//   1. Try to launch the desktop AptLink via the custom protocol
+//      aptlink://call?to=... (or ...sms?to=...). On the user's
 //      desktop the protocol handler (Electron main process — see
 //      apps/desktop/src/main.ts) catches this and focuses the app
 //      with the recipient pre-filled.
@@ -19,10 +19,10 @@
 // If the user IS logged in, navigation to /keypad / /messages uses
 // the existing Dialpad / Messages pages (their query-param handlers
 // already accept `?to=`). If NOT logged in, App.tsx's route guard
-// stashes the requested URL in ace_return_to and bounces to /login;
+// stashes the requested URL in aptlink_return_to and bounces to /login;
 // after SSO the user lands back here and the auto-flow completes.
 //
-// Visible UI is a tiny holding screen — "Opening ACE Dialer…" with a
+// Visible UI is a tiny holding screen — "Opening AptLink…" with a
 // fallback button — so the user understands what's happening if the
 // protocol launch is blocked or slow.
 
@@ -50,7 +50,7 @@ export default function AutoRoute({ action }: AutoRouteProps) {
     }
 
     // v0.10.67 — If we're ALREADY inside the Electron desktop app, skip
-    // the protocol launch entirely. Trying ace-dialer:// from inside
+    // the protocol launch entirely. Trying aptlink:// from inside
     // Electron either does nothing (if the protocol handler defers to
     // the running instance) or bounces the user out to a "no handler"
     // browser dialog. Just navigate directly to the destination route
@@ -76,7 +76,7 @@ export default function AutoRoute({ action }: AutoRouteProps) {
     // on first launch; once the user clicks Allow + checks
     // "Always allow", subsequent clicks open the desktop directly
     // with no prompt.
-    const url = `ace-dialer://${action}?to=${encodeURIComponent(to)}`;
+    const url = `aptlink://${action}?to=${encodeURIComponent(to)}`;
     try {
       window.location.href = url;
     } catch {
@@ -127,8 +127,8 @@ export default function AutoRoute({ action }: AutoRouteProps) {
         <h2>{label}…</h2>
         <p className="muted">
           {protocolTried
-            ? 'ACE Dialer should be opening on your desktop. You can close this tab — or use the button below if you want to use the browser instead.'
-            : 'Launching ACE Dialer…'}
+            ? 'AptLink should be opening on your desktop. You can close this tab — or use the button below if you want to use the browser instead.'
+            : 'Launching AptLink…'}
         </p>
         <button
           type="button"

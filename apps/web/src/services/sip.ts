@@ -92,10 +92,10 @@ function toE164(raw: string): string {
 // permissions revoked, etc), we just warned and the audio played
 // silently into the void — user could hear nothing on inbound calls
 // while their own outbound voice traveled fine. Now we explicitly
-// clear the stale ace_speaker key on failure so the next call falls
+// clear the stale aptlink_speaker key on failure so the next call falls
 // back to the system default.
 function applySpeakerSelection(audioEl: HTMLAudioElement): void {
-  const speakerId = localStorage.getItem('ace_speaker');
+  const speakerId = localStorage.getItem('aptlink_speaker');
   if (speakerId && speakerId !== 'default' && 'setSinkId' in audioEl) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (audioEl as any).setSinkId(speakerId).catch((e: Error) => {
@@ -106,7 +106,7 @@ function applySpeakerSelection(audioEl: HTMLAudioElement): void {
       // Clear the stale device id so subsequent calls don't keep trying
       // to use it.
       try {
-        localStorage.removeItem('ace_speaker');
+        localStorage.removeItem('aptlink_speaker');
       } catch { /* noop */ }
     });
   }
@@ -145,13 +145,13 @@ function safePlay(audioEl: HTMLAudioElement, label: string): void {
  *   - deviceId: honors the mic the user chose in Settings → Audio.
  */
 function buildAudioConstraints(): MediaTrackConstraints {
-  const micId = localStorage.getItem('ace_mic');
+  const micId = localStorage.getItem('aptlink_mic');
   // v0.10.21 — User-controlled noise suppression. Default OFF preserves
   // the legacy behavior (Chrome's RNNoise can produce a "tunnel / pipe"
   // artifact on some headsets). Users in noisy environments toggle it
   // ON via Settings → Microphone. Read fresh on every getUserMedia call
   // so the change takes effect on the user's NEXT call without reload.
-  const noiseSuppression = localStorage.getItem('ace_noise_suppression') === 'true';
+  const noiseSuppression = localStorage.getItem('aptlink_noise_suppression') === 'true';
 
   // IMPORTANT: use `ideal` (not exact/hard) for sampleRate and channelCount.
   // Hard constraints fail silently on Bluetooth headsets, USB phones, and
@@ -318,7 +318,7 @@ export class SipService {
       uri,
       password: config.password,
       // Identity for outgoing INVITEs — Telnyx uses this for the From header.
-      display_name: 'ACE Dialer',
+      display_name: 'AptLink',
       // Phase 6.9 — registration resilience.
       // 600s expiry gives a 10-minute buffer against background-tab timer
       // throttling. We pair this with a 20s active heartbeat (see
@@ -362,7 +362,7 @@ export class SipService {
       // timeouts AND ensures WS death is detected within 30s.
       keep_alive_interval: 15,
       // Use the user's selected mic via global getUserMedia constraints.
-      user_agent: 'ACE-Dialer/1.0',
+      user_agent: 'AptLink-Dialer/1.0',
     });
 
     // v0.10.14 — Debounce state emissions to stop the
@@ -700,6 +700,12 @@ export class SipService {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     this.ua.on('newRTCSession', (data: any) => {
       const session: RTCSession = data.session;
+      // v0.11.0 - Global DND Auto-Reject
+      if (session.direction === 'incoming' && sessionStorage.getItem('aptlink_status') === 'dnd') {
+        console.log('[sip] Auto-rejecting inbound call because user is in DND status');
+        session.terminate({ status_code: 486, reason_phrase: 'Busy Here' });
+        return;
+      }
       this.attachSessionListeners(session);
     });
 
@@ -1928,7 +1934,7 @@ export class SipService {
    *      bundlePolicy, rtcpMuxPolicy, plus the third Google STUN server —
    *      onto inbound eliminates the createLocalDescription() hang seen in
    *      JsSIP debug for v0.8.8 on Windows.
-   *   3) If the preflight times out, we strip a stale `ace_mic` device id
+   *   3) If the preflight times out, we strip a stale `aptlink_mic` device id
    *      from localStorage so the next call falls back to System Default,
    *      and we send 480 "Mic Unavailable" to the caller instead of leaving
    *      them ringing into nothing.
@@ -1965,10 +1971,10 @@ export class SipService {
       // If we requested a specific deviceId and that hung, strip it so
       // the next call falls back to System Default.
       try {
-        const stored = localStorage.getItem('ace_mic');
+        const stored = localStorage.getItem('aptlink_mic');
         if (stored && stored !== 'default') {
-          console.warn('[sip] clearing stale ace_mic device id', stored);
-          localStorage.removeItem('ace_mic');
+          console.warn('[sip] clearing stale aptlink_mic device id', stored);
+          localStorage.removeItem('aptlink_mic');
         }
       } catch { /* noop */ }
       // Tell the caller we can't answer instead of leaving them ringing.
@@ -2578,7 +2584,7 @@ export class SipService {
   }
 
   async setAudioOutput(deviceId: string): Promise<void> {
-    localStorage.setItem('ace_speaker', deviceId);
+    localStorage.setItem('aptlink_speaker', deviceId);
     const targets: HTMLAudioElement[] = [this.primaryAudioEl];
     for (const entry of this.calls.values()) {
       if (entry.audioEl) targets.push(entry.audioEl);
