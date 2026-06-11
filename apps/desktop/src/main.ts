@@ -921,4 +921,96 @@ ipcMain.handle('ace:get-update-state', async () => lastUpdateState);
 // `isQuittingForReal` flag lets the window-close handler skip its
 // hide-to-tray behavior so we actually exit instead of just hiding.
 // Manual "Check for updates" — invoked from the user-dropdown menu item.
-// Returns a s
+// Returns a status the renderer can show inline. The actual update events
+// (available / downloaded) still flow through the normal autoUpdater event
+// handlers, so the existing UpdateBanner machinery still works on top.
+ipcMain.handle('ace:check-for-updates', async () => {
+  try {
+    const result = await autoUpdater.checkForUpdates();
+    if (!result) {
+      return { state: 'no_update', message: 'You are on the latest version.' };
+    }
+    const remote = result.updateInfo?.version;
+    const local = autoUpdater.currentVersion?.version;
+    if (remote && local && remote === local) {
+      return { state: 'no_update', version: local, message: 'You are on the latest version.' };
+    }
+    return {
+      state: 'update_found',
+      version: remote ?? null,
+      message: remote ? `v${remote} is downloading…` : 'Update found — downloading…',
+    };
+  } catch (err) {
+    // electron-updater dumps the raw HTTP response on failure, which is
+    // ugly + leaks GitHub server internals. Map the common cases to a
+    // human-friendly message so users don't see HTML cookies + headers.
+    const raw = err instanceof Error ? err.message : String(err);
+    let friendly = 'Could not reach the update server. Please try again later.';
+    if (/404|not[\s-]?found/i.test(raw)) {
+      friendly = "Update server unreachable. The release feed may be private or temporarily down. Try again in a few minutes.";
+    } else if (/ENOTFOUND|ETIMEDOUT|network|getaddrinfo/i.test(raw)) {
+      friendly = 'No internet connection. Check your network and try again.';
+    } else if (/403|forbidden/i.test(raw)) {
+      friendly = 'Update server denied the request (auth). Contact your administrator.';
+    }
+    // Log the full error to main-process console so we can diagnose later
+    // if the user pastes their `~/Library/Logs/ACE Dialer/main.log`.
+    console.warn('[auto-update] manual check failed:', raw);
+    return { state: 'error', message: friendly };
+  }
+});
+
+ipcMain.handle('ace:install-update', async () => {
+  isQuittingForReal = true;
+  setImmediate(() => autoUpdater.quitAndInstall(false, true));
+  return true;
+});
+
+// v0.10.123 hotfix - this app.whenReady().then() block was truncated out
+// of main.ts by an Edit-tool truncation that got committed in v0.10.122.
+// Without it, the app starts but NEVER creates the main window or tray icon
+// at startup, so users see nothing - the process runs invisibly and looks
+// like it "vanished after install". Restored verbatim from v0.10.120
+// (commit c6cc515) where it was last known to work.
+app.whenReady().then(() => {
+  buildMenu();
+  createTray();
+  createWindow();
+  // Kick the silent-update lifecycle. Polls GH Releases on a 60-min loop.
+  initAutoUpdater();
+  app.on('activate', () => {
+    // macOS: dock click. If we have no windows, build one — but if the
+    // window exists and is hidden (close-to-tray), surface it instead.
+    if (BrowserWindow.getAllWindows().length === 0) {
+      createWindow();
+    } else if (mainWindow && !mainWindow.isVisible()) {
+      mainWindow.show();
+      mainWindow.focus();
+    }
+  });
+});
+
+// Phase 6.4 — do NOT quit when the last window closes.
+// The tray icon is the canonical "still running" signal; users quit
+// explicitly via Tray → Quit, the app menu, or Cmd+Q. This means a
+// call in progress survives the user X-ing out the main window.
+app.on('window-all-closed', () => {
+  // Intentionally empty. Quit only on `app.quit()` from the Tray menu
+  // or the OS shutdown signal (which sets isQuittingForReal first).
+});
+
+// Flip the guard on real quit signals so the close-handler doesn't
+// fight them. Triggered by Cmd+Q on Mac, Alt+F4 → File→Quit, OS shutdown,
+// and our Tray Quit menu item.
+app.on('before-quit', () => {
+  isQuittingForReal = true;
+});
+
+// Tear down the tray icon on actual quit so the Windows tray doesn't
+// keep a stale icon around.
+app.on('quit', () => {
+  if (tray && !tray.isDestroyed()) {
+    try { tray.destroy(); } catch { /* noop */ }
+    tray = null;
+  }
+});

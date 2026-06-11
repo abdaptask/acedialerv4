@@ -24,12 +24,13 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
-    version: '0.10.123',
+    version: '0.10.124',
     date: 'June 11, 2026',
-    highlight: 'Fixes the duplicate voicemail issue (server-side, was already live). Reverts the v0.10.122 client release that had install issues.',
+    highlight: 'CRITICAL fix: the dialer app was vanishing at startup after install. Root-cause identified and restored.',
     changes: [
-      { type: 'fixed', text: 'Duplicate voicemails fix is now permanently in place. Some voicemails were appearing twice in the Voicemail tab because two different code paths (the Telnyx recording-completed callback and our per-call polling workaround) were using different identifier types as the dedup key. They are now aligned on call_session_id, so a single voicemail only ever produces one row regardless of which path processes it. (Server-side change; took effect when 0.10.121 was deployed.) Existing duplicate rows from before this fix are not auto-cleaned - delete duplicates manually from the Voicemail tab if any bug you.' },
-      { type: 'fixed', text: 'Rolled back the v0.10.122 client release because the installer produced an app that vanished on startup. The new Reply with Text button on the floating call popup, which was the v0.10.122 client feature, is temporarily disabled while we investigate. The Reply button on the full-screen ringer continues to work as before. The Hold and Accept feature from v0.10.120 also continues to work.' },
+      { type: 'fixed', text: 'CRITICAL startup fix. The v0.10.122 and v0.10.123 installers ran successfully but the app vanished immediately after launch with nothing visible to the user. Root cause: a previous Edit-tool-truncation had silently removed the final 87 lines of the Electron main process, including the startup block that creates the main window and tray icon (app.whenReady -> createTray + createWindow). Without that block, the process was launching successfully but never showed a window - it was running invisibly. v0.10.124 restores those lines from the v0.10.120 baseline. The app once again creates its window and tray icon at startup and reaches the SSO screen normally.' },
+      { type: 'fixed', text: 'Duplicate voicemails fix (originally shipped server-side as v0.10.121) is permanently in place. Some voicemails were appearing twice in the Voicemail tab because two different code paths (the Telnyx recording-completed callback and our per-call polling workaround) were using different identifier types as the dedup key. They are now aligned on call_session_id, so a single voicemail only ever produces one row regardless of which path processes it. Existing duplicate rows from before this fix are not auto-cleaned - delete duplicates manually if any bug you.' },
+      { type: 'fixed', text: 'The Reply with Text button on the floating call popup (which was the v0.10.122 client feature) is temporarily disabled while we investigate a separate concern. The Reply button on the full-screen ringer continues to work as before. The Hold and Accept feature from v0.10.120 also continues to work.' },
     ],
   },
   {
