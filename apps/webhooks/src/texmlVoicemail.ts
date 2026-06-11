@@ -406,9 +406,18 @@ function recordingToPayload(rec: TelnyxRecording): NormalizedVmPayload {
     toNumber: rec.to,
     recordingUrl: url,
     durationSeconds,
-    // Use recording.id as the dedup key. Distinct from call_control_id used
-    // by Hosted-VM flow, so the two paths never collide.
-    telnyxCallId: rec.id,
+    // v0.10.121 - dedup-key bug fix. Previously we used rec.id (the Telnyx
+    // RECORDING ID) here, while /texml/voicemail/recording-complete and
+    // /webhooks/telnyx/voicemail both use call_session_id. That mismatch
+    // meant a single voicemail processed by BOTH a polling path AND the
+    // recording-complete callback would yield two Voicemail rows (the
+    // findFirst-by-telnyxCallId dedup check missed because the two strings
+    // were different identifier types). Now we align on call_session_id
+    // (matching what TeXML's CallSid form field and Hosted-VM's
+    // payload.call_session_id resolve to). Falls back to rec.id if Telnyx
+    // omits call_session_id, which keeps the previous semantics for edge
+    // cases without re-opening the dedup gap in normal flows.
+    telnyxCallId: rec.call_session_id ?? rec.id,
     receivedAt,
   };
 }
