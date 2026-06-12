@@ -3,7 +3,6 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { PhoneIncoming, PhoneOutgoing, PhoneMissed, Phone, RefreshCcw, Play, Search, X, MessageSquare, ArrowLeft, Star, Ban } from 'lucide-react';
 import { getCalls, addBlockedNumber, type CallRecord } from '../api';
 import { useSip } from '../contexts/SipContext';
-import { useSocket } from '../contexts/SocketContext';
 import { useJobDivaContact, getCachedJobDivaName } from '../hooks/useJobDivaContact';
 import { formatPhone, toE164 } from '../lib/phone';
 import { addFavorite, isFavorite, removeFavorite, getFavoriteName } from '../lib/userPrefs';
@@ -137,7 +136,6 @@ export default function Recents() {
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [search, setSearch] = useState('');
   const [directionFilter, setDirectionFilter] = useState<DirectionFilter>(readSavedDirectionFilter);
-  const { socket } = useSocket();
 
   // Persist filter choice across sessions.
   useEffect(() => {
@@ -197,7 +195,7 @@ export default function Recents() {
   const contactWant = contactFilter ? last10(contactFilter) : '';
 
   const load = useCallback(() => {
-    const token = sessionStorage.getItem('aptlink_token');
+    const token = sessionStorage.getItem('ace_token');
     if (!token) return;
     setLoading(true);
     setError(null);
@@ -209,20 +207,7 @@ export default function Recents() {
 
   useEffect(() => {
     load();
-    if (!socket) return;
-    const onBadgeUpdate = (data: { type: string }) => {
-      // Both inbound and outbound calls might trigger a refresh,
-      // but especially missed calls which generate a badge:update.
-      // Or we can just listen to 'badge:update' and refresh if type='missed_call'.
-      if (data.type === 'missed_call' || data.type === 'call') {
-        load();
-      }
-    };
-    socket.on('badge:update', onBadgeUpdate);
-    return () => {
-      socket.off('badge:update', onBadgeUpdate);
-    };
-  }, [load, socket]);
+  }, [load]);
 
   // Client-side filter. Matches against:
   //   - phone digits (both fromNumber + toNumber so single-direction works)
@@ -373,7 +358,7 @@ export default function Recents() {
   async function handleBlock(c: CallRecord) {
     const target = c.direction === 'inbound' ? c.fromNumber : c.toNumber;
     if (!target) return;
-    const token = sessionStorage.getItem('aptlink_token');
+    const token = sessionStorage.getItem('ace_token');
     if (!token) return;
     const friendly = getFavoriteName(target) ?? getCachedJobDivaName(target) ?? formatNumber(target);
     if (

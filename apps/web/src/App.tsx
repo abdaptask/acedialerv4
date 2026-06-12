@@ -9,6 +9,7 @@ import Recents from './pages/Recents';
 import Voicemail from './pages/Voicemail';
 import VoicemailPlay from './pages/VoicemailPlay';
 import AutoRoute from './pages/AutoRoute';
+import Contacts from './pages/Contacts';
 import Favorites from './pages/Favorites';
 import Messages from './pages/Messages';
 import Chat from './pages/Chat';
@@ -26,21 +27,21 @@ installSessionGuard();
 // can register Telnyx as THIS user instead of using build-time env vars.
 // Cleared on logout / token expiry.
 function persistSipCreds(u: User | null): void {
-  if (u?.sipUsername) sessionStorage.setItem('aptlink_sip_username', u.sipUsername);
-  else sessionStorage.removeItem('aptlink_sip_username');
-  if (u?.sipPassword) sessionStorage.setItem('aptlink_sip_password', u.sipPassword);
-  else sessionStorage.removeItem('aptlink_sip_password');
-  if (u?.didNumber) sessionStorage.setItem('aptlink_did', u.didNumber);
-  else sessionStorage.removeItem('aptlink_did');
+  if (u?.sipUsername) sessionStorage.setItem('ace_sip_username', u.sipUsername);
+  else sessionStorage.removeItem('ace_sip_username');
+  if (u?.sipPassword) sessionStorage.setItem('ace_sip_password', u.sipPassword);
+  else sessionStorage.removeItem('ace_sip_password');
+  if (u?.didNumber) sessionStorage.setItem('ace_did', u.didNumber);
+  else sessionStorage.removeItem('ace_did');
   // v0.10.60 — Persist the beta flag so SipContext can opt this session
   // into the Connection Health smoothing (disconnect debounce + new
   // 'reconnecting' state). Default false when missing on the server response.
-  if (u?.connectionHealthBeta) sessionStorage.setItem('aptlink_conn_health_beta', '1');
-  else sessionStorage.removeItem('aptlink_conn_health_beta');
+  if (u?.connectionHealthBeta) sessionStorage.setItem('ace_conn_health_beta', '1');
+  else sessionStorage.removeItem('ace_conn_health_beta');
   // v0.10.75 — Persist ringtone preference so services/ringtone.ts can
   // read it synchronously when an incoming call rings.
-  if (u?.ringtone) sessionStorage.setItem('aptlink_ringtone', u.ringtone);
-  else sessionStorage.removeItem('aptlink_ringtone');
+  if (u?.ringtone) sessionStorage.setItem('ace_ringtone', u.ringtone);
+  else sessionStorage.removeItem('ace_ringtone');
   // v0.10.76 — Warm the cache of admin-uploaded ringtones so the
   // ringtone service can play 'upload:<id>' references synchronously
   // when a call comes in. Without this, the first inbound call after
@@ -48,7 +49,7 @@ function persistSipCreds(u: User | null): void {
   // to fetch the audio.
   void (async () => {
     try {
-      const token = sessionStorage.getItem('aptlink_token');
+      const token = sessionStorage.getItem('ace_token');
       if (!token) return;
       const { listMyRingtones } = await import('./api');
       const ringtones = await listMyRingtones(token);
@@ -56,21 +57,17 @@ function persistSipCreds(u: User | null): void {
       const keysToRemove: string[] = [];
       for (let i = 0; i < sessionStorage.length; i += 1) {
         const k = sessionStorage.key(i);
-        if (k?.startsWith('aptlink_uploaded_ringtone_')) keysToRemove.push(k);
+        if (k?.startsWith('ace_uploaded_ringtone_')) keysToRemove.push(k);
       }
       for (const k of keysToRemove) sessionStorage.removeItem(k);
       // Cache fresh.
       for (const r of ringtones) {
-        sessionStorage.setItem(`aptlink_uploaded_ringtone_${r.id}`, r.dataUrl);
+        sessionStorage.setItem(`ace_uploaded_ringtone_${r.id}`, r.dataUrl);
       }
     } catch (e) {
       console.warn('[ringtones] warm cache failed', e);
     }
   })();
-  // v0.11.0 - Persist status for SipContext to read instantly on inbound calls
-  if (u?.status) sessionStorage.setItem('aptlink_status', u.status);
-  else sessionStorage.setItem('aptlink_status', 'available');
-
   // Notify SipContext so it can register against Telnyx now that the creds
   // are in sessionStorage. This kills the login-race where SipContext's
   // useEffect read empty creds and went to 'failed' before User loaded. (#212)
@@ -78,7 +75,7 @@ function persistSipCreds(u: User | null): void {
 }
 
 export default function App() {
-  const [token, setToken] = useState<string | null>(() => sessionStorage.getItem('aptlink_token'));
+  const [token, setToken] = useState<string | null>(() => sessionStorage.getItem('ace_token'));
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
@@ -94,7 +91,7 @@ export default function App() {
         void loadFavoritesFromServer(token);
       })
       .catch(() => {
-        sessionStorage.removeItem('aptlink_token');
+        sessionStorage.removeItem('ace_token');
         persistSipCreds(null);
         setToken(null);
       })
@@ -102,7 +99,7 @@ export default function App() {
   }, [token]);
 
   function handleLoginSuccess(newToken: string, newUser: User) {
-    sessionStorage.setItem('aptlink_token', newToken);
+    sessionStorage.setItem('ace_token', newToken);
     persistSipCreds(newUser);
     setToken(newToken);
     setUser(newUser);
@@ -112,21 +109,21 @@ export default function App() {
     // v0.10.2 — returnTo support. If the user was redirected to /login
     // from a deep link (e.g. a Teams voicemail card → /voicemail/123/play),
     // bring them back to that URL after SSO instead of dumping them on
-    // /keypad. aptlink_return_to is set by the route guard below when an
+    // /keypad. ace_return_to is set by the route guard below when an
     // unauthenticated request hits a protected URL.
     let target = '/keypad';
     try {
-      const returnTo = sessionStorage.getItem('aptlink_return_to');
+      const returnTo = sessionStorage.getItem('ace_return_to');
       if (returnTo && returnTo !== '/login' && returnTo !== '/') {
         target = returnTo;
-        sessionStorage.removeItem('aptlink_return_to');
+        sessionStorage.removeItem('ace_return_to');
       }
     } catch { /* sessionStorage can throw in private mode — fall back to /keypad */ }
     navigate(target);
   }
 
   function handleLogout() {
-    sessionStorage.removeItem('aptlink_token');
+    sessionStorage.removeItem('ace_token');
     persistSipCreds(null);
     // Wipe the favorites cache so a different user on the same machine
     // doesn't inherit them. (Phase 6.11)
@@ -137,7 +134,7 @@ export default function App() {
   }
 
   // v0.10.4 Task 10 — Desktop deep-link handler. When the OS hands us an
-  // aptlink://call?to=... or aptlink://sms?to=... URL (originating
+  // ace-dialer://call?to=... or ace-dialer://sms?to=... URL (originating
   // from a Teams Adaptive Card button via the /auto/call page), the main
   // process forwards via IPC. We navigate to the matching in-app page
   // with the recipient prefilled. The web fallback (AutoRoute.tsx) handles
@@ -171,7 +168,7 @@ export default function App() {
       console.warn('[session] expired —', reason, '→ /login');
       // Best-effort: leave a hint for the Login page so it can show a
       // toast like "Your session expired — please log in again."
-      try { sessionStorage.setItem('aptlink_logout_reason', reason); } catch { /* noop */ }
+      try { sessionStorage.setItem('ace_logout_reason', reason); } catch { /* noop */ }
       handleLogout();
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -190,7 +187,7 @@ export default function App() {
         element={user ? <Navigate to="/keypad" /> : <Login onSuccess={handleLoginSuccess} />}
       />
       {/* v0.10.70 — Auto-route pages render WITHOUT the auth gate so a
-          Teams card click can fire `aptlink://` BEFORE the user is
+          Teams card click can fire `ace-dialer://` BEFORE the user is
           redirected to /login. Without this, an unauthenticated browser
           hitting /auto/sms got bounced to /login first, the protocol
           launch never ran, and the Teams Reply button always landed on
@@ -217,7 +214,7 @@ export default function App() {
                 try {
                   const here = window.location.pathname + window.location.search;
                   if (here && here !== '/login') {
-                    sessionStorage.setItem('aptlink_return_to', here);
+                    sessionStorage.setItem('ace_return_to', here);
                   }
                 } catch { /* sessionStorage can throw in private mode */ }
                 return <Navigate to="/login" />;
@@ -231,6 +228,7 @@ export default function App() {
         <Route path="messages" element={<Messages />} />
         <Route path="chat" element={<Chat />} />
         <Route path="recents" element={<Recents />} />
+        <Route path="contacts" element={<Contacts />} />
         <Route path="voicemail" element={<Voicemail />} />
         <Route path="voicemail/:id/play" element={<VoicemailPlay />} />
         <Route path="settings" element={<Settings />} />

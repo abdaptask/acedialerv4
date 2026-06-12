@@ -79,7 +79,7 @@ export default function VoicemailPlay() {
   }, []);
 
   useEffect(() => {
-    const token = sessionStorage.getItem('aptlink_token');
+    const token = sessionStorage.getItem('ace_token');
     if (!token) {
       // Defensive — App.tsx should have redirected before we mount,
       // but in case of a race or direct navigation while logging out.

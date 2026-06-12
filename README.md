@@ -1,4 +1,4 @@
-# AptLink 2.0
+# ACE Dialer 2.0
 
 ApTask's in-house softphone replacing the dialer features of Pulse. WebRTC-based,
 runs in a browser tab or a packaged Electron desktop app. Calls + SMS via Telnyx,
@@ -57,7 +57,7 @@ npm run dev   # opens with VITE_DEV_SERVER_URL=http://localhost:5173
 ```
 
 `apps/web/.env` controls which API URL the web client talks to in dev. The
-example points at the production API (`https://aptlink-api.onrender.com`);
+example points at the production API (`https://ace-dialer-api.onrender.com`);
 change to `http://localhost:3001` if you're running the API locally.
 
 ## Deployment
@@ -65,9 +65,9 @@ change to `http://localhost:3001` if you're running the API locally.
 | Push to | What deploys |
 | --- | --- |
 | `main` (any change) | Vercel rebuilds `acedialerv4-web.vercel.app` |
-| `main` (apps/api or packages/db) | Render rebuilds `aptlink-api` |
-| `main` (apps/webhooks or packages/db) | Render rebuilds `aptlink-webhooks` |
-| `main` (apps/socket or packages/db) | Render rebuilds `aptlink-socket` |
+| `main` (apps/api or packages/db) | Render rebuilds `ace-dialer-api` |
+| `main` (apps/webhooks or packages/db) | Render rebuilds `ace-dialer-webhooks` |
+| `main` (apps/socket or packages/db) | Render rebuilds `ace-dialer-socket` |
 | `v*` tag | GitHub Actions builds + publishes desktop installers to GitHub Releases |
 
 There is **no staging environment** — main is production for web, API, webhooks.

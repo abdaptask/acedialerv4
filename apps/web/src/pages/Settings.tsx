@@ -335,7 +335,7 @@ const SECTIONS: SectionDef[] = [
   // can be re-exposed later if a bulk-import use case re-emerges.
   { key: 'audit-log', category: 'Admin', label: 'Audit log', icon: ScrollText, blurb: 'Recent admin actions (admin only)', Component: AuditLogSection, adminOnly: true },
   // v0.10.22 — Tenant-wide MS Graph connection for Teams notifications.
-  { key: 'teams-connection', category: 'Admin', label: 'Teams connection', icon: MessageSquare, blurb: 'Connect AptLink Bot to Microsoft Teams (admin only)', Component: TeamsConnectionSection, adminOnly: true },
+  { key: 'teams-connection', category: 'Admin', label: 'Teams connection', icon: MessageSquare, blurb: 'Connect ACE Bot to Microsoft Teams (admin only)', Component: TeamsConnectionSection, adminOnly: true },
 ];
 
 // v0.10.100 — 'About' category sits at the very bottom for both admins
@@ -351,7 +351,7 @@ const DEFAULT_SECTION = SECTIONS[0].key;
 // the currently-active section always stays expanded; user's open/closed
 // choices for OTHER categories persist via localStorage.
 function SettingsNav({ activeCategory }: { activeCategory: SectionCategory }) {
-  const STORE_KEY = 'aptlink_settings_nav_open';
+  const STORE_KEY = 'ace_settings_nav_open';
   const [openCats, setOpenCats] = useState<Set<SectionCategory>>(() => {
     try {
       const raw = localStorage.getItem(STORE_KEY);
@@ -368,7 +368,7 @@ function SettingsNav({ activeCategory }: { activeCategory: SectionCategory }) {
   // a user can't open is confusing.
   const [isAdmin, setIsAdmin] = useState<boolean>(false);
   useEffect(() => {
-    const token = sessionStorage.getItem('aptlink_token');
+    const token = sessionStorage.getItem('ace_token');
     if (!token) return;
     let cancelled = false;
     getMe(token)
@@ -464,7 +464,7 @@ export default function Settings() {
   // we DON'T pre-emptively redirect before we know.
   const [routeIsAdmin, setRouteIsAdmin] = useState<boolean | null>(null);
   useEffect(() => {
-    const token = sessionStorage.getItem('aptlink_token');
+    const token = sessionStorage.getItem('ace_token');
     if (!token) {
       setRouteIsAdmin(false);
       return;
@@ -561,7 +561,7 @@ function AccountSection() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const token = sessionStorage.getItem('aptlink_token');
+    const token = sessionStorage.getItem('ace_token');
     if (!token) return;
     getMe(token)
       .then((u) =>
@@ -577,7 +577,7 @@ function AccountSection() {
   }, []);
 
   async function save() {
-    const token = sessionStorage.getItem('aptlink_token');
+    const token = sessionStorage.getItem('ace_token');
     if (!token || !state) return;
     setSaving(true);
     setError(null);
@@ -653,7 +653,7 @@ function AccountSection() {
           <span>SIP username</span>
           <input
             type="text"
-            placeholder="aptlink-abdulla"
+            placeholder="ace-dialer-abdulla"
             autoComplete="off"
             value={state.sipUsername}
             onChange={(e) => setState({ ...state, sipUsername: e.target.value })}
@@ -684,11 +684,11 @@ function AppearanceSection() {
   const [theme, setLocalTheme] = useState<ThemePref>(() => getTheme());
   // v0.10.118 - Tips banner visibility toggle.
   const [tipsHidden, setTipsHiddenLocal] = useState<boolean>(() => {
-    try { return localStorage.getItem('aptlink_tips_hidden_v1') === '1'; } catch { return false; }
+    try { return localStorage.getItem('ace_tips_hidden_v1') === '1'; } catch { return false; }
   });
   useEffect(() => {
     const sync = () => {
-      try { setTipsHiddenLocal(localStorage.getItem('aptlink_tips_hidden_v1') === '1'); } catch { /* noop */ }
+      try { setTipsHiddenLocal(localStorage.getItem('ace_tips_hidden_v1') === '1'); } catch { /* noop */ }
     };
     window.addEventListener('ace:tips-hidden-changed', sync);
     return () => window.removeEventListener('ace:tips-hidden-changed', sync);
@@ -696,11 +696,11 @@ function AppearanceSection() {
   function toggleTips() {
     try {
       if (tipsHidden) {
-        localStorage.removeItem('aptlink_tips_hidden_v1');
-        localStorage.removeItem('aptlink_tips_signature_at_hide');
+        localStorage.removeItem('ace_tips_hidden_v1');
+        localStorage.removeItem('ace_tips_signature_at_hide');
       } else {
-        localStorage.setItem('aptlink_tips_hidden_v1', '1');
-        localStorage.removeItem('aptlink_tips_signature_at_hide');
+        localStorage.setItem('ace_tips_hidden_v1', '1');
+        localStorage.removeItem('ace_tips_signature_at_hide');
       }
       window.dispatchEvent(new Event('ace:tips-hidden-changed'));
     } catch { /* noop */ }
@@ -800,27 +800,27 @@ function AppearanceSection() {
 // Telnyx credentials section
 // ---------------------------------------------------------------------------
 function TelnyxSection() {
-  const [username, setUsername] = useState(() => localStorage.getItem('aptlink_sip_username') ?? '');
-  const [password, setPassword] = useState(() => localStorage.getItem('aptlink_sip_password') ?? '');
-  const [fromNumber, setFromNumber] = useState(() => localStorage.getItem('aptlink_sip_from_number') ?? '');
+  const [username, setUsername] = useState(() => localStorage.getItem('ace_sip_username') ?? '');
+  const [password, setPassword] = useState(() => localStorage.getItem('ace_sip_password') ?? '');
+  const [fromNumber, setFromNumber] = useState(() => localStorage.getItem('ace_sip_from_number') ?? '');
   const [showPassword, setShowPassword] = useState(false);
   const [saving, setSaving] = useState(false);
 
   function save() {
-    if (username) localStorage.setItem('aptlink_sip_username', username);
-    else localStorage.removeItem('aptlink_sip_username');
-    if (password) localStorage.setItem('aptlink_sip_password', password);
-    else localStorage.removeItem('aptlink_sip_password');
-    if (fromNumber) localStorage.setItem('aptlink_sip_from_number', fromNumber);
-    else localStorage.removeItem('aptlink_sip_from_number');
+    if (username) localStorage.setItem('ace_sip_username', username);
+    else localStorage.removeItem('ace_sip_username');
+    if (password) localStorage.setItem('ace_sip_password', password);
+    else localStorage.removeItem('ace_sip_password');
+    if (fromNumber) localStorage.setItem('ace_sip_from_number', fromNumber);
+    else localStorage.removeItem('ace_sip_from_number');
     setSaving(true);
     setTimeout(() => window.location.reload(), 400);
   }
 
   function clearAll() {
-    localStorage.removeItem('aptlink_sip_username');
-    localStorage.removeItem('aptlink_sip_password');
-    localStorage.removeItem('aptlink_sip_from_number');
+    localStorage.removeItem('ace_sip_username');
+    localStorage.removeItem('ace_sip_password');
+    localStorage.removeItem('ace_sip_from_number');
     setUsername('');
     setPassword('');
     setFromNumber('');
@@ -897,7 +897,7 @@ function TelnyxSection() {
 // ---------------------------------------------------------------------------
 function MicrophoneSection() {
   const [mics, setMics] = useState<AudioDevice[]>([]);
-  const [selected, setSelected] = useState<string>(localStorage.getItem('aptlink_mic') || 'default');
+  const [selected, setSelected] = useState<string>(localStorage.getItem('ace_mic') || 'default');
   const [error, setError] = useState<string | null>(null);
   // v0.10.21 — User-controlled noise suppression. Default OFF (preserves the
   // legacy behavior where Chrome's RNNoise was producing "tunnel/pipe" voice
@@ -905,7 +905,7 @@ function MicrophoneSection() {
   // offices, India home setups with AC + traffic) can toggle ON.
   // Read at every getUserMedia call via buildAudioConstraints() in sip.ts.
   const [noiseSuppression, setNoiseSuppression] = useState<boolean>(
-    localStorage.getItem('aptlink_noise_suppression') === 'true',
+    localStorage.getItem('ace_noise_suppression') === 'true',
   );
 
   useEffect(() => {
@@ -927,13 +927,13 @@ function MicrophoneSection() {
 
   function pick(id: string) {
     setSelected(id);
-    if (id === 'default') localStorage.removeItem('aptlink_mic');
-    else localStorage.setItem('aptlink_mic', id);
+    if (id === 'default') localStorage.removeItem('ace_mic');
+    else localStorage.setItem('ace_mic', id);
   }
 
   function toggleNoiseSuppression(on: boolean) {
     setNoiseSuppression(on);
-    localStorage.setItem('aptlink_noise_suppression', on ? 'true' : 'false');
+    localStorage.setItem('ace_noise_suppression', on ? 'true' : 'false');
   }
 
   return (
@@ -976,7 +976,7 @@ function MicrophoneSection() {
 // ---------------------------------------------------------------------------
 function SpeakerSection() {
   const [speakers, setSpeakers] = useState<AudioDevice[]>([]);
-  const [selected, setSelected] = useState<string>(localStorage.getItem('aptlink_speaker') || 'default');
+  const [selected, setSelected] = useState<string>(localStorage.getItem('ace_speaker') || 'default');
   const [error, setError] = useState<string | null>(null);
   const [supportsSinkId, setSupportsSinkId] = useState(true);
   const audioCtxRef = useRef<AudioContext | null>(null);
@@ -1001,8 +1001,8 @@ function SpeakerSection() {
 
   function pick(id: string) {
     setSelected(id);
-    if (id === 'default' || !id) localStorage.removeItem('aptlink_speaker');
-    else localStorage.setItem('aptlink_speaker', id);
+    if (id === 'default' || !id) localStorage.removeItem('ace_speaker');
+    else localStorage.setItem('ace_speaker', id);
     const audioEl = document.getElementById('ace-remote-audio') as HTMLAudioElement | null;
     if (audioEl && 'setSinkId' in audioEl) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1088,7 +1088,7 @@ function HoldMusicSection() {
   const [tenantInfo, setTenantInfo] = useState<string | null>(null);
 
   useEffect(() => {
-    const token = sessionStorage.getItem('aptlink_token');
+    const token = sessionStorage.getItem('ace_token');
     if (!token) return;
     getMe(token).then((u) => {
       setIsAdmin(u.isAdmin);
@@ -1103,7 +1103,7 @@ function HoldMusicSection() {
 
   async function promoteToTenantDefault() {
     if (!dataUrl || !filename) return;
-    const token = sessionStorage.getItem('aptlink_token');
+    const token = sessionStorage.getItem('ace_token');
     if (!token) return;
     setTenantBusy('upload');
     setTenantInfo(null);
@@ -1119,7 +1119,7 @@ function HoldMusicSection() {
 
   async function clearTenantDefault() {
     if (!confirm('Remove the tenant-wide default hold music? Users\' own local files are not affected.')) return;
-    const token = sessionStorage.getItem('aptlink_token');
+    const token = sessionStorage.getItem('ace_token');
     if (!token) return;
     setTenantBusy('clear');
     setTenantInfo(null);
@@ -1589,7 +1589,7 @@ function GreetingVariantPanel({
     setOkMsg(null);
     setSubmitting(true);
     try {
-      const token = sessionStorage.getItem('aptlink_token');
+      const token = sessionStorage.getItem('ace_token');
       if (!token) { setError('Sign in again.'); return; }
       await setVoicemailGreetingMode(token, mode, type);
       await onChanged();
@@ -1615,7 +1615,7 @@ function GreetingVariantPanel({
     if (text.length > 500) { setError(`Text is too long (${text.length} characters). Maximum is 500.`); return; }
     setSubmitting(true);
     try {
-      const token = sessionStorage.getItem('aptlink_token');
+      const token = sessionStorage.getItem('ace_token');
       if (!token) { setError('Sign in again.'); return; }
       await setVoicemailGreetingText(token, text, type);
       await onChanged();
@@ -1638,7 +1638,7 @@ function GreetingVariantPanel({
     }
     setSubmitting(true);
     try {
-      const token = sessionStorage.getItem('aptlink_token');
+      const token = sessionStorage.getItem('ace_token');
       if (!token) { setError('Sign in again.'); return; }
       await uploadVoicemailGreeting(token, blob, type, filenameOverride);
       await onChanged();
@@ -1671,7 +1671,7 @@ function GreetingVariantPanel({
     setOkMsg(null);
     setSubmitting(true);
     try {
-      const token = sessionStorage.getItem('aptlink_token');
+      const token = sessionStorage.getItem('ace_token');
       if (!token) { setError('Sign in again.'); return; }
       await deleteVoicemailGreeting(token, type);
       const fallback: VoicemailGreetingMode = hasText ? 'tts' : 'default';
@@ -1903,7 +1903,7 @@ function VoicemailGreetingSection() {
   const [submitting] = useState(false);
 
   const reload = useCallback(async () => {
-    const token = sessionStorage.getItem('aptlink_token');
+    const token = sessionStorage.getItem('ace_token');
     if (!token) return;
     const g = await getVoicemailGreeting(token);
     setGreeting(g);
@@ -1965,13 +1965,13 @@ function VoicemailGreetingSection() {
         </summary>
         <ol style={{ margin: '8px 0 0 0', paddingLeft: 20 }}>
           <li>Save the greeting(s) you want above.</li>
-          <li>From a different phone, call your AptLink DID number.</li>
+          <li>From a different phone, call your ACE DID number.</li>
           <li><strong>To test the &quot;not available&quot; greeting:</strong> don’t pick up. After about 25 seconds the call falls to voicemail and you should hear your no-answer greeting.</li>
           <li><strong>To test the &quot;busy&quot; greeting:</strong> while already on a call (or with your softphone signed out), call your DID. Your busy greeting plays immediately.</li>
         </ol>
         <p className="muted small" style={{ marginTop: 10, marginBottom: 0 }}>
           <strong>Heads up:</strong> custom greetings only fire on DIDs that
-          have been migrated to the AptLink Voicemail Call Control App by an
+          have been migrated to the ACE Voicemail Call Control App by an
           admin. If you hear Telnyx&apos;s default robotic message instead,
           let your admin know to run the migration for your number.
         </p>
@@ -1998,7 +1998,7 @@ function CallForwardingSection() {
 
   // Load current settings.
   useEffect(() => {
-    const token = sessionStorage.getItem('aptlink_token');
+    const token = sessionStorage.getItem('ace_token');
     if (!token) return;
     let cancelled = false;
     getCallForwarding(token)
@@ -2014,7 +2014,7 @@ function CallForwardingSection() {
   }, []);
 
   async function handleSave() {
-    const token = sessionStorage.getItem('aptlink_token');
+    const token = sessionStorage.getItem('ace_token');
     if (!token) return;
     setError(null);
     setSaving(true);
@@ -2129,7 +2129,7 @@ function CallForwardingSection() {
 
 // ---------------------------------------------------------------------------
 // Data — backup/restore of localStorage preferences
-// Exports every aptlink_* key as a JSON file. Importing the file restores them
+// Exports every ace_* key as a JSON file. Importing the file restores them
 // (overwriting current values). Useful when switching devices.
 // ---------------------------------------------------------------------------
 function DataSection() {
@@ -2140,9 +2140,9 @@ function DataSection() {
     const out: Record<string, string> = {};
     for (let i = 0; i < localStorage.length; i += 1) {
       const k = localStorage.key(i);
-      if (!k || !k.startsWith('aptlink_')) continue;
+      if (!k || !k.startsWith('ace_')) continue;
       // Sensitive: skip Telnyx password from the backup file by default.
-      if (k === 'aptlink_sip_password') continue;
+      if (k === 'ace_sip_password') continue;
       const v = localStorage.getItem(k);
       if (v !== null) out[k] = v;
     }
@@ -2152,7 +2152,7 @@ function DataSection() {
   function exportPrefs() {
     const prefs = collectPrefs();
     const payload = {
-      app: 'aptlink',
+      app: 'ace-dialer',
       exportedAt: new Date().toISOString(),
       version: 1,
       prefs,
@@ -2161,7 +2161,7 @@ function DataSection() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `aptlink-prefs-${new Date().toISOString().slice(0, 10)}.json`;
+    a.download = `ace-dialer-prefs-${new Date().toISOString().slice(0, 10)}.json`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -2186,12 +2186,12 @@ function DataSection() {
         const parsed = JSON.parse(text);
         const prefs = parsed?.prefs;
         if (!prefs || typeof prefs !== 'object') {
-          setStatus('That doesnâ€™t look like an AptLink backup file.');
+          setStatus('That doesnâ€™t look like an ACE Dialer backup file.');
           return;
         }
         let n = 0;
         for (const [k, v] of Object.entries(prefs)) {
-          if (typeof v === 'string' && k.startsWith('aptlink_')) {
+          if (typeof v === 'string' && k.startsWith('ace_')) {
             localStorage.setItem(k, v);
             n += 1;
           }
@@ -2279,7 +2279,7 @@ function DeviceList({
 // ---------------------------------------------------------------------------
 function RingtoneSection() {
   const [selected, setSelected] = useState<string>(() => {
-    return sessionStorage.getItem('aptlink_ringtone') || 'classic';
+    return sessionStorage.getItem('ace_ringtone') || 'classic';
   });
   const [previewing, setPreviewing] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -2290,13 +2290,13 @@ function RingtoneSection() {
   const presets = getRingtonePresets();
 
   useEffect(() => {
-    const token = sessionStorage.getItem('aptlink_token');
+    const token = sessionStorage.getItem('ace_token');
     if (!token) return;
     void listMyRingtones(token).then((rows) => {
       setUploaded(rows);
       // Re-warm the cache for any rows that landed.
       for (const r of rows) {
-        sessionStorage.setItem(`aptlink_uploaded_ringtone_${r.id}`, r.dataUrl);
+        sessionStorage.setItem(`ace_uploaded_ringtone_${r.id}`, r.dataUrl);
       }
     });
   }, []);
@@ -2318,8 +2318,8 @@ function RingtoneSection() {
     setSelected(slug);
     // Optimistic — write sessionStorage first so a ringing call mid-save
     // already uses the new preset.
-    sessionStorage.setItem('aptlink_ringtone', slug);
-    const token = sessionStorage.getItem('aptlink_token');
+    sessionStorage.setItem('ace_ringtone', slug);
+    const token = sessionStorage.getItem('ace_token');
     if (!token) return;
     setSaving(true);
     try {
@@ -2696,7 +2696,7 @@ function BlockedNumbersSection() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const token = sessionStorage.getItem('aptlink_token');
+    const token = sessionStorage.getItem('ace_token');
     if (!token) return;
     let cancelled = false;
     getBlockedNumbers(token)
@@ -2707,7 +2707,7 @@ function BlockedNumbersSection() {
   }, []);
 
   async function handleAdd() {
-    const token = sessionStorage.getItem('aptlink_token');
+    const token = sessionStorage.getItem('ace_token');
     if (!token) return;
     const trimmed = draftNumber.replace(/[^\d+]/g, '');
     if (trimmed.length < 10) {
@@ -2737,7 +2737,7 @@ function BlockedNumbersSection() {
   }
 
   async function handleRemove(id: number) {
-    const token = sessionStorage.getItem('aptlink_token');
+    const token = sessionStorage.getItem('ace_token');
     if (!token) return;
     if (!confirm('Unblock this number? Future calls and SMS from it will reach you again.')) return;
     setError(null);
@@ -2875,7 +2875,7 @@ function UsersAdminSection() {
   const [showImport, setShowImport] = useState(false);
   const [showAutoProvision, setShowAutoProvision] = useState(false);
   // v0.10.37 — Unified wizard. Admin enters Pulse credentials; server
-  // creates the AptLink user + rebinds DID + runs backfill in one shot.
+  // creates the ACE user + rebinds DID + runs backfill in one shot.
   const [showMigrateFromPulse, setShowMigrateFromPulse] = useState(false);
   // v0.10.38 — Bulk-refresh SMS for all migrated users.
   const [showBulkRefresh, setShowBulkRefresh] = useState(false);
@@ -2912,7 +2912,7 @@ function UsersAdminSection() {
   }
 
   function load() {
-    const token = sessionStorage.getItem('aptlink_token');
+    const token = sessionStorage.getItem('ace_token');
     if (!token) return;
     setLoading(true);
     setError(null);
@@ -3017,7 +3017,7 @@ function UsersAdminSection() {
   const inactiveCount = rows.filter((r) => !r.isActive).length;
 
   async function handlePatch(id: number, input: Parameters<typeof updateAdminUser>[2]) {
-    const token = sessionStorage.getItem('aptlink_token');
+    const token = sessionStorage.getItem('ace_token');
     if (!token) return;
     try {
       const updated = await updateAdminUser(token, id, input);
@@ -3059,13 +3059,13 @@ function UsersAdminSection() {
           >
             <UserPlus size={14} /> Add manually
           </button>
-          {/* v0.10.37 — Pulse → AptLink migration wizard. Admin enters
+          {/* v0.10.37 — Pulse → ACE migration wizard. Admin enters
               the user's Pulse email + password and we handle the rest. */}
           <button
             type="button"
             className="device-action primary"
             onClick={() => setShowMigrateFromPulse(true)}
-            title="Migrate a Pulse user to AptLink. Enter their Pulse email + password — we create their AptLink account, move their number, and import their 30-day history."
+            title="Migrate a Pulse user to ACE. Enter their Pulse email + password — we create their ACE account, move their number, and import their 30-day history."
           >
             <UserPlus size={14} /> Migrate from Pulse
           </button>
@@ -3084,7 +3084,7 @@ function UsersAdminSection() {
             type="button"
             className="device-action primary"
             onClick={() => setShowAutoProvision(true)}
-            title="Brand-new hire: AptLink buys a Telnyx DID, creates SIP creds, sends welcome email"
+            title="Brand-new hire: ACE buys a Telnyx DID, creates SIP creds, sends welcome email"
           >
             <UserPlus size={14} /> Invite new user
           </button>
@@ -3467,7 +3467,7 @@ function UsersAdminSection() {
 
                       {/* v0.10.64 — Set the user's country. Drives Telnyx
                           anchorsite_override (IN → Chennai, else → Latency).
-                          For future AptLink Telnyx config syncs to use the
+                          For future ACE Telnyx config syncs to use the
                           correct anchor — doesn't immediately re-PATCH the
                           existing connection. Admin should also run the
                           re-apply (when v0.10.65 ships) for changes to
@@ -3506,7 +3506,7 @@ function UsersAdminSection() {
                           setOpenMenuId(null);
                           setRefreshFromPulseTarget(r);
                         }}
-                        title="Re-pull this user's 30-day history from Pulse into AptLink. SMS automatic; calls optional with their Pulse password."
+                        title="Re-pull this user's 30-day history from Pulse into ACE. SMS automatic; calls optional with their Pulse password."
                       >
                         <Upload size={14} />
                         Refresh from Pulse
@@ -3688,7 +3688,7 @@ function HardDeleteUserModal({
     [target.firstName, target.lastName].filter(Boolean).join(' ').trim() || target.email;
 
   async function doDelete() {
-    const token = sessionStorage.getItem('aptlink_token');
+    const token = sessionStorage.getItem('ace_token');
     if (!token) return;
     setDeleting(true);
     setErr(null);
@@ -3722,7 +3722,7 @@ function HardDeleteUserModal({
           {!result ? (
             <>
               <p>
-                This will permanently remove <strong>{niceName}</strong> from AptLink and Telnyx:
+                This will permanently remove <strong>{niceName}</strong> from ACE and Telnyx:
               </p>
               <ul className="pending-delete-bullets">
                 {niceDid ? (
@@ -3860,7 +3860,7 @@ function AutoProvisionUserModal({
 
   useEffect(() => {
     if (didMode !== 'unassigned' || unassigned !== null || unassignedLoading) return;
-    const token = sessionStorage.getItem('aptlink_token');
+    const token = sessionStorage.getItem('ace_token');
     if (!token) return;
     setUnassignedLoading(true);
     setUnassignedErr(null);
@@ -3875,7 +3875,7 @@ function AutoProvisionUserModal({
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    const token = sessionStorage.getItem('aptlink_token');
+    const token = sessionStorage.getItem('ace_token');
     if (!token) return;
     if (!email.trim()) return;
     if (didMode === 'unassigned' && !pickedUnassignedDid) {
@@ -3922,7 +3922,7 @@ function AutoProvisionUserModal({
         {!result && (
           <>
             <p className="muted small" style={{ marginTop: 0 }}>
-              For someone who was <strong>never on Pulse</strong>. AptLink will buy a Telnyx DID, create SIP credentials, bind the messaging profile, and email the user — all in one click. <strong>This spends money on Telnyx (~$0.45 setup + $0.45/mo per number).</strong>
+              For someone who was <strong>never on Pulse</strong>. ACE will buy a Telnyx DID, create SIP credentials, bind the messaging profile, and email the user — all in one click. <strong>This spends money on Telnyx (~$0.45 setup + $0.45/mo per number).</strong>
             </p>
 
             <form onSubmit={handleSubmit} autoComplete="off">
@@ -3958,7 +3958,7 @@ function AutoProvisionUserModal({
                   />
                 </label>
               </div>
-              {/* Phone number — purchase new OR pick from unassigned AptLink inventory */}
+              {/* Phone number — purchase new OR pick from unassigned ACE inventory */}
               <fieldset className="fav-modal-field" style={{ marginTop: 12, border: 'none', padding: 0 }}>
                 <legend className="fav-modal-label" style={{ marginBottom: 6 }}>Phone number</legend>
 
@@ -4148,7 +4148,7 @@ function AutoProvisionUserModal({
   );
 }
 
-// v0.10.37 — Migrate user from Pulse to AptLink — unified wizard.
+// v0.10.37 — Migrate user from Pulse to ACE — unified wizard.
 function MigrateFromPulseModal({
   onClose,
   onDone,
@@ -4184,7 +4184,7 @@ function MigrateFromPulseModal({
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    const token = sessionStorage.getItem('aptlink_token');
+    const token = sessionStorage.getItem('ace_token');
     if (!token) return;
     if (!pulseEmail.trim() || !pulsePassword) return;
     setSubmitting(true);
@@ -4226,8 +4226,8 @@ function MigrateFromPulseModal({
         {!result && (
           <>
             <p className="muted small" style={{ marginTop: 0 }}>
-              Enter this user's <strong>Pulse</strong> email and password. AptLink will create
-              their account, move their phone number from Pulse to AptLink, and import their
+              Enter this user's <strong>Pulse</strong> email and password. ACE will create
+              their account, move their phone number from Pulse to ACE, and import their
               last 30 days of call and SMS history. The password is used once and never stored.
             </p>
 
@@ -4244,9 +4244,9 @@ function MigrateFromPulseModal({
                   required
                   disabled={submitting}
                 />
-                {/* v0.10.110 - drives AptLink email + Telnyx connection name */}
+                {/* v0.10.110 - drives ACE email + Telnyx connection name */}
                 <span style={{ fontSize: 11, color: '#6b7280', marginTop: 4, display: 'block' }}>
-                  This email becomes their AptLink account email AND drives
+                  This email becomes their ACE account email AND drives
                   the Telnyx Credential Connection name - please type
                   carefully.
                 </span>
@@ -4285,7 +4285,7 @@ function MigrateFromPulseModal({
                 />
                 <span className="muted small" style={{ marginTop: 4, display: 'block' }}>
                   Only fill this if Pulse has the wrong number on the user. When
-                  provided, AptLink ignores Pulse's voip_number and looks up this
+                  provided, ACE ignores Pulse's voip_number and looks up this
                   number on Telnyx instead. Audited.
                 </span>
               </label>
@@ -4319,7 +4319,7 @@ function MigrateFromPulseModal({
                   onChange={(e) => setMakeAdmin(e.target.checked)}
                   disabled={submitting}
                 />
-                Make this user an AptLink admin
+                Make this user an ACE admin
               </label>
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
                 <button type="button" className="device-action" onClick={onClose} disabled={submitting}>
@@ -4358,7 +4358,7 @@ function MigrateFromPulseModal({
               </strong>
               {result.ok && (
                 <div className="muted small" style={{ marginTop: 4 }}>
-                  AptLink user created. Number {result.didNumber} moved. Imported {result.callsInserted ?? 0} calls
+                  ACE user created. Number {result.didNumber} moved. Imported {result.callsInserted ?? 0} calls
                   and {result.messagesInserted ?? 0} messages from Pulse
                   {typeof result.durationMs === 'number' ? ` (${(result.durationMs / 1000).toFixed(1)}s)` : ''}.
                 </div>
@@ -4384,7 +4384,7 @@ function MigrateFromPulseModal({
                 </ul>
               </details>
             )}
-            {/* v0.10.82 — "DID already in AptLink" → show WHO already owns it
+            {/* v0.10.82 — "DID already in ACE" → show WHO already owns it
                 so admin can decide whether to delete that user (same person,
                 stale prior attempt) or use the Override DID field (different
                 person, Pulse data wrong). */}
@@ -4399,7 +4399,7 @@ function MigrateFromPulseModal({
                 }}
               >
                 <strong style={{ fontSize: '0.9rem' }}>
-                  That DID already belongs to AptLink user #{result.existingOwner.userId}
+                  That DID already belongs to ACE user #{result.existingOwner.userId}
                 </strong>
                 <div style={{ marginTop: 6, fontSize: '0.88rem' }}>
                   <strong>
@@ -4409,7 +4409,7 @@ function MigrateFromPulseModal({
                 </div>
                 <div className="muted small" style={{ marginTop: 8 }}>
                   {result.existingOwner.sameAsTarget
-                    ? `Same email as the user you're migrating — this is a prior failed attempt for the same person. Delete AptLink user #${result.existingOwner.userId} (Settings → Admin → Users), then re-run the migration.`
+                    ? `Same email as the user you're migrating — this is a prior failed attempt for the same person. Delete ACE user #${result.existingOwner.userId} (Settings → Admin → Users), then re-run the migration.`
                     : !result.existingOwner.isActive
                       ? `This user is deactivated — admin can delete them to free up the DID, then retry.`
                       : `A different active user owns this DID. Either Pulse's voip_number for the user you're migrating is wrong, or this DID legitimately belongs to the user shown above. Use the Override DID field above with the correct number.`}
@@ -4505,7 +4505,7 @@ function BulkRefreshPulseSmsModal({
   }, [submitting, onClose]);
 
   async function handleRun() {
-    const token = sessionStorage.getItem('aptlink_token');
+    const token = sessionStorage.getItem('ace_token');
     if (!token) return;
     setSubmitting(true);
     setResult(null);
@@ -4546,7 +4546,7 @@ function BulkRefreshPulseSmsModal({
           <>
             <p className="muted small" style={{ marginTop: 0 }}>
               Re-runs the 30-day SMS backfill from Pulse for every user previously migrated
-              from Pulse to AptLink. Useful when Pulse logged new SMS after a user moved over.
+              from Pulse to ACE. Useful when Pulse logged new SMS after a user moved over.
             </p>
             <div
               style={{
@@ -4557,7 +4557,7 @@ function BulkRefreshPulseSmsModal({
               }}
             >
               <strong>SMS only.</strong> Calls can't be bulk-refreshed because Pulse requires
-              each user's own JWT to fetch their call history, and AptLink doesn't store user
+              each user's own JWT to fetch their call history, and ACE doesn't store user
               passwords. For one user's call refresh, use the per-user "Refresh from Pulse"
               on their row.
             </div>
@@ -4630,7 +4630,7 @@ function BulkRefreshPulseSmsModal({
                         <td style={{ padding: '6px 10px' }}>
                           {r.email}
                           <div className="muted small">
-                            AptLink #{r.userId} - Pulse #{r.pulseUserId}
+                            ACE #{r.userId} - Pulse #{r.pulseUserId}
                           </div>
                         </td>
                         <td style={{ padding: '6px 10px' }}>{r.didNumber ?? '-'}</td>
@@ -4705,7 +4705,7 @@ function RefreshUserFromPulseModal({
   }, [submitting, onClose]);
 
   async function handleRun() {
-    const token = sessionStorage.getItem('aptlink_token');
+    const token = sessionStorage.getItem('ace_token');
     if (!token) return;
     setSubmitting(true);
     setResult(null);
@@ -4749,7 +4749,7 @@ function RefreshUserFromPulseModal({
         {!result && (
           <>
             <p className="muted small" style={{ marginTop: 0 }}>
-              Pulls this user's last 30 days of history from Pulse into AptLink again.
+              Pulls this user's last 30 days of history from Pulse into ACE again.
               Already-imported items are skipped automatically.
             </p>
             <div
@@ -4791,7 +4791,7 @@ function RefreshUserFromPulseModal({
                 </select>
                 <span className="muted small" style={{ marginTop: 4, display: 'block' }}>
                   Pick the line whose history should come over from Pulse. Usually
-                  the user's original Pulse number, not their AptLink-purchased line.
+                  the user's original Pulse number, not their ACE-purchased line.
                 </span>
               </label>
             )}
@@ -4809,7 +4809,7 @@ function RefreshUserFromPulseModal({
                 disabled={submitting}
               />
               <span className="muted small" style={{ marginTop: 4, display: 'block' }}>
-                Required <strong>only</strong> for users added to AptLink before the migrate
+                Required <strong>only</strong> for users added to ACE before the migrate
                 wizard existed (their Pulse mapping isn't in the audit log yet).
                 After one successful refresh, you won't need to enter this again for
                 this user — it gets saved automatically.
@@ -4919,7 +4919,7 @@ function RefreshUserFromPulseModal({
                 {/* v0.10.62 — Fixed the false-positive warning.
                     Previously this checked only messagesInserted; for users
                     who'd already been migrated, every "refresh from Pulse"
-                    would hit skipDuplicates (all rows already in AptLink),
+                    would hit skipDuplicates (all rows already in ACE),
                     inserted=0, and the warning would fire alarmingly even
                     though everything was healthy. Now we sum inserted +
                     skipped — only warn if the total processed is materially
@@ -4937,7 +4937,7 @@ function RefreshUserFromPulseModal({
                   if (pulseCount > 0 && materialGap) {
                     return (
                       <div className="small" style={{ marginTop: 6, color: '#d70015' }}>
-                        Warning: Pulse has {pulseCount} SMS in the last 30 days but AptLink
+                        Warning: Pulse has {pulseCount} SMS in the last 30 days but ACE
                         only accounted for {accounted} ({inserted} new + {skipped} already
                         imported). Gap of {pulseCount - accounted} suggests an import bug —
                         let the devs know.
@@ -4947,7 +4947,7 @@ function RefreshUserFromPulseModal({
                   if (pulseCount > 0 && inserted === 0 && skipped > 0) {
                     return (
                       <div className="muted small" style={{ marginTop: 6 }}>
-                        All {skipped} of Pulse's last-30-day SMS were already in AptLink from a
+                        All {skipped} of Pulse's last-30-day SMS were already in ACE from a
                         prior migration. Nothing new to import — this user is up to date.
                       </div>
                     );
@@ -5001,7 +5001,7 @@ function InviteUserModal({
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    const token = sessionStorage.getItem('aptlink_token');
+    const token = sessionStorage.getItem('ace_token');
     if (!token) return;
     if (!email.trim()) {
       setError('Email is required.');
@@ -5175,7 +5175,7 @@ function AuditLogSection() {
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
 
   function loadPage(cursor?: number) {
-    const token = sessionStorage.getItem('aptlink_token');
+    const token = sessionStorage.getItem('ace_token');
     if (!token) return;
     setLoading(true);
     setError(null);
@@ -5188,7 +5188,7 @@ function AuditLogSection() {
       .finally(() => setLoading(false));
   }
   useEffect(() => {
-    const token = sessionStorage.getItem('aptlink_token');
+    const token = sessionStorage.getItem('ace_token');
     if (!token) return;
     getMe(token).then((u) => setMe({ isAdmin: u.isAdmin })).catch(() => undefined);
     loadPage();
@@ -5407,7 +5407,7 @@ function BulkImportModal({
       const rows = parseCsv(text);
       setParsedRows(rows);
       // Auto-trigger dry-run preview.
-      const token = sessionStorage.getItem('aptlink_token');
+      const token = sessionStorage.getItem('ace_token');
       if (!token) {
         setParseError('Not signed in.');
         return;
@@ -5423,7 +5423,7 @@ function BulkImportModal({
   }
 
   async function handleCommit() {
-    const token = sessionStorage.getItem('aptlink_token');
+    const token = sessionStorage.getItem('ace_token');
     if (!token || parsedRows.length === 0) return;
     setSubmitting(true);
     try {
@@ -5569,12 +5569,12 @@ function LiveOpsSection() {
   const [lastFetched, setLastFetched] = useState<Date | null>(null);
 
   useEffect(() => {
-    const token = sessionStorage.getItem('aptlink_token');
+    const token = sessionStorage.getItem('ace_token');
     if (!token) return;
     void getMe(token).then((u) => setMe({ isAdmin: u.isAdmin })).catch(() => undefined);
     let cancelled = false;
     async function fetchData() {
-      const tok = sessionStorage.getItem('aptlink_token');
+      const tok = sessionStorage.getItem('ace_token');
       if (!tok) return;
       try {
         const report = await getLiveOpsReport(tok);
@@ -5758,12 +5758,12 @@ function PresenceSection() {
   const [filter, setFilter] = useState<'all' | 'on_call' | 'active' | 'idle'>('all');
 
   useEffect(() => {
-    const token = sessionStorage.getItem('aptlink_token');
+    const token = sessionStorage.getItem('ace_token');
     if (!token) return;
     void getMe(token).then((u) => setMe({ isAdmin: u.isAdmin })).catch(() => undefined);
     let cancelled = false;
     async function fetchData() {
-      const tok = sessionStorage.getItem('aptlink_token');
+      const tok = sessionStorage.getItem('ace_token');
       if (!tok) return;
       try {
         const r = await getPresenceReport(tok);
@@ -5915,13 +5915,13 @@ function UsageSection() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const token = sessionStorage.getItem('aptlink_token');
+    const token = sessionStorage.getItem('ace_token');
     if (!token) return;
     void getMe(token).then((u) => setMe({ isAdmin: u.isAdmin })).catch(() => undefined);
   }, []);
 
   useEffect(() => {
-    const tok = sessionStorage.getItem('aptlink_token');
+    const tok = sessionStorage.getItem('ace_token');
     if (!tok) return;
     setLoading(true);
     getUsageReport(tok, range)
@@ -6019,13 +6019,13 @@ function QualitySection() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const token = sessionStorage.getItem('aptlink_token');
+    const token = sessionStorage.getItem('ace_token');
     if (!token) return;
     void getMe(token).then((u) => setMe({ isAdmin: u.isAdmin })).catch(() => undefined);
   }, []);
 
   useEffect(() => {
-    const tok = sessionStorage.getItem('aptlink_token');
+    const tok = sessionStorage.getItem('ace_token');
     if (!tok) return;
     setLoading(true);
     getQualityReport(tok, range)
@@ -6311,12 +6311,12 @@ function CostSection() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const token = sessionStorage.getItem('aptlink_token');
+    const token = sessionStorage.getItem('ace_token');
     if (token) void getMe(token).then((u) => setMe({ isAdmin: u.isAdmin })).catch(() => undefined);
   }, []);
 
   useEffect(() => {
-    const tok = sessionStorage.getItem('aptlink_token');
+    const tok = sessionStorage.getItem('ace_token');
     if (!tok) return;
     setLoading(true);
     getCostReport(tok, range)
@@ -6423,12 +6423,12 @@ function RecruiterSection() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const token = sessionStorage.getItem('aptlink_token');
+    const token = sessionStorage.getItem('ace_token');
     if (token) void getMe(token).then((u) => setMe({ isAdmin: u.isAdmin })).catch(() => undefined);
   }, []);
 
   useEffect(() => {
-    const tok = sessionStorage.getItem('aptlink_token');
+    const tok = sessionStorage.getItem('ace_token');
     if (!tok) return;
     setLoading(true);
     getRecruiterReport(tok, range)
@@ -6518,11 +6518,11 @@ function AlertsSection() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const token = sessionStorage.getItem('aptlink_token');
+    const token = sessionStorage.getItem('ace_token');
     if (token) void getMe(token).then((u) => setMe({ isAdmin: u.isAdmin })).catch(() => undefined);
     let cancelled = false;
     async function fetchData() {
-      const tok = sessionStorage.getItem('aptlink_token');
+      const tok = sessionStorage.getItem('ace_token');
       if (!tok) return;
       try {
         const r = await getAlertsReport(tok);
@@ -6592,7 +6592,7 @@ function AlertsSection() {
 // ---------------------------------------------------------------------------
 // v0.10.22 — Teams connection section (admin only).
 //
-// Tenant-wide setting: connects the AptLink Bot service account
+// Tenant-wide setting: connects the ACE Bot service account
 // (acebot@aptask.com) to Microsoft Graph via delegated OAuth. Once
 // connected, all Teams DMs (line_assigned, missed_call, voicemail, SMS)
 // flow through Graph API using the stored refresh token.
@@ -6613,7 +6613,7 @@ function TeamsConnectionSection() {
   const [disconnecting, setDisconnecting] = useState(false);
 
   async function refresh() {
-    const token = sessionStorage.getItem('aptlink_token');
+    const token = sessionStorage.getItem('ace_token');
     if (!token) return;
     try {
       const s = await getMsGraphStatus(token);
@@ -6643,7 +6643,7 @@ function TeamsConnectionSection() {
   }, []);
 
   async function handleConnect() {
-    const token = sessionStorage.getItem('aptlink_token');
+    const token = sessionStorage.getItem('ace_token');
     if (!token) return;
     setError(null);
     setConnecting(true);
@@ -6671,8 +6671,8 @@ function TeamsConnectionSection() {
   }
 
   async function handleDisconnect() {
-    if (!window.confirm('Disconnect AptLink Bot from Microsoft Teams? Teams DMs will stop firing until you reconnect.')) return;
-    const token = sessionStorage.getItem('aptlink_token');
+    if (!window.confirm('Disconnect ACE Bot from Microsoft Teams? Teams DMs will stop firing until you reconnect.')) return;
+    const token = sessionStorage.getItem('ace_token');
     if (!token) return;
     setDisconnecting(true);
     try {
@@ -6690,10 +6690,10 @@ function TeamsConnectionSection() {
   return (
     <div className="settings-section">
       <p className="settings-blurb">
-        Connect the <strong>AptLink Bot</strong> service account
+        Connect the <strong>ACE Bot</strong> service account
         (<code>acebot@aptask.com</code>) to Microsoft Teams. Once connected,
         the dialer sends Teams direct messages for line assignments, missed
-        calls, voicemails, and SMS — directly from AptLink Bot.
+        calls, voicemails, and SMS — directly from ACE Bot.
       </p>
 
       {error && (
@@ -6749,7 +6749,7 @@ function TeamsConnectionSection() {
           }}
         >
           <p style={{ margin: '0 0 10px' }}>
-            <strong>Not connected.</strong> Click below to sign in as AptLink Bot
+            <strong>Not connected.</strong> Click below to sign in as ACE Bot
             and grant the required Teams permissions.
           </p>
           <p className="muted small" style={{ margin: '0 0 12px' }}>
@@ -6798,7 +6798,7 @@ function BlockedNumbersAdminSection() {
   const [error, setError] = useState<string | null>(null);
 
   async function reload() {
-    const token = sessionStorage.getItem('aptlink_token');
+    const token = sessionStorage.getItem('ace_token');
     if (!token) return;
     try {
       const rows = await listAdminBlockedNumbers(token);
@@ -6817,7 +6817,7 @@ function BlockedNumbersAdminSection() {
       `Reason given: "${row.reason ?? '(no reason)'}".\n\n` +
       `Future calls and SMS from this number will reach ${userName} again. The admin override is recorded in the audit log.`,
     )) return;
-    const token = sessionStorage.getItem('aptlink_token');
+    const token = sessionStorage.getItem('ace_token');
     if (!token) return;
     setBusy(row.id);
     setError(null);
@@ -6952,7 +6952,7 @@ function SmsTemplatesAdminSection() {
   const [seedResult, setSeedResult] = useState<string | null>(null);
 
   async function reload() {
-    const token = sessionStorage.getItem('aptlink_token');
+    const token = sessionStorage.getItem('ace_token');
     if (!token) return;
     const items = await listAdminSmsTemplates(token);
     setTemplates(items);
@@ -6961,7 +6961,7 @@ function SmsTemplatesAdminSection() {
   useEffect(() => { void reload(); }, []);
 
   async function handleSeed() {
-    const token = sessionStorage.getItem('aptlink_token');
+    const token = sessionStorage.getItem('ace_token');
     if (!token) return;
     setBusy('seed');
     setSeedResult(null);
@@ -6980,7 +6980,7 @@ function SmsTemplatesAdminSection() {
 
   async function handleArchive(id: number) {
     if (!confirm('Archive this template? It will disappear from users\' picker. You can un-archive by editing.')) return;
-    const token = sessionStorage.getItem('aptlink_token');
+    const token = sessionStorage.getItem('ace_token');
     if (!token) return;
     await archiveSmsTemplate(token, id);
     await reload();
@@ -7110,7 +7110,7 @@ function SmsTemplateEditModal({
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    const token = sessionStorage.getItem('aptlink_token');
+    const token = sessionStorage.getItem('ace_token');
     if (!token) return;
     if (!category.trim() || !name.trim() || !body.trim()) {
       setError('Category, name, and body are all required.');
@@ -7246,7 +7246,7 @@ function SmsTemplateEditModal({
 // Admin composes a celebratory message: pick category, pick recipient
 // (one user or broadcast), set the displayed recipient name (defaults to
 // the picked user's name; editable for "Congrats Ankit Patel" style
-// messages where the subject is external to AptLink), write the body, send.
+// messages where the subject is external to ACE), write the body, send.
 // History list below shows the last 100 praises this admin has sent
 // with delete affordance per row.
 // v0.10.76 — Admin Ringtones library section.
@@ -7268,7 +7268,7 @@ function RingtonesAdminSection() {
   const [previewingId, setPreviewingId] = useState<number | null>(null);
 
   function refresh() {
-    const token = sessionStorage.getItem('aptlink_token');
+    const token = sessionStorage.getItem('ace_token');
     if (!token) return;
     void listAdminRingtones(token).then(setList);
   }
@@ -7293,7 +7293,7 @@ function RingtonesAdminSection() {
       setError(`File is ${Math.round(file.size / 1024)}KB — please use a shorter or more compressed clip (under 400KB raw).`);
       return;
     }
-    const token = sessionStorage.getItem('aptlink_token');
+    const token = sessionStorage.getItem('ace_token');
     if (!token) return;
     setUploading(true);
     try {
@@ -7341,7 +7341,7 @@ function RingtonesAdminSection() {
     if (next === null) return;
     const trimmed = next.trim();
     if (!trimmed || trimmed === current) return;
-    const token = sessionStorage.getItem('aptlink_token');
+    const token = sessionStorage.getItem('ace_token');
     if (!token) return;
     const r = await updateRingtone(token, id, { name: trimmed });
     if ('error' in r) alert(`Rename failed: ${r.error}`);
@@ -7349,7 +7349,7 @@ function RingtonesAdminSection() {
   }
 
   async function handleToggle(id: number, makeActive: boolean) {
-    const token = sessionStorage.getItem('aptlink_token');
+    const token = sessionStorage.getItem('ace_token');
     if (!token) return;
     const r = await updateRingtone(token, id, { isActive: makeActive });
     if ('error' in r) alert(`Toggle failed: ${r.error}`);
@@ -7358,7 +7358,7 @@ function RingtonesAdminSection() {
 
   async function handleDelete(id: number, label: string) {
     if (!confirm(`Delete "${label}"? Anyone currently using it falls back to the default ring.`)) return;
-    const token = sessionStorage.getItem('aptlink_token');
+    const token = sessionStorage.getItem('ace_token');
     if (!token) return;
     const r = await deleteRingtone(token, id);
     if (!r.ok) alert(`Delete failed: ${r.error}`);
@@ -7472,7 +7472,7 @@ function PraiseAdminSection() {
 
   // Load active users + history once on mount.
   useEffect(() => {
-    const token = sessionStorage.getItem('aptlink_token');
+    const token = sessionStorage.getItem('ace_token');
     if (!token) return;
     void listAdminUsers(token).then((rows) => setUsers(rows.filter((u) => u.isActive)));
     void listAdminPraises(token).then(setHistory);
@@ -7499,7 +7499,7 @@ function PraiseAdminSection() {
   async function handleSend() {
     setError(null);
     setOkMsg(null);
-    const token = sessionStorage.getItem('aptlink_token');
+    const token = sessionStorage.getItem('ace_token');
     if (!token) return;
     if (!message.trim()) {
       setError('Write something — the message can\'t be blank.');
@@ -7539,7 +7539,7 @@ function PraiseAdminSection() {
 
   async function handleDelete(praiseId: number) {
     if (!confirm('Delete this broadcast? Anyone who hasn\'t seen it yet won\'t.')) return;
-    const token = sessionStorage.getItem('aptlink_token');
+    const token = sessionStorage.getItem('ace_token');
     if (!token) return;
     const r = await deletePraise(token, praiseId);
     if (!r.ok) {
@@ -7893,7 +7893,7 @@ const BROADCAST_META: Record<PraiseCategoryUI, BroadcastCategoryMeta> = {
   custom:      { label: 'Custom praise',    group: 'Celebrations', defaultHeadline: 'A note from the team', messagePlaceholder: 'Write a short, celebratory message…' },
   // Announcements
   announcement:    { label: 'General announcement', group: 'Announcements', defaultHeadline: 'Announcement',              messagePlaceholder: 'Share what the team needs to know.' },
-  update_required: { label: 'Update required',      group: 'Announcements', defaultHeadline: 'Please update your dialer', messagePlaceholder: 'Quit and reopen AptLink to install the latest version. Lots of fixes for connection stability — worth doing today.' },
+  update_required: { label: 'Update required',      group: 'Announcements', defaultHeadline: 'Please update your dialer', messagePlaceholder: 'Quit and reopen ACE Dialer to install the latest version. Lots of fixes for connection stability — worth doing today.' },
   maintenance:     { label: 'Maintenance window',   group: 'Announcements', defaultHeadline: 'Scheduled maintenance',     messagePlaceholder: 'We\'ll be doing maintenance on the phone system from 9–10 PM tonight. Calls may briefly be unavailable.' },
   holiday:         { label: 'Holiday / office closure', group: 'Announcements', defaultHeadline: 'Office closed',         messagePlaceholder: 'The office will be closed on Monday for Memorial Day. Calls will continue to route normally.' },
   policy_update:   { label: 'Policy update',        group: 'Announcements', defaultHeadline: 'Policy update',             messagePlaceholder: 'New policy effective Monday — please read the updated SOP in the shared drive.' },
@@ -8063,7 +8063,7 @@ function TipsAdminSection() {
   const [submitting, setSubmitting] = useState(false);
 
   function refresh() {
-    const token = sessionStorage.getItem('aptlink_token');
+    const token = sessionStorage.getItem('ace_token');
     if (!token) return;
     setLoading(true);
     void listAdminTips(token).then((rows) => {
@@ -8077,7 +8077,7 @@ function TipsAdminSection() {
   useEffect(() => { refresh(); }, []);
 
   async function handleToggleEnabled(id: number, isEnabled: boolean) {
-    const token = sessionStorage.getItem('aptlink_token');
+    const token = sessionStorage.getItem('ace_token');
     if (!token) return;
     setError(null);
     const r = await updateTip(token, id, { isEnabled });
@@ -8087,7 +8087,7 @@ function TipsAdminSection() {
 
   async function handleDelete(id: number) {
     if (!confirm('Delete this custom tip? Built-ins can\'t be deleted — disable instead.')) return;
-    const token = sessionStorage.getItem('aptlink_token');
+    const token = sessionStorage.getItem('ace_token');
     if (!token) return;
     setError(null);
     const r = await deleteTip(token, id);
@@ -8104,7 +8104,7 @@ function TipsAdminSection() {
       setError('Both Title and Body are required.');
       return;
     }
-    const token = sessionStorage.getItem('aptlink_token');
+    const token = sessionStorage.getItem('ace_token');
     if (!token) return;
     setSubmitting(true);
     const r = await createTip(token, {
@@ -8331,7 +8331,7 @@ function VoicemailMigrationModal({
     setError(null);
     setLoading(true);
     try {
-      const token = sessionStorage.getItem('aptlink_token');
+      const token = sessionStorage.getItem('ace_token');
       if (!token) { setError('Sign in again.'); return; }
       const s = await getVoicemailMigrationStatus(token, user.id);
       setStatus(s);
@@ -8378,7 +8378,7 @@ function VoicemailMigrationModal({
     setResult(null);
     setRunning('migrate');
     try {
-      const token = sessionStorage.getItem('aptlink_token');
+      const token = sessionStorage.getItem('ace_token');
       if (!token) { setError('Sign in again.'); return; }
       const r = await migrateUserToCallControlVoicemail(token, user.id, tagTrim);
       setResult(r);
@@ -8400,7 +8400,7 @@ function VoicemailMigrationModal({
     setResult(null);
     setRunning('rollback');
     try {
-      const token = sessionStorage.getItem('aptlink_token');
+      const token = sessionStorage.getItem('ace_token');
       if (!token) { setError('Sign in again.'); return; }
       const r = await rollbackUserFromCallControlVoicemail(token, user.id);
       setResult(r);
@@ -8494,7 +8494,7 @@ function VoicemailMigrationModal({
                 >
                   <strong>TELNYX_VOICEMAIL_CC_APP_ID not set.</strong> Set the env
                   var on the API service in Render (the Application ID of your
-                  AptLink Voicemail Voice API app in Telnyx) and redeploy.
+                  ACE Voicemail Voice API app in Telnyx) and redeploy.
                 </div>
               )}
               {!status.user.sipUsername && (
@@ -8721,7 +8721,7 @@ function UserDevicesModal({
     setError(null);
     setLoading(true);
     try {
-      const token = sessionStorage.getItem('aptlink_token');
+      const token = sessionStorage.getItem('ace_token');
       if (!token) { setError('Sign in again.'); return; }
       const list = await getUserDevices(token, user.id);
       setDevices(list);
@@ -8746,7 +8746,7 @@ function UserDevicesModal({
     setOkMsg(null);
     setBusyDeviceId(deviceId);
     try {
-      const token = sessionStorage.getItem('aptlink_token');
+      const token = sessionStorage.getItem('ace_token');
       if (!token) { setError('Sign in again.'); return; }
       await requestDeviceForceUpdate(token, user.id, deviceId);
       setOkMsg('Force-update requested. The device will trigger an update check within ~60 seconds.');

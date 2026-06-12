@@ -46,7 +46,7 @@ export default function DidSwitcher({ onSwitch }: Props) {
 
   // Load (and refresh on the custom event).
   const reload = useCallback(async () => {
-    const token = sessionStorage.getItem('aptlink_token');
+    const token = sessionStorage.getItem('ace_token');
     if (!token) return;
     try {
       const rows = await getMyDids(token);
@@ -124,7 +124,7 @@ export default function DidSwitcher({ onSwitch }: Props) {
     }
     setSwitching(true);
     setError(null);
-    const token = sessionStorage.getItem('aptlink_token');
+    const token = sessionStorage.getItem('ace_token');
     if (!token) {
       setSwitching(false);
       setError('Not signed in');

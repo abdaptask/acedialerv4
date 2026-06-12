@@ -1,6 +1,6 @@
 // v0.10.34 — Pulse MySQL backfill for migration history.
 //
-// When migrating a user from Pulse to AptLink, we want their last 30 days
+// When migrating a user from Pulse to ACE, we want their last 30 days
 // of SMS + call history populated. Telnyx's async report API handles
 // the part Telnyx has, but some Pulse setups route SMS through other
 // channels (Twilio shared sender, etc.) and store the history only in
@@ -315,7 +315,7 @@ export async function getPulseCallsForUser(args: {
 
 /**
  * Diagnostic — search Pulse users by email substring (case-insensitive).
- * Returns up to 20 matches. Useful when the user's email in AptLink doesn't
+ * Returns up to 20 matches. Useful when the user's email in ACE doesn't
  * match what's in Pulse (different domain, casing, etc.). Lets admins
  * find the right pulseUserId without needing a MySQL client.
  */

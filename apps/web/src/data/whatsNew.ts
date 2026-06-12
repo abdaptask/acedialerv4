@@ -218,7 +218,7 @@ export const WHATS_NEW: ReleaseEntry[] = [
     date: 'June 6, 2026',
     highlight: 'New app icon \u2014 modern keypad design replacing the default Electron logo',
     changes: [
-      { type: 'improved', text: 'AptLink now ships with a custom app icon (dark slate background, keypad grid with phone button accent). Replaces the default Electron logo on your desktop, taskbar, dock, and installer. Auto-applies on next launch after you install v0.10.102.' },
+      { type: 'improved', text: 'ACE Dialer now ships with a custom app icon (dark slate background, keypad grid with phone button accent). Replaces the default Electron logo on your desktop, taskbar, dock, and installer. Auto-applies on next launch after you install v0.10.102.' },
     ],
   },
   {
@@ -275,7 +275,7 @@ export const WHATS_NEW: ReleaseEntry[] = [
     date: 'June 5, 2026',
     highlight: 'New releases go through admin review before reaching the team',
     changes: [
-      { type: 'improved', text: 'Behind the scenes: future AptLink updates now land as drafts on GitHub Releases first. Admins test each update before publishing it to the rest of the team. Once an admin approves, the dialer auto-updates everyone within 1-2 hours like before. No action needed on your end — you\'ll only see updates that have been verified to work.' },
+      { type: 'improved', text: 'Behind the scenes: future ACE Dialer updates now land as drafts on GitHub Releases first. Admins test each update before publishing it to the rest of the team. Once an admin approves, the dialer auto-updates everyone within 1-2 hours like before. No action needed on your end — you\'ll only see updates that have been verified to work.' },
     ],
   },
   {
@@ -358,8 +358,8 @@ export const WHATS_NEW: ReleaseEntry[] = [
     date: 'June 4, 2026',
     highlight: 'Anchorsite goes manual; noise suppression gets its own isolated PATCH',
     changes: [
-      { type: 'fixed', text: 'No more "apply AptLink connection defaults — non-fatal warning" red X on migrations. The dialer no longer tries to PATCH anchorsite_override programmatically — instead admin sets AnchorSite manually on the master template in Telnyx Mission Control, and new users inherit whatever the template has. Previous attempts ("Chennai" / "Chennai, India" / "Latency" / "latency" / "Latency Routing") all got Telnyx 10015 rejections because Telnyx\'s accepted enum strings vary across connection types in ways we can\'t reliably guess from outside. The GUI dropdown is now the source of truth.' },
-      { type: 'improved', text: 'Noise Suppression now gets its own isolated PATCH right after the connection is created — separate from the template clone\'s large bulk PATCH. The function re-fetches the master template at migration time, reads template.noise_suppression (currently "Both Inbound and Outbound" + Krisp Viva Tel Lite), and PATCHes that exact block onto the new user\'s connection. Belt-and-suspenders against Telnyx silently dropping noise_suppression from the bigger template-clone payload. Migration step list shows "apply AptLink connection defaults (noise suppression copied from master template)".' },
+      { type: 'fixed', text: 'No more "apply ACE connection defaults — non-fatal warning" red X on migrations. The dialer no longer tries to PATCH anchorsite_override programmatically — instead admin sets AnchorSite manually on the master template in Telnyx Mission Control, and new users inherit whatever the template has. Previous attempts ("Chennai" / "Chennai, India" / "Latency" / "latency" / "Latency Routing") all got Telnyx 10015 rejections because Telnyx\'s accepted enum strings vary across connection types in ways we can\'t reliably guess from outside. The GUI dropdown is now the source of truth.' },
+      { type: 'improved', text: 'Noise Suppression now gets its own isolated PATCH right after the connection is created — separate from the template clone\'s large bulk PATCH. The function re-fetches the master template at migration time, reads template.noise_suppression (currently "Both Inbound and Outbound" + Krisp Viva Tel Lite), and PATCHes that exact block onto the new user\'s connection. Belt-and-suspenders against Telnyx silently dropping noise_suppression from the bigger template-clone payload. Migration step list shows "apply ACE connection defaults (noise suppression copied from master template)".' },
       { type: 'improved', text: 'The /admin/backfill-anchorsites endpoint now backfills NOISE SUPPRESSION (not anchorsite) for every existing user — it re-runs applyAceConnectionDefaults which now does the noise PATCH instead. After this deploys, run the backfill once via the browser console to ensure every existing user gets the master template\'s noise suppression config applied to their Telnyx connection. The endpoint name is historical; the function it calls now does the right thing.' },
     ],
   },
@@ -368,7 +368,7 @@ export const WHATS_NEW: ReleaseEntry[] = [
     date: 'June 4, 2026',
     highlight: 'Telnyx template inheritance fixed + zero-SQL re-migrations',
     changes: [
-      { type: 'fixed', text: 'New user connections now inherit EVERY setting from the AptLink Master Template at Telnyx — including Enable Instant Ringback (inbound + outbound), Enable Simultaneous Ringing, Noise Suppression (Both Inbound and Outbound + Krisp engine), Jitter Buffer settings, and any other setting Telnyx surfaces. Previously we were whitelisting specific field names which silently dropped anything not in our list. After deploy, any newly migrated/invited user gets the template configuration exactly. Existing users still need the /admin/backfill-anchorsites endpoint to pick up newer template changes.' },
+      { type: 'fixed', text: 'New user connections now inherit EVERY setting from the ACE Master Template at Telnyx — including Enable Instant Ringback (inbound + outbound), Enable Simultaneous Ringing, Noise Suppression (Both Inbound and Outbound + Krisp engine), Jitter Buffer settings, and any other setting Telnyx surfaces. Previously we were whitelisting specific field names which silently dropped anything not in our list. After deploy, any newly migrated/invited user gets the template configuration exactly. Existing users still need the /admin/backfill-anchorsites endpoint to pick up newer template changes.' },
       { type: 'improved', text: 'When admin re-migrates a user from Pulse who was previously migrated and then deleted, their historical messages, calls, and voicemails now AUTOMATICALLY get reattached to the new user. No more "user has 0 history visible" + manual SQL UPDATE to recover. The migration step list shows "inherit orphan history from prior tombstoned user(s) X: N messages, M calls, P voicemails" when it triggers.' },
       { type: 'new', text: 'Admin diagnostic endpoint GET /admin/telnyx-template-debug returns the master template\'s current Telnyx JSON. Useful for verifying which settings are actually being surfaced by Telnyx\'s API when a Mission Control toggle isn\'t taking effect on new users. Hit it from the browser console while signed in as admin.' },
     ],
@@ -387,7 +387,7 @@ export const WHATS_NEW: ReleaseEntry[] = [
     date: 'June 4, 2026',
     highlight: 'Final fix for the recurring Pulse-migration paper-cuts',
     changes: [
-      { type: 'fixed', text: 'Migrations no longer show the red X "apply AptLink connection defaults — non-fatal warning" line. Telnyx kept rejecting our anchorsite_override values with error 10015 because we never had the exact accepted enum strings. We now skip the override entirely; new users inherit the master template\'s anchorsite (already a known-working config), which is what India and US users have effectively been using all along. Per-country routing optimization will come back in a future release once we confirm the right Telnyx strings.' },
+      { type: 'fixed', text: 'Migrations no longer show the red X "apply ACE connection defaults — non-fatal warning" line. Telnyx kept rejecting our anchorsite_override values with error 10015 because we never had the exact accepted enum strings. We now skip the override entirely; new users inherit the master template\'s anchorsite (already a known-working config), which is what India and US users have effectively been using all along. Per-country routing optimization will come back in a future release once we confirm the right Telnyx strings.' },
       { type: 'fixed', text: 'When admin deletes a user whose history can\'t be hard-deleted (calls/SMS/voicemails block the FK), the soft-delete now also releases the user\'s phone numbers. Pre-v0.10.84, the user got tombstoned but their DID stayed reserved — blocking any future Pulse migration that targeted the same number. This was the Roshni/Farheen/Shreya pattern requiring manual SQL cleanup. Now it just works.' },
     ],
   },
@@ -405,7 +405,7 @@ export const WHATS_NEW: ReleaseEntry[] = [
     highlight: 'Mac users no longer need to double-click to accept incoming calls',
     changes: [
       { type: 'fixed', text: 'On macOS, accepting an incoming call from the floating ringer used to require two clicks — the first one only focused the window, the second actually accepted. Now a single click works, matching Windows behavior. Same fix applied to the main dialer window when interacting with it after switching from another app.' },
-      { type: 'improved', text: 'When migrate-from-Pulse fails with "DID already in AptLink," the modal now shows WHO already owns that DID (name, email, active/deactivated state) with a tailored next-step recommendation — so admin doesn\'t have to look up the conflicting user separately. If the conflicting user has the same email as the migration target, the modal explicitly says "this is a prior failed attempt — delete that user and retry."' },
+      { type: 'improved', text: 'When migrate-from-Pulse fails with "DID already in ACE," the modal now shows WHO already owns that DID (name, email, active/deactivated state) with a tailored next-step recommendation — so admin doesn\'t have to look up the conflicting user separately. If the conflicting user has the same email as the migration target, the modal explicitly says "this is a prior failed attempt — delete that user and retry."' },
     ],
   },
   {
@@ -413,7 +413,7 @@ export const WHATS_NEW: ReleaseEntry[] = [
     date: 'June 4, 2026',
     highlight: 'Migration robustness — debug panel for failed Pulse migrations + Telnyx anchorsite fix',
     changes: [
-      { type: 'fixed', text: 'Telnyx anchorsite_override values were being rejected on every migration since v0.10.64 — we were sending "Chennai" and "Latency" instead of the proper "Chennai, India" and "Latency Routing". Showed up as the red "X apply AptLink connection defaults — non-fatal warning" line in the migrate modal. For US users this was invisible (template default kicked in); for India users it meant calls weren\'t being anchor-routed through Chennai, hurting latency. Fixed going forward, and a separate one-time backfill endpoint reapplies the correct anchorsite to all existing users.' },
+      { type: 'fixed', text: 'Telnyx anchorsite_override values were being rejected on every migration since v0.10.64 — we were sending "Chennai" and "Latency" instead of the proper "Chennai, India" and "Latency Routing". Showed up as the red "X apply ACE connection defaults — non-fatal warning" line in the migrate modal. For US users this was invisible (template default kicked in); for India users it meant calls weren\'t being anchor-routed through Chennai, hurting latency. Fixed going forward, and a separate one-time backfill endpoint reapplies the correct anchorsite to all existing users.' },
       { type: 'new', text: 'Migration debug panel. When the migrate-from-Pulse modal fails with "Telnyx doesn\'t recognize this DID," it now scans the Pulse JWT for OTHER phone-shaped fields (mobile_no, caller_phone_number) and checks each one\'s Telnyx ownership. Shows admin "this OTHER number from Pulse IS owned by us — try that instead" instead of forcing a SQL spelunk. Saves several minutes per misconfigured migration (Roshni / Shreya pattern).' },
     ],
   },
@@ -422,8 +422,8 @@ export const WHATS_NEW: ReleaseEntry[] = [
     date: 'June 4, 2026',
     highlight: 'Fixes a major silent miss-call bug — stale "ghost" sessions at Telnyx',
     changes: [
-      { type: 'fixed', text: 'Inbound calls going straight to voicemail even though the dialer looked online — root cause was old, abandoned SIP sessions accumulating at Telnyx every time you reload or restart the app. Telnyx was trying to ring every old session before getting to the live one, so calls stalled. The dialer now wipes those ghost sessions at startup and registers fresh. After this deploys, restart your dialer once and inbound routing should be reliable from there on. (If you have AptLink open on multiple devices for the same account, only the most recently-opened one will ring — same model as Pulse.)' },
-      { type: 'fixed', text: 'Email notification buttons ("Reply in AptLink", "Call back in AptLink") were opening the web app instead of your installed desktop app. They now use the same aptlink:// protocol that Teams cards use, so they open Electron directly with the caller / sender prefilled. Web is still the fallback when no desktop app is installed.' },
+      { type: 'fixed', text: 'Inbound calls going straight to voicemail even though the dialer looked online — root cause was old, abandoned SIP sessions accumulating at Telnyx every time you reload or restart the app. Telnyx was trying to ring every old session before getting to the live one, so calls stalled. The dialer now wipes those ghost sessions at startup and registers fresh. After this deploys, restart your dialer once and inbound routing should be reliable from there on. (If you have ACE open on multiple devices for the same account, only the most recently-opened one will ring — same model as Pulse.)' },
+      { type: 'fixed', text: 'Email notification buttons ("Reply in ACE Dialer", "Call back in ACE Dialer") were opening the web app instead of your installed desktop app. They now use the same ace-dialer:// protocol that Teams cards use, so they open Electron directly with the caller / sender prefilled. Web is still the fallback when no desktop app is installed.' },
       { type: 'new', text: 'Diagnostics section under Settings → Personal. If your dialer ever does something weird — missed call, stuck status, disconnects — click "Download logs" and email the .txt file to your admin so we can pinpoint exactly what happened on your machine. Way easier than asking you to open developer tools.' },
       { type: 'improved', text: 'SIP REGISTER responses now log the full Contact header from Telnyx and the count of active bindings, so when something IS wrong with routing we can spot it in the diagnostics export instantly instead of guessing.' },
     ],
@@ -442,7 +442,7 @@ export const WHATS_NEW: ReleaseEntry[] = [
     date: 'June 4, 2026',
     highlight: 'Tighter NAT keepalive — fixes the "hard-refresh after 5-10 min idle" pattern',
     changes: [
-      { type: 'fixed', text: 'Users no longer need to hard-refresh AptLink after a few minutes of inactivity to start receiving calls again. Root cause was NAT timeout: routers and corporate firewalls silently drop idle TCP connections after 5-10 minutes (some aggressive ones at 60s). Tightened v0.10.77\'s force-REGISTER cadence from 60 seconds to 30 seconds so the SIP traffic itself keeps the NAT mapping warm. After this deploys + you restart your dialer once, sustained idle should no longer break inbound call routing.' },
+      { type: 'fixed', text: 'Users no longer need to hard-refresh ACE after a few minutes of inactivity to start receiving calls again. Root cause was NAT timeout: routers and corporate firewalls silently drop idle TCP connections after 5-10 minutes (some aggressive ones at 60s). Tightened v0.10.77\'s force-REGISTER cadence from 60 seconds to 30 seconds so the SIP traffic itself keeps the NAT mapping warm. After this deploys + you restart your dialer once, sustained idle should no longer break inbound call routing.' },
     ],
   },
   {
@@ -475,7 +475,7 @@ export const WHATS_NEW: ReleaseEntry[] = [
   {
     version: '0.10.74',
     date: 'June 3, 2026',
-    highlight: 'Send Praise — celebrate new hires, offers, birthdays from inside AptLink',
+    highlight: 'Send Praise — celebrate new hires, offers, birthdays from inside ACE',
     changes: [
       { type: 'new', text: 'Admins can now send a Teams-Praise-style celebratory pop-up to one user or broadcast to everyone. Settings → Admin → Send praise. Pick a category (New hire / New offer / Birthday / Work anniversary / Custom), the recipient (one user or Everyone), the display name of who\'s being celebrated, and a short message. The recipient(s) see a big confetti modal next time they\'re idle in the dialer.' },
       { type: 'new', text: 'Smart suppression: the praise modal does NOT pop up while a user is on an active call — recruiters mid-conversation aren\'t yanked out of context. It waits until the call ends, then appears.' },
@@ -506,7 +506,7 @@ export const WHATS_NEW: ReleaseEntry[] = [
     date: 'June 3, 2026',
     highlight: 'Teams Reply/Call leftover browser tab auto-closes',
     changes: [
-      { type: 'improved', text: 'After clicking Reply or Call on a Teams notification and letting it open the desktop AptLink, the browser tab that brokered the launch now tries to close itself automatically 1.5 seconds later. Browsers vary on whether they honor close() for tabs they didn\'t script-open — when they do, the tab vanishes silently. When they don\'t, the leftover tab now shows a friendly "AptLink should be opening on your desktop — you can close this tab" message with an explicit Close this tab button, instead of looking like a stuck loading screen.' },
+      { type: 'improved', text: 'After clicking Reply or Call on a Teams notification and letting it open the desktop ACE Dialer, the browser tab that brokered the launch now tries to close itself automatically 1.5 seconds later. Browsers vary on whether they honor close() for tabs they didn\'t script-open — when they do, the tab vanishes silently. When they don\'t, the leftover tab now shows a friendly "ACE Dialer should be opening on your desktop — you can close this tab" message with an explicit Close this tab button, instead of looking like a stuck loading screen.' },
       { type: 'fixed', text: 'Removed the 8-second auto-navigate to /messages or /keypad. Previously the browser tab would silently bounce to /login if the user wasn\'t signed in on the browser — a surprise redirect that scared people. Now the tab stays on the launch page with an explicit "Open in browser composer" / "Open in browser dialer" button if the user wants to fall back to the web app deliberately. No more sneaky redirects.' },
     ],
   },
@@ -515,7 +515,7 @@ export const WHATS_NEW: ReleaseEntry[] = [
     date: 'June 3, 2026',
     highlight: 'Teams Reply/Call → Electron — actually works now',
     changes: [
-      { type: 'fixed', text: 'Teams notification Reply / Call buttons now actually open the Electron desktop app. The v0.10.67 attempt only handled the case where the user was ALREADY inside Electron — for the typical case (Teams card click opens the URL in the default browser, where the user has no AptLink session), the auth guard redirected to /login BEFORE the protocol-launch page ever rendered. Moved the /auto/call and /auto/sms routes outside the auth gate so the aptlink:// redirect fires immediately, even for unauthenticated browser sessions. The "Open AptLink?" browser prompt now appears reliably; click Allow once (with "Always allow") and future Teams card clicks open Electron silently. The web fallback (when the protocol handler is absent) still works as before for users without the desktop app.' },
+      { type: 'fixed', text: 'Teams notification Reply / Call buttons now actually open the Electron desktop app. The v0.10.67 attempt only handled the case where the user was ALREADY inside Electron — for the typical case (Teams card click opens the URL in the default browser, where the user has no ACE session), the auth guard redirected to /login BEFORE the protocol-launch page ever rendered. Moved the /auto/call and /auto/sms routes outside the auth gate so the ace-dialer:// redirect fires immediately, even for unauthenticated browser sessions. The "Open ACE Dialer?" browser prompt now appears reliably; click Allow once (with "Always allow") and future Teams card clicks open Electron silently. The web fallback (when the protocol handler is absent) still works as before for users without the desktop app.' },
     ],
   },
   {
@@ -540,8 +540,8 @@ export const WHATS_NEW: ReleaseEntry[] = [
     date: 'June 3, 2026',
     highlight: 'Telnyx auto-config for new users + Teams deep-link to desktop + faster unread badge refresh',
     changes: [
-      { type: 'new', text: 'Every new or migrated user now automatically gets the standard AptLink Telnyx configuration applied to their Credential Connection and DID — no more manual setup in the Telnyx Portal. Anchor site picked by country (India → Chennai, US/Other → latency-optimized). DID defaults: HD voice enabled, CNAM listing enabled with caller ID name "ApTask", voicemail enabled with PIN 12345. The Migrate from Pulse modal has a new "Country" dropdown so the right anchor site is applied per user. All settings beyond anchor come from your master template Connection in Telnyx — set its ID via the existing TELNYX_TEMPLATE_CONNECTION_ID env var.' },
-      { type: 'fixed', text: 'Teams notification Reply / Call buttons now correctly deep-link into the desktop AptLink instead of dumping you to the web. If you\'re already running AptLink inside Electron, the redirect skips the protocol-launch step entirely and just navigates inside the same window. The browser-side fallback timeout extended from 3s to 8s so the "Open AptLink?" prompt has time to be clicked.' },
+      { type: 'new', text: 'Every new or migrated user now automatically gets the standard ACE Telnyx configuration applied to their Credential Connection and DID — no more manual setup in the Telnyx Portal. Anchor site picked by country (India → Chennai, US/Other → latency-optimized). DID defaults: HD voice enabled, CNAM listing enabled with caller ID name "ApTask", voicemail enabled with PIN 12345. The Migrate from Pulse modal has a new "Country" dropdown so the right anchor site is applied per user. All settings beyond anchor come from your master template Connection in Telnyx — set its ID via the existing TELNYX_TEMPLATE_CONNECTION_ID env var.' },
+      { type: 'fixed', text: 'Teams notification Reply / Call buttons now correctly deep-link into the desktop ACE Dialer instead of dumping you to the web. If you\'re already running ACE inside Electron, the redirect skips the protocol-launch step entirely and just navigates inside the same window. The browser-side fallback timeout extended from 3s to 8s so the "Open ACE Dialer?" prompt has time to be clicked.' },
       { type: 'fixed', text: 'Unread badges (Messages, Voicemail) now clear immediately when you read an SMS thread or listen to a voicemail. Previously the bottom-nav badge stayed at the pre-action count for up to 15 seconds (the next poll interval). Now a custom event fires the moment the read/listen action persists, and the badge refreshes instantly.' },
     ],
   },
@@ -568,7 +568,7 @@ export const WHATS_NEW: ReleaseEntry[] = [
     date: 'June 3, 2026',
     highlight: 'Fix the v0.10.50 over-aggressive visibility-register cascade',
     changes: [
-      { type: 'fixed', text: 'The dialer no longer hammers Telnyx with a fresh SIP REGISTER every time you click between the dialer window and another app. The v0.10.50 "always force a fresh register on focus" defense was meant to recover from silent Telnyx evictions after long absences (laptop sleep, etc.), but it was firing on every tab/window focus — which for users who keep DevTools docked next to AptLink meant dozens of REGISTERs in seconds, eventually colliding with Telnyx\'s concurrent-REGISTER guard and triggering a registrationFailed cascade → manual reconnect → visible Disconnected flicker. The forced register now only fires when (a) the document was actually hidden for more than 30 seconds, AND (b) we haven\'t already force-registered in the last 30 seconds. The 10-second heartbeat still handles routine refreshes; this just stops the focus-event spam.' },
+      { type: 'fixed', text: 'The dialer no longer hammers Telnyx with a fresh SIP REGISTER every time you click between the dialer window and another app. The v0.10.50 "always force a fresh register on focus" defense was meant to recover from silent Telnyx evictions after long absences (laptop sleep, etc.), but it was firing on every tab/window focus — which for users who keep DevTools docked next to ACE meant dozens of REGISTERs in seconds, eventually colliding with Telnyx\'s concurrent-REGISTER guard and triggering a registrationFailed cascade → manual reconnect → visible Disconnected flicker. The forced register now only fires when (a) the document was actually hidden for more than 30 seconds, AND (b) we haven\'t already force-registered in the last 30 seconds. The 10-second heartbeat still handles routine refreshes; this just stops the focus-event spam.' },
       { type: 'improved', text: 'Diagnostic logs now show how long the dialer was hidden and how long since the last forced register, so when SIP issues show up in the console you can tell at a glance whether the visibility recovery was the cause or something else.' },
     ],
   },
@@ -579,7 +579,7 @@ export const WHATS_NEW: ReleaseEntry[] = [
     changes: [
       { type: 'fixed', text: 'Sending an SMS no longer shows "Invalid Date, Invalid Date" on the new bubble. The regression came from v0.10.59 when the send helper was extracted into a shared module — it accidentally narrowed the response shape, dropping createdAt and a few other fields that the bubble renderer needs. The bubble now shows the proper timestamp from the moment the message is sent (no refresh needed).' },
       { type: 'fixed', text: 'All four timestamp formatters (Messages, Recents, Voicemail, Chat) now guard against invalid date inputs and render an empty string instead of "Invalid Date, Invalid Date" if a malformed timestamp ever slips through. Defensive layer in case future code paths produce bad dates.' },
-      { type: 'fixed', text: 'Refresh-from-Pulse no longer scares admin with a false-positive bug warning when the user has already been migrated. The previous warning checked only "newly inserted" rows and ignored "already in AptLink / skipped as duplicate" — so re-running Refresh on a fully-imported user (every duplicate skipped, 0 new) would alarmingly say "Pulse has X SMS but AptLink didn\'t import any — let the devs know." It now correctly sums inserted + skipped and only warns when there\'s a real gap (5% drift tolerance). If everything\'s already imported, you see a calm "All N already in AptLink — user is up to date" message instead.' },
+      { type: 'fixed', text: 'Refresh-from-Pulse no longer scares admin with a false-positive bug warning when the user has already been migrated. The previous warning checked only "newly inserted" rows and ignored "already in ACE / skipped as duplicate" — so re-running Refresh on a fully-imported user (every duplicate skipped, 0 new) would alarmingly say "Pulse has X SMS but ACE didn\'t import any — let the devs know." It now correctly sums inserted + skipped and only warns when there\'s a real gap (5% drift tolerance). If everything\'s already imported, you see a calm "All N already in ACE — user is up to date" message instead.' },
     ],
   },
   {
@@ -677,7 +677,7 @@ export const WHATS_NEW: ReleaseEntry[] = [
     date: 'June 2, 2026',
     highlight: 'Critical SMS import fix — Pulse SMS imports now actually work',
     changes: [
-      { type: 'fixed', text: 'Every SMS import from Pulse since v0.10.44 was failing silently. The fetch SQL referenced a chat_user.normalized_mobile column that exists in newer Pulse schema dumps but NOT in production. MySQL returned "Unknown column" error, the catch block swallowed it, and the diagnostic kept showing "Pulse has X SMS, AptLink imported 0". Removed the bad column. Now run Refresh from Pulse on any user (Sagar, Sanjyot, anyone whose import showed 0) and SMS will actually come through.' },
+      { type: 'fixed', text: 'Every SMS import from Pulse since v0.10.44 was failing silently. The fetch SQL referenced a chat_user.normalized_mobile column that exists in newer Pulse schema dumps but NOT in production. MySQL returned "Unknown column" error, the catch block swallowed it, and the diagnostic kept showing "Pulse has X SMS, ACE imported 0". Removed the bad column. Now run Refresh from Pulse on any user (Sagar, Sanjyot, anyone whose import showed 0) and SMS will actually come through.' },
     ],
   },
   {
@@ -686,7 +686,7 @@ export const WHATS_NEW: ReleaseEntry[] = [
     highlight: 'Admins can set one hold music for everyone',
     changes: [
       { type: 'new', text: 'Settings → Hold music. Admins now see a "Set as tenant default" button below the regular upload controls. Once set, every new user (and every existing user without their own override) inherits the same hold music automatically on next sign-in. Users can still upload their own personal hold music to override the default if they want.' },
-      { type: 'improved', text: 'Hold music is now stored centrally in AptLink\'s database (one tenant-wide entry) instead of only in each user\'s browser. Admin manages it once; the rollout to every user is automatic.' },
+      { type: 'improved', text: 'Hold music is now stored centrally in ACE\'s database (one tenant-wide entry) instead of only in each user\'s browser. Admin manages it once; the rollout to every user is automatic.' },
     ],
   },
   {
@@ -744,7 +744,7 @@ export const WHATS_NEW: ReleaseEntry[] = [
     date: 'June 2, 2026',
     highlight: 'Refresh from Pulse shows diagnostic counts',
     changes: [
-      { type: 'new', text: 'When you refresh a user from Pulse and 0 SMS come over, the result panel now shows what Pulse actually has for them: total messages, total SMS (any time), SMS in the last 30 days. Makes it clear whether Pulse genuinely has no SMS for that user or whether AptLink is missing them — no more guessing.' },
+      { type: 'new', text: 'When you refresh a user from Pulse and 0 SMS come over, the result panel now shows what Pulse actually has for them: total messages, total SMS (any time), SMS in the last 30 days. Makes it clear whether Pulse genuinely has no SMS for that user or whether ACE is missing them — no more guessing.' },
     ],
   },
   {
@@ -752,8 +752,8 @@ export const WHATS_NEW: ReleaseEntry[] = [
     date: 'June 2, 2026',
     highlight: 'Refresh from Pulse: works for pre-wizard users + handles multi-line users',
     changes: [
-      { type: 'fixed', text: 'The "Refresh from Pulse" button used to fail with "No Pulse user_id on record" for users added to AptLink before the migrate wizard existed. The modal now has an optional "Pulse user ID" field — enter their Pulse user_id (e.g. 55) the first time, and AptLink remembers it for future refreshes.' },
-      { type: 'new', text: 'If a user has multiple phone lines (e.g. an original Pulse number AND a new AptLink-purchased number), the Refresh modal now shows a "Which line?" dropdown so you can pick which line the Pulse history should attach to. Single-line users don\'t see the dropdown — defaults to their one line automatically.' },
+      { type: 'fixed', text: 'The "Refresh from Pulse" button used to fail with "No Pulse user_id on record" for users added to ACE before the migrate wizard existed. The modal now has an optional "Pulse user ID" field — enter their Pulse user_id (e.g. 55) the first time, and ACE remembers it for future refreshes.' },
+      { type: 'new', text: 'If a user has multiple phone lines (e.g. an original Pulse number AND a new ACE-purchased number), the Refresh modal now shows a "Which line?" dropdown so you can pick which line the Pulse history should attach to. Single-line users don\'t see the dropdown — defaults to their one line automatically.' },
       { type: 'fixed', text: 'The DID column on Settings → Users now shows each user\'s current default line (instead of the legacy first-assigned number which got stale when admins added or changed lines later). Users with more than one line get a "+N" badge so you know they have multiple.' },
       { type: 'improved', text: 'Search now matches across all of a user\'s lines, not just their original one.' },
     ],
@@ -772,8 +772,8 @@ export const WHATS_NEW: ReleaseEntry[] = [
     date: 'June 1, 2026',
     highlight: 'One-click migrate user from Pulse',
     changes: [
-      { type: 'new', text: 'Settings - Users - "Migrate from Pulse". Enter the user\'s Pulse email and password, and AptLink does everything else in 30-60 seconds: creates their AptLink account, moves their phone number from Pulse to AptLink in Telnyx, configures the messaging profile, sends a welcome email, and imports their last 30 days of calls + SMS. Step-by-step results shown in the modal.' },
-      { type: 'improved', text: 'Migration audit log records pulse user_id, AptLink email, DID, both Telnyx connection IDs (before + after), counts of records imported, and total duration - but never the user\'s Pulse password.' },
+      { type: 'new', text: 'Settings - Users - "Migrate from Pulse". Enter the user\'s Pulse email and password, and ACE does everything else in 30-60 seconds: creates their ACE account, moves their phone number from Pulse to ACE in Telnyx, configures the messaging profile, sends a welcome email, and imports their last 30 days of calls + SMS. Step-by-step results shown in the modal.' },
+      { type: 'improved', text: 'Migration audit log records pulse user_id, ACE email, DID, both Telnyx connection IDs (before + after), counts of records imported, and total duration - but never the user\'s Pulse password.' },
     ],
   },
   {
@@ -781,7 +781,7 @@ export const WHATS_NEW: ReleaseEntry[] = [
     date: 'June 1, 2026',
     highlight: 'Migration backfill now reaches into Pulse for call history',
     changes: [
-      { type: 'new', text: 'When you migrate a user from Pulse to AptLink, the dialer now logs into Pulse with the user\'s credentials and pulls their last ~200 call records (typically 20-30 days of history depending on call volume) directly into AptLink\'s Recents. Combined with the existing 30-day SMS import, migrated users land with their full recent history visible immediately.' },
+      { type: 'new', text: 'When you migrate a user from Pulse to ACE, the dialer now logs into Pulse with the user\'s credentials and pulls their last ~200 call records (typically 20-30 days of history depending on call volume) directly into ACE\'s Recents. Combined with the existing 30-day SMS import, migrated users land with their full recent history visible immediately.' },
       { type: 'improved', text: 'Admins can re-run a user\'s backfill at any time by providing that user\'s Pulse email + password to the backfill endpoint. Password is used once and never stored.' },
       { type: 'fixed', text: 'Pulse marks call records as "incoming"/"outgoing" rather than "inbound"/"outbound". The import now recognizes both - earlier some incoming calls were incorrectly tagged as outbound.' },
     ],
@@ -792,8 +792,8 @@ export const WHATS_NEW: ReleaseEntry[] = [
     highlight: 'Connection status stays steady during calls',
     changes: [
       { type: 'fixed', text: 'Connection status pill no longer flickers between Online and Disconnected while you\'re on a call. Routine SIP refresh blips (every few minutes for some network conditions) used to flash the indicator alarmingly even though the call itself was unaffected. The pill now stays stable for the duration of the call.' },
-      { type: 'new', text: 'When you migrate a user from Pulse to AptLink, their 30-day SMS history and call history can also import from Pulse\'s database — not just from Telnyx. This catches users whose data was on Pulse-only routes (Twilio shared sender, etc.) and wasn\'t visible to Telnyx alone. (Requires admin to configure Pulse DB connection in env vars; code ships dormant until activated.)' },
-      { type: 'improved', text: 'Once history imports from Pulse, AptLink owns it permanently. Migrated users\' data lives on AptLink\'s database with no ongoing dependency on Pulse — Pulse can be decommissioned without affecting them.' },
+      { type: 'new', text: 'When you migrate a user from Pulse to ACE, their 30-day SMS history and call history can also import from Pulse\'s database — not just from Telnyx. This catches users whose data was on Pulse-only routes (Twilio shared sender, etc.) and wasn\'t visible to Telnyx alone. (Requires admin to configure Pulse DB connection in env vars; code ships dormant until activated.)' },
+      { type: 'improved', text: 'Once history imports from Pulse, ACE owns it permanently. Migrated users\' data lives on ACE\'s database with no ongoing dependency on Pulse — Pulse can be decommissioned without affecting them.' },
     ],
   },
   {
@@ -841,7 +841,7 @@ export const WHATS_NEW: ReleaseEntry[] = [
     date: 'June 1, 2026',
     highlight: 'Migrated users get their full 30-day history automatically',
     changes: [
-      { type: 'new', text: 'When you migrate a user from the old dialer to AptLink, their last 30 days of call logs AND SMS history automatically come over. They open Recents and Messages and see everything reconstructed within a minute — no manual export needed.' },
+      { type: 'new', text: 'When you migrate a user from the old dialer to ACE, their last 30 days of call logs AND SMS history automatically come over. They open Recents and Messages and see everything reconstructed within a minute — no manual export needed.' },
       { type: 'fixed', text: 'Previously some migrations finished with zero history populated because of a Telnyx API quirk. Now uses Telnyx\'s report-generation pipeline which reliably pulls phone-filtered history.' },
     ],
   },
@@ -888,8 +888,8 @@ export const WHATS_NEW: ReleaseEntry[] = [
     date: 'May 30, 2026',
     highlight: 'Teams notifications + migrating history',
     changes: [
-      { type: 'new', text: 'Microsoft Teams notifications are back. AptLink Bot now DMs you for missed calls, new texts, new voicemails, and when an admin assigns you a new line.' },
-      { type: 'new', text: 'When an admin migrates your number from the old dialer to AptLink, your last 30 days of call history and text messages move with it. Open Recents or Messages right after the migration and everything\'s there.' },
+      { type: 'new', text: 'Microsoft Teams notifications are back. ACE Bot now DMs you for missed calls, new texts, new voicemails, and when an admin assigns you a new line.' },
+      { type: 'new', text: 'When an admin migrates your number from the old dialer to ACE, your last 30 days of call history and text messages move with it. Open Recents or Messages right after the migration and everything\'s there.' },
       { type: 'improved', text: 'Migration is faster — no waiting. The history fills in over the next minute while you can use the dialer.' },
     ],
   },
@@ -899,7 +899,7 @@ export const WHATS_NEW: ReleaseEntry[] = [
     highlight: 'Audio quality + admin polish',
     changes: [
       { type: 'new', text: 'Settings → Microphone → "Noise suppression" toggle. Turn it on if you\'re in a noisy environment (café, open office, home with AC + traffic). Keeps your voice clear for the other party.' },
-      { type: 'new', text: 'After an admin migrates a number to AptLink, they get a prompt to deactivate or delete the old SIP connection — cleaner cleanup.' },
+      { type: 'new', text: 'After an admin migrates a number to ACE, they get a prompt to deactivate or delete the old SIP connection — cleaner cleanup.' },
       { type: 'fixed', text: 'The line label on the incoming call screen was invisible for users in light mode. Now always shows clearly on the dark green ringer background.' },
       { type: 'fixed', text: '"Unknown connection" labels in the migrate picker — now shows the real connection name and SIP user for every type of Telnyx connection.' },
     ],
@@ -909,7 +909,7 @@ export const WHATS_NEW: ReleaseEntry[] = [
     date: 'May 30, 2026',
     highlight: 'Migrate Existing User to New Dialer',
     changes: [
-      { type: 'new', text: 'Admins can now migrate a user from the old dialer (Pulse) to AptLink without losing their phone number. Find it in Settings → Users → Manage lines → "Migrate Existing User to New Dialer".' },
+      { type: 'new', text: 'Admins can now migrate a user from the old dialer (Pulse) to ACE without losing their phone number. Find it in Settings → Users → Manage lines → "Migrate Existing User to New Dialer".' },
       { type: 'new', text: 'When a line is added or migrated to your account, you get an email letting you know.' },
       { type: 'new', text: 'Typeahead search in the migrate number picker — find any phone number by digits, connection name, or SIP user.' },
       { type: 'improved', text: 'Incoming call screen line badge is now larger, bolder, and easier to read.' },

@@ -218,7 +218,7 @@ export default function Dialpad() {
   const hasDialableInput = number.replace(/[^\d]/g, '').length > 0;
   // Whether there's a last-dialed number stashed for the empty-input recall.
   const hasLastDialed = (() => {
-    try { return !!localStorage.getItem('aptlink_last_dialed'); } catch { return false; }
+    try { return !!localStorage.getItem('ace_last_dialed'); } catch { return false; }
   })();
 
   const handleCall = useCallback(async () => {
@@ -226,7 +226,7 @@ export default function Dialpad() {
     // phone behavior — like the iOS dialer). User can press call again to
     // actually dial it.
     if (!hasDialableInput) {
-      const last = localStorage.getItem('aptlink_last_dialed');
+      const last = localStorage.getItem('ace_last_dialed');
       if (last) setNumber(last);
       return;
     }
@@ -235,7 +235,7 @@ export default function Dialpad() {
       return;
     }
     // Remember this number for next-time recall before we navigate away.
-    try { localStorage.setItem('aptlink_last_dialed', number); } catch { /* quota */ }
+    try { localStorage.setItem('ace_last_dialed', number); } catch { /* quota */ }
     if (isAddCall) {
       // Server-originated Leg B via Telnyx Call Control. addCall() waits up
       // to 15s for the leg's callControlId to arrive before failing, so we

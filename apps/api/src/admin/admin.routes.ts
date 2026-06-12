@@ -260,7 +260,7 @@ const BulkImportSchema = z.object({
   rows: z.array(BulkRowSchema).min(1).max(500),
 });
 
-// Phase 8 (#216-220) â€” Pulse-to-AptLink migration via PendingUser staging.
+// Phase 8 (#216-220) â€” Pulse-to-ACE migration via PendingUser staging.
 //
 // PendingUser rows come from the new admin "Pending Users" tab CSV upload.
 // Nothing on Telnyx changes until an admin clicks Invite + Confirm on a
@@ -299,7 +299,7 @@ const PendingUserPatchSchema = z.object({
 const InviteFromPendingSchema = z.object({
   // 'existing'   = keep the user's current Pulse DID
   // 'new'        = purchase a fresh local US DID from Telnyx
-  // 'unassigned' = pick an existing AptLink-owned DID that isn't routed anywhere
+  // 'unassigned' = pick an existing ACE-owned DID that isn't routed anywhere
   didMode: z.enum(['existing', 'new', 'unassigned']),
   credsMode: z.enum(['existing', 'new']),
   repointWebhook: z.boolean(),
@@ -322,7 +322,7 @@ function buildCallbackHtml(success: boolean, message: string): string {
   const color = success ? '#16a34a' : '#dc2626';
   const icon = success ? 'âœ“' : 'âœ•';
   return `<!doctype html>
-<html><head><meta charset="utf-8"><title>AptLink â€” Teams Connection</title>
+<html><head><meta charset="utf-8"><title>ACE Dialer â€” Teams Connection</title>
 <style>
   body { font: 14px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     color: #0f172a; background: #f1f5f9; margin: 0;
@@ -702,7 +702,7 @@ export async function adminRoutes(app: FastifyInstance) {
   //   1. Create new Telnyx Credential Connection (returns sipUsername + sipPassword)
   //   2. Search available local DIDs in the area code
   //   3. Purchase one, route to the new connection
-  //   4. Bind the DID to AptLink's messaging profile (SMS routing)
+  //   4. Bind the DID to ACE's messaging profile (SMS routing)
   //   5. Create User row with all the captured values
   //   6. Send welcome email
   // Every step is logged into `steps`, same shape as the pending-users
@@ -717,7 +717,7 @@ export async function adminRoutes(app: FastifyInstance) {
         firstName: z.string().optional(),
         lastName: z.string().optional(),
         // 'new'        = purchase a fresh local US DID from Telnyx (~$0.45)
-        // 'unassigned' = pick an existing AptLink-owned DID not routed anywhere ($0)
+        // 'unassigned' = pick an existing ACE-owned DID not routed anywhere ($0)
         didMode: z.enum(['new', 'unassigned']).default('new'),
         newDidAreaCode: z.string().regex(/^\d{3}$/).optional(),
         // E.164 of the unassigned DID the admin picked. Required when
@@ -782,7 +782,7 @@ export async function adminRoutes(app: FastifyInstance) {
 
       // v0.9.7 â€” template-clone path. If the template DID/ID resolves, clone
       // its outbound voice profile + channel limits + codecs onto the new
-      // connection so the user can actually PLAptLink calls from minute one.
+      // connection so the user can actually PLACE calls from minute one.
       // Fall back to plain create if anything goes wrong. Initialize to
       // empty so TypeScript's flow analysis sees a definite assignment
       // (both branches below assign, but TS can't prove that across two
@@ -831,14 +831,14 @@ export async function adminRoutes(app: FastifyInstance) {
         step('create Telnyx Credential Connection (fallback â€” no template)', true);
       }
 
-      // v0.10.64 â€” Apply per-user AptLink connection defaults (anchorsite by
+      // v0.10.64 â€” Apply per-user ACE connection defaults (anchorsite by
       // country). Best-effort; non-fatal â€” admin can re-apply later from
       // the per-user kebab menu.
       const connDefaults = await applyAceConnectionDefaults(connectionId, country);
       step(
         connDefaults.ok
-          ? `apply AptLink connection defaults (noise suppression copied from master template)`
-          : 'apply AptLink connection defaults â€” non-fatal warning',
+          ? `apply ACE connection defaults (noise suppression copied from master template)`
+          : 'apply ACE connection defaults â€” non-fatal warning',
         connDefaults.ok,
         connDefaults.ok ? undefined : JSON.stringify(connDefaults.detail),
       );
@@ -881,8 +881,8 @@ export async function adminRoutes(app: FastifyInstance) {
         step(`purchase DID ${targetDid} (routed to new connection)`, true);
       }
 
-      // 4) Bind the DID to AptLink's messaging profile so SMS works.
-      // v0.10.64 â€” While we're looking up the DID anyway, also apply AptLink
+      // 4) Bind the DID to ACE's messaging profile so SMS works.
+      // v0.10.64 â€” While we're looking up the DID anyway, also apply ACE
       // phone-number defaults (HD voice + CNAM=ApTask + voicemail+PIN).
       // Both happen in one lookup pass.
       if (config.telnyxMessagingProfileId) {
@@ -895,16 +895,16 @@ export async function adminRoutes(app: FastifyInstance) {
             config.telnyxMessagingProfileId,
           );
           if (bind.ok) {
-            step('bind DID to AptLink messaging profile (SMS routing)', true);
+            step('bind DID to ACE messaging profile (SMS routing)', true);
           } else {
-            step('bind DID to AptLink messaging profile', false, JSON.stringify(bind.error));
+            step('bind DID to ACE messaging profile', false, JSON.stringify(bind.error));
           }
-          // v0.10.64 â€” Apply per-DID AptLink defaults (HD voice + CNAM + VM).
+          // v0.10.64 â€” Apply per-DID ACE defaults (HD voice + CNAM + VM).
           const phoneDefaults = await applyAcePhoneNumberDefaults(lookup.data.id);
           step(
             phoneDefaults.voice.ok && phoneDefaults.voicemail.ok
-              ? 'apply AptLink DID defaults (HD voice + CNAM + voicemail + PIN)'
-              : 'apply AptLink DID defaults â€” partial/failed (non-fatal)',
+              ? 'apply ACE DID defaults (HD voice + CNAM + voicemail + PIN)'
+              : 'apply ACE DID defaults â€” partial/failed (non-fatal)',
             phoneDefaults.voice.ok && phoneDefaults.voicemail.ok,
             phoneDefaults.voice.ok && phoneDefaults.voicemail.ok
               ? undefined
@@ -1351,7 +1351,7 @@ export async function adminRoutes(app: FastifyInstance) {
           // DID stayed reserved in our DB even though the user was "deleted."
           // When admin later tried to migrate the SAME person from Pulse â€”
           // or migrate a DIFFERENT person whose Pulse data happened to point
-          // at the same DID â€” the "DID already in AptLink" check fired against
+          // at the same DID â€” the "DID already in ACE" check fired against
           // the orphan UserDid. Admin then had to SQL-spelunk to find +
           // delete that row by hand. This recurred for Farheen + Shreya (x2).
           //
@@ -2619,7 +2619,7 @@ export async function adminRoutes(app: FastifyInstance) {
       };
     },
   );
-  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ Pulse-to-AptLink migration (#216-220) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ Pulse-to-ACE migration (#216-220) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   //
   // POST /admin/pending-users/import  â€” bulk staging upload from CSV
   // GET  /admin/pending-users         â€” list with status filter
@@ -2633,7 +2633,7 @@ export async function adminRoutes(app: FastifyInstance) {
   // â”€â”€ GET /admin/telnyx/unassigned-numbers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   // Returns the list of Telnyx numbers we own that aren't currently routed
   // to any voice connection AND not bound to any messaging profile. Powers
-  // the invite-modal "Use an AptLink number you already own" picker â€” letting
+  // the invite-modal "Use an ACE number you already own" picker â€” letting
   // admins re-use leftover inventory instead of buying a new DID.
   app.get(
     '/admin/telnyx/unassigned-numbers',
@@ -2653,8 +2653,8 @@ export async function adminRoutes(app: FastifyInstance) {
   // â”€â”€ GET /admin/telnyx/migration-candidates â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   // v0.10.20 â€” Powers the "Migrate Existing User to New Dialer" picker.
   // Returns Telnyx DIDs that ARE currently bound to a connection (usually
-  // Pulse) but NOT yet in AptLink's UserDid table. Admin picks one and we
-  // re-bind it to the target user's AptLink connection.
+  // Pulse) but NOT yet in ACE's UserDid table. Admin picks one and we
+  // re-bind it to the target user's ACE connection.
   //
   // Enrichment: each candidate's sourceConnectionId is resolved to
   // connectionName + sipUsername via fetchCredentialConnection so the
@@ -2672,7 +2672,7 @@ export async function adminRoutes(app: FastifyInstance) {
           detail: res.error,
         });
       }
-      // Strip any DIDs that AptLink already owns (by last-10 match against
+      // Strip any DIDs that ACE already owns (by last-10 match against
       // the local UserDid table). Migrating an already-claimed DID would
       // just re-bind it to itself and confuse the audit log.
       const aceOwnedDids = await prisma.userDid.findMany({
@@ -2806,7 +2806,7 @@ export async function adminRoutes(app: FastifyInstance) {
   //      their default UserDid). If not, we refuse â€” admin should
   //      complete the invite flow first which creates the connection.
   //   2. Assign the DID to that connection on Telnyx (voice routing).
-  //   3. Bind the DID to AptLink's messaging profile (SMS routing).
+  //   3. Bind the DID to ACE's messaging profile (SMS routing).
   //   4. Insert the UserDid row.
   //   5. If isDefault=true, unset isDefault on the user's other UserDids.
   const AddDidSchema = z.object({
@@ -2994,7 +2994,7 @@ export async function adminRoutes(app: FastifyInstance) {
         });
       }
 
-      // Bind to AptLink's messaging profile (inbound SMS routing).
+      // Bind to ACE's messaging profile (inbound SMS routing).
       if (config.telnyxMessagingProfileId) {
         const msg = await telnyx.assignNumberMessagingProfile(
           telnyxNumberId,
@@ -3010,7 +3010,7 @@ export async function adminRoutes(app: FastifyInstance) {
         }
       }
 
-      // v0.10.64 â€” Apply per-DID AptLink defaults (HD voice + CNAM + voicemail
+      // v0.10.64 â€” Apply per-DID ACE defaults (HD voice + CNAM + voicemail
       // + PIN=12345). Non-fatal; admin can re-apply later if it failed.
       const phoneDefaults = await applyAcePhoneNumberDefaults(telnyxNumberId);
       if (!phoneDefaults.voice.ok || !phoneDefaults.voicemail.ok) {
@@ -3124,12 +3124,12 @@ export async function adminRoutes(app: FastifyInstance) {
   // v0.10.20 â€” "Migrate Existing User to New Dialer".
   //
   // Takes a Telnyx DID that's currently bound to ANOTHER connection (likely
-  // Pulse) and re-binds it to THIS user's AptLink Credential Connection. The
+  // Pulse) and re-binds it to THIS user's ACE Credential Connection. The
   // phone number stays the same â€” only the SIP routing changes. After this
   // call:
   //   â€¢ The old connection (Pulse) stops receiving calls/SMS for the DID
-  //   â€¢ The new connection (this user's AptLink creds) starts receiving them
-  //   â€¢ A UserDid row exists locally so AptLink recognises the DID
+  //   â€¢ The new connection (this user's ACE creds) starts receiving them
+  //   â€¢ A UserDid row exists locally so ACE recognises the DID
   //
   // This is a DESTRUCTIVE operation for the old dialer. Audited.
   const MigrateDidSchema = z.object({
@@ -3185,7 +3185,7 @@ export async function adminRoutes(app: FastifyInstance) {
       }
       if (!connectionId) {
         return reply.code(409).send({
-          error: 'Cannot resolve target user\'s AptLink connection. Their default DID has no connection_id in Telnyx either.',
+          error: 'Cannot resolve target user\'s ACE connection. Their default DID has no connection_id in Telnyx either.',
         });
       }
 
@@ -3197,7 +3197,7 @@ export async function adminRoutes(app: FastifyInstance) {
           ? `+1${digits}`
           : didNumber.startsWith('+') ? didNumber : `+${digits}`;
 
-      // 3. Refuse if already in AptLink.
+      // 3. Refuse if already in ACE.
       const existing = await prisma.userDid.findUnique({
         where: { didNumber: e164 },
         select: { id: true, userId: true },
@@ -3206,7 +3206,7 @@ export async function adminRoutes(app: FastifyInstance) {
         return reply.code(409).send({
           error: existing.userId === userId
             ? 'This DID is already assigned to this user.'
-            : 'This DID is already assigned to another user in AptLink.',
+            : 'This DID is already assigned to another user in ACE.',
         });
       }
 
@@ -3230,16 +3230,16 @@ export async function adminRoutes(app: FastifyInstance) {
       const previousMessagingProfileId = tn.data.messaging_profile_id ?? null;
       const telnyxNumberId = tn.data.id;
 
-      // 5. Re-bind voice to the user's AptLink connection.
+      // 5. Re-bind voice to the user's ACE connection.
       const assign = await telnyx.assignDidToConnection(telnyxNumberId, connectionId);
       if (!assign.ok) {
         return reply.code(502).send({
-          error: 'Failed to re-bind DID to user\'s AptLink connection on Telnyx',
+          error: 'Failed to re-bind DID to user\'s ACE connection on Telnyx',
           detail: assign.error,
         });
       }
 
-      // 6. Bind to AptLink's messaging profile (inbound SMS routing).
+      // 6. Bind to ACE's messaging profile (inbound SMS routing).
       if (config.telnyxMessagingProfileId) {
         const msg = await telnyx.assignNumberMessagingProfile(
           telnyxNumberId,
@@ -3289,7 +3289,7 @@ export async function adminRoutes(app: FastifyInstance) {
         userDidId: created.id,
         previousConnectionId,                  // Pulse connection we took the DID from
         previousMessagingProfileId,
-        newConnectionId: connectionId,         // AptLink connection we re-bound to
+        newConnectionId: connectionId,         // ACE connection we re-bound to
       });
 
       // v0.10.22 â€” Fire-and-forget 30d history backfill from Telnyx.
@@ -3398,7 +3398,7 @@ export async function adminRoutes(app: FastifyInstance) {
       });
       if (usedBy) {
         return reply.code(409).send({
-          error: `Refusing to ${action} â€” connection is still bound to UserDid id=${usedBy.id} (user ${usedBy.userId}, ${usedBy.didNumber}) in AptLink. Remove that line first.`,
+          error: `Refusing to ${action} â€” connection is still bound to UserDid id=${usedBy.id} (user ${usedBy.userId}, ${usedBy.didNumber}) in ACE. Remove that line first.`,
         });
       }
 
@@ -3551,7 +3551,7 @@ export async function adminRoutes(app: FastifyInstance) {
   //
   // v0.10.35 â€” Diagnostic helper. Search Pulse users table by name/email
   // substring (case-insensitive). Returns up to 20 matches with their
-  // pulse user_id. Used to find a user when their email in AptLink doesn't
+  // pulse user_id. Used to find a user when their email in ACE doesn't
   // match what's stored in Pulse.
   app.get<{ Querystring: { q?: string } }>(
     '/admin/pulse/search',
@@ -3684,7 +3684,7 @@ export async function adminRoutes(app: FastifyInstance) {
   const BackfillSchema = z.object({
     daysBack: z.number().int().min(1).max(90).optional().default(30),
     // v0.10.35 â€” Optional override for Pulse user_id. By default the
-    // backfill looks up Pulse user by AptLink email; when emails don't
+    // backfill looks up Pulse user by ACE email; when emails don't
     // match across systems, admin can pass the explicit Pulse user_id
     // (found via GET /admin/pulse/search?q=...).
     pulseUserIdOverride: z.number().int().positive().optional(),
@@ -3752,7 +3752,7 @@ export async function adminRoutes(app: FastifyInstance) {
   // v0.10.37 â€” One-shot wizard. Admin enters Pulse email + Pulse password.
   // We log into Pulse on the user's behalf, decode their JWT to extract
   // everything we need (Pulse user_id, name, voip_number), then run the
-  // full create-AptLink-user â†’ rebind-DID â†’ backfill pipeline in a single
+  // full create-ACE-user â†’ rebind-DID â†’ backfill pipeline in a single
   // request.
   //
   // Failure model: if any step after the User row is created fails, we
@@ -3848,23 +3848,23 @@ export async function adminRoutes(app: FastifyInstance) {
         true,
       );
 
-      // 3) Refuse if AptLink already has this user (active) or this DID
+      // 3) Refuse if ACE already has this user (active) or this DID
       const dupUser = await prisma.user.findUnique({
         where: { email: normEmail },
         select: { id: true, isActive: true },
       });
       const recycleExistingUserId = dupUser && !dupUser.isActive ? dupUser.id : null;
       if (dupUser && dupUser.isActive) {
-        step('check for existing AptLink user', false, `An active AptLink user with email ${normEmail} already exists`);
-        return reply.code(409).send({ ok: false, error: 'User already in AptLink', steps });
+        step('check for existing ACE user', false, `An active ACE user with email ${normEmail} already exists`);
+        return reply.code(409).send({ ok: false, error: 'User already in ACE', steps });
       }
-      step('check for existing AptLink user', true);
+      step('check for existing ACE user', true);
 
-      // v0.10.82 â€” when the DID is already in AptLink, surface WHICH user owns it
+      // v0.10.82 â€” when the DID is already in ACE, surface WHICH user owns it
       // (email + name + active state) so admin can decide at a glance whether
       // it's a stale prior-attempt record (deletable + retry) or a real other
       // user (Pulse data is genuinely wrong, use override or skip Pulse).
-      // Previously this just said "AptLink user #31" and admin had to look up
+      // Previously this just said "ACE user #31" and admin had to look up
       // user #31 separately.
       const dupDid = await prisma.userDid.findUnique({
         where: { didNumber: e164 },
@@ -3890,17 +3890,17 @@ export async function adminRoutes(app: FastifyInstance) {
         const ownerEmail = owner?.email ?? '(unknown)';
         const activeTag = owner?.isActive ? 'active' : 'deactivated';
         const detail =
-          `DID ${e164} is already assigned to AptLink user #${dupDid.userId} ` +
+          `DID ${e164} is already assigned to ACE user #${dupDid.userId} ` +
           `(${ownerName} <${ownerEmail}>, ${activeTag}). ` +
           (owner && !owner.isActive
             ? `That user is deactivated â€” admin can delete them to free the DID, then retry.`
             : owner && owner.email === normEmail
               ? `Same email as the migration target â€” this looks like a prior failed attempt for the same person. Delete user #${dupDid.userId} and retry.`
               : `Different user owns this DID. Either Pulse's voip_number is wrong, or this DID legitimately belongs to ${ownerName}. Use the Override DID field with the correct number.`);
-        step('check DID not already in AptLink', false, detail);
+        step('check DID not already in ACE', false, detail);
         return reply.code(409).send({
           ok: false,
-          error: 'DID already in AptLink',
+          error: 'DID already in ACE',
           steps,
           // Structured payload so the frontend can also display this clearly,
           // not just buried in the step's error string.
@@ -3916,7 +3916,7 @@ export async function adminRoutes(app: FastifyInstance) {
             : null,
         });
       }
-      step(`check DID ${e164} not already in AptLink`, true);
+      step(`check DID ${e164} not already in ACE`, true);
 
       // 4) Look up the DID on Telnyx
       const tn = await telnyx.findNumberByE164(e164);
@@ -3943,7 +3943,7 @@ export async function adminRoutes(app: FastifyInstance) {
       const previousConnectionId = tn.data.connection_id ?? null;
       step(`look up DID on Telnyx (current connection: ${previousConnectionId ?? 'none'})`, true);
 
-      // 5) Create a Telnyx Credential Connection for the new AptLink user
+      // 5) Create a Telnyx Credential Connection for the new ACE user
       // v0.10.110 - use email (sanitized) so two users with the same
       // first name produce different connection names.
       const connectionName = buildConnectionNameFromEmail(normEmail);
@@ -3990,42 +3990,42 @@ export async function adminRoutes(app: FastifyInstance) {
       const connDefaults = await applyAceConnectionDefaults(connectionId, country);
       step(
         connDefaults.ok
-          ? `apply AptLink connection defaults (noise suppression copied from master template)`
-          : `apply AptLink connection defaults â€” non-fatal warning`,
+          ? `apply ACE connection defaults (noise suppression copied from master template)`
+          : `apply ACE connection defaults â€” non-fatal warning`,
         connDefaults.ok,
         connDefaults.ok ? undefined : JSON.stringify(connDefaults.detail),
       );
 
-      // 6) Rebind the Pulse DID to the new AptLink connection
+      // 6) Rebind the Pulse DID to the new ACE connection
       const rebind = await telnyx.assignDidToConnection(telnyxNumberId, connectionId);
       if (!rebind.ok) {
-        step('rebind DID from Pulse to new AptLink connection', false, JSON.stringify(rebind.error));
+        step('rebind DID from Pulse to new ACE connection', false, JSON.stringify(rebind.error));
         return reply.code(502).send({ ok: false, error: 'DID rebind failed', steps });
       }
-      step(`rebind DID ${e164} from Pulse to AptLink connection ${connectionId}`, true);
+      step(`rebind DID ${e164} from Pulse to ACE connection ${connectionId}`, true);
 
       // v0.10.64 â€” Apply per-DID Telnyx defaults (HD voice, CNAM = ApTask,
       // voicemail enabled, voicemail PIN = 12345). Best-effort; non-fatal.
       const phoneDefaults = await applyAcePhoneNumberDefaults(telnyxNumberId);
       step(
         phoneDefaults.voice.ok && phoneDefaults.voicemail.ok
-          ? 'apply AptLink DID defaults (HD voice + CNAM + voicemail + PIN)'
-          : 'apply AptLink DID defaults â€” partial/failed (non-fatal)',
+          ? 'apply ACE DID defaults (HD voice + CNAM + voicemail + PIN)'
+          : 'apply ACE DID defaults â€” partial/failed (non-fatal)',
         phoneDefaults.voice.ok && phoneDefaults.voicemail.ok,
         phoneDefaults.voice.ok && phoneDefaults.voicemail.ok
           ? undefined
           : `voice=${JSON.stringify(phoneDefaults.voice.detail)} voicemail=${JSON.stringify(phoneDefaults.voicemail.detail)}`,
       );
 
-      // 7) Bind to AptLink messaging profile (SMS routing)
+      // 7) Bind to ACE messaging profile (SMS routing)
       if (config.telnyxMessagingProfileId) {
         const bind = await telnyx.assignNumberMessagingProfile(
           telnyxNumberId, config.telnyxMessagingProfileId,
         );
         step(
           bind.ok
-            ? 'bind DID to AptLink messaging profile (SMS routing)'
-            : 'bind DID to AptLink messaging profile',
+            ? 'bind DID to ACE messaging profile (SMS routing)'
+            : 'bind DID to ACE messaging profile',
           bind.ok,
           bind.ok ? undefined : JSON.stringify(bind.error),
         );
@@ -4039,7 +4039,7 @@ export async function adminRoutes(app: FastifyInstance) {
         callerIdRes.ok ? undefined : JSON.stringify(callerIdRes.error),
       );
 
-      // 9) Create / recycle the AptLink User row
+      // 9) Create / recycle the ACE User row
       const userSelect = {
         id: true, email: true, firstName: true, lastName: true,
         isAdmin: true, isActive: true, provider: true,
@@ -4081,7 +4081,7 @@ export async function adminRoutes(app: FastifyInstance) {
       step(
         recycleExistingUserId
           ? `recycle deactivated User row #${recycleExistingUserId}`
-          : `create User row (AptLink user_id=${created.id})`,
+          : `create User row (ACE user_id=${created.id})`,
         true,
       );
 
@@ -4098,7 +4098,7 @@ export async function adminRoutes(app: FastifyInstance) {
       // migrations of the SAME Pulse user.
       //
       // PROBLEM this solves: if this Pulse user was migrated before, the
-      // previous AptLink user might have been soft-deleted (tombstoned with
+      // previous ACE user might have been soft-deleted (tombstoned with
       // email rewritten to deleted-N@deleted.ace.local). The messages/
       // calls/voicemails from that previous attempt stay bound to the
       // tombstoned user_id, not visible to the new user we just created.
@@ -4280,7 +4280,7 @@ export async function adminRoutes(app: FastifyInstance) {
     // backfill writes a new audit log entry with this pulseUserId so
     // future refreshes auto-resolve without needing the override.
     pulseUserIdOverride: z.number().int().positive().optional(),
-    // v0.10.40 â€” For users with multiple AptLink lines, admin picks WHICH
+    // v0.10.40 â€” For users with multiple ACE lines, admin picks WHICH
     // line the imported Pulse history should attach to. If omitted, we
     // fall back to the user's isDefault DID (single-line behaviour).
     userDidId: z.number().int().positive().optional(),
@@ -4312,7 +4312,7 @@ export async function adminRoutes(app: FastifyInstance) {
           },
         },
       });
-      if (!user) return reply.code(404).send({ ok: false, error: 'User not found in AptLink' });
+      if (!user) return reply.code(404).send({ ok: false, error: 'User not found in ACE' });
       if (!user.isActive) return reply.code(409).send({ ok: false, error: 'User is deactivated' });
 
       // Pick the DID. Priority: explicit userDidId from request > isDefault > first.
@@ -4337,7 +4337,7 @@ export async function adminRoutes(app: FastifyInstance) {
 
       // Auto-resolve pulseUserId â€” explicit override wins; otherwise look
       // up the newest audit log entry. v0.10.39: override added for
-      // pre-wizard AptLink users (their audit log doesn't have a pulse mapping
+      // pre-wizard ACE users (their audit log doesn't have a pulse mapping
       // yet â€” first refresh seeds the mapping).
       let pulseUserId: number | null = pulseUserIdOverride ?? null;
       if (pulseUserId === null) {
@@ -4761,7 +4761,7 @@ export async function adminRoutes(app: FastifyInstance) {
 
   // â”€â”€ POST /admin/users/bulk-refresh-pulse-sms â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   //
-  // v0.10.38 â€” Re-runs the MySQL SMS backfill for every AptLink user who has
+  // v0.10.38 â€” Re-runs the MySQL SMS backfill for every ACE user who has
   // a Pulse origin in the audit log. SMS only (calls would need per-user
   // passwords). Sequential processing with a 200ms inter-user delay to
   // stay polite to Pulse MySQL. Capped at 100 users per invocation.
@@ -4852,7 +4852,7 @@ export async function adminRoutes(app: FastifyInstance) {
             userId, email: '(deleted)', pulseUserId, didNumber: null,
             callsInserted: 0, callsSkipped: 0, messagesInserted: 0, messagesSkipped: 0,
             errors: [], durationMs: Date.now() - userStart,
-            skipped: 'user no longer in AptLink',
+            skipped: 'user no longer in ACE',
           });
           continue;
         }
@@ -5287,7 +5287,7 @@ export async function adminRoutes(app: FastifyInstance) {
           return reply.code(409).send({
             error:
               `SIP username "${pending.pulseVoipExt}" is already in use by ` +
-              `User id ${dupSip.id} (${dupSip.email}). Pick "Generate new AptLink credentials" instead.`,
+              `User id ${dupSip.id} (${dupSip.email}). Pick "Generate new ACE credentials" instead.`,
             existingUserId: dupSip.id,
           });
         }
@@ -5376,7 +5376,7 @@ export async function adminRoutes(app: FastifyInstance) {
       if (didMode === 'existing') {
         // Use the user's existing Pulse DID as-is. If we ALSO created new
         // credentials above, we need to reroute the DID from the Pulse
-        // connection to the new AptLink connection.
+        // connection to the new ACE connection.
         if (credsMode === 'new' && newConnectionId) {
           const digits = pending.pulseVoipNumber.replace(/[^\d]/g, '');
           const e164 = digits.length === 10 ? `+1${digits}` : digits.startsWith('1') ? `+${digits}` : `+${digits}`;
@@ -5390,17 +5390,17 @@ export async function adminRoutes(app: FastifyInstance) {
             step('assign existing DID to new connection', false, JSON.stringify(assign.error));
             return reply.code(502).send({ error: 'DID assignment failed', steps });
           }
-          step('reroute existing DID to new AptLink connection', true);
+          step('reroute existing DID to new ACE connection', true);
         } else {
           step('use existing DID (from CSV)', true);
         }
       } else if (didMode === 'unassigned') {
-        // Admin picked an already-owned-but-unassigned AptLink number from the
+        // Admin picked an already-owned-but-unassigned ACE number from the
         // dropdown. Skip the purchase and just route it to their connection.
         // Saves the per-DID monthly cost of buying a new one.
         const picked = parsed.data.unassignedDidNumber;
         if (!picked) {
-          step('use unassigned AptLink number', false, 'No number was picked');
+          step('use unassigned ACE number', false, 'No number was picked');
           return reply.code(400).send({ error: 'unassignedDidNumber required', steps });
         }
         const lookup = await telnyx.findNumberByE164(picked);
@@ -5409,7 +5409,7 @@ export async function adminRoutes(app: FastifyInstance) {
           return reply.code(502).send({ error: 'Unassigned DID lookup failed', steps });
         }
 
-        // Decide which connection to route it to: the freshly-created AptLink
+        // Decide which connection to route it to: the freshly-created ACE
         // connection (credsMode=new) or the user's Pulse connection from
         // the CSV (credsMode=existing).
         let targetConnId: string | undefined = newConnectionId ?? undefined;
@@ -5460,9 +5460,9 @@ export async function adminRoutes(app: FastifyInstance) {
         step(`purchase DID ${target}` + (targetConnId ? ' (routed to connection)' : ''), true);
       }
 
-      // â”€â”€ Step 2.5: Auto-flip messaging profile to AptLink â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+      // â”€â”€ Step 2.5: Auto-flip messaging profile to ACE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
       // Regardless of which DID mode the admin picked, the user's number
-      // should route inbound SMS to AptLink's messaging webhook (not Pulse).
+      // should route inbound SMS to ACE's messaging webhook (not Pulse).
       // This runs every time so users are SMS-ready the moment they log in
       // â€” no manual portal config, no "valuable time" wasted.
       // Skipped only if TELNYX_MESSAGING_PROFILE_ID isn't configured in env.
@@ -5482,9 +5482,9 @@ export async function adminRoutes(app: FastifyInstance) {
             config.telnyxMessagingProfileId,
           );
           if (bind.ok) {
-            step('bind DID to AptLink messaging profile (SMS routing)', true);
+            step('bind DID to ACE messaging profile (SMS routing)', true);
           } else {
-            step('bind DID to AptLink messaging profile (SMS routing)', false, JSON.stringify(bind.error));
+            step('bind DID to ACE messaging profile (SMS routing)', false, JSON.stringify(bind.error));
             // Also non-fatal â€” voice still works.
           }
         }
@@ -5542,10 +5542,10 @@ export async function adminRoutes(app: FastifyInstance) {
       // â”€â”€ Step 3: Repoint webhook â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
       // Only meaningful when we're keeping the user's existing Pulse
       // connection (credsMode=existing). If credsMode=new, the new
-      // connection already has the AptLink webhook from createCredentialConnection.
+      // connection already has the ACE webhook from createCredentialConnection.
       //
       // v0.9.10 â€” "Pulse connection not found" is NOT a real failure here.
-      // The user's calls + SMS already route to AptLink via the DID's
+      // The user's calls + SMS already route to ACE via the DID's
       // connection_id + messaging_profile_id (set in Step 2 / 2.5). The
       // webhook repoint is only relevant if the OLD Pulse connection is
       // still listed in Telnyx and stealing events. If it's not there,
@@ -5553,11 +5553,11 @@ export async function adminRoutes(app: FastifyInstance) {
       // Pulse connection") instead of a scary red X.
       if (repointWebhook) {
         if (credsMode === 'new') {
-          step('webhook already on AptLink (new connection)', true);
+          step('webhook already on ACE (new connection)', true);
           webhookRepointed = true;
         } else if (!pending.pulseConnectionName) {
           step(
-            'webhook repoint skipped â€” no Pulse connection name in CSV row (calls + SMS still route to AptLink)',
+            'webhook repoint skipped â€” no Pulse connection name in CSV row (calls + SMS still route to ACE)',
             true,
           );
         } else {
@@ -5567,16 +5567,16 @@ export async function adminRoutes(app: FastifyInstance) {
             // renamed, or the CSV name was a placeholder. Either way, no
             // repoint needed because there's no stale webhook to flip.
             step(
-              `webhook repoint skipped â€” Pulse connection "${pending.pulseConnectionName}" not in Telnyx (likely already migrated; calls + SMS still route to AptLink)`,
+              `webhook repoint skipped â€” Pulse connection "${pending.pulseConnectionName}" not in Telnyx (likely already migrated; calls + SMS still route to ACE)`,
               true,
             );
           } else {
             const patch = await telnyx.patchConnectionWebhook(conn.data.id, config.telnyxWebhookUrl);
             if (patch.ok) {
               webhookRepointed = true;
-              step('repoint webhook to AptLink', true);
+              step('repoint webhook to ACE', true);
             } else {
-              step('repoint webhook to AptLink', false, JSON.stringify(patch.error));
+              step('repoint webhook to ACE', false, JSON.stringify(patch.error));
             }
           }
         }
@@ -6312,12 +6312,12 @@ export async function adminRoutes(app: FastifyInstance) {
               config.telnyxMessagingProfileId,
             );
             if (bind.ok) {
-              step('bind DID to AptLink messaging profile (SMS routing)', true);
+              step('bind DID to ACE messaging profile (SMS routing)', true);
             } else {
-              step('bind DID to AptLink messaging profile', false, JSON.stringify(bind.error));
+              step('bind DID to ACE messaging profile', false, JSON.stringify(bind.error));
             }
           } else {
-            step('DID already bound to AptLink messaging profile', true);
+            step('DID already bound to ACE messaging profile', true);
           }
         } else {
           step('bind messaging profile', false,
@@ -6405,7 +6405,7 @@ export async function adminRoutes(app: FastifyInstance) {
   // Or from the browser console while signed in as admin:
   //   fetch('/admin/backfill-anchorsites', {
   //     method: 'POST',
-  //     headers: { Authorization: 'Bearer ' + sessionStorage.getItem('aptlink_token') },
+  //     headers: { Authorization: 'Bearer ' + sessionStorage.getItem('ace_token') },
   //   }).then(r => r.json()).then(console.log);
   //
   // Idempotent â€” running it multiple times is safe. Returns per-connection
@@ -6426,7 +6426,7 @@ export async function adminRoutes(app: FastifyInstance) {
         },
       });
       // Dedupe by connectionId. If somehow two users share a connection
-      // (shouldn't happen in AptLink's model, but legacy data might), pick the
+      // (shouldn't happen in ACE's model, but legacy data might), pick the
       // first user's country â€” both will route via the same anchor anyway.
       const byConnection = new Map<string, { country: string | null; userEmail: string }>();
       for (const d of dids) {
@@ -6477,7 +6477,7 @@ export async function adminRoutes(app: FastifyInstance) {
   //
   // Triggerable from the browser console while signed in as admin:
   //   fetch('/admin/telnyx-template-debug', {
-  //     headers: { Authorization: 'Bearer ' + sessionStorage.getItem('aptlink_token') },
+  //     headers: { Authorization: 'Bearer ' + sessionStorage.getItem('ace_token') },
   //   }).then(r => r.json()).then((j) => console.log(JSON.stringify(j, null, 2)));
   //
   // Returns 503 if no template connection id is configured at the service.

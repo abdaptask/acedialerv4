@@ -1,4 +1,4 @@
-// v0.10.22 — Microsoft Graph OAuth (delegated permissions) for the AptLink Bot
+// v0.10.22 — Microsoft Graph OAuth (delegated permissions) for the ACE Bot
 // service account (acebot@aptask.com).
 //
 // Flow:

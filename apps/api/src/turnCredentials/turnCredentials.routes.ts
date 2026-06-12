@@ -17,7 +17,7 @@
 //   hands the short-lived one to the client. SipContext will re-fetch
 //   on reconnect to keep TURN warm during long sessions.
 //
-// Auth: requires a valid AptLink JWT (same as every other authenticated
+// Auth: requires a valid ACE JWT (same as every other authenticated
 // endpoint). Without auth we'd be exposing TURN credentials to anyone
 // who finds the URL.
 

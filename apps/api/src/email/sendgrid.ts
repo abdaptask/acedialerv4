@@ -1,5 +1,5 @@
 // SendGrid client — used by the on-demand invite endpoint to send a
-// "Welcome to AptLink" email to newly provisioned users.
+// "Welcome to ACE Dialer" email to newly provisioned users.
 //
 // Why we send via SendGrid (vs Microsoft Graph or raw SMTP):
 //   • ApTask already has a SendGrid account → no new vendor onboarding.
@@ -98,7 +98,7 @@ export interface WelcomeEmailInput {
 }
 
 /**
- * Send the "Welcome to AptLink" email. Called by the invite endpoint
+ * Send the "Welcome to ACE Dialer" email. Called by the invite endpoint
  * AFTER the User row exists in our DB and (if applicable) Telnyx resources
  * have been provisioned.
  *
@@ -114,15 +114,15 @@ export function sendWelcomeEmail(input: WelcomeEmailInput): Promise<SendGridResu
   const firstName = (input.firstName?.trim() || '').split(/\s+/)[0] || 'there';
   const niceDid = formatDidForDisplay(input.didNumber);
   const supportEmail = config.aceSupportEmail || 'it@aptask.com';
-  const subject = `Welcome to AptLink — install + sign-in inside`;
+  const subject = `Welcome to ACE Dialer — install + sign-in inside`;
 
   // Plaintext version (for clients that strip HTML, screen readers, spam scoring)
   const text = [
     `Hi ${firstName},`,
     ``,
     niceDid
-      ? `Your AptLink account is ready. Your business phone number is ${niceDid}.`
-      : `Your AptLink account is ready.`,
+      ? `Your ACE Dialer account is ready. Your business phone number is ${niceDid}.`
+      : `Your ACE Dialer account is ready.`,
     ``,
     `HOW TO INSTALL:`,
     ``,
@@ -141,7 +141,7 @@ export function sendWelcomeEmail(input: WelcomeEmailInput): Promise<SendGridResu
     ``,
     `ONCE INSTALLED:`,
     ``,
-    `1. Open AptLink from your desktop`,
+    `1. Open ACE Dialer from your desktop`,
     `2. Click "Sign in with Microsoft"`,
     `3. Sign in with your @aptask.com account (same as Outlook)`,
     `4. Done — you can make and receive calls + texts`,
@@ -152,7 +152,7 @@ export function sendWelcomeEmail(input: WelcomeEmailInput): Promise<SendGridResu
     ``,
     `Need help? Reply to this email or contact ${supportEmail}.`,
     ``,
-    `— The AptLink team`,
+    `— The ACE Dialer team`,
   ].join('\n');
 
   // HTML version — inline styles only (some email clients strip <style>).
@@ -164,7 +164,7 @@ export function sendWelcomeEmail(input: WelcomeEmailInput): Promise<SendGridResu
       <table role="presentation" width="560" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border-radius:12px;box-shadow:0 1px 3px rgba(15,23,42,0.06);overflow:hidden;">
         <!-- Header -->
         <tr><td style="padding:32px 32px 16px 32px;border-bottom:1px solid #e2e8f0;">
-          <h1 style="margin:0;font-size:24px;font-weight:600;color:#0f172a;">Welcome to AptLink</h1>
+          <h1 style="margin:0;font-size:24px;font-weight:600;color:#0f172a;">Welcome to ACE Dialer</h1>
           <p style="margin:8px 0 0 0;font-size:14px;color:#64748b;">Hi ${escapeHtml(firstName)}, your account is ready.</p>
         </td></tr>
 
@@ -222,7 +222,7 @@ export function sendWelcomeEmail(input: WelcomeEmailInput): Promise<SendGridResu
             Once installed
           </h2>
           <ol style="margin:0;padding-left:20px;font-size:14px;color:#0f172a;">
-            <li style="margin-bottom:6px;">Open <strong>AptLink</strong> from your desktop.</li>
+            <li style="margin-bottom:6px;">Open <strong>ACE Dialer</strong> from your desktop.</li>
             <li style="margin-bottom:6px;">Click <strong>"Sign in with Microsoft"</strong>.</li>
             <li style="margin-bottom:6px;">Sign in with your <strong>@aptask.com</strong> account (same one as Outlook).</li>
             <li>Done — you can make and receive calls and texts.</li>
@@ -236,7 +236,7 @@ export function sendWelcomeEmail(input: WelcomeEmailInput): Promise<SendGridResu
               Important: uninstall the old dialer first
             </p>
             <p style="margin:0;font-size:14px;color:#7f1d1d;">
-              If you're still on the old dialer (Pulse), <strong>uninstall it before signing in to AptLink</strong>.
+              If you're still on the old dialer (Pulse), <strong>uninstall it before signing in to ACE</strong>.
               Running both at once causes every incoming call to <strong>ring twice and possibly drop</strong>.
             </p>
           </div>
@@ -249,13 +249,13 @@ export function sendWelcomeEmail(input: WelcomeEmailInput): Promise<SendGridResu
             <a href="mailto:${escapeHtml(supportEmail)}" style="color:#0284c7;text-decoration:none;">${escapeHtml(supportEmail)}</a>.
           </p>
           <p style="margin:12px 0 0 0;font-size:12px;color:#94a3b8;">
-            — The AptLink team
+            — The ACE Dialer team
           </p>
         </td></tr>
       </table>
 
       <p style="margin:16px 0 0 0;font-size:11px;color:#94a3b8;">
-        Sent by AptLink · ApTask
+        Sent by ACE Dialer · ApTask
       </p>
     </td></tr>
   </table>
@@ -292,30 +292,30 @@ export function sendLineAssignedEmail(input: LineAssignedEmailInput): Promise<Se
   const supportEmail = config.aceSupportEmail || 'it@aptask.com';
   const verb = input.mode === 'migrated' ? 'migrated' : 'assigned';
   const subject = input.mode === 'migrated'
-    ? `Your phone line ${niceDid} has been migrated to AptLink`
+    ? `Your phone line ${niceDid} has been migrated to ACE Dialer`
     : `A new phone line has been assigned to you: ${niceDid}`;
 
   const text = [
     `Hi ${firstName},`,
     ``,
-    `An admin has ${verb} a new line on your AptLink account.`,
+    `An admin has ${verb} a new line on your ACE Dialer account.`,
     ``,
     `  Label:      ${input.label}`,
     `  Number:     ${niceDid}`,
     input.isDefault ? `  Default:    Yes — this is now your default outbound line.` : '',
     ``,
-    `Open AptLink to start using it. The line will appear in your`,
+    `Open ACE Dialer to start using it. The line will appear in your`,
     `line switcher; calls + SMS to ${niceDid} will ring through to you`,
     `automatically.`,
     ``,
     input.mode === 'migrated'
       ? `Note: this number was previously on the old dialer (Pulse). It has`
-        + `\nnow been moved to AptLink — calls will only ring on AptLink going forward.`
+        + `\nnow been moved to ACE — calls will only ring on ACE going forward.`
       : '',
     ``,
     `Need help? Reply to this email or contact ${supportEmail}.`,
     ``,
-    `— The AptLink team`,
+    `— The ACE Dialer team`,
   ].filter(Boolean).join('\n');
 
   const html = `<!doctype html>
@@ -326,9 +326,9 @@ export function sendLineAssignedEmail(input: LineAssignedEmailInput): Promise<Se
       <table role="presentation" width="560" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border-radius:12px;box-shadow:0 1px 3px rgba(15,23,42,0.06);overflow:hidden;">
         <tr><td style="padding:32px 32px 16px 32px;border-bottom:1px solid #e2e8f0;">
           <h1 style="margin:0;font-size:22px;font-weight:600;color:#0f172a;">
-            ${input.mode === 'migrated' ? 'Line migrated to AptLink' : 'New line assigned'}
+            ${input.mode === 'migrated' ? 'Line migrated to ACE' : 'New line assigned'}
           </h1>
-          <p style="margin:8px 0 0 0;font-size:14px;color:#64748b;">Hi ${escapeHtml(firstName)}, ${verb === 'migrated' ? 'your existing phone number is now on AptLink.' : 'a new phone line is now on your account.'}</p>
+          <p style="margin:8px 0 0 0;font-size:14px;color:#64748b;">Hi ${escapeHtml(firstName)}, ${verb === 'migrated' ? 'your existing phone number is now on ACE Dialer.' : 'a new phone line is now on your account.'}</p>
         </td></tr>
 
         <tr><td style="padding:24px 32px 8px 32px;">
@@ -344,13 +344,13 @@ export function sendLineAssignedEmail(input: LineAssignedEmailInput): Promise<Se
 
         <tr><td style="padding:16px 32px 24px 32px;">
           <p style="margin:0 0 12px 0;font-size:14px;color:#0f172a;">
-            Open AptLink to start using it. The line will appear in your
+            Open ACE Dialer to start using it. The line will appear in your
             line switcher; calls and SMS to <strong>${escapeHtml(niceDid)}</strong>
             will ring through to you automatically.
           </p>
           ${input.mode === 'migrated' ? `<p style="margin:0;font-size:13px;color:#64748b;">
             Note: this number was previously on the old dialer (Pulse). It has now
-            been moved to AptLink — calls will only ring on AptLink going forward.
+            been moved to ACE — calls will only ring on ACE going forward.
           </p>` : ''}
         </td></tr>
 
@@ -389,21 +389,21 @@ export interface TestEmailInput {
 export function sendTestEmail(input: TestEmailInput): Promise<SendGridResult> {
   const firstName = (input.firstName?.trim() || '').split(/\s+/)[0] || 'there';
   const supportEmail = config.aceSupportEmail || 'it@aptask.com';
-  const subject = `Test: AptLink email notifications`;
+  const subject = `Test: ACE Dialer email notifications`;
 
   const text = [
     `Hi ${firstName},`,
     ``,
-    `This is a test notification from AptLink to confirm email is`,
+    `This is a test notification from ACE Dialer to confirm email is`,
     `set up correctly for your account. If you can read this, future`,
     `missed-call / SMS / voicemail emails will land here too.`,
     ``,
-    `Manage your email notifications in AptLink → Settings →`,
+    `Manage your email notifications in ACE Dialer → Settings →`,
     `Email notifications.`,
     ``,
     `Need help? Reply to this email or contact ${supportEmail}.`,
     ``,
-    `— The AptLink team`,
+    `— The ACE Dialer team`,
   ].join('\n');
 
   const html = `<!doctype html>
@@ -413,23 +413,23 @@ export function sendTestEmail(input: TestEmailInput): Promise<SendGridResult> {
     <tr><td align="center">
       <table role="presentation" width="560" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border-radius:12px;box-shadow:0 1px 3px rgba(15,23,42,0.06);overflow:hidden;">
         <tr><td style="padding:24px 28px 12px 28px;border-bottom:1px solid #e2e8f0;">
-          <p style="margin:0;font-size:12px;text-transform:uppercase;letter-spacing:0.05em;color:#64748b;font-weight:600;">AptLink</p>
+          <p style="margin:0;font-size:12px;text-transform:uppercase;letter-spacing:0.05em;color:#64748b;font-weight:600;">ACE Dialer</p>
           <h1 style="margin:6px 0 0 0;font-size:20px;font-weight:600;color:#0f172a;">Test notification</h1>
           <p style="margin:4px 0 0 0;font-size:14px;color:#64748b;">If you can read this, email notifications are working.</p>
         </td></tr>
         <tr><td style="padding:20px 28px 12px 28px;">
           <p style="margin:0 0 12px 0;font-size:15px;color:#0f172a;">Hi ${escapeHtml(firstName)},</p>
           <p style="margin:0 0 12px 0;font-size:15px;color:#0f172a;">
-            This is a test from AptLink to confirm email is set up correctly for your account.
+            This is a test from ACE Dialer to confirm email is set up correctly for your account.
             Future missed-call, SMS, and voicemail emails will look similar to this and land here too.
           </p>
           <div style="background:#f0f9ff;border-left:4px solid #0284c7;border-radius:6px;padding:14px 16px;font-size:14px;color:#0c4a6e;">
-            <strong>Tip:</strong> If this email landed in spam, add the AptLink sender to your contacts so real notifications won't miss your inbox.
+            <strong>Tip:</strong> If this email landed in spam, add the ACE Dialer sender to your contacts so real notifications won't miss your inbox.
           </div>
         </td></tr>
         <tr><td style="padding:16px 28px 22px 28px;border-top:1px solid #e2e8f0;background:#fafbfc;">
           <p style="margin:0;font-size:12px;color:#64748b;">
-            You're getting this because you clicked "Send test" in AptLink → Settings → Email notifications.
+            You're getting this because you clicked "Send test" in ACE Dialer → Settings → Email notifications.
             Need help? Reply to this email or contact
             <a href="mailto:${escapeHtml(supportEmail)}" style="color:#0284c7;text-decoration:none;">${escapeHtml(supportEmail)}</a>.
           </p>

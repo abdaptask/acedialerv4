@@ -1,6 +1,6 @@
-# AptLink — User Guide
+# ACE Dialer — User Guide
 
-Welcome to AptLink, ApTask's internal softphone. This guide covers
+Welcome to ACE Dialer, ApTask's internal softphone. This guide covers
 everything you can do, with quick how-to steps for each feature.
 
 Last updated: v0.9.5
@@ -13,16 +13,16 @@ Last updated: v0.9.5
 
 You'll get an email from IT with the download link. Open the installer:
 
-- **Windows**: double-click `AptLink Setup x.x.x.exe`, follow the prompts
-- **Mac**: open the `.dmg`, drag AptLink to Applications, launch it
+- **Windows**: double-click `ACE Dialer Setup x.x.x.exe`, follow the prompts
+- **Mac**: open the `.dmg`, drag ACE Dialer to Applications, launch it
 - **No install required**: you can also use it in any browser at the URL IT
   gives you
 
 ### Signing in
 
-AptLink uses your ApTask Microsoft account — same login as Outlook.
+ACE Dialer uses your ApTask Microsoft account — same login as Outlook.
 
-1. Open AptLink
+1. Open ACE Dialer
 2. Click **Sign in with Microsoft**
 3. Pick your `@aptask.com` account
 4. Approve any permissions on the first sign-in
@@ -32,7 +32,7 @@ You'll stay signed in until you explicitly sign out.
 ### One-time setup: your old dialer
 
 If you were using Pulse (or any other softphone), **IT will uninstall it
-when they install AptLink**. Running both at once causes duplicate
+when they install ACE Dialer**. Running both at once causes duplicate
 ringing and dropped calls. If you still have the old dialer, ask IT to
 remove it before continuing.
 
@@ -78,7 +78,7 @@ for sales, press 3 for billing" menus).
 ### International calls
 
 Just type `+` and the country code, or paste an international number
-and AptLink auto-detects the country (you'll see the flag appear).
+and ACE auto-detects the country (you'll see the flag appear).
 
 ---
 
@@ -86,7 +86,7 @@ and AptLink auto-detects the country (you'll see the flag appear).
 
 When someone calls you:
 
-- A full-screen incoming-call window pops up (even if AptLink is minimized)
+- A full-screen incoming-call window pops up (even if ACE is minimized)
 - You'll see the caller's name (from your favorites or from JobDiva) or
   the phone number if unknown
 - Your computer rings + a desktop notification appears
@@ -100,10 +100,10 @@ When someone calls you:
 - **Decline with SMS** — sends an auto-text like "Can't talk, will call
   back" instead of letting it ring out (configurable quick-replies)
 
-### If AptLink is in the background
+### If ACE is in the background
 
 You'll still get a system notification + your computer will ring. Clicking
-the notification brings AptLink to the front.
+the notification brings ACE to the front.
 
 ---
 
@@ -318,7 +318,7 @@ the gear icon.
 | **Call forwarding** | Forward all calls to another number (e.g. your cell) |
 | **Number blocking** | Block specific numbers — they go straight to voicemail or get rejected |
 | **Backup / restore prefs** | Export your settings as a file; import on a new computer |
-| **Audio devices** | Pick which mic and speaker AptLink uses |
+| **Audio devices** | Pick which mic and speaker ACE uses |
 
 ### Voicemail settings
 
@@ -329,18 +329,18 @@ the gear icon.
 
 ### Signing out
 
-Avatar dropdown (top right) → **Sign out**. AptLink will return to the login
+Avatar dropdown (top right) → **Sign out**. ACE will return to the login
 screen.
 
 ---
 
 ## Updates
 
-AptLink updates itself automatically:
+ACE Dialer updates itself automatically:
 
 - The app checks for updates every hour
 - When a new version is available, a banner appears at the top
-- Click **Restart to install** — AptLink quits, installs, and reopens in the
+- Click **Restart to install** — ACE quits, installs, and reopens in the
   new version (~30 seconds)
 
 ### Manual check
@@ -360,7 +360,7 @@ You'll see an error banner explaining what went wrong, plus two buttons:
 
 ## System tray (Windows / Mac menu bar)
 
-When you close the AptLink window (red X / red dot), it doesn't actually
+When you close the ACE window (red X / red dot), it doesn't actually
 quit — it minimizes to your system tray so you can still receive calls.
 
 - **Tray icon** shows in the bottom-right (Windows) or top-right (Mac)
@@ -391,8 +391,8 @@ and invite users one at a time.
 2. In the modal:
    - **Phone number**: keep existing Pulse number / purchase a new DID /
      pick from your unassigned Telnyx inventory
-   - **SIP credentials**: reuse Pulse creds / generate fresh AptLink creds
-   - **Webhook**: repoint to AptLink (default on)
+   - **SIP credentials**: reuse Pulse creds / generate fresh ACE creds
+   - **Webhook**: repoint to ACE (default on)
    - **Welcome email**: send sign-in instructions (default on)
 3. Click **Confirm & Invite**
 4. The result modal shows each step: ✓ green for success, ✗ red for failure
@@ -488,7 +488,7 @@ to add your sign-in URL to the Microsoft App Registration.
 
 ### App is using too much battery / CPU
 
-- Check the system tray to see if you have multiple AptLink windows
+- Check the system tray to see if you have multiple ACE Dialer windows
   open accidentally
 - Right-click tray → Quit, then relaunch
 
@@ -496,14 +496,14 @@ to add your sign-in URL to the Microsoft App Registration.
 
 # Need help?
 
-- **Quick questions**: ask in the AptLink Teams channel
+- **Quick questions**: ask in the ACE Dialer Teams channel
 - **Bugs / broken features**: email IT (`it@aptask.com`) with:
   - What you were trying to do
   - What happened instead
-  - The version number (shown under the AptLink logo on the top left)
+  - The version number (shown under the ACE Dialer logo on the top left)
 - **Urgent (can't make/receive calls)**: page IT on-call
 
 ---
 
-*Document version aligned with AptLink v0.9.5. Updated as features
+*Document version aligned with ACE Dialer v0.9.5. Updated as features
 ship. Last edit: see git history of `USER_GUIDE.md`.*

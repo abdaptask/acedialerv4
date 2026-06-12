@@ -12,7 +12,6 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Send, ArrowLeft, RefreshCcw, Search, X, Users, MessageCircle } from 'lucide-react';
-import { useSocket } from '../contexts/SocketContext';
 import {
   getInternalChatThreads,
   getInternalChatThread,
@@ -49,21 +48,6 @@ const PRESENCE_DOT_CLASS: Record<ChatPresence, string> = {
   idle: 'presence-dot-offline',
 };
 const ALL_PRESENCE: ChatPresence[] = ['on_call', 'active', 'recent', 'idle'];
-
-
-function getEffectivePresence(u?: { presence?: ChatPresence; status?: string } | null): ChatPresence {
-  if (!u) return 'idle';
-  if (u.status === 'dnd') return 'on_call';
-  if (u.status === 'away') return 'recent';
-  return u.presence ?? 'idle';
-}
-
-function getPresenceLabel(u?: { presence?: ChatPresence; status?: string } | null): string {
-  if (!u) return 'Offline';
-  if (u.status === 'dnd') return 'Do Not Disturb';
-  if (u.status === 'away') return 'Away';
-  return PRESENCE_LABEL[u.presence ?? 'idle'];
-}
 
 function displayName(u: InternalChatUser | null | undefined): string {
   if (!u) return 'Unknown user';
@@ -135,14 +119,12 @@ function ThreadDetail({ meId, other, otherId, onBack, onSent }: ThreadDetailProp
   const [messages, setMessages] = useState<InternalChatMessage[]>([]);
   const [loading, setLoading] = useState(true);
   const [draft, setDraft] = useState('');
-  const [isTyping, setIsTyping] = useState(false);
-  const typingTimeoutRef = useRef<number | null>(null);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const load = useCallback(() => {
-    const token = sessionStorage.getItem('aptlink_token');
+    const token = sessionStorage.getItem('ace_token');
     if (!token) return;
     setLoading(true);
     setError(null);
@@ -159,34 +141,12 @@ function ThreadDetail({ meId, other, otherId, onBack, onSent }: ThreadDetailProp
       .finally(() => setLoading(false));
   }, [otherId, onSent]);
 
-  const { socket } = useSocket();
-
+  // Initial load + 6s polling for new messages while this thread is open.
   useEffect(() => {
     load();
-    if (!socket) return;
-    const onMessage = () => load();
-    const onTypingStart = (data: { senderId: number }) => {
-      if (data.senderId === otherId) setIsTyping(true);
-    };
-    const onTypingStop = (data: { senderId: number }) => {
-      if (data.senderId === otherId) setIsTyping(false);
-    };
-    const onRead = (data: { byUserId: number }) => {
-      if (data.byUserId === otherId) {
-        setMessages(prev => prev.map(m => (!m.readAt && m.recipientId === otherId ? { ...m, readAt: new Date().toISOString() } : m)));
-      }
-    };
-    socket.on('chat:message', onMessage);
-    socket.on('chat:typing_start', onTypingStart);
-    socket.on('chat:typing_stop', onTypingStop);
-    socket.on('chat:read', onRead);
-    return () => {
-      socket.off('chat:message', onMessage);
-      socket.off('chat:typing_start', onTypingStart);
-      socket.off('chat:typing_stop', onTypingStop);
-      socket.off('chat:read', onRead);
-    };
-  }, [load, socket, otherId]);
+    const id = window.setInterval(load, 6000);
+    return () => window.clearInterval(id);
+  }, [load]);
 
   // Stick scroll to bottom whenever the message list grows.
   useEffect(() => {
@@ -200,7 +160,7 @@ function ThreadDetail({ meId, other, otherId, onBack, onSent }: ThreadDetailProp
   const handleSend = async () => {
     const body = draft.trim();
     if (!body) return;
-    const token = sessionStorage.getItem('aptlink_token');
+    const token = sessionStorage.getItem('ace_token');
     if (!token) return;
     setSending(true);
     try {
@@ -208,7 +168,6 @@ function ThreadDetail({ meId, other, otherId, onBack, onSent }: ThreadDetailProp
       // Optimistic append so the bubble lands instantly.
       setMessages((prev) => [...prev, saved]);
       setDraft('');
-      if (socket) socket.emit('chat:typing_stop', { recipientId: otherId });
       onSent();
     } catch (e) {
       setError((e as Error).message ?? 'Failed to send');
@@ -233,23 +192,23 @@ function ThreadDetail({ meId, other, otherId, onBack, onSent }: ThreadDetailProp
           <span className="chat-avatar small" style={avatarStyle(other)}>
             {initials(other)}
           </span>
-          {getEffectivePresence(other) && (
+          {other?.presence && (
             <span
-              className={`presence-dot presence-dot-overlay ${PRESENCE_DOT_CLASS[getEffectivePresence(other)]}`}
+              className={`presence-dot presence-dot-overlay ${PRESENCE_DOT_CLASS[other.presence]}`}
               aria-hidden="true"
-              title={getPresenceLabel(other)}
+              title={PRESENCE_LABEL[other.presence]}
             />
           )}
         </span>
         <div>
           <div className="thread-header-name">{displayName(other)}</div>
           <div className="thread-header-sub">
-            {getEffectivePresence(other) && (
+            {other?.presence && (
               <span className="thread-header-presence">
-                {getPresenceLabel(other)}
+                {PRESENCE_LABEL[other.presence]}
               </span>
             )}
-            {getEffectivePresence(other) && other?.email && (
+            {other?.presence && other?.email && (
               <span className="thread-header-presence-sep" aria-hidden="true">
                 {' · '}
               </span>
@@ -271,18 +230,10 @@ function ThreadDetail({ meId, other, otherId, onBack, onSent }: ThreadDetailProp
           return (
             <div key={m.id} className={`bubble ${mine ? 'out' : 'in'}`}>
               <div className="bubble-text">{m.body}</div>
-              <div className="bubble-meta">
-                {formatRelative(m.createdAt)}
-                {mine && m.readAt && <span className="read-receipt"> · Read</span>}
-              </div>
+              <div className="bubble-meta">{formatRelative(m.createdAt)}</div>
             </div>
           );
         })}
-        {isTyping && (
-          <div className="typing-indicator muted" style={{ margin: '8px 12px', fontSize: 13, fontStyle: 'italic' }}>
-            {other?.firstName || 'User'} is typing...
-          </div>
-        )}
         {error && <div className="error" style={{ marginTop: 12 }}>{error}</div>}
       </div>
 
@@ -291,15 +242,7 @@ function ThreadDetail({ meId, other, otherId, onBack, onSent }: ThreadDetailProp
           className="compose-input"
           placeholder="Type a message…"
           value={draft}
-          onChange={(e) => {
-            setDraft(e.target.value);
-            if (!socket) return;
-            socket.emit('chat:typing_start', { recipientId: otherId });
-            if (typingTimeoutRef.current) window.clearTimeout(typingTimeoutRef.current);
-            typingTimeoutRef.current = window.setTimeout(() => {
-              socket.emit('chat:typing_stop', { recipientId: otherId });
-            }, 2000);
-          }}
+          onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => {
             // Enter sends; Shift+Enter for newline.
             if (e.key === 'Enter' && !e.shiftKey) {
@@ -330,8 +273,6 @@ export default function Chat() {
   const [threads, setThreads] = useState<InternalChatThread[]>([]);
   const [users, setUsers] = useState<InternalChatUser[]>([]);
   const [active, setActive] = useState<{ id: number; user: InternalChatUser | null } | null>(null);
-
-  const { socket } = useSocket();
 
   // v0.10.13 — When entry is via `/chat?with=<userId>` (from the unified
   // Messages list), auto-open that user's chat thread instead of showing
@@ -365,13 +306,13 @@ export default function Chat() {
   };
 
   useEffect(() => {
-    const token = sessionStorage.getItem('aptlink_token');
+    const token = sessionStorage.getItem('ace_token');
     if (!token) return;
     void getMe(token).then((u) => setMeId(u.id)).catch(() => { /* noop */ });
   }, []);
 
   const loadThreads = useCallback(() => {
-    const token = sessionStorage.getItem('aptlink_token');
+    const token = sessionStorage.getItem('ace_token');
     if (!token) return;
     setLoading(true);
     setError(null);
@@ -382,7 +323,7 @@ export default function Chat() {
   }, []);
 
   const loadUsers = useCallback(() => {
-    const token = sessionStorage.getItem('aptlink_token');
+    const token = sessionStorage.getItem('ace_token');
     if (!token) return;
     void getInternalChatUsers(token).then(setUsers).catch(() => { /* noop */ });
   }, []);
@@ -390,27 +331,16 @@ export default function Chat() {
   useEffect(() => {
     loadThreads();
     loadUsers();
-    
-    // Refresh presence occasionally
-    const id = window.setInterval(loadUsers, 60000);
-    
-    const onMessage = () => loadThreads();
-    if (socket) {
-      socket.on('chat:message', onMessage);
-      socket.on('status_update', (data: { userId: number; status: string }) => {
-        setUsers(prev => prev.map(u => u.id === data.userId ? { ...u, status: data.status as any } : u));
-        setThreads(prev => prev.map(t => t.otherId === data.userId && t.otherUser ? { ...t, otherUser: { ...t.otherUser, status: data.status as any } } : t));
-      });
-    }
-    
-    return () => {
-      window.clearInterval(id);
-      if (socket) {
-        socket.off('chat:message', onMessage);
-        socket.off('status_update');
-      }
-    };
-  }, [loadThreads, loadUsers, socket]);
+    // Soft poll while the threads pane is up.
+    // v0.9.15 — also re-fetch users on each tick so presence stays fresh
+    // (otherwise a teammate would stay "Online" until next page reload
+    // even if they went idle 30 min ago).
+    const id = window.setInterval(() => {
+      loadThreads();
+      loadUsers();
+    }, 15000);
+    return () => window.clearInterval(id);
+  }, [loadThreads, loadUsers]);
 
   // v0.9.15 — group filtered users by presence so the picker can render
   // collapsible Slack-style sections (On call / Online / Away / Offline).
@@ -426,7 +356,7 @@ export default function Chat() {
         const name = displayName(u).toLowerCase();
         if (!name.includes(q) && !u.email.toLowerCase().includes(q)) continue;
       }
-      const p = getEffectivePresence(u);
+      const p = u.presence ?? 'idle';
       groups[p].push(u);
     }
     for (const key of ALL_PRESENCE) {
@@ -567,7 +497,7 @@ export default function Chat() {
                                 <span
                                   className={`presence-dot presence-dot-overlay ${PRESENCE_DOT_CLASS[p]}`}
                                   aria-hidden="true"
-                                  title={getPresenceLabel(u)}
+                                  title={PRESENCE_LABEL[p]}
                                 />
                               </span>
                               <div className="thread-text">
@@ -634,7 +564,7 @@ export default function Chat() {
                             <span
                               className={`presence-dot presence-dot-overlay ${PRESENCE_DOT_CLASS[otherPresence]}`}
                               aria-hidden="true"
-                              title={getPresenceLabel(t.otherUser)}
+                              title={PRESENCE_LABEL[otherPresence]}
                             />
                           </span>
                           <div className="thread-text">

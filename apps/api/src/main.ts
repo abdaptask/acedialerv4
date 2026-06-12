@@ -1,4 +1,4 @@
-// AptLink API — HTTP service.
+// ACE Dialer API — HTTP service.
 // Phase 1: /health, /, /auth/login, /auth/me.
 // Phase 5.1: /calls, /calls/:id.
 import Fastify, { type FastifyReply, type FastifyRequest } from 'fastify';
@@ -29,7 +29,7 @@ import { contactsRoutes } from './contacts/contacts.routes.js';
 import { turnCredentialsRoutes } from './turnCredentials/turnCredentials.routes.js';
 import { meRoutes } from './me/me.routes.js';
 
-const SERVICE_NAME = 'aptlink-api';
+const SERVICE_NAME = 'ace-dialer-api';
 const START_TIME = new Date().toISOString();
 
 const app = Fastify({

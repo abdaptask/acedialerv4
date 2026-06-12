@@ -59,7 +59,7 @@ export default function TeamsNotificationsSection() {
   >(null);
 
   useEffect(() => {
-    const token = sessionStorage.getItem('aptlink_token');
+    const token = sessionStorage.getItem('ace_token');
     if (!token) return;
     setLoading(true);
     getTeamsConfig(token)
@@ -88,7 +88,7 @@ export default function TeamsNotificationsSection() {
   }
 
   async function handleSave() {
-    const token = sessionStorage.getItem('aptlink_token');
+    const token = sessionStorage.getItem('ace_token');
     if (!token) return;
     setSaving(true);
     setError(null);
@@ -107,7 +107,7 @@ export default function TeamsNotificationsSection() {
   }
 
   async function handleTest() {
-    const token = sessionStorage.getItem('aptlink_token');
+    const token = sessionStorage.getItem('ace_token');
     if (!token) return;
     if (dirty) {
       // Save first so the test card reflects the user's current preferences.
@@ -137,7 +137,7 @@ export default function TeamsNotificationsSection() {
               <strong>Teams notifications aren't enabled in your organization yet.</strong>
             </p>
             <p className="muted small">
-              Once your admin connects AptLink to Microsoft Teams, you'll see
+              Once your admin connects ACE Dialer to Microsoft Teams, you'll see
               card notifications here in Teams chat with Flow bot whenever you
               have a missed call, new text message, or voicemail. No setup
               required on your end.

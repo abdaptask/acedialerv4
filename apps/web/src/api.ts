@@ -1,7 +1,7 @@
 
 const API_URL =
   (import.meta.env.VITE_API_URL as string | undefined) ||
-  'https://aptlink-api.onrender.com';
+  'https://ace-dialer-api.onrender.com';
 
 export interface User {
   id: number;
@@ -21,8 +21,6 @@ export interface User {
   // v0.10.75 — Ringtone preference. One of the bundled slugs in
   // services/ringtone.ts. NULL = use the default ('classic').
   ringtone?: string | null;
-  // v0.11.0 - Global Presence & DND
-  status?: 'available' | 'dnd' | 'away';
 }
 
 export interface UpdateMeInput {
@@ -819,7 +817,7 @@ export async function deleteVoicemailGreeting(
 
 // ──────────────────────────────────────────────────────────────────
 // v0.10.100 — Admin migration to Call Control voicemail (per-user).
-// Replaces "DID → SIP credential → Hosted VM" with "DID → AptLink Voicemail
+// Replaces "DID → SIP credential → Hosted VM" with "DID → ACE Voicemail
 // Voice API app → ring softphone, fall to custom greeting on no-answer."
 // ──────────────────────────────────────────────────────────────────
 export interface VoicemailMigrationDid {
@@ -1649,7 +1647,7 @@ export interface InviteNewUserInput {
   firstName?: string;
   lastName?: string;
   /// 'new' (default) = purchase a fresh local DID from Telnyx (~$0.45)
-  /// 'unassigned'    = pick an AptLink-owned DID that isn't routed anywhere ($0)
+  /// 'unassigned'    = pick an ACE-owned DID that isn't routed anywhere ($0)
   didMode?: 'new' | 'unassigned';
   newDidAreaCode?: string;
   /// E.164 of the unassigned DID the admin picked. Required when didMode='unassigned'.
@@ -2235,7 +2233,7 @@ export async function getActivitySummary(
 }
 
 // v0.10.37 — Unified "Migrate user from Pulse" wizard. One endpoint that
-// logs into Pulse, creates the AptLink user, rebinds the DID, and runs the
+// logs into Pulse, creates the ACE user, rebinds the DID, and runs the
 // 30-day backfill — all in one call. Password is sent once over HTTPS,
 // used once on the server, never persisted.
 export interface MigrateFromPulseInput {
@@ -2283,7 +2281,7 @@ export interface MigrateFromPulseResult {
     /** Ownership result: owned by us, not on Telnyx, or API blew up. */
     telnyxStatus: 'owned' | 'not_found' | 'error';
   }>;
-  // v0.10.82 — Populated on the "DID already in AptLink" failure path. Tells
+  // v0.10.82 — Populated on the "DID already in ACE" failure path. Tells
   // admin WHO already owns the DID so they don't have to look up the user
   // ID separately. sameAsTarget=true means it's a prior failed attempt
   // for the same person (admin can delete + retry).
@@ -2324,10 +2322,10 @@ export async function migrateUserFromPulse(
 export interface RefreshFromPulseInput {
   pulseUserPassword?: string;
   daysBack?: number;
-  // v0.10.39 — Manual override for pre-wizard AptLink users (no audit log
+  // v0.10.39 — Manual override for pre-wizard ACE users (no audit log
   // entry yet with their Pulse user_id). Used once seeds the mapping.
   pulseUserIdOverride?: number;
-  // v0.10.40 — Pick WHICH of the user's AptLink lines this history attaches
+  // v0.10.40 — Pick WHICH of the user's ACE lines this history attaches
   // to. Defaults server-side to the user's isDefault DID if omitted.
   userDidId?: number;
 }
@@ -2841,7 +2839,7 @@ export async function getAlertsReport(token: string): Promise<AlertsReport> {
   return (await res.json()) as AlertsReport;
 }
 
-// ─── Phase 8 (#216-220): Pulse-to-AptLink migration via PendingUser staging ────
+// ─── Phase 8 (#216-220): Pulse-to-ACE migration via PendingUser staging ────
 
 export interface PendingUserRow {
   email: string;
@@ -2897,7 +2895,7 @@ export interface PendingUserImportResult {
 export interface InvitePendingInput {
   // 'existing'   = keep the user's current Pulse DID
   // 'new'        = purchase a fresh local US DID from Telnyx
-  // 'unassigned' = pick an existing AptLink-owned DID that isn't routed anywhere
+  // 'unassigned' = pick an existing ACE-owned DID that isn't routed anywhere
   didMode: 'existing' | 'new' | 'unassigned';
   credsMode: 'existing' | 'new';
   repointWebhook: boolean;
@@ -2930,7 +2928,7 @@ export async function listUnassignedTelnyxNumbers(
 // v0.10.20 — "Migrate Existing User to New Dialer" flow.
 //
 // MigrationCandidate is a Telnyx DID currently bound to ANOTHER connection
-// (likely Pulse). Admin re-binds it to a target AptLink user via migrateDidToUser.
+// (likely Pulse). Admin re-binds it to a target ACE user via migrateDidToUser.
 export interface MigrationCandidate {
   id: string;
   phoneNumber: string;              // E.164
@@ -2966,7 +2964,7 @@ export interface MigrateDidResult {
   previousConnectionId?: string;
   error?: string;
 }
-// v0.10.22 — Microsoft Graph OAuth for the AptLink Bot Teams notifier.
+// v0.10.22 — Microsoft Graph OAuth for the ACE Bot Teams notifier.
 // Tenant-wide admin setting: connect once via the OAuth flow, then all
 // Teams DMs (line_assigned, missed_call, voicemail, SMS) route through
 // Microsoft Graph using the acebot@aptask.com service account's refresh
@@ -3326,36 +3324,4 @@ export async function requestDeviceForceUpdate(
     const err = (await res.json().catch(() => ({}))) as { error?: string };
     throw new Error(err.error || `HTTP ${res.status}`);
   }
-}
-
-// Phase 8: User Analytics Dashboard
-export interface UserStats {
-  callsOutbound: number;
-  callsInbound: number;
-  totalTalkTime: number;
-  messages: number;
-  unreadVoicemails: number;
-}
-
-export async function getUserStats(token: string): Promise<UserStats> {
-  const res = await fetch(`${API_URL}/me/stats`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.json();
-}
-
-export async function updateUserStatus(
-  token: string,
-  status: 'available' | 'dnd' | 'away'
-): Promise<void> {
-  const res = await fetch(`${API_URL}/me/status`, {
-    method: 'PATCH',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ status }),
-  });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
 }

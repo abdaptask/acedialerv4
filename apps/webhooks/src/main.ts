@@ -1,4 +1,4 @@
-// AptLink Webhooks — Telnyx inbound webhook receiver.
+// ACE Dialer Webhooks — Telnyx inbound webhook receiver.
 // Phase 5.1: persist call lifecycle events to the database.
 import Fastify from 'fastify';
 import { startTelnyxStatusPoller, getTelnyxStatus } from './telnyxStatus.js';
@@ -35,7 +35,7 @@ import {
   sweepRecentRecordings,
 } from './texmlVoicemail.js';
 
-const SERVICE_NAME = 'aptlink-webhooks';
+const SERVICE_NAME = 'ace-dialer-webhooks';
 const START_TIME = new Date().toISOString();
 const TELNYX_API_KEY = process.env.TELNYX_API_KEY ?? '';
 
@@ -1282,7 +1282,7 @@ const texmlHandler = async (request: any): Promise<string> => {
 
   // Build an ABSOLUTE URL for the Dial action - Telnyx requires absolute URLs.
   const proto = (request?.headers?.['x-forwarded-proto'] as string) ?? 'https';
-  const host = (request?.headers?.host as string) ?? 'aptlink-webhooks.onrender.com';
+  const host = (request?.headers?.host as string) ?? 'ace-dialer-webhooks.onrender.com';
   const baseUrl = (process.env.WEBHOOKS_PUBLIC_URL ?? `${proto}://${host}`).replace(/\/+$/, '');
   const dialStatusAction = `${baseUrl}/texml/dial-status`;
 
@@ -1329,12 +1329,12 @@ const dialStatusHandler = (request: any): string => {
   const status: string = (body.DialCallStatus ?? query.DialCallStatus ?? '').toString().toLowerCase();
 
   const proto = (request?.headers?.['x-forwarded-proto'] as string) ?? 'https';
-  const host = (request?.headers?.host as string) ?? 'aptlink-webhooks.onrender.com';
+  const host = (request?.headers?.host as string) ?? 'ace-dialer-webhooks.onrender.com';
   const baseUrl = (process.env.WEBHOOKS_PUBLIC_URL ?? `${proto}://${host}`).replace(/\/+$/, '');
   const recordAction = `${baseUrl}/webhooks/telnyx/voicemail`;
   const greeting =
     process.env.PILOT_VOICEMAIL_GREETING ??
-    "You've reached AptLink. Please leave a message after the tone, then press pound or hang up.";
+    "You've reached ACE Dialer. Please leave a message after the tone, then press pound or hang up.";
 
   app.log.info({ status }, '[texml] dial-status received');
 
@@ -1402,7 +1402,7 @@ function texmlPublicBaseUrl(request: { headers?: Record<string, unknown> }): str
   if (envBase) return envBase.replace(/\/+$/, '');
   const headers = request.headers ?? {};
   const proto = (headers['x-forwarded-proto'] as string) ?? 'https';
-  const host = (headers['host'] as string) ?? 'aptlink-webhooks.onrender.com';
+  const host = (headers['host'] as string) ?? 'ace-dialer-webhooks.onrender.com';
   return `${proto}://${host}`.replace(/\/+$/, '');
 }
 

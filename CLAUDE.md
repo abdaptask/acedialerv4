@@ -1,4 +1,4 @@
-# AptLink v4 — Living System Blueprint
+# ACE Dialer v4 — Living System Blueprint
 
 > **Source of truth for every module in this monorepo.** Read the single section that maps to the area you're touching; the 4-tier structure is designed so one block alone is enough context to write production code without re-reading the rest.
 >
@@ -123,16 +123,16 @@ scripts/      One-off ops helpers (dedupe call legs, fix favorite names, etc.)
 | Local-password endpoint | `apps/api/src/auth/auth.routes.ts` → `POST /auth/login` |
 | `passwordHash` | `String?` in Prisma schema — SSO-only users have NULL; login refuses on null without throwing |
 | SSO callback page | `apps/web/src/pages/MicrosoftCallback.tsx` |
-| Electron deep-link receiver | `apps/desktop/src/main.ts` → `aptlink://` protocol handler, single-instance lock, `ace:sso-callback` IPC |
-| JWT token storage | `sessionStorage['aptlink_token']` (cleared on logout / 401) |
-| Per-user SIP creds | `sessionStorage['aptlink_sip_username' \| 'aptlink_sip_password' \| 'aptlink_did']`, written by `persistSipCreds()` in `App.tsx` after `getMe()` |
+| Electron deep-link receiver | `apps/desktop/src/main.ts` → `ace-dialer://` protocol handler, single-instance lock, `ace:sso-callback` IPC |
+| JWT token storage | `sessionStorage['ace_token']` (cleared on logout / 401) |
+| Per-user SIP creds | `sessionStorage['ace_sip_username' \| 'ace_sip_password' \| 'ace_did']`, written by `persistSipCreds()` in `App.tsx` after `getMe()` |
 | Session expiry watchdog | `apps/web/src/lib/sessionGuard.ts` — fetch interceptor + SIP "stayed failed for 30s" detector |
 
 ### 2.3 Execution Context
 - **JWT payload:** `{ sub: userId, email, isAdmin }`. Verified server-side by Fastify's `app.authenticate` decorator on every protected route.
 - **Login response shape:** `{ token, user: { id, email, firstName, lastName, isAdmin, sipUsername, sipPassword, didNumber } }`. The `sipPassword` is sensitive; only travels over HTTPS and is never logged.
 - **SSO flow:** Web sends user to Microsoft `/authorize` (PKCE), Microsoft redirects to `/auth/microsoft/callback?code=...&state=...`, the page validates state + PKCE verifier from `sessionStorage`, POSTs `{ code, redirectUri, codeVerifier }` to `/auth/microsoft/exchange`, backend exchanges with Microsoft, mints our JWT, returns it.
-- **Electron SSO flow:** OS browser handles MS sign-in (never an embedded webview — MS blocks them + breaks Conditional Access), redirects to `aptlink://auth/callback?code=...`, OS invokes the registered protocol handler, Electron main process forwards via IPC `ace:sso-callback`, renderer routes to `/auth/microsoft/callback` with the same hash.
+- **Electron SSO flow:** OS browser handles MS sign-in (never an embedded webview — MS blocks them + breaks Conditional Access), redirects to `ace-dialer://auth/callback?code=...`, OS invokes the registered protocol handler, Electron main process forwards via IPC `ace:sso-callback`, renderer routes to `/auth/microsoft/callback` with the same hash.
 - **SipContext handshake:** App.tsx writes per-user creds to `sessionStorage` then dispatches `ace:sip-creds-updated`. `SipContext` listens for it on mount; if creds arrive late (race), it polls `sessionStorage` for up to 20s before flipping to `'failed'`.
 
 ### 2.4 Architectural Guardrails
@@ -191,7 +191,7 @@ scripts/      One-off ops helpers (dedupe call legs, fix favorite names, etc.)
 - Renders the same Vite-built web bundle (`apps/web/dist`) in production; loads `VITE_DEV_SERVER_URL` in dev.
 
 ### 4.2 Current State & Truth
-**Status:** Shipped. Tray icon (Win + Mac), close-to-tray with first-time balloon, single-instance lock, `aptlink://` protocol registration, `electron-updater` polling GitHub Releases hourly.
+**Status:** Shipped. Tray icon (Win + Mac), close-to-tray with first-time balloon, single-instance lock, `ace-dialer://` protocol registration, `electron-updater` polling GitHub Releases hourly.
 
 | Concern | Implementation |
 |---|---|
@@ -200,7 +200,7 @@ scripts/      One-off ops helpers (dedupe call legs, fix favorite names, etc.)
 | Window config | `width: 1200, height: 800, minWidth: 900, minHeight: 600, backgroundColor: '#000', backgroundThrottling: false` |
 | Tray | `Tray` + `tray-icon-16.png` from `assets/`, `setTemplateImage(true)` on macOS |
 | Floating ringer | Frameless `BrowserWindow` (440×240) anchored bottom-right of work area, `alwaysOnTop('screen-saver')`, inline data-URL HTML — see [[25-notifications]] |
-| Deep link | `app.setAsDefaultProtocolClient('aptlink')` + `open-url` (mac) + `second-instance` argv (win) → `handleSsoCallback` → IPC `ace:sso-callback` |
+| Deep link | `app.setAsDefaultProtocolClient('ace-dialer')` + `open-url` (mac) + `second-instance` argv (win) → `handleSsoCallback` → IPC `ace:sso-callback` |
 | Auto-update | `electron-updater` → `autoUpdater.checkForUpdates()` after 15s, then hourly; events mirror through `lastUpdateState` so a remounted banner can rehydrate via `ace:get-update-state` |
 
 ### 4.3 Execution Context
@@ -240,7 +240,7 @@ scripts/      One-off ops helpers (dedupe call legs, fix favorite names, etc.)
 | Theme | `<html data-theme="dark"|"light">` driven by `userPrefs.applyTheme()` + system preference |
 
 ### 5.3 Execution Context
-- **Per-tab unread counts** come from API endpoints that compare `since=<lastVisit ISO>` to row timestamps. The web client stamps `localStorage['aptlink_last_visit_<tab>']` on tab visit (`markTabVisited(...)`) so the server-side count drops to zero without per-row read flags.
+- **Per-tab unread counts** come from API endpoints that compare `since=<lastVisit ISO>` to row timestamps. The web client stamps `localStorage['ace_last_visit_<tab>']` on tab visit (`markTabVisited(...)`) so the server-side count drops to zero without per-row read flags.
 - **Session guard** is `installSessionGuard()` at module top of `App.tsx` — patches `fetch` so any 401 fires `ace:session-expired` and routes back to `/login` with a reason hint stashed in `sessionStorage`.
 - **Theme system:** `--bg`, `--bg-elevated`, `--text`, `--text-dim`, `--text-muted` CSS variables. Dark is canonical; light is opt-in. See [[27-visual-system]].
 
@@ -279,7 +279,7 @@ scripts/      One-off ops helpers (dedupe call legs, fix favorite names, etc.)
   - `session_timers: false` — Telnyx 481s re-INVITE/UPDATE keepalives mid-call and teardowns happen if this is on.
   - `register_expires: 600` paired with the 20s heartbeat — bigger expiry than the worst-case throttle interval, frequent enough refresh that we never approach it.
   - `pcConfig`: STUN at `stun:stun.telnyx.com:3478` + Google fallbacks, `iceTransportPolicy: 'all'`, `bundlePolicy: 'max-bundle'`, `rtcpMuxPolicy: 'require'`.
-  - User-Agent header: `AptLink-Dialer/1.0`.
+  - User-Agent header: `ACE-Dialer/1.0`.
 - **REGISTER hygiene:**
   - On `connect()` over a pre-existing UA, send specific-Contact unregister first, wait ~350ms for it to flush, then start the new UA. Otherwise a dual-Contact INVITE fork is possible (Telnyx sends one INVITE to each Contact; the inbound Accept then races and fails with `INVALID_STATE_ERROR`).
   - On `beforeunload` and `pagehide`, call `sipService.disconnect()` which sends specific-Contact unregister before closing the WebSocket. Without this an orphan Contact lingers in the registrar for up to 600s.
@@ -310,7 +310,7 @@ scripts/      One-off ops helpers (dedupe call legs, fix favorite names, etc.)
 |---|---|
 | Constraints helper | `buildAudioConstraints()` in `sip.ts` |
 | Speaker apply helper | `applySpeakerSelection(audioEl)` in `sip.ts` |
-| Storage keys | `localStorage['aptlink_mic']`, `localStorage['aptlink_speaker']` |
+| Storage keys | `localStorage['ace_mic']`, `localStorage['ace_speaker']` |
 | Per-call `<audio>` elements | Created on each new session, removed in `cleanupCall` |
 
 ### 7.3 Execution Context
@@ -322,12 +322,12 @@ scripts/      One-off ops helpers (dedupe call legs, fix favorite names, etc.)
     autoGainControl: true,
     channelCount: { ideal: 1 },
     sampleRate: { ideal: 48000 },
-    deviceId: { ideal: aptlink_mic },
+    deviceId: { ideal: ace_mic },
     latency: { ideal: 0.02 },
   }
   ```
-- **Speaker routing:** `el.setSinkId(localStorage['aptlink_speaker'])` on every audio element we create (per-call + the primary). `default` means OS default.
-- **Stale-device recovery:** If inbound `getUserMedia` times out (3s ceiling) with a stored `aptlink_mic`, that key is cleared so the next call falls back to default and the inbound call gets a `SIP 480 Mic Unavailable` instead of ringing into nothing.
+- **Speaker routing:** `el.setSinkId(localStorage['ace_speaker'])` on every audio element we create (per-call + the primary). `default` means OS default.
+- **Stale-device recovery:** If inbound `getUserMedia` times out (3s ceiling) with a stored `ace_mic`, that key is cleared so the next call falls back to default and the inbound call gets a `SIP 480 Mic Unavailable` instead of ringing into nothing.
 
 ### 7.4 Architectural Guardrails
 - **`noiseSuppression: false` is intentional.** Chrome's RNNoise filter produces the "tunnel/pipe" sound recipients complain about, especially on wired headsets near the user's mouth. One suppression pass at most. If you flip this, A/B with real users on real hardware first.
@@ -365,7 +365,7 @@ scripts/      One-off ops helpers (dedupe call legs, fix favorite names, etc.)
   - `incoming` → `connected` → `ended` (inbound, accept path)
   - `incoming` → `ended` (decline path)
 - **Each event carries `{ callId, fromNumber, toNumber, direction, hangupCause? }`.** Consumers filter on `callId === activeCallId` to ignore held-call noise.
-- **Inbound answer specifically pre-acquires the mic with a 3-second timeout** before calling `session.answer({ mediaStream, pcConfig, rtcAnswerConstraints })`. JsSIP's internal `getUserMedia` can hang the answer pipeline indefinitely on Chromium-Electron-Windows — preflight avoids that and gives us a clean failure path (480 + clear `aptlink_mic`).
+- **Inbound answer specifically pre-acquires the mic with a 3-second timeout** before calling `session.answer({ mediaStream, pcConfig, rtcAnswerConstraints })`. JsSIP's internal `getUserMedia` can hang the answer pipeline indefinitely on Chromium-Electron-Windows — preflight avoids that and gives us a clean failure path (480 + clear `ace_mic`).
 - **Telnyx-side rejection for blocked callers** uses `/actions/reject` (Q.850 21 / SIP 486) rather than `/actions/hangup`. Hangup gets treated as "no answer" and routes to Hosted Voicemail; reject returns a busy signal and skips voicemail entirely.
 
 ### 8.4 Architectural Guardrails
@@ -391,7 +391,7 @@ scripts/      One-off ops helpers (dedupe call legs, fix favorite names, etc.)
 | Hold (silent) | `session.hold()` — SIP RE-INVITE with `a=inactive`; remote hears nothing |
 | Hold (music) | `startHoldMusic(entry)` — `Audio(dataUrl)` → `MediaElementSource` → `MediaStreamDestination`, `sender.replaceTrack(musicTrack)` |
 | Unhold | `unholdCallWithMusicIfConfigured(entry)` — restores fresh mic via `replaceTrack` |
-| Music store | `localStorage['aptlink_hold_music_data_url' \| 'aptlink_hold_music_filename' \| 'aptlink_hold_music_enabled']`. Cap: 2 MB. |
+| Music store | `localStorage['ace_hold_music_data_url' \| 'ace_hold_music_filename' \| 'ace_hold_music_enabled']`. Cap: 2 MB. |
 
 ### 9.3 Execution Context
 - **Why music-hold doesn't use `session.hold()`:** `session.hold()` sets `a=inactive` so RTP pauses both directions; a follow-up `replaceTrack(music)` then never reaches the remote. So when music is enabled we SKIP SIP hold entirely and just swap the outgoing track. We also mute the local `<audio>` element so the held caller's voice doesn't bleed into the user's headset.
@@ -737,7 +737,7 @@ scripts/      One-off ops helpers (dedupe call legs, fix favorite names, etc.)
 | DB | `Favorite` model in `packages/db/prisma/schema.prisma` |
 | API routes | `apps/api/src/favorites/favorites.routes.ts` — `GET`, `POST` (upsert), `PATCH /:id`, `DELETE /:id` |
 | API client | `apps/web/src/api.ts` — `getFavoritesApi`, `upsertFavoriteApi`, `renameFavoriteApi`, `removeFavoriteApi` |
-| Local cache | `localStorage['aptlink_favorites']` (synchronous read path for `isFavorite` / `getFavoriteName` / `getFavorites`) |
+| Local cache | `localStorage['ace_favorites']` (synchronous read path for `isFavorite` / `getFavoriteName` / `getFavorites`) |
 | Mutation engine | `apps/web/src/lib/userPrefs.ts` — optimistic local write + background API push, `pendingDeletesByPhone` to handle the add→remove race |
 | Bootstrap | `refreshFavoritesFromServer()` called on login, window focus, `visibilitychange`, and a 60s timer |
 | UI | `apps/web/src/pages/Favorites.tsx`, also star-toggle in Messages + Recents |
@@ -945,7 +945,7 @@ scripts/      One-off ops helpers (dedupe call legs, fix favorite names, etc.)
 |---|---|
 | DB model | `AuditLog` — id, actorUserId?→User, action (dot-namespaced), targetUserId?→User, metadata Json?, createdAt |
 | Indexes | `createdAt`, `(actorUserId, createdAt)`, `(targetUserId, createdAt)`, `(action, createdAt)` |
-| Write sites | Not yet wired — TODO list in `APTLINK_TODO.md` Phase 2 |
+| Write sites | Not yet wired — TODO list in `ACE_DIALER_TODO.md` Phase 2 |
 | Admin UI | Planned: Settings → Audit Log |
 
 ### 28.3 Execution Context

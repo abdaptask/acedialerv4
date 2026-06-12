@@ -51,7 +51,7 @@ export default function PostDeclineReply() {
   async function handleSend(body: string) {
     const text = body.trim();
     if (!text || !event) return;
-    const token = sessionStorage.getItem('aptlink_token');
+    const token = sessionStorage.getItem('ace_token');
     if (!token) {
       setError('Not signed in.');
       setPhase('error');

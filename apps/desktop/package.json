@@ -2,7 +2,7 @@
   "name": "@ace/desktop",
   "version": "0.10.125",
   "private": true,
-  "description": "AptLink desktop app (Electron)",
+  "description": "ACE Dialer desktop app (Electron)",
   "author": "ApTask",
   "main": "dist/main.js",
   "scripts": {
@@ -17,7 +17,7 @@
   },
   "build": {
     "appId": "com.aptask.acedialer",
-    "productName": "AptLink",
+    "productName": "ACE Dialer",
     "electronVersion": "31.7.7",
     "asar": true,
     "directories": {
@@ -53,9 +53,7 @@
           ]
         }
       ],
-      "signtoolOptions": {
-        "publisherName": "ApTask"
-      }
+      "publisherName": "ApTask"
     },
     "nsis": {
       "oneClick": false,
@@ -63,7 +61,7 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "AptLink"
+      "shortcutName": "ACE Dialer"
     },
     "mac": {
       "target": [
@@ -91,14 +89,14 @@
       "extendInfo": {
         "CFBundleURLTypes": [
           {
-            "CFBundleURLName": "AptLink",
+            "CFBundleURLName": "ACE Dialer",
             "CFBundleURLSchemes": [
-              "aptlink"
+              "ace-dialer"
             ]
           }
         ],
-        "NSMicrophoneUsageDescription": "AptLink needs access to your microphone to make and receive phone calls.",
-        "NSCameraUsageDescription": "AptLink does not currently use the camera but the runtime may probe it."
+        "NSMicrophoneUsageDescription": "ACE Dialer needs access to your microphone to make and receive phone calls.",
+        "NSCameraUsageDescription": "ACE Dialer does not currently use the camera but the runtime may probe it."
       }
     },
     "linux": {
@@ -108,9 +106,9 @@
     },
     "protocols": [
       {
-        "name": "AptLink",
+        "name": "ACE Dialer",
         "schemes": [
-          "aptlink"
+          "ace-dialer"
         ]
       }
     ],
@@ -124,7 +122,7 @@
         "releaseType": "draft"
       }
     ],
-    "artifactName": "AptLink-Dialer-${version}-${arch}.${ext}"
+    "artifactName": "ACE-Dialer-${version}-${arch}.${ext}"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",

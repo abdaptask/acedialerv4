@@ -4,7 +4,7 @@
 // drilling or a context dependency; the token already carries this claim.
 function isCurrentUserAdmin(): boolean {
   try {
-    const t = sessionStorage.getItem('aptlink_token');
+    const t = sessionStorage.getItem('ace_token');
     if (!t) return false;
     const payload = JSON.parse(atob(t.split('.')[1] ?? ''));
     return payload?.isAdmin === true;
@@ -15,7 +15,7 @@ function isCurrentUserAdmin(): boolean {
 
 const WEBHOOKS_URL =
   (import.meta as unknown as { env?: Record<string, string> }).env?.VITE_WEBHOOKS_URL
-  || 'https://aptlink-webhooks.onrender.com';
+  || 'https://ace-dialer-webhooks.onrender.com';
 
 interface TelnyxStatus {
   indicator: string;

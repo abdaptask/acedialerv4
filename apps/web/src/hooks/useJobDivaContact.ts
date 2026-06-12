@@ -37,7 +37,7 @@ export function useJobDivaContact(phone: string | undefined | null): JobDivaCont
       return;
     }
 
-    const token = sessionStorage.getItem('aptlink_token');
+    const token = sessionStorage.getItem('ace_token');
     if (!token) {
       setContact(null);
       return;

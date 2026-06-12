@@ -24,8 +24,8 @@ import { useSip } from '../contexts/SipContext';
 
 // v0.10.118 - persistent "hide tips" preference stored in localStorage.
 // Banner re-shows automatically when a new tip is added (signature mismatch).
-const TIPS_HIDDEN_KEY = 'aptlink_tips_hidden_v1';
-const TIPS_SIGNATURE_KEY = 'aptlink_tips_signature_at_hide';
+const TIPS_HIDDEN_KEY = 'ace_tips_hidden_v1';
+const TIPS_SIGNATURE_KEY = 'ace_tips_signature_at_hide';
 function computeTipSignature(tips: Tip[]): string {
   return tips.map((t) => t.id).sort().join('|');
 }
@@ -74,7 +74,7 @@ export default function TipBanner() {
   useEffect(() => {
     async function fetchNow() {
       if (inFlightRef.current) return;
-      const token = sessionStorage.getItem('aptlink_token');
+      const token = sessionStorage.getItem('ace_token');
       if (!token) return;
       inFlightRef.current = true;
       try {

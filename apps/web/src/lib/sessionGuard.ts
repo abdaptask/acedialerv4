@@ -21,7 +21,7 @@
 // wrap covers them all (plus future ones) without changing signatures.
 
 const SESSION_EVENT = 'ace:session-expired' as const;
-const TOKEN_KEY = 'aptlink_token';
+const TOKEN_KEY = 'ace_token';
 
 /** How long SIP can stay 'failed' before we treat it as a session loss
  *  and ask the user to log back in. 30s is enough to ride out a brief

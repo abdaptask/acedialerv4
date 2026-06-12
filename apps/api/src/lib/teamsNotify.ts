@@ -8,7 +8,7 @@
 //   3. POST /chats — create or find 1:1 chat with that user (members: bot + recipient)
 //   4. POST /chats/{id}/messages — send the Adaptive Card body
 //
-// Recipient sees DM from "AptLink Bot" (the service account's display name).
+// Recipient sees DM from "ACE Bot" (the service account's display name).
 //
 // Return shape unchanged so callers (admin.routes.ts) keep working without
 // edits. Falls back to skippedReason when MS Graph isn't configured yet.
@@ -156,12 +156,12 @@ function buildLineAssignedCard(args: {
   const greeting = args.recipientFirstName ? `Hi ${args.recipientFirstName},` : 'Hi,';
   const headline =
     args.mode === 'migrated'
-      ? 'Your number has been migrated to AptLink'
+      ? 'Your number has been migrated to ACE Dialer'
       : 'A new phone line has been assigned to you';
   const body =
     args.mode === 'migrated'
-      ? `Your number ${niceDid} (${args.label}) is now on AptLink. Calls and SMS will only ring on AptLink going forward — the old dialer (Pulse) is no longer receiving them.`
-      : `A new line "${args.label}" — ${niceDid} — was added to your AptLink account. It's ready to use; open the dialer to start making and receiving calls on this number.`;
+      ? `Your number ${niceDid} (${args.label}) is now on ACE Dialer. Calls and SMS will only ring on ACE going forward — the old dialer (Pulse) is no longer receiving them.`
+      : `A new line "${args.label}" — ${niceDid} — was added to your ACE Dialer account. It's ready to use; open the dialer to start making and receiving calls on this number.`;
 
   return {
     $schema: 'http://adaptivecards.io/schemas/adaptive-card.json',

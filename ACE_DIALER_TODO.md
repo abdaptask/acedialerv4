@@ -1,4 +1,4 @@
-# AptLink — Working Checklist
+# ACE Dialer — Working Checklist
 
 **Last updated:** 2026-05-22
 **Current version (committed):** v0.8.6
@@ -29,7 +29,7 @@
 
 - [ ] **Pulse SQL CSV** — your team produces a CSV of email + names + sipUsername + didNumber for all 150 users. We pull it through bulk-import as soon as ready.
 - [ ] **Telnyx Portal** — flip **Transcription** on under Hosted Voicemail Profile (5 min, no code, ~$0.05/min). Backend code already handles `transcription_text`.
-- [ ] **Staged-rollout passwords** — as each user opts in to AptLink, copy their SIP password from Telnyx Portal into Settings → Users → kebab → "Set SIP password (Telnyx)".
+- [ ] **Staged-rollout passwords** — as each user opts in to ACE Dialer, copy their SIP password from Telnyx Portal into Settings → Users → kebab → "Set SIP password (Telnyx)".
 
 ---
 

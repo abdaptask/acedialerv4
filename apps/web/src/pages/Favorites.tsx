@@ -297,7 +297,7 @@ function FavoriteRow({
   async function blockNumber(phone: string) {
     const reason = prompt(`Why are you blocking ${formatPhone(phone)}? (Admin can see this reason.)`, '');
     if (reason === null) return;
-    const token = sessionStorage.getItem('aptlink_token');
+    const token = sessionStorage.getItem('ace_token');
     if (!token) return;
     const r = await addBlockedNumber(token, { number: phone, reason: reason.trim() || undefined });
     if ('error' in r && r.error) {
@@ -305,7 +305,7 @@ function FavoriteRow({
     }
   }
   async function removeNumber(numberId: number) {
-    const token = sessionStorage.getItem('aptlink_token');
+    const token = sessionStorage.getItem('ace_token');
     if (!token || !fav.id) return;
     if (!confirm('Remove this number from the favorite?')) return;
     const r = await deleteFavoriteNumber(token, fav.id, numberId);
@@ -472,7 +472,7 @@ function AddNumberInline({
   async function handleAdd() {
     setError(null);
     if (!phone.trim()) return;
-    const token = sessionStorage.getItem('aptlink_token');
+    const token = sessionStorage.getItem('ace_token');
     if (!token) return;
     setSubmitting(true);
     const r = await addFavoriteNumber(token, favoriteId, {

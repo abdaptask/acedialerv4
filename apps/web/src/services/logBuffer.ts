@@ -86,7 +86,7 @@ export function getLogsAsText(meta: {
   version?: string | null;
 }): string {
   const header = [
-    `AptLink diagnostic log`,
+    `ACE Dialer diagnostic log`,
     `Exported:        ${new Date().toISOString()}`,
     `Session started: ${SESSION_START}`,
     `User:            ${meta.email ?? '(unknown — not signed in)'}`,

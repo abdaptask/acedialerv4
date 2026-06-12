@@ -109,7 +109,7 @@ export function getRingtonePresets(): Array<{ slug: RingtoneSlug; label: string;
  */
 export function getCurrentRingtoneSlug(): RingtoneSlug {
   try {
-    const v = sessionStorage.getItem('aptlink_ringtone') as RingtoneSlug | null;
+    const v = sessionStorage.getItem('ace_ringtone') as RingtoneSlug | null;
     if (v && PRESETS[v]) return v;
   } catch { /* noop */ }
   return DEFAULT_RINGTONE;
@@ -140,7 +140,7 @@ class Ringtone {
    * we use an HTMLAudioElement loop instead of the synthesis path.
    * For 'upload:<id>' the caller must have already resolved the data URL
    * via listMyRingtones() and stored it under
-   * sessionStorage[`aptlink_uploaded_ringtone_<id>`] — done at /me/ringtones
+   * sessionStorage[`ace_uploaded_ringtone_<id>`] — done at /me/ringtones
    * fetch time so playback doesn't need a network round-trip.
    */
   start(slug?: string, durationMs?: number): void {
@@ -157,7 +157,7 @@ class Ringtone {
     // bail to the default if unavailable.
     if (effectiveSlug.startsWith('upload:')) {
       const id = effectiveSlug.slice('upload:'.length);
-      const dataUrl = sessionStorage.getItem(`aptlink_uploaded_ringtone_${id}`);
+      const dataUrl = sessionStorage.getItem(`ace_uploaded_ringtone_${id}`);
       if (dataUrl) {
         this.playing = true;
         this.audioEl = new Audio(dataUrl);

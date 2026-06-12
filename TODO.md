@@ -1,7 +1,7 @@
-# AptLink — TODO
+# ACE Dialer — TODO
 
 Living list of what's still open. Updated after each session.
-See git log + APTLINK_PROJECT.md changelog for what's already shipped.
+See git log + ACE_DIALER_PROJECT.md changelog for what's already shipped.
 
 ---
 
@@ -19,12 +19,12 @@ See git log + APTLINK_PROJECT.md changelog for what's already shipped.
         path actually works
 
   Until this is fixed, give pilot users this workaround:
-  *Right-click AptLink in system tray → Quit → relaunch from desktop
+  *Right-click ACE Dialer in system tray → Quit → relaunch from desktop
   shortcut → new version installs during launch.*
 
 - [ ] **Verify Render env vars on the API service**:
   - `SENDGRID_API_KEY`, `SENDGRID_FROM_EMAIL` (verified sender)
-  - `TELNYX_MESSAGING_PROFILE_ID` (otherwise SMS won't route to AptLink for invited users)
+  - `TELNYX_MESSAGING_PROFILE_ID` (otherwise SMS won't route to ACE for invited users)
 
 - [ ] **Clean up test data** from yesterday's v0.9.0 dev test:
   ```sql
@@ -112,6 +112,6 @@ See git log + APTLINK_PROJECT.md changelog for what's already shipped.
 
 ## How to update this file
 
-After each session: move done items to `APTLINK_PROJECT.md` changelog
+After each session: move done items to `ACE_DIALER_PROJECT.md` changelog
 (Section 13). Add any new asks at the right priority tier. Keep ≤ 30 items
 visible.

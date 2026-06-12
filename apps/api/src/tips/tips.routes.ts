@@ -251,7 +251,7 @@ const DEFAULT_TIPS: Array<{
   {
     icon: '📞',
     title: 'Set up call forwarding',
-    body: 'Going off-shift? Settings → Calling → Call forwarding routes incoming calls to your cell when AptLink is closed.',
+    body: 'Going off-shift? Settings → Calling → Call forwarding routes incoming calls to your cell when ACE is closed.',
     adminOnly: false,
   },
   {
@@ -281,7 +281,7 @@ const DEFAULT_TIPS: Array<{
   {
     icon: '📧',
     title: 'Email me when I miss something',
-    body: 'Settings → Personal → Notifications → Email tab. Get an email for missed calls, voicemails, or SMS when AptLink isn\'t open.',
+    body: 'Settings → Personal → Notifications → Email tab. Get an email for missed calls, voicemails, or SMS when ACE isn\'t open.',
     adminOnly: false,
   },
   {

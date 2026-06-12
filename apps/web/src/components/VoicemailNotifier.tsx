@@ -45,7 +45,7 @@ export default function VoicemailNotifier() {
   const onVoicemailPage = location.pathname.startsWith('/voicemail');
 
   useEffect(() => {
-    const token = sessionStorage.getItem('aptlink_token');
+    const token = sessionStorage.getItem('ace_token');
     if (!token) return;
 
     let cancelled = false;

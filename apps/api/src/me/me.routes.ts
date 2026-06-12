@@ -27,7 +27,6 @@ import { z } from 'zod';
 import { prisma } from '@ace/db';
 import * as telnyx from '../telnyx/numbers.js';
 import { recordAudit } from '../lib/audit.js';
-import { ioEmitter } from '../lib/socket.js';
 // v0.10.79 — for /me/email-notifications/test, fires a sample notification
 // email through SendGrid using the same template style as the real
 // missed-call / SMS / voicemail emails (so users can confirm deliverability
@@ -351,13 +350,13 @@ export async function meRoutes(app: FastifyInstance) {
         body: [
           {
             type: 'TextBlock',
-            text: '✅ AptLink Teams notifications connected',
+            text: '✅ ACE Dialer Teams notifications connected',
             size: 'Large',
             weight: 'Bolder',
           },
           {
             type: 'TextBlock',
-            text: `Hello ${user.firstName ?? user.email}, this is a test card from AptLink. You'll receive cards here when you have a missed call, a new SMS, or a voicemail (per your opt-ins).`,
+            text: `Hello ${user.firstName ?? user.email}, this is a test card from ACE Dialer. You'll receive cards here when you have a missed call, a new SMS, or a voicemail (per your opt-ins).`,
             wrap: true,
             isSubtle: true,
           },
@@ -743,74 +742,5 @@ export async function meRoutes(app: FastifyInstance) {
       });
       return { ok: true, updated: result.count };
     },
-  );
-
-  // Phase 8: Analytics Dashboard Stats
-  app.get(
-    '/me/stats',
-    { onRequest: [app.authenticate] },
-    async (request: FastifyRequest) => {
-      const u = request.user as JwtPayload;
-      
-      const startOfDay = new Date();
-      startOfDay.setHours(0, 0, 0, 0);
-
-      const [calls, messages, voicemails] = await Promise.all([
-        prisma.call.findMany({
-          where: {
-            userId: u.sub,
-            createdAt: { gte: startOfDay },
-          },
-          select: { direction: true, durationSeconds: true },
-        }),
-        prisma.message.count({
-          where: {
-            userId: u.sub,
-            createdAt: { gte: startOfDay },
-          },
-        }),
-        prisma.voicemail.count({
-          where: {
-            userId: u.sub,
-            listenedAt: null,
-          },
-        }),
-      ]);
-
-      const callsOutbound = calls.filter(c => c.direction === 'outbound').length;
-      const callsInbound = calls.filter(c => c.direction === 'inbound').length;
-      const totalTalkTime = calls.reduce((acc, c) => acc + (c.durationSeconds || 0), 0);
-
-      return {
-        callsOutbound,
-        callsInbound,
-        totalTalkTime,
-        messages,
-        unreadVoicemails: voicemails,
-      };
-    }
-  );
-
-  // ---------------------------------------------------------------------------
-  // PATCH /me/status - Global Presence & DND
-  // ---------------------------------------------------------------------------
-  app.patch(
-    '/me/status',
-    { onRequest: [app.authenticate] },
-    async (request: FastifyRequest) => {
-      const u = request.user as JwtPayload;
-      const schema = z.object({ status: z.enum(['available', 'dnd', 'away']) });
-      const { status } = schema.parse(request.body);
-
-      await prisma.user.update({
-        where: { id: u.sub },
-        data: { status },
-      });
-
-      // Broadcast presence change to all sockets
-      ioEmitter.emit('status_update', { userId: u.sub, status });
-
-      return { ok: true, status };
-    }
   );
 }
