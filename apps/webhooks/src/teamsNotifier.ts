@@ -229,6 +229,8 @@ async function resolveLineLabel(
  * is a `teams_notified_at` column on the Call row with an atomic
  * conditional update — out of scope for v0.10.x.
  */
+import { claimSend } from './webhookDedup.js';
+
 const sentMissedCallCards = new Set<number>();
 
 export function scheduleMissedCallNotification(opts: {
@@ -261,6 +263,15 @@ async function notifyMissedCall(opts: {
   // Reserve immediately to avoid a race when Telnyx fires two
   // call.hangup events back-to-back.
   sentMissedCallCards.add(opts.callDbId);
+  // v0.10.142 — QA-005 — cross-replica claim. Falls back to true if
+  // the webhook_dedup table isn't deployed yet (graceful degradation).
+  if (!(await claimSend(`teams:missedCall:${opts.callDbId}`))) {
+    consoleLog(
+      { userId: opts.userId, callDbId: opts.callDbId },
+      '[teams] missed-call card already claimed by another replica — skipping',
+    );
+    return;
+  }
   // Suppress if a voicemail exists for this call — the voicemail card
   // covers the same notification need with richer content.
   const vm = await prisma.voicemail.findFirst({
@@ -437,6 +448,15 @@ export async function notifyVoicemail(opts: {
   }
   // Reserve immediately to avoid a race between transcribed + timeout.
   sentVoicemailCards.add(opts.voicemailId);
+  // v0.10.142 — QA-005 — cross-replica claim. The Set above is the
+  // fast-path within this process; this is the cross-replica guard.
+  if (!(await claimSend(`teams:voicemail:${opts.voicemailId}`))) {
+    consoleLog(
+      { voicemailId: opts.voicemailId, reason: opts.reason },
+      '[teams] voicemail card already claimed by another replica — skipping',
+    );
+    return;
+  }
 
   try {
     const cfg = await loadTeamsConfig(opts.userId);

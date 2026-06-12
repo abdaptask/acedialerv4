@@ -2125,3 +2125,29 @@ const shutdown = async (signal: string) => {
 };
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 process.on('SIGINT', () => shutdown('SIGINT'));
+
+// v0.10.142 — QA-005 — hourly TTL sweep of webhook_dedup. Keeps the
+// table small (<1MB under realistic load). 7-day retention is a
+// generous window vs. the worst-case Telnyx replay-after-failure
+// timeline (<24h in practice). If the table doesn't exist yet
+// (db:push hasn't run), the sweep silently no-ops.
+setInterval(async () => {
+  try {
+    const cutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    const result = await prisma.webhookDedup.deleteMany({
+      where: { sentAt: { lt: cutoff } },
+    });
+    if (result.count > 0) {
+      app.log.info(
+        { count: result.count },
+        '[webhookDedup] hourly TTL sweep — deleted old rows',
+      );
+    }
+  } catch (e) {
+    // Table missing or other transient error - log and continue.
+    app.log.warn(
+      { err: e instanceof Error ? e.message : String(e) },
+      '[webhookDedup] hourly TTL sweep failed (non-fatal)',
+    );
+  }
+}, 60 * 60 * 1000);

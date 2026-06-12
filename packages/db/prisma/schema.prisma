@@ -946,3 +946,27 @@ model SystemSetting {
 
   @@map("system_settings")
 }
+
+/// v0.10.142 — QA-005 — Cross-replica webhook dedup.
+///
+/// Each card-send (Teams missed-call, Teams voicemail, future
+/// inbound-SMS) reserves a unique key in this table BEFORE sending.
+/// If the INSERT fails with a unique-violation (P2002), another
+/// replica has already claimed the key and we skip the send. A
+/// background sweep purges rows older than 7 days so the table
+/// stays small.
+///
+/// Key convention: `<channel>:<event>:<entityId>`, e.g.
+///   teams:missedCall:1234        - call.id
+///   teams:voicemail:567          - voicemail.id
+///   email:voicemail:567          - voicemail.id (email channel)
+model WebhookDedup {
+  /// Composite key like `teams:missedCall:1234`. The application
+  /// builds these from a known-stable identifier per event class.
+  key    String   @id
+  /// When the claim was made. Used by the hourly TTL sweep.
+  sentAt DateTime @default(now()) @map("sent_at")
+
+  @@index([sentAt])
+  @@map("webhook_dedup")
+}

@@ -24,6 +24,15 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.142',
+    date: 'June 12, 2026',
+    highlight: 'Backend hardening — Teams card dedup now works across multiple webhook replicas',
+    changes: [
+      { type: 'fixed', text: 'Teams notification dedup is now backed by a Postgres webhook_dedup table instead of an in-memory Set per process. Previously if the ace-dialer-webhooks service scaled beyond one replica (or restarted between the recording-completed and the 30-second timeout fallback paths), the same Teams card could fire twice. Now every send-card path reserves a unique key in the database first; only the first replica to claim a key sends the card.' },
+      { type: 'fixed', text: 'Server-only change. No user-facing impact in the current single-replica configuration, but enables future horizontal scaling of the webhooks service without duplicate notifications.' },
+    ],
+  },
+  {
     version: '0.10.141',
     date: 'June 12, 2026',
     highlight: 'Backend security hardening — socket service now requires JWT authentication',
