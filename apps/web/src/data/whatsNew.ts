@@ -24,6 +24,16 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.145',
+    date: 'June 12, 2026',
+    highlight: 'UX P2 polish batch 2 — search bar layering, light-mode flash, settings tables',
+    changes: [
+      { type: 'fixed', text: 'Search bar (Recents, Voicemail, Messages) no longer gets visually covered by row-action menus or other page UI when scrolling. Stacking layer raised so it sits above page content but still ducks under the green return-to-call banner during active calls.' },
+      { type: 'fixed', text: 'Light-mode no longer flashes a dark background on first paint. The dialer shell was hard-coded to black; it now uses the theme token so light mode renders correctly from the very first frame.' },
+      { type: 'improved', text: 'Settings two-column layout now allows the content pane to shrink below its content min-width. Pending Users and Audit Log tables that used to force horizontal scroll across the whole Settings pane now scroll inside their own container correctly.' },
+    ],
+  },
+  {
     version: '0.10.144',
     date: 'June 12, 2026',
     highlight: 'UX P2 polish batch 1 — six small layout fixes',

@@ -157,8 +157,11 @@ body {
   height: 100vh;
   display: grid;
   grid-template-rows: auto 1fr auto;
-  background: #000;
-  color: #fff;
+  /* v0.10.145 - UX-024 - was #000 literal. Use the theme token so
+     light-mode users don't see a dark flash on first paint before the
+     [data-theme="light"] override cascade kicks in. */
+  background: var(--bg);
+  color: var(--text);
 }
 .app-header {
   /* v0.10.0 — flex layout (was grid 1fr auto 1fr which made huge empty
@@ -2383,7 +2386,11 @@ body {
   border-radius: 10px;
   position: sticky;
   top: 0;
-  z-index: 5;
+  /* v0.10.145 - UX-019 - raised from 5 to 30. The return-to-call banner
+     sits at z=40 so the search bar still ducks under it during active
+     calls (correct), but page content (incl. row dropdowns) at z<30
+     no longer covers the search bar when scrolling. */
+  z-index: 30;
   backdrop-filter: blur(8px);
 }
 .search-icon {
@@ -2519,7 +2526,13 @@ body {
 /* Two-column split: left navigation + right content pane */
 .settings.settings-split {
   display: grid;
-  grid-template-columns: 260px 1fr;
+  /* v0.10.145 - UX-033 - second column allowed to shrink below content
+     min-width via minmax(0, 1fr). Without this, wide tables (Pending
+     Users, Audit Log) push the grid track wider than the available
+     viewport and the user gets ugly horizontal scroll INSIDE the table
+     wrap. With minmax(0, 1fr), the table's overflow-x: auto handles
+     it correctly inside its own container. */
+  grid-template-columns: 260px minmax(0, 1fr);
   gap: 0;
   max-width: 1100px;
   min-height: calc(100vh - 100px);

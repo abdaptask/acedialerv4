@@ -1,6 +1,6 @@
 {
   "name": "@ace/webhooks",
-  "version": "0.10.144",
+  "version": "0.10.145",
   "private": true,
   "type": "module",
   "main": "dist/main.js",
