@@ -24,6 +24,15 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.143',
+    date: 'June 12, 2026',
+    highlight: 'Auto-update security hardening — signature verification now enforced during EV cert procurement window',
+    changes: [
+      { type: 'fixed', text: 'Auto-update signature verification is now enforced by default. Previously the dialer had an override that disabled Windows publisher-name verification (added because our installer isnt EV-signed yet). That override left a supply-chain attack vector: anyone with access to GitHub Releases could push a malicious binary that every dialer would auto-install. The override is now gated behind an explicit ACE_BYPASS_CODE_SIGNING env var (not set in production builds), so updates will fail until we ship a properly signed binary. Procurement of an EV code-signing certificate is in progress; see docs/ev-cert-procurement.md for the timeline.' },
+      { type: 'fixed', text: 'During the procurement window (~2 weeks), auto-update may show "Update failed: not signed by the application owner" errors. This is EXPECTED. Until the cert lands, please download new installers from GitHub Releases manually. Auto-update will resume once v0.10.144+ ships with EV signing wired in.' },
+    ],
+  },
+  {
     version: '0.10.142',
     date: 'June 12, 2026',
     highlight: 'Backend hardening — Teams card dedup now works across multiple webhook replicas',

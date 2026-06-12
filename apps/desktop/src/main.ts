@@ -917,19 +917,40 @@ function initAutoUpdater() {
 
   // v0.9.4 — TEMPORARY: bypass Windows code-signing verification because
   // we don't have an EV cert yet (see task #194 / #233). Without this,
-  // electron-updater refuses to install ANY update on Windows since
-  // package.json declares publisherName: "ApTask" but our GitHub Actions
-  // workflow doesn't actually sign the EXE — so the publisher-name match
-  // check fails and the user sees "Update failed: not signed by the
-  // application owner". MITM risk is low since downloads come from GitHub
-  // Releases over HTTPS; remove this override once we wire the EV cert in.
+  // v0.10.143 - QA-003 - gate the code-signing override behind an
+  // explicit env var so we stop silently shipping with verification off.
+  //
+  // BACKGROUND: electron-updater refuses to install ANY update on Windows
+  // when package.json declares publisherName: "ApTask" but the EXE isn't
+  // actually signed. The publisher-name check fails and the user sees
+  // "Update failed: not signed by the application owner". The historical
+  // workaround was to make verifyUpdateCodeSignature a no-op resolver.
+  //
+  // The trade-off was real supply-chain risk: an attacker controlling
+  // GitHub Releases could push a malicious .exe and every dialer auto-
+  // installs it. With the v0.10.143 gate active, the override is
+  // DISABLED by default. Auto-update will fail until we ship an
+  // EV-signed binary OR the user sets ACE_BYPASS_CODE_SIGNING to the
+  // magic value below.
+  //
+  // See docs/ev-cert-procurement.md for the procurement plan + how to
+  // wire the signature into the GitHub Actions build pipeline.
   if (process.platform === 'win32') {
-    // The property is undocumented but recognised by NsisUpdater; making
-    // it a no-op resolver tells electron-updater to skip the signature
-    // verification step entirely.
-    (autoUpdater as unknown as {
-      verifyUpdateCodeSignature?: (publisherNames: string[], file: string) => Promise<string | null>;
-    }).verifyUpdateCodeSignature = async () => null;
+    if (process.env.ACE_BYPASS_CODE_SIGNING === 'allowed-during-procurement') {
+      console.warn(
+        '[auto-update] WARNING: code-signing verification override ACTIVE via ' +
+          'ACE_BYPASS_CODE_SIGNING env var. This bypasses Windows publisher-name ' +
+          'verification - supply-chain risk if attacker controls GitHub Releases.',
+      );
+      (autoUpdater as unknown as {
+        verifyUpdateCodeSignature?: (publisherNames: string[], file: string) => Promise<string | null>;
+      }).verifyUpdateCodeSignature = async () => null;
+    } else {
+      console.log(
+        '[auto-update] code-signing verification ENFORCED (default). Auto-update ' +
+          "will fail until the binary is EV-signed. See docs/ev-cert-procurement.md.",
+      );
+    }
   }
 
   autoUpdater.on('checking-for-update', () => {
