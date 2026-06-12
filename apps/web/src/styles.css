@@ -1075,7 +1075,11 @@ body {
 
 /* Mobile: hide the version detail + user name text; just keep avatar */
 @media (max-width: 540px) {
-  .app-header { grid-template-columns: auto 1fr auto; gap: 0.6rem; padding: 0.4rem 0.7rem; }
+  /* v0.10.146 - UX-018 - parent .app-header is display:flex, not grid.
+     The old grid-template-columns rule never applied. Convert to
+     flex-friendly properties that actually work. */
+  .app-header { gap: 0.5rem; padding: 0.4rem 0.7rem; flex-wrap: nowrap; }
+  .app-header-center { gap: 0.3rem; min-width: 0; flex: 1 1 auto; }
   .app-header .version { display: none; }
   .user-name { display: none; }
   .user-chip { padding: 0.2rem 0.35rem 0.2rem 0.3rem; }
@@ -4352,6 +4356,10 @@ body {
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
   z-index: 1000;
   min-width: 280px;
+  /* v0.10.146 - UX-043 - prevent overflow on very narrow viewports
+     (e.g. 480px Electron window) where 280px min-width + flex children
+     could exceed screen width and clip the Accept button off the right. */
+  max-width: calc(100vw - 24px);
   animation: incoming-slide-down 200ms ease-out;
 }
 

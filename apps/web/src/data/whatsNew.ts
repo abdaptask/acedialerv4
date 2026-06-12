@@ -24,6 +24,15 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.146',
+    date: 'June 12, 2026',
+    highlight: 'UX P2 polish batch 3 — narrow-viewport fixes',
+    changes: [
+      { type: 'fixed', text: 'Mobile/narrow viewport (≤540px) app header now actually applies its layout overrides. The previous media-query rule used grid-template-columns but the header is a flexbox, so the rule was a no-op. Rewritten to use flex-friendly properties that work.' },
+      { type: 'fixed', text: 'Incoming-call banner (the small non-fullscreen variant) no longer overflows beyond very narrow viewports. Adds a max-width: calc(100vw - 24px) cap so the Accept/Decline buttons stay on-screen even at ~480px window widths.' },
+    ],
+  },
+  {
     version: '0.10.145',
     date: 'June 12, 2026',
     highlight: 'UX P2 polish batch 2 — search bar layering, light-mode flash, settings tables',
