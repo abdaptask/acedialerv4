@@ -146,7 +146,10 @@ export default function IncomingCall() {
   // Reply button: only for real phone numbers (not SIP-URI internal calls),
   // and hidden during Hold & Accept (3 buttons already shown).
   const replyableNumber = (callerNumber || '').replace(/[\s()-]/g, '');
-  const canReply = !canHoldAndAccept && /^\+?\d/.test(replyableNumber);
+  // v0.10.132 - Reply with Text is now shown in both no-call and
+  // already-on-call modes. Main window stacked layout becomes 3 buttons
+  // (Decline / Reply / Hold&Accept) with plain Accept removed (audio-merge bug).
+  const canReply = /^\+?\d/.test(replyableNumber);
 
   function handleReplyWithMessage() {
     const to = callerNumber;
@@ -186,25 +189,17 @@ export default function IncomingCall() {
           {canHoldAndAccept ? 'You\u2019re already on a call' : '\u2026'}
         </div>
         <div className="incoming-actions">
+          {/* v0.10.132 - reordered: Decline / Reply with Text / (Accept | Hold & Accept).
+              Plain Accept and Hold & Accept are mutually exclusive based on
+              canHoldAndAccept (we used to render BOTH which let the user
+              tap plain Accept and accidentally merge audio - same bug we
+              fixed on the floater in v0.10.120). */}
           <div className="incoming-action-stack">
             <button className="incoming-btn decline" onClick={declineCall} aria-label="Decline">
               <PhoneOff size={32} />
             </button>
             <div className="incoming-action-label">Decline</div>
           </div>
-          {canHoldAndAccept && (
-            <div className="incoming-action-stack">
-              <button
-                className="incoming-btn hold-accept"
-                onClick={handleHoldAndAccept}
-                aria-label="Hold current call and accept"
-                title="Hold current call and accept"
-              >
-                <PhoneForwarded size={30} />
-              </button>
-              <div className="incoming-action-label">Hold &amp; Accept</div>
-            </div>
-          )}
           {canReply && (
             <div className="incoming-action-stack">
               <button
@@ -218,12 +213,29 @@ export default function IncomingCall() {
               <div className="incoming-action-label">Reply with Text</div>
             </div>
           )}
-          <div className="incoming-action-stack">
-            <button className="incoming-btn accept" onClick={handleAccept} aria-label="Accept">
-              <Phone size={32} />
-            </button>
-            <div className="incoming-action-label">Accept</div>
-          </div>
+          {canHoldAndAccept ? (
+            <div className="incoming-action-stack">
+              <button
+                className="incoming-btn hold-accept"
+                onClick={handleHoldAndAccept}
+                aria-label="Hold current call and accept"
+                title="Hold current call and accept"
+              >
+                <Phone size={32} />
+                <span className="incoming-pause-badge" aria-hidden="true">
+                  <svg viewBox="0 0 24 24"><rect x="6" y="4" width="4" height="16" rx="0.8"/><rect x="14" y="4" width="4" height="16" rx="0.8"/></svg>
+                </span>
+              </button>
+              <div className="incoming-action-label">Hold &amp; Accept</div>
+            </div>
+          ) : (
+            <div className="incoming-action-stack">
+              <button className="incoming-btn accept" onClick={handleAccept} aria-label="Accept">
+                <Phone size={32} />
+              </button>
+              <div className="incoming-action-label">Accept</div>
+            </div>
+          )}
         </div>
       </div>
     </div>

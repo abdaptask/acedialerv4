@@ -24,6 +24,17 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.132',
+    date: 'June 12, 2026',
+    highlight: 'Incoming-call UI unified across main window and floater - clearer, safer, consistent',
+    changes: [
+      { type: 'improved', text: 'When already on a call and a second call rings, the main window now shows exactly three buttons: Decline, Reply with Text, Hold and Accept (in that order). Previously it showed four buttons including a plain Accept that would merge the two calls audio - the same bug we fixed on the floater popup in v0.10.120 has now been fixed on the main window too. Plain Accept is automatically hidden whenever Hold and Accept is the safe option.' },
+      { type: 'improved', text: 'Reply with Text is now available even when you are already on a call. Previously it was only offered when you had no active call. Available on both the main window and the floating popup.' },
+      { type: 'improved', text: 'Hold and Accept on the main window now uses the same green-circle-with-orange-pause-badge icon as the floater. Previously it was amber with a phone-forward arrow icon, which looked completely different from the floater. Now both surfaces share the same icon vocabulary, just at different sizes.' },
+      { type: 'fixed', text: 'Floater button alignment: Reply with Text was sitting slightly higher than Decline and Accept because its two-line label was taller than the one-line labels. Switched the floater row to top-align all buttons, so they now sit at the same vertical position regardless of label length.' },
+    ],
+  },
+  {
     version: '0.10.131',
     date: 'June 12, 2026',
     highlight: 'Clearer Hold and Accept icon on the floating call popup',

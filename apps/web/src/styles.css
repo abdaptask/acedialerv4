@@ -4123,20 +4123,48 @@ body {
    decline, and slightly smaller so the visual hierarchy stays:
    Accept (primary, animated) > Hold & Accept (secondary) > Decline. */
 .incoming-btn.hold-accept {
-  background: #f59e0b;
-  width: 64px;
-  height: 64px;
+  /* v0.10.132 - same green as plain Accept (#22c55e) and same 72px size.
+     The orange pause badge in the top-right is the only visual difference
+     between this and plain Accept, matching the floater design.
+     Bug it fixes: previously amber #f59e0b at 64px which looked like a
+     completely different action. Users couldn't tell it was an Accept
+     variant from the icon alone. */
+  background: #22c55e;
+  width: 72px;
+  height: 72px;
   position: relative;
-  flex-direction: column;
-  gap: 2px;
-  /* No pulse — the accept button already pulses; two pulsing buttons reads
-     as noisy. */
+  /* No pulse - the regular accept already pulses; this version doesn't
+     pulse because it's a more deliberate action (hold current first). */
+}
+
+/* v0.10.132 - orange pause badge layered on top-right of Hold & Accept.
+   The orange (#f97316) matches Reply with Text so "orange = modifier
+   action" is consistent across the floater and main window. The 2.5px
+   green border separates the badge visually from the button background. */
+.incoming-pause-badge {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: #f97316;
+  border: 2.5px solid #22c55e;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.incoming-pause-badge svg {
+  width: 13px;
+  height: 13px;
+  fill: #ffffff;
 }
 
 .incoming-btn.hold-accept.small {
+  /* v0.10.132 - small variant retained for any place that still uses it;
+     keeps the new green styling but at compact size. */
   width: 40px;
   height: 40px;
-  flex-direction: row;
 }
 
 .incoming-btn-sublabel {

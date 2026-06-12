@@ -439,7 +439,10 @@ function createRingerWindow(callerNumber?: string, hasActiveCall: boolean = fals
   // try/catch + console.log so we capture the renderer crash that
   // previous v0.10.122/.125/.127 attempts produced.
   const replyableDigits = (callerNumber ?? '').replace(/[\s()+\-]/g, '');
-  const canReply = !hasActiveCall && /^\d+$/.test(replyableDigits);
+  // v0.10.132 - Reply with Text is now shown in both no-call and
+  // already-on-call modes. Floater stacked layout becomes 3 buttons
+  // (Decline / Reply / Hold&Accept) matching the main window.
+  const canReply = /^\d+$/.test(replyableDigits);
   const replyColHtml = canReply
     ? `<div class="col">
         <button class="reply" id="reply" title="Reply with a text message and decline the call">
@@ -465,6 +468,7 @@ function createRingerWindow(callerNumber?: string, hasActiveCall: boolean = fals
   .subtle { font-size: 13px; opacity: .65; margin-top: 4px;
     font-style: italic; }
   .row { display: flex; justify-content: space-around; gap: 16px;
+    align-items: flex-start;
     margin-top: 14px; -webkit-app-region: no-drag; }
   .col { display: flex; flex-direction: column; align-items: center;
     gap: 6px; }
