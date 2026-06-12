@@ -1983,4 +1983,31 @@ setInterval(() => {
     .map((s) => s.trim())
     .filter((s) => s.length > 0);
   if (trialDids.length === 0 || !TELNYX_API_KEY) return;
-  sweepRecentRecordin
+  sweepRecentRecordings({
+    telnyxApiKey: TELNYX_API_KEY,
+    trialDids,
+    lookbackMinutes: 10,
+    processVoicemail: (payload, source) => processVoicemail(payload, source),
+    log: (o, m) => app.log.info(o, m),
+  }).catch((err) => {
+    app.log.warn(
+      { err: err instanceof Error ? err.message : String(err) },
+      '[texml-vm] sweep: top-level error',
+    );
+  });
+}, TEXML_SWEEP_INTERVAL_MS);
+
+  await app.listen({ port, host });
+  app.log.info({ port, host }, `[${SERVICE_NAME}] listening`);
+} catch (err) {
+  app.log.error(err);
+  process.exit(1);
+}
+
+const shutdown = async (signal: string) => {
+  app.log.info({ signal }, `[${SERVICE_NAME}] shutting down`);
+  await app.close();
+  process.exit(0);
+};
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
