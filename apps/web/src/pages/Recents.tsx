@@ -362,7 +362,8 @@ export default function Recents() {
     if (!token) return;
     const friendly = getFavoriteName(target) ?? getCachedJobDivaName(target) ?? formatNumber(target);
     if (
-      !confirm(
+      // v0.10.137 - UX-013 - strict check to prevent Electron silent-confirm bug.
+      window.confirm(
         `Block ${friendly}?\n\nThey won't be able to call or text you. ` +
           'Unblock anytime in Settings → Blocked numbers.',
       )

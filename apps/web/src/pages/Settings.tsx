@@ -1118,7 +1118,7 @@ function HoldMusicSection() {
   }
 
   async function clearTenantDefault() {
-    if (!confirm('Remove the tenant-wide default hold music? Users\' own local files are not affected.')) return;
+    if (window.confirm('Remove the tenant-wide default hold music? Users\' own local files are not affected.') !== true) return;
     const token = sessionStorage.getItem('ace_token');
     if (!token) return;
     setTenantBusy('clear');
@@ -1164,7 +1164,7 @@ function HoldMusicSection() {
   }
 
   function clear() {
-    if (!confirm('Remove the saved hold music?')) return;
+    if (window.confirm('Remove the saved hold music?') !== true) return;
     clearHoldMusic();
     setDataUrl(null);
     setFilename(null);
@@ -1666,7 +1666,7 @@ function GreetingVariantPanel({
   }
 
   async function handleDeleteAudio() {
-    if (!confirm('Remove this audio greeting?')) return;
+    if (window.confirm('Remove this audio greeting?') !== true) return;
     setError(null);
     setOkMsg(null);
     setSubmitting(true);
@@ -2178,7 +2178,7 @@ function DataSection() {
     const file = e.target.files?.[0];
     e.target.value = '';
     if (!file) return;
-    if (!confirm('Importing will overwrite your current preferences. Continue?')) return;
+    if (window.confirm('Importing will overwrite your current preferences. Continue?') !== true) return;
     const reader = new FileReader();
     reader.onload = () => {
       try {
@@ -2556,7 +2556,7 @@ function QuickRepliesSection() {
   }
 
   function resetToDefaults() {
-    if (!confirm('Replace your quick replies with the defaults?')) return;
+    if (window.confirm('Replace your quick replies with the defaults?') !== true) return;
     resetQuickReplies();
     setReplies(DEFAULT_QUICK_REPLIES);
   }
@@ -2739,7 +2739,7 @@ function BlockedNumbersSection() {
   async function handleRemove(id: number) {
     const token = sessionStorage.getItem('ace_token');
     if (!token) return;
-    if (!confirm('Unblock this number? Future calls and SMS from it will reach you again.')) return;
+    if (window.confirm('Unblock this number? Future calls and SMS from it will reach you again.') !== true) return;
     setError(null);
     try {
       await removeBlockedNumber(token, id);
@@ -6979,7 +6979,7 @@ function SmsTemplatesAdminSection() {
   }
 
   async function handleArchive(id: number) {
-    if (!confirm('Archive this template? It will disappear from users\' picker. You can un-archive by editing.')) return;
+    if (window.confirm('Archive this template? It will disappear from users\' picker. You can un-archive by editing.') !== true) return;
     const token = sessionStorage.getItem('ace_token');
     if (!token) return;
     await archiveSmsTemplate(token, id);

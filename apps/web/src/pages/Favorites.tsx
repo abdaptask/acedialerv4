@@ -52,7 +52,8 @@ export default function Favorites() {
     navigate(`/messages?to=${encodeURIComponent(f.phone)}`);
   }
   function handleRemove(f: FavoriteContact) {
-    if (!confirm(`Remove ${f.label || formatPhone(f.phone)} from favorites?`)) return;
+    // v0.10.137 - UX-013 - strict check so Electron null return doesn't auto-confirm.
+    if (window.confirm(`Remove ${f.label || formatPhone(f.phone)} from favorites?`) !== true) return;
     removeFavorite(f.phone);
   }
   function handleAdd() {
@@ -307,7 +308,7 @@ function FavoriteRow({
   async function removeNumber(numberId: number) {
     const token = sessionStorage.getItem('ace_token');
     if (!token || !fav.id) return;
-    if (!confirm('Remove this number from the favorite?')) return;
+    if (window.confirm('Remove this number from the favorite?') !== true) return;
     const r = await deleteFavoriteNumber(token, fav.id, numberId);
     if (!r.ok) {
       alert(r.error ?? 'Remove failed');

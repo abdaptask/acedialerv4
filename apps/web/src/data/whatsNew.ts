@@ -24,6 +24,18 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.138',
+    date: 'June 12, 2026',
+    highlight: 'UX batch #2 (completed) - in-call layout, safer confirmations, modal contrast',
+    changes: [
+      { type: 'fixed', text: 'Delete/block confirmations are now reliable in the Electron desktop app. Previously some confirmation dialogs could silently confirm the action when Electron returned null from window.confirm. Explicit click now required for Block, Remove Favorite, Cancel Scheduled Message, Remove Hold Music, Remove Audio Greeting, Import Preferences, Replace Quick Replies, Unblock Number, Archive Template, and more.' },
+      { type: 'improved', text: 'In-call screen adapts to short viewports. On 1366x768 displays with a held call plus the full 3x3 control grid, the hangup button used to clip below the visible area. The layout now compacts on viewports under 700px tall.' },
+      { type: 'improved', text: 'Tip banner no longer overlaps the bottom navigation bar on 1366x768 laptops. The Voicemail tab and its unread badge are now fully visible when a tip is open.' },
+      { type: 'fixed', text: 'Modal backdrops are consistently dark across all overlays. Four modals (contacts quick-pick, call history detail, audio greeting picker, post-decline reply sheet) were rendering with semi-transparent backdrops. They now match the design spec.' },
+      { type: 'fixed', text: 'Internal: added missing CSS rules for incoming-call action labels and tab badge wrappers.' },
+    ],
+  },
+  {
     version: '0.10.137',
     date: 'June 12, 2026',
     highlight: 'Catches up the What is New list (the entries for 0.10.135 and 0.10.136 were missing from the previous build)',

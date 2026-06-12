@@ -1321,7 +1321,9 @@ body {
   position: fixed;
   inset: 0;
   z-index: 80;
-  background: rgba(0, 0, 0, 0.5);
+  /* v0.10.137 - UX-012 - bumped from 0.5 to 0.78 to honor CLAUDE.md
+     locked rule #1 (modal backdrops 70-80% opacity). */
+  background: rgba(0, 0, 0, 0.78);
   display: flex;
   align-items: flex-end;
   justify-content: center;
@@ -1659,6 +1661,21 @@ body {
   padding: 3rem 1.5rem 3rem;
   min-height: 100%;
   margin: 0 auto;
+  /* v0.10.138 - UX-008 - internal scroll for short viewports when
+     held-call strip + 3x3 control grid + transfer dialog exceed the
+     visible area on 1366x768. */
+  overflow-y: auto;
+}
+/* v0.10.138 - UX-008 - compact in-call layout on short viewports.
+   On 1366x768 with 125% DPI scaling and a held call visible, the
+   3x3 control grid plus hangup row was clipping. These overrides
+   shrink the spacing and control icons to keep everything reachable
+   without sacrificing tappability. Bails out above 700px viewport
+   height so taller displays are unaffected. */
+@media (max-height: 700px) {
+  .in-call { padding: 1rem 1rem 0.75rem; gap: 1rem; }
+  .in-call-grid { gap: 10px 18px; }
+  .ic-ctrl-icon { width: 56px; height: 56px; }
 }
 .in-call-number {
   font-size: 2.4rem;
@@ -2159,7 +2176,9 @@ body {
   position: fixed;
   inset: 0;
   z-index: 80;
-  background: rgba(0, 0, 0, 0.55);
+  /* v0.10.137 - UX-012 - bumped from 0.55 to 0.78 to honor CLAUDE.md
+     locked rule #1 (modal backdrops 70-80% opacity). */
+  background: rgba(0, 0, 0, 0.78);
   display: flex;
   align-items: flex-end;
   justify-content: center;
@@ -4120,6 +4139,39 @@ body {
   padding: 0 24px;
 }
 
+/* v0.10.137 - UX-005 - missing class definitions.
+   IncomingCall.tsx wraps each action button as
+     <div class="incoming-action-stack">
+       <button class="incoming-btn ...">...</button>
+       <div class="incoming-action-label">Decline</div>
+     </div>
+   But before this release those two classes had no CSS - the label
+   text rendered unstyled. The floater (apps/desktop/src/main.ts) had
+   .action-label defined inline; this brings the main-window version
+   into visual parity. */
+.incoming-action-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+.incoming-action-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.95);
+  letter-spacing: 0.02em;
+  text-align: center;
+  white-space: nowrap;
+}
+/* .tab-icon-wrap - referenced by Layout.tsx tabbar; provides the
+   positioning context for .tab-badge which uses absolute positioning. */
+.tab-icon-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
 .incoming-btn {
   width: 72px;
   height: 72px;
@@ -4293,6 +4345,23 @@ body {
   padding: 32px 20px 28px;
   gap: 28px;
   max-width: 460px;
+  /* v0.10.137 - UX-008 - allow internal scrolling when content exceeds
+     viewport height (e.g. conference call with held-call strip + 3x3
+     control grid + transfer/audio dialogs on a 1366x768 screen). */
+  overflow-y: auto;
+}
+/* v0.10.137 - UX-008 - compact in-call layout on short viewports.
+   At 1366x768 with 125% DPI scaling and the held-call strip present,
+   the 3x3 control grid + hangup row was exceeding the visible area.
+   These overrides shrink the grid spacing and control icons just
+   enough to fit without sacrificing tappability. Bails out above
+   700px viewport height so taller displays are unaffected. */
+@media (max-height: 700px) {
+  .in-call { padding: 16px 16px 12px; gap: 16px; }
+  .in-call-grid { gap: 10px 18px; }
+  .ic-ctrl-icon { width: 56px; height: 56px; }
+}
+.in-call
   margin: 0 auto;
   width: 100%;
 }
@@ -5352,7 +5421,9 @@ button.call-pill-info:hover { background: rgba(255, 255, 255, 0.05); }
 .audio-picker {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.55);
+  /* v0.10.137 - UX-012 - bumped from 0.55 to 0.78 to honor CLAUDE.md
+     locked rule #1 (modal backdrops 70-80% opacity). */
+  background: rgba(0, 0, 0, 0.78);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -6395,7 +6466,9 @@ button.call-pill-info:hover { background: rgba(255, 255, 255, 0.05); }
   position: fixed;
   inset: 0;
   z-index: 1300;
-  background: rgba(0, 0, 0, 0.55);
+  /* v0.10.137 - UX-012 - bumped from 0.55 to 0.78 to honor CLAUDE.md
+     locked rule #1 (modal backdrops 70-80% opacity). */
+  background: rgba(0, 0, 0, 0.78);
   display: flex;
   align-items: flex-end;
   justify-content: center;

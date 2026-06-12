@@ -139,7 +139,11 @@ export default function TipBanner() {
       style={{
         position: 'fixed',
         right: 20,
-        bottom: 90,
+        // v0.10.137 - UX-011 - raised from 90 to 110 so the banner stops
+        // overlapping the bottom-nav at 1366x768 viewport height. The
+        // tab-bar is ~52px tall + padding; 110 gives the banner clean
+        // space above the Voicemail tab + its unread badge.
+        bottom: 110,
         zIndex: 950,            // below modals (z 1000+), above main content
         width: 320,
         maxWidth: 'calc(100vw - 40px)',

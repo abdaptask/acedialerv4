@@ -539,10 +539,11 @@ function ThreadDetail({ number, onBack }: ThreadDetailProps) {
     if (!token) return;
     const friendly = favName ?? jd?.name ?? formatNumber(number);
     if (
-      !confirm(
+      // v0.10.138 - UX-013 - strict check; Electron sometimes returns null from confirm.
+      window.confirm(
         `Block ${friendly}?\n\nThey won't be able to call or text you. ` +
           'You can unblock them later in Settings → Blocked numbers.',
-      )
+      ) !== true
     ) {
       return;
     }
