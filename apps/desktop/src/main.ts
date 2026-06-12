@@ -443,7 +443,7 @@ function createRingerWindow(callerNumber?: string, hasActiveCall: boolean = fals
       </button>`
     : '';
   const replyLabelHtml = canReply
-    ? `<div class="action-label">Reply</div>`
+    ? `<div class="action-label">Reply with Text</div>`
     : '';
   const replyColHtml = canReply
     ? `<div class="col">${replyButtonHtml}${replyLabelHtml}</div>`
@@ -477,7 +477,7 @@ function createRingerWindow(callerNumber?: string, hasActiveCall: boolean = fals
   button.accept { background: #22c55e; }
   button.hold-accept { background: #22c55e; }
   button.decline { background: #ef4444; }
-  button.reply { background: #3b82f6; }
+  button.reply { background: #f97316; }
   button svg { width: 30px; height: 30px; fill: none; stroke: #fff;
     stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 </style></head>

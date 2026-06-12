@@ -24,6 +24,15 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.127',
+    date: 'June 12, 2026',
+    highlight: 'Reply with Text now available in the floating call popup with proper styling',
+    changes: [
+      { type: 'new', text: 'The floating call popup (the small green window that appears bottom-right when a call comes in) now shows a third button between Decline and Accept: Reply with Text. Tapping it declines the call AND opens the quick-reply sheet so you can send an SMS reply without picking up. Only shows when you are not already on another call and when the caller is a real phone number. Styled in orange to distinguish it from Accept (green) and Decline (red).' },
+      { type: 'fixed', text: 'Cleaned up some leftover code from a previous failed release attempt. No user-visible changes from this part - just internal hygiene.' },
+    ],
+  },
+  {
     version: '0.10.125',
     date: 'June 11, 2026',
     highlight: 'Reply with Text now available on the floating call popup (the feature originally tried in v0.10.122, safely re-introduced now that the startup crash is fixed).',
@@ -955,3 +964,4 @@ export const WHATS_NEW: ReleaseEntry[] = [
     ],
   },
 ];
+                                                                                                               
