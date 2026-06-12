@@ -24,6 +24,15 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.130',
+    date: 'June 12, 2026',
+    highlight: 'Reply with Text crash FINALLY fixed - root cause was a React rules-of-hooks violation',
+    changes: [
+      { type: 'fixed', text: 'Fixed the Reply with Text crash that has been blocking 4 release attempts (v0.10.122/.125/.127/.129). Root cause was finally caught via DevTools console capture: React error #310 (rendered more hooks than during the previous render). The Reply with Text useEffect was inserted AFTER the components if-no-incoming early-return guard, making it a conditional hook. On first render (no call) only 3 hooks ran; on second render (call arrives) the 4th hook tried to run, React detected the count mismatch and threw, the renderer crashed, the main window went blank, JsSIP terminated the session, and the caller got bounced to voicemail. Fix moves the useEffect to BEFORE the early-return guard so the hook count is identical across renders. Reply with Text on the floater now works without crashing the dialer.' },
+      { type: 'fixed', text: 'Bonus: the immediate voicemail bounce (caller hearing voicemail after 1 ring) that has been seen in tandem with this crash was the downstream consequence of the renderer crash - a dead renderer cannot accept SIP INVITEs or refresh REGISTER, so Telnyx routed the call to voicemail. Fixing the crash fixes the bounce.' },
+    ],
+  },
+  {
     version: '0.10.129',
     date: 'June 12, 2026',
     highlight: 'Reply with Text returns to the floating popup (diagnostic build) + Render auto-deploy fix',
