@@ -170,4 +170,3 @@ jobs:
             apps/desktop/release/*.msi
           if-no-files-found: error
           retention-days: 30
-
