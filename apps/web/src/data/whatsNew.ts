@@ -24,12 +24,13 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
-    version: '0.10.127',
+    version: '0.10.128',
     date: 'June 12, 2026',
-    highlight: 'Reply with Text now available in the floating call popup with proper styling',
+    highlight: 'Stable baseline after a bumpy release week - dialer is reliable again',
     changes: [
-      { type: 'new', text: 'The floating call popup (the small green window that appears bottom-right when a call comes in) now shows a third button between Decline and Accept: Reply with Text. Tapping it declines the call AND opens the quick-reply sheet so you can send an SMS reply without picking up. Only shows when you are not already on another call and when the caller is a real phone number. Styled in orange to distinguish it from Accept (green) and Decline (red).' },
-      { type: 'fixed', text: 'Cleaned up some leftover code from a previous failed release attempt. No user-visible changes from this part - just internal hygiene.' },
+      { type: 'fixed', text: 'Reverted the floating-call-popup Reply with Text button (which was attempted in 0.10.122, 0.10.125, and 0.10.127). Every attempt caused the renderer to crash, leaving the dialer with a blank window after the first incoming call. The full-screen ringing UI Reply button continues to work. Floater goes back to 2 buttons (Decline / Accept) when idle, and 2 buttons (Decline / Hold and Accept) when already on a call. We will revisit the floater feature after a proper diagnostic capture of what was crashing.' },
+      { type: 'improved', text: 'Added a build-time guard against the workspace-sync null-byte corruption that has been silently breaking releases this week. A new scripts/strip-null-bytes.mjs runs automatically before every build (via npm prebuild hook) to scrub any embedded null characters out of source files. This was the root cause behind several JSON parse errors and TS1127 compile failures during the last 24 hours.' },
+      { type: 'improved', text: 'Voicemail duplicates: the v0.10.121 server-side dedup (call_session_id alignment) and the v0.10.126 behavioral safety-net (30-second same-caller window) both remain active. Together they catch all duplicate paths.' },
     ],
   },
   {
