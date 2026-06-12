@@ -5,7 +5,6 @@ import { startTelnyxStatusPoller, getTelnyxStatus } from './telnyxStatus.js';
 import cors from '@fastify/cors';
 import formbody from '@fastify/formbody';
 import { prisma } from '@ace/db';
-import { emitToUser } from './socket.js';
 import { transcribeAndUpdateVoicemail } from './deepgram.js';
 import {
   notifyInboundSms,
@@ -750,8 +749,6 @@ app.post('/webhooks/telnyx/calls', async (request) => {
             callDbId: row.id,
             telnyxCallId: callId,
           });
-
-          emitToUser(row.userId, 'badge:update', { type: 'missed_call' });
         }
 
         break;
@@ -873,8 +870,6 @@ app.post('/webhooks/telnyx/calls', async (request) => {
           const unreadCount = await prisma.voicemail.count({
             where: { userId: ownerUserId, listenedAt: null },
           });
-          emitToUser(ownerUserId, 'badge:update', { type: 'voicemail', count: unreadCount });
-
           app.log.info(
             { fromNumber: vmFrom, recordingUrl, durationSeconds: durSec, voicemailId: created.id },
             '[vm] voicemail saved from Telnyx Hosted Voicemail',
@@ -1041,8 +1036,6 @@ app.post('/webhooks/telnyx/sms', async (request) => {
           const unreadCount = await prisma.message.count({
             where: { userId: ownerUserId, direction: 'inbound', readAt: null },
           });
-          emitToUser(ownerUserId, 'badge:update', { type: 'sms', count: unreadCount });
-
           // First-time inbound delivery — fire Teams card.
           if (created.direction === 'inbound') {
             void notifyInboundSms({
@@ -1779,8 +1772,6 @@ async function processVoicemail(
   const unreadCount = await prisma.voicemail.count({
     where: { userId: ownerUserId, listenedAt: null },
   });
-  emitToUser(ownerUserId, 'badge:update', { type: 'voicemail', count: unreadCount });
-
   app.log.info(
     { source, voicemailId: created.id, fromNumber: payload.fromNumber, durationSeconds: payload.durationSeconds },
     '[vm] voicemail recorded',
