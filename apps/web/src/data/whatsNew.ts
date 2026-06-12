@@ -24,6 +24,15 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.133',
+    date: 'June 12, 2026',
+    highlight: 'Fixed: answered inbound calls were missing from Recents for TeXML voicemail trial users',
+    changes: [
+      { type: 'fixed', text: 'Critical Recents fix. For users on the TeXML voicemail trial (currently you and the 8 testers), answered inbound calls were missing from the Recents tab. The root cause was that Telnyx fires call event webhooks ONLY for the SIP-delivery leg of those calls, not the PSTN leg, so the database row ended up storing the dialers SIP credential username as the to-number instead of a phone number. A safety filter on the Recents query was then hiding any row whose to-number matched a known SIP username, which wiped 100 percent of answered inbound calls for these users. Fixed by using the connection-id-attributed UserDid to normalize the to-number at write time: when the webhook says to-number is a SIP credential, we now look up the UserDids actual phone number and store that instead. Once Render redeploys the webhooks service, future inbound calls will store correctly. A one-time backfill script is also included to repair the ~50 existing rows already in the database.' },
+      { type: 'fixed', text: 'Server-only hotfix to apps/webhooks. The desktop dialer build does not need updating. Run the backfill script once after the Render redeploy to restore historical inbound calls to your Recents.' },
+    ],
+  },
+  {
     version: '0.10.132',
     date: 'June 12, 2026',
     highlight: 'Incoming-call UI unified across main window and floater - clearer, safer, consistent',

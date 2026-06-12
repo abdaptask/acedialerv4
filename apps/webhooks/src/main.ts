@@ -87,6 +87,59 @@ async function resolveUserId(opts: {
  *
  * Last-10-digits comparison tolerates Telnyx-vs-storage formatting drift.
  */
+/**
+ * v0.10.133 - Look up a UserDid's didNumber (the actual phone number).
+ * Used to normalize Call row toNumber for inbound calls when the
+ * webhook payload's toNumber is the SIP credential username instead
+ * of the dialed phone number (TeXML voicemail flow scenario).
+ * Returns null if userDidId is null/undefined or the UserDid has no
+ * didNumber (extremely unlikely - schema requires it).
+ */
+async function lookupUserDidNumber(userDidId: number | null | undefined): Promise<string | null> {
+  if (!userDidId) return null;
+  const did = await prisma.userDid.findUnique({
+    where: { id: userDidId },
+    select: { didNumber: true },
+  });
+  return did?.didNumber ?? null;
+}
+
+/**
+ * v0.10.133 - Pick the canonical toNumber for an inbound Call row.
+ *
+ * Background: for TeXML voicemail trial users, Telnyx fires call.*
+ * webhook events ONLY for the SIP-delivery leg. The payload's toNumber
+ * on that leg is the SIP credential username (e.g. "userabdulla74993")
+ * not the dialed phone number. Storing that as toNumber breaks the
+ * Recents query filter (which excludes any toNumber matching a known
+ * sipUsername to hide duplicate infrastructure rows).
+ *
+ * Strategy: if attribution found a UserDid (via connection_id - Pass 0),
+ * use UserDid.didNumber as the canonical toNumber. Otherwise, fall back
+ * to whatever the webhook said (which for normal PSTN-leg events IS
+ * already the phone number).
+ *
+ * Only applies to direction=inbound. Outbound toNumber is the dialed
+ * external party and never needs override.
+ */
+async function canonicalInboundToNumber(opts: {
+  direction: 'inbound' | 'outbound';
+  rawToNumber: string;
+  userDidId: number | null;
+}): Promise<string> {
+  if (opts.direction !== 'inbound') return opts.rawToNumber;
+  // If rawToNumber already looks like a phone number (+ or all digits),
+  // accept it - that's a PSTN-leg event with the dialed number.
+  const trimmed = opts.rawToNumber.trim();
+  if (trimmed.startsWith('+') || /^\d{7,}$/.test(trimmed)) {
+    return opts.rawToNumber;
+  }
+  // Otherwise it's a SIP credential username or similar non-phone string.
+  // Look up the matched UserDid's didNumber and use that.
+  const didNumber = await lookupUserDidNumber(opts.userDidId);
+  return didNumber ?? opts.rawToNumber;
+}
+
 async function resolveUserAndDid(opts: {
   sipUsername?: string | null;
   fromNumber?: string | null;
@@ -500,6 +553,16 @@ app.post('/webhooks/telnyx/calls', async (request) => {
           }
         }
 
+        // v0.10.133 - normalize toNumber via the connection-id-matched
+        // UserDid (resolved above as userDidId). For TeXML voicemail flow,
+        // the raw webhook toNumber is the SIP credential username rather
+        // than the dialed phone number; this lookup rewrites it.
+        const canonicalToNumber = await canonicalInboundToNumber({
+          direction,
+          rawToNumber: toNumber,
+          userDidId,
+        });
+
         await prisma.call.upsert({
           where: { telnyxCallId: callId },
           update: {
@@ -516,6 +579,9 @@ app.post('/webhooks/telnyx/calls', async (request) => {
             ...(blocked ? { status: 'blocked' } : {}),
             ...(callControlId ? { callControlId } : {}),
             ...(userDidId ? { userDidId } : {}),
+            // v0.10.133 - also fix the toNumber if a prior write (e.g. from
+            // the call.hangup fallback) had stored the SIP username.
+            ...(canonicalToNumber !== toNumber ? { toNumber: canonicalToNumber } : {}),
           },
           create: {
             userId: ownerUserId,
@@ -524,7 +590,7 @@ app.post('/webhooks/telnyx/calls', async (request) => {
             callControlId: callControlId ?? null,
             direction,
             fromNumber,
-            toNumber,
+            toNumber: canonicalToNumber,
             status: blocked ? 'blocked' : 'initiated',
             startedAt: payload.start_time ? new Date(payload.start_time) : new Date(),
             userDidId,
@@ -682,6 +748,23 @@ app.post('/webhooks/telnyx/calls', async (request) => {
               '[telnyx] hangup-create: could not attribute call - skipping',
             );
           } else {
+            // v0.10.133 - normalize toNumber via the connection-id-matched
+            // UserDid before insertion. resolveUserId only returns the
+            // userId (no userDidId), so we have to do an extra lookup here
+            // to canonicalize. Acceptable because this branch is the rare
+            // race-fallback path; most calls go through the call.initiated
+            // upsert above.
+            const hangupCreateCanonicalToNumber = await (async () => {
+              if (direction !== 'inbound') return toNumber;
+              const trimmed = (toNumber ?? '').trim();
+              if (trimmed.startsWith('+') || /^\d{7,}$/.test(trimmed)) return toNumber;
+              const did = await prisma.userDid.findFirst({
+                where: { userId: ownerUserId },
+                orderBy: { id: 'asc' },
+                select: { didNumber: true },
+              });
+              return did?.didNumber ?? toNumber;
+            })();
             await prisma.call.create({
               data: {
                 userId: ownerUserId,
@@ -689,7 +772,7 @@ app.post('/webhooks/telnyx/calls', async (request) => {
                 sessionId: payload.call_session_id ?? null,
                 direction,
                 fromNumber,
-                toNumber,
+                toNumber: hangupCreateCanonicalToNumber,
                 status,
                 startedAt,
                 endedAt,
