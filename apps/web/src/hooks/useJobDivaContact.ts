@@ -46,7 +46,16 @@ export function useJobDivaContact(phone: string | undefined | null): JobDivaCont
     let cancelled = false;
     let promise = inflight.get(key);
     if (!promise) {
-      promise = lookupJobDivaContact(token, phone)
+      // v0.10.138 — QA-030 — Promise.resolve().then(...) defers
+      // lookupJobDivaContact's invocation to a microtask, which guarantees
+      // that any SYNCHRONOUS throw (e.g., a future bug that calls fetch()
+      // with an invalid URL at construction time) is captured by the
+      // downstream .catch() rather than escaping past the inflight.set
+      // and stranding the entry. Without this, the same phone-number
+      // lookup was permanently locked out for the rest of the page's
+      // lifetime.
+      promise = Promise.resolve()
+        .then(() => lookupJobDivaContact(token, phone))
         .catch(() => null)
         .then((v) => {
           cache.set(key, { value: v, expiresAt: Date.now() + TTL_MS });

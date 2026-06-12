@@ -100,15 +100,16 @@ function handleDeepLink(action: 'call' | 'sms', to: string) {
  *  match for the SSO case (defensive against parsing differences). */
 function routeProtocolUrl(url: string) {
   try {
-    // SSO callback uses a sub-path so URL parsing puts "auth" in
-    // hostname; we explicitly match the substring for robustness
-    // across platforms (Windows vs macOS sometimes hand us slightly
-    // different normalized strings).
-    if (url.includes('auth/callback')) {
+    // v0.10.138 — QA-035 — Parse the URL first and dispatch on hostname
+    // instead of a substring match. The old url.includes(auth/callback)
+    // would mis-classify a crafted call like
+    //   ace-dialer://call?to=auth/callback
+    // as an SSO callback and silently drop the user's keypad action.
+    const parsed = new URL(url);
+    if (parsed.hostname === 'auth' && parsed.pathname.startsWith('/callback')) {
       handleSsoCallback(url);
       return;
     }
-    const parsed = new URL(url);
     const action = parsed.hostname;
     if (action === 'call' || action === 'sms') {
       const to = parsed.searchParams.get('to') ?? '';

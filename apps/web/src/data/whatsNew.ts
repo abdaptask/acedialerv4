@@ -24,6 +24,23 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.139',
+    date: 'June 12, 2026',
+    highlight: 'Functional QA safe-batch - 11 low-risk fixes from the audit, plus internal hardening for memory leaks and edge cases',
+    changes: [
+      { type: 'fixed', text: 'Sign out followed by sign in is now cleaner. Previously the dialer left a stale browser-tab visibility listener attached after logout that referenced the old SIP connection - on a sign-out then sign-in cycle, the new session inherited the dead listener and its background-tab recovery silently failed. The listener is now removed on disconnect.' },
+      { type: 'fixed', text: 'Tapping Accept after a caller already hung up no longer leaks memory. The dialer was creating a stale call-log entry every time, which over a long session with many missed calls would slowly grow internal state. The stale event is now dropped at the logger boundary.' },
+      { type: 'improved', text: 'Device tracking is now stable in Chrome Incognito and other private-browsing modes. The dialer previously generated a fresh device id every time localStorage was unavailable, which made Admin -> Users -> Version show inconsistent data for Incognito sessions and could cause force-update prompts to fire repeatedly.' },
+      { type: 'fixed', text: 'Webhook safety: an unrecognized DialCallStatus value from Telnyx (schema-drift edge case) used to fall through to the voicemail capture branch, misclassifying a successful call as voicemail. The dialer now hangs up cleanly on unknown statuses.' },
+      { type: 'fixed', text: 'TeXML voicemail polling: if Telnyx returned multiple recordings (a frequent caller leaving two voicemails close together), the importer used to assume newest-first ordering. It now explicitly sorts by recording start time and filters out recordings that started before the current call - eliminating a class of "wrong recording imported" edge cases.' },
+      { type: 'fixed', text: 'Scheduled SMS no longer double-sends after a server crash. If the API crashed mid-Telnyx-send and the message had already been accepted by Telnyx (telnyxMessageId stamped), the stuck-row sweep used to re-attempt and the recipient would get the SMS twice. The sweep now refuses to resend messages that have a telnyxMessageId and marks them failed for review.' },
+      { type: 'fixed', text: 'JobDiva contact lookup cache no longer locks out a phone number permanently if a synchronous error escapes the fetch path. The hook now wraps the call in Promise.resolve so any throw routes through the .catch path.' },
+      { type: 'fixed', text: 'Desktop deep-link parsing: ace-dialer://call?to=auth/callback no longer mis-routes to the SSO handler. The desktop app now parses the URL and dispatches on hostname, removing the legacy substring match.' },
+      { type: 'fixed', text: 'Speaker selection that fails (e.g., the chosen device was just unplugged) now reverts to the previous preference and broadcasts an internal event the UI can show. Previously the dialer persisted the broken device id and the next call used it again.' },
+      { type: 'fixed', text: 'Server: GET /auth/me now returns 401 (not 200 with an error body) when a deleted user has a still-valid JWT. The dialer logs the stale session out immediately instead of rendering a broken shell.' },
+    ],
+  },
+  {
     version: '0.10.138',
     date: 'June 12, 2026',
     highlight: 'UX batch #2 (completed) - in-call layout, safer confirmations, modal contrast',

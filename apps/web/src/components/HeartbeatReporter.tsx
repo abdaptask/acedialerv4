@@ -8,16 +8,35 @@ import { sendHeartbeat, ackForceUpdate } from '../api';
 
 const DEVICE_ID_KEY = 'ace_device_id';
 
+// v0.10.138 — QA-012 — In-memory fallback so even if BOTH storage tiers
+// throw (private browsing with locked-down quotas), at least the same
+// module instance reuses the same id for the lifetime of the tab.
+let memoryDeviceId: string | null = null;
+
 function getOrCreateDeviceId(): string {
+  // Tier 1: localStorage (persists across sessions on a normal browser).
   try {
-    let id = localStorage.getItem(DEVICE_ID_KEY);
+    const id = localStorage.getItem(DEVICE_ID_KEY);
     if (id && id.length >= 8) return id;
-    id = 'd' + Math.random().toString(36).slice(2) + Date.now().toString(36);
-    localStorage.setItem(DEVICE_ID_KEY, id);
-    return id;
-  } catch {
-    return 'd' + Math.random().toString(36).slice(2) + Date.now().toString(36);
-  }
+  } catch { /* localStorage unavailable, fall through */ }
+  // Tier 2: sessionStorage (persists for the tab in Incognito too).
+  try {
+    const id = sessionStorage.getItem(DEVICE_ID_KEY);
+    if (id && id.length >= 8) {
+      // Best-effort: also write back to localStorage in case it recovers.
+      try { localStorage.setItem(DEVICE_ID_KEY, id); } catch { /* noop */ }
+      memoryDeviceId = id;
+      return id;
+    }
+  } catch { /* sessionStorage unavailable */ }
+  // Tier 3: in-module memory.
+  if (memoryDeviceId) return memoryDeviceId;
+  // Generate a fresh id and persist to whichever tier accepts the write.
+  const fresh = 'd' + Math.random().toString(36).slice(2) + Date.now().toString(36);
+  memoryDeviceId = fresh;
+  try { localStorage.setItem(DEVICE_ID_KEY, fresh); } catch { /* noop */ }
+  try { sessionStorage.setItem(DEVICE_ID_KEY, fresh); } catch { /* noop */ }
+  return fresh;
 }
 
 function detectPlatform(): string {

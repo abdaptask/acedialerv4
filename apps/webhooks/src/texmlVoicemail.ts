@@ -469,9 +469,39 @@ export function pollAndImportPerCall(opts: {
           }
           return;
         }
-        // Found at least one recording. Import the most recent (data is
-        // ordered newest first per Telnyx default).
-        const rec = recordings[0]!;
+        // v0.10.138 — QA-022 — Do not rely on Telnyx's documented default
+        // sort order. (a) Explicitly sort by recording_started_at DESC so the
+        // newest is always at [0]. (b) Filter out any recording whose
+        // recording_started_at is BEFORE this call's callStartedAt — those
+        // belong to an earlier call from the same caller and a previous poll
+        // already imported them.
+        const sorted = [...recordings].sort((a, b) => {
+          const ta = a.recording_started_at ? Date.parse(a.recording_started_at) : 0;
+          const tb = b.recording_started_at ? Date.parse(b.recording_started_at) : 0;
+          return tb - ta; // newest first
+        });
+        const callStartedMs = opts.callStartedAt.getTime();
+        // Allow a 5-second clock-skew tolerance so we don't drop the
+        // legitimate recording due to Telnyx's clock being slightly ahead
+        // of ours at the call-start timestamp.
+        const SKEW_MS = 5_000;
+        const fresh = sorted.find((r) => {
+          if (!r.recording_started_at) return false;
+          const t = Date.parse(r.recording_started_at);
+          if (Number.isNaN(t)) return false;
+          return t >= callStartedMs - SKEW_MS;
+        });
+        if (!fresh) {
+          opts.log(
+            { attemptIdx, callStartedAt: opts.callStartedAt.toISOString(), candidates: sorted.length },
+            '[texml-vm] poll: no recordings started after callStartedAt yet - retrying',
+          );
+          if (attemptIdx + 1 < delays.length) {
+            tryOnce(attemptIdx + 1);
+          }
+          return;
+        }
+        const rec = fresh;
         const payload = recordingToPayload(rec);
         if (!payload.recordingUrl) {
           opts.log({ recordingId: rec.id }, '[texml-vm] poll: recording has no download URL - skipping');

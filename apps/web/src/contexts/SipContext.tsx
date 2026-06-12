@@ -623,6 +623,13 @@ async function logCallEvent(
   const token = sessionStorage.getItem('ace_token');
   if (!token) return;
   if (!event.callId) return;
+  // v0.10.138 — QA-011 — '__stale__' is the synthetic callId acceptCall()
+  // emits when the user taps Accept after the caller already hung up. It
+  // has no associated Call row and no real fromNumber/toNumber, so logging
+  // it just allocates a logRef entry that never gets posted. Over a long
+  // session with frequent missed calls, the map grew unbounded. Drop the
+  // synthetic event here at the logger boundary.
+  if (event.callId === '__stale__') return;
 
   let entry = log.get(event.callId);
 

@@ -136,9 +136,30 @@ async function tick(log: FastifyBaseLogger): Promise<void> {
 
     // Sweep any 'sending' rows older than 5 minutes back to 'pending' —
     // they're stuck (API crashed mid-send) and should retry.
+    // v0.10.138 — QA-029 — Critically, SKIP rows where telnyxMessageId is
+    // populated. If we have a Telnyx message id on the row, the SMS has
+    // already left our side (Telnyx accepted it); re-sweeping back to
+    // 'pending' would cause the worker to call sendMessageImmediate again
+    // and the recipient would get the SMS twice. Mark such rows 'failed'
+    // instead so the user / admin can see and act on them.
     const fiveMinAgo = new Date(Date.now() - 5 * 60_000);
+    const failedDoubleSend = await prisma.scheduledMessage.updateMany({
+      where: {
+        status: 'sending',
+        updatedAt: { lt: fiveMinAgo },
+        telnyxMessageId: { not: null },
+      },
+      data: { status: 'failed', lastError: 'sweep: telnyxMessageId present, refused to re-send (v0.10.138 QA-029)' },
+    });
+    if (failedDoubleSend.count > 0) {
+      log.warn({ count: failedDoubleSend.count }, '[scheduled-msg] marked stuck-with-telnyxId rows as failed (refusing double-send)');
+    }
     const swept = await prisma.scheduledMessage.updateMany({
-      where: { status: 'sending', updatedAt: { lt: fiveMinAgo } },
+      where: {
+        status: 'sending',
+        updatedAt: { lt: fiveMinAgo },
+        telnyxMessageId: null,
+      },
       data: { status: 'pending' },
     });
     if (swept.count > 0) {

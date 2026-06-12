@@ -1442,6 +1442,18 @@ const dialStatusHandler = (request: any): string => {
 
   app.log.info({ status }, '[texml] dial-status received');
 
+  // v0.10.138 — QA-017 — bail out cleanly when DialCallStatus is missing.
+  // Telnyx omits the field on schema-drift / parsing-error edge cases.
+  // Without this guard, the no-answer voicemail branch fired and a
+  // legitimately-answered call was misrouted to voicemail capture.
+  if (!status) {
+    app.log.warn({ body: request?.body, query: request?.query }, '[texml] dial-status missing DialCallStatus - returning empty Response');
+    return `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Hangup/>
+</Response>`;
+  }
+
   if (status === 'completed' || status === 'answered') {
     return `<?xml version="1.0" encoding="UTF-8"?>
 <Response/>`;

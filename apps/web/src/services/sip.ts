@@ -2595,11 +2595,19 @@ export class SipService {
   }
 
   async setAudioOutput(deviceId: string): Promise<void> {
+    // v0.10.138 — QA-036 — capture the prior value so we can revert if the
+    // first setSinkId rejects (e.g., USB speaker was just unplugged). The
+    // old code wrote the preference to localStorage BEFORE attempting the
+    // sink change, so a failed pick became the persisted broken default
+    // for the next call.
+    const previous = localStorage.getItem('ace_speaker');
     localStorage.setItem('ace_speaker', deviceId);
     const targets: HTMLAudioElement[] = [this.primaryAudioEl];
     for (const entry of this.calls.values()) {
       if (entry.audioEl) targets.push(entry.audioEl);
     }
+    let firstSetSinkFailed = false;
+    let firstAttempted = false;
     for (const el of targets) {
       if (!('setSinkId' in el)) continue;
       try {
@@ -2607,7 +2615,21 @@ export class SipService {
         await (el as any).setSinkId(deviceId);
       } catch (e) {
         console.warn('[sip] setSinkId failed', e);
+        if (!firstAttempted) firstSetSinkFailed = true;
       }
+      firstAttempted = true;
+    }
+    if (firstSetSinkFailed) {
+      // Revert the persisted preference so the next call doesn't try the
+      // same broken device. Notify via a custom event the UI can pick up.
+      if (previous && previous !== deviceId) {
+        localStorage.setItem('ace_speaker', previous);
+      } else {
+        localStorage.removeItem('ace_speaker');
+      }
+      try {
+        window.dispatchEvent(new CustomEvent('ace:audio-output-revert', { detail: { deviceId } }));
+      } catch { /* noop */ }
     }
   }
 
@@ -2731,6 +2753,17 @@ export class SipService {
     if (this.periodicReconnectTimer) {
       clearInterval(this.periodicReconnectTimer);
       this.periodicReconnectTimer = null;
+    }
+    // v0.10.139 — QA-007 — also remove the document visibilitychange
+    // listener so it doesn't run after the UA is torn down. Without this,
+    // a logged-out user's visibility events kept calling
+    // installVisibilityRecovery() handlers against a stale ua reference;
+    // worse, on re-connect() the idempotency guard
+    // (`if (this.visibilityHandler) return`) refused to re-install a
+    // fresh listener, so the second session ran the OLD closure.
+    if (this.visibilityHandler) {
+      try { document.removeEventListener('visibilitychange', this.visibilityHandler); } catch { /* noop */ }
+      this.visibilityHandler = null;
     }
     // v0.9.13 — also cancel any pending first-login retry so a logout/
     // page-close during the 2-8s backoff window doesn't fire a stray

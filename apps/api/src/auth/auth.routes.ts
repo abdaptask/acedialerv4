@@ -70,10 +70,16 @@ export async function authRoutes(app: FastifyInstance) {
   });
 
   // GET /auth/me — requires a valid JWT.
-  app.get('/auth/me', { onRequest: [app.authenticate] }, async (request: FastifyRequest) => {
+  app.get('/auth/me', { onRequest: [app.authenticate] }, async (request: FastifyRequest, reply) => {
     const jwtUser = request.user as JwtPayload;
     const user = await prisma.user.findUnique({ where: { id: jwtUser.sub } });
-    if (!user) return { error: 'User not found' };
+    // v0.10.138 — QA-049 — Returning 200 + {error: ...} let the broken
+    // payload propagate into App.tsx -> setUser({error: ...}) -> Layout
+    // dereferenced user.firstName and rendered a broken shell. The
+    // sessionGuard fetch interceptor only triggers logout on 401, so we
+    // emit 401 here. The client's getMe() in App.tsx catches the rejection
+    // and flushes the session.
+    if (!user) return reply.code(401).send({ error: 'User not found' });
     return {
       id: user.id,
       email: user.email,
