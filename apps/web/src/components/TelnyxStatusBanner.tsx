@@ -48,16 +48,25 @@ function colorFor(indicator: string): { bg: string; fg: string } | null {
 }
 
 export default function TelnyxStatusBanner() {
-  // v0.10.117 - only show this banner to admins. Regular users don't
-  // need (or want) to see Telnyx outage info; it's noise for them.
-  // Returns null BEFORE any state/effect hooks so the component is a
-  // complete no-op for non-admin users (no fetches, no timers).
-  if (!isCurrentUserAdmin()) return null;
-
+  // v0.10.136 - UX-003 - hooks MUST be called before any early return,
+  // otherwise React throws error #310 ("Rendered more hooks than during
+  // the previous render") the moment isCurrentUserAdmin() changes value
+  // mid-mount (e.g. after a token refresh that changes the admin claim).
+  // This is the same Rules-of-Hooks violation that crashed v0.10.122/
+  // .125/.127/.129 in IncomingCall.tsx. The admin check now lives both
+  // INSIDE the poll-init useEffect (so non-admins never pay any network
+  // cost) AND in the render-return path below (so non-admins still see
+  // nothing).
   const [status, setStatus] = useState<TelnyxStatus | null>(null);
   const [dismissed, setDismissed] = useState(false);
 
   useEffect(() => {
+    // Non-admins: do nothing. The effect still RUNS (so hooks order is
+    // stable across renders), but it doesn't kick off any timers or
+    // network calls - same behavior the old early-return had, just
+    // moved one level inwards.
+    if (!isCurrentUserAdmin()) return;
+
     let cancelled = false;
     async function poll() {
       if (cancelled) return;
@@ -86,6 +95,7 @@ export default function TelnyxStatusBanner() {
     setDismissed(false);
   }, [status?.indicator]);
 
+  if (!isCurrentUserAdmin()) return null;
   if (!status || dismissed) return null;
   const color = colorFor(status.indicator);
   if (!color) return null;

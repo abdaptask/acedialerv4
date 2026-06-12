@@ -4,6 +4,8 @@
 >
 > **Update rule:** When a feature ships, lands, or moves status, edit its block here *before* you merge. The block is the contract; the code is its implementation.
 
+> **Claude session quick-start:** Read `PROJECT_STATE.md` FIRST (current versions, open tasks, recent learnings). Then read the section(s) of this file that map to the area you're touching. PROJECT_STATE.md is the living snapshot updated at the end of every working session; this file (CLAUDE.md) is the architectural blueprint that changes only when features ship.
+
 ## How to read a module block
 
 Every numbered section below follows the same 4-tier shape:

@@ -1,3 +1,22 @@
+/* ============ GLOBAL ACCESSIBILITY (v0.10.136 — UX-001) ============
+   Single rule unlocks keyboard-navigation visibility across the entire app.
+   Before this, Tabbing through the dialer left zero visual indication of
+   which element had focus (the only explicit outline rule in the stylesheet
+   was `outline: none` on form inputs). Keyboard-only users and screen-reader
+   users using sighted assistants had no way to track focus.
+
+   Strategy: :focus-visible only fires when the browser determines focus
+   came from KEYBOARD navigation (Tab, arrow keys, etc.) - not mouse clicks.
+   So mouse users see no visual change; keyboard users get a clear blue ring.
+   The accent-blue var is defined a few lines below in :root so this rule
+   loads before its value, but CSS resolves vars at use-time, so order is fine. */
+:focus-visible {
+  outline: 2px solid var(--accent-blue);
+  outline-offset: 2px;
+  border-radius: inherit;
+}
+:focus:not(:focus-visible) { outline: none; }
+
 /* ============ THEME TOKENS ============
    Defaults are the dark theme. The [data-theme="light"] block at the bottom
    of this section overrides for light mode. JavaScript flips
@@ -1081,6 +1100,23 @@ body {
      scroll instead of clip. Internal scrolling on the dialpad container
      itself rather than the page body, so the bottom-nav stays in place. */
   overflow-y: auto;
+}
+/* v0.10.136 - UX-007 - shrink the dialpad on short viewports.
+   1366x768 with Windows 125% DPI scaling = ~480 device-pixel height for
+   the dialpad after tab bar + header + (sometimes) update-banner +
+   return-to-call-banner. The pre-fix keypad needed ~525px. The buttons
+   below get reduced from 72px to 60px which saves enough vertical space
+   for the green call button to sit fully on screen without scrolling.
+   No effect on taller viewports (the media query bails out above 720px). */
+@media (max-height: 720px) {
+  .keypad-btn,
+  .call-btn,
+  .backspace-btn,
+  .contacts-btn { width: 60px; height: 60px; }
+  .keypad-btn .digit { font-size: 1.7rem; }
+  .keypad { gap: 0.7rem 0; }
+  .dialpad-actions { padding-top: 0.8rem; }
+  .number-display { padding: 0.7rem 0.5rem; min-height: 3.4rem; }
 }
 /* ============ DIALPAD TOP STRIP (hint + status) ============ */
 .dialpad-top {
