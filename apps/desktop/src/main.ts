@@ -411,7 +411,10 @@ function createRingerWindow(callerNumber?: string, hasActiveCall: boolean = fals
   // appears before being hidden.
   const acceptButtonHtml = hasActiveCall
     ? `<button class="hold-accept" id="hold-accept" title="Hold current call and accept">
-        <svg viewBox="0 0 24 24"><polyline points="19 15 24 12 19 9"/><line x1="6" y1="12" x2="24" y2="12"/><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+        <svg viewBox="0 0 24 24"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+        <span class="pause-badge" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><rect x="6" y="4" width="4" height="16" rx="0.8"/><rect x="14" y="4" width="4" height="16" rx="0.8"/></svg>
+        </span>
       </button>`
     : `<button class="accept" id="accept" title="Accept">
         <svg viewBox="0 0 24 24"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
@@ -472,7 +475,29 @@ function createRingerWindow(callerNumber?: string, hasActiveCall: boolean = fals
     transition: transform .1s; }
   button:active { transform: scale(.95); }
   button.accept { background: #22c55e; }
-  button.hold-accept { background: #22c55e; }
+  button.hold-accept { background: #22c55e; position: relative; }
+  /* v0.10.131 - top-right orange pause badge overlay on Hold & Accept.
+     2px green border so the badge reads as a layered element distinct
+     from the green button background; matches Reply with Text orange
+     (#f97316) so 'orange = modifier action' is consistent. */
+  .pause-badge {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: #f97316;
+    border: 2px solid #22c55e;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .pause-badge svg {
+    width: 11px;
+    height: 11px;
+    fill: #ffffff;
+  }
   button.decline { background: #ef4444; }
   button.reply { background: #f97316; }
   button svg { width: 30px; height: 30px; fill: none; stroke: #fff;

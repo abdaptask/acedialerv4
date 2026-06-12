@@ -24,6 +24,15 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.131',
+    date: 'June 12, 2026',
+    highlight: 'Clearer Hold and Accept icon on the floating call popup',
+    changes: [
+      { type: 'improved', text: 'Refreshed the Hold and Accept icon on the floating incoming-call popup. The previous icon (phone receiver with a faint arrow) was indistinguishable from the plain Accept icon at floater size. New design keeps the same large green button (matching the Decline buttons size), but adds a small orange pause badge in the TOP-RIGHT corner of the button - notification-badge style. The phone receiver underneath remains fully visible. Orange matches the Reply with Text button so orange consistently signals a modifier action across the floater UI. Action behavior is unchanged (clicking still holds the current call and accepts the new one).' },
+      { type: 'fixed', text: 'No code changes to Reply with Text - working correctly since v0.10.130. This release is purely a UI polish pass on the Hold and Accept icon.' },
+    ],
+  },
+  {
     version: '0.10.130',
     date: 'June 12, 2026',
     highlight: 'Reply with Text crash FINALLY fixed - root cause was a React rules-of-hooks violation',
