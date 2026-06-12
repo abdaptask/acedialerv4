@@ -24,6 +24,15 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.141',
+    date: 'June 12, 2026',
+    highlight: 'Backend security hardening — socket service now requires JWT authentication',
+    changes: [
+      { type: 'fixed', text: 'Security: the real-time socket service (ace-dialer-socket) used to accept any connection from any origin with no authentication. It now requires a valid JWT token on every connection and a strict CORS origin allowlist. This had no user-facing impact because the socket service is currently in Phase 0 (just ping/pong, no live events), but it had to be hardened before v0.11.0 ships Presence and Do Not Disturb features which broadcast user state over the socket.' },
+      { type: 'fixed', text: 'The socket service now refuses to start if JWT_SECRET or CORS origin allowlist is missing. Previously the service would silently fall back to accepting all origins with no auth. Required env vars on the Render service: JWT_SECRET (must match the value on ace-dialer-api) and SOCKET_CORS_ORIGINS (comma-separated allowlist).' },
+    ],
+  },
+  {
     version: '0.10.140',
     date: 'June 12, 2026',
     highlight: 'Accessibility + responsive layout polish — closes the last 5 P1 UX findings',
