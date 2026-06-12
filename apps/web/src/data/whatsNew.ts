@@ -24,6 +24,18 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.140',
+    date: 'June 12, 2026',
+    highlight: 'Accessibility + responsive layout polish — closes the last 5 P1 UX findings',
+    changes: [
+      { type: 'improved', text: 'Reduced-motion support. If you have animations disabled in your OS preferences (Windows Settings > Accessibility > Visual effects > Animation effects OFF, or macOS Reduce Motion ON), the dialer now respects that across all 11+ continuous animations - the incoming-call pulse, the in-call return banner, status dots, presence indicators, spinners, and modal entries are all stilled.' },
+      { type: 'improved', text: 'Responsive layout now adapts to mid-range viewports. The dialer used to be designed for either small mobile or wide desktop with nothing in between - on a 1366x768 Windows laptop at 125 percent DPI scaling (very common), the Settings nav rail would crowd the content pane awkwardly. New breakpoints tighten the Settings layout in the 800-1100px range and expand the content cap on QHD+ monitors so wide tables breathe instead of sitting in 50 percent gutters.' },
+      { type: 'improved', text: 'Muted secondary text contrast bumped from 0.55 to 0.68 alpha. Previously secondary text like timestamps, sublabels, and email addresses sat just below WCAG AA contrast threshold when shown on the dialers slightly-tinted card backgrounds. Now they all clear the AA bar by a comfortable margin.' },
+      { type: 'improved', text: 'Touch targets enlarged on multiple secondary icons. Quick-reply action buttons (26x26 → 32x32), update-banner dismiss (24 → 32), voicemail action icons (30 → 36), pending-user action icons (28 → 32) all easier to hit. Most notably the non-fullscreen incoming-call Accept/Decline buttons went from 40x40 to 56x56 - those are the time-critical buttons for answering a call, no reason to make them small.' },
+      { type: 'improved', text: 'User dropdown menu can now scroll on short viewports. Previously if the menu had enough items to exceed the viewport height it would clip without warning; now it gracefully scrolls (invisible scrollbar, native gesture).' },
+    ],
+  },
+  {
     version: '0.10.139',
     date: 'June 12, 2026',
     highlight: 'Functional QA safe-batch - 11 low-risk fixes from the audit, plus internal hardening for memory leaks and edge cases',

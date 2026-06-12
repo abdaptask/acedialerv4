@@ -29,7 +29,11 @@
   --surface-hover: rgba(118, 118, 128, 0.28);
   --text: #fff;
   --text-dim: rgba(235, 235, 245, 0.7);
-  --text-muted: rgba(235, 235, 245, 0.55);
+  /* v0.10.140 - UX-009 - bumped from 0.55 to 0.68 alpha. Previous
+     value yielded ~4.3:1 contrast on .surface backgrounds (below WCAG
+     AA threshold for normal text). New value gives ~5.3:1 on surface
+     and ~6.2:1 on plain dark background. Light-mode #545458 unchanged. */
+  --text-muted: rgba(235, 235, 245, 0.68);
   --border: rgba(255, 255, 255, 0.08);
   --border-strong: rgba(255, 255, 255, 0.18);
   --accent: #0a84ff;
@@ -1003,6 +1007,11 @@ body {
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
   z-index: 50;
   animation: dropdown-in 0.12s ease-out;
+  /* v0.10.140 - UX-014 - defensive scroll for short viewports / future
+     items being added. Combined with the global hide-scrollbars rule
+     this is invisible-but-functional vertical scroll. */
+  max-height: calc(100vh - 80px);
+  overflow-y: auto;
 }
 @keyframes dropdown-in {
   from { opacity: 0; transform: translateY(-4px); }
@@ -1981,8 +1990,9 @@ body {
   background: rgba(235, 235, 245, 0.16);
   border: none;
   color: #fff;
-  width: 26px;
-  height: 26px;
+  /* v0.10.140 - UX-010 - bumped from 26x26 to 32x32 for touch target a11y. */
+  width: 32px;
+  height: 32px;
   border-radius: 6px;
   display: inline-flex;
   align-items: center;
@@ -3958,8 +3968,9 @@ body {
 .vm-action {
   background: rgba(255, 255, 255, 0.08);
   border: none;
-  width: 30px;
-  height: 30px;
+  /* v0.10.140 - UX-010 - bumped from 30x30 to 36x36 for touch target a11y. */
+  width: 36px;
+  height: 36px;
   border-radius: 50%;
   color: #fff;
   cursor: pointer;
@@ -4200,8 +4211,14 @@ body {
 }
 
 .incoming-btn.small {
-  width: 40px;
-  height: 40px;
+  /* v0.10.140 - UX-010 - bumped from 40x40 to 56x56. This is the
+     Accept/Decline button on the non-fullscreen incoming-call banner -
+     the most time-critical action of the entire app. The smaller
+     40x40 size was below ergonomic threshold at 1366x768 / 125% DPI
+     (~27 device pixels). 56x56 matches the visual hierarchy of the
+     full-screen variants (Accept primary, Hold & Accept, Decline). */
+  width: 56px;
+  height: 56px;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
   animation: none;
 }
@@ -6071,8 +6088,9 @@ button.call-pill-info:hover { background: rgba(255, 255, 255, 0.05); }
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
+  /* v0.10.140 - UX-010 - bumped from 24x24 to 32x32 for touch target a11y. */
+  width: 32px;
+  height: 32px;
   border-radius: 6px;
   border: none;
   background: transparent;
@@ -7392,7 +7410,8 @@ body::-webkit-scrollbar { display: none; }
 .pending-action-primary:hover { background: #0c6fd6; }
 .pending-action-icon {
   display: inline-flex; align-items: center; justify-content: center;
-  width: 28px; height: 28px; border-radius: 6px;
+  /* v0.10.140 - UX-010 - bumped from 28x28 to 32x32 for touch target a11y. */
+  width: 32px; height: 32px; border-radius: 6px;
   border: 1px solid rgba(0,0,0,0.12); background: transparent; color: #6b7280; cursor: pointer;
 }
 .pending-action-icon:hover { background: rgba(215,0,21,0.08); color: #d70015; border-color: rgba(215,0,21,0.25); }
@@ -7945,6 +7964,42 @@ body::-webkit-scrollbar { display: none; }
   flex-direction: column;
   gap: 8px;
   color: rgba(255, 255, 255, 0.78);
+}
+
+/* ============================================================
+   v0.10.140 — UX-002 — prefers-reduced-motion handling.
+   ============================================================
+   The dialer has 11+ continuous animations (incoming-pulse,
+   rtc-pulse, status-pulse, presence-pulse, did-spin, etc.).
+   Users with vestibular sensitivity or who've disabled animations
+   in their OS preferences shouldn't see any motion. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  /* Keep the REC dot solid white instead of pulsing to low opacity. */
+  .rec-dot { opacity: 1 !important; }
+}
+
+/* ============================================================
+   v0.10.140 — UX-006 — mid-range responsive breakpoints.
+   ============================================================
+   Existing breakpoints all sit at <= 900px (mobile/tablet). Nothing
+   between 901px and infinity. Below adds (a) a tighter Settings
+   layout for 800-1100px range (common business laptop viewport at
+   125% DPI), and (b) wider content cap for QHD+ displays so tables
+   and lists breathe instead of sitting in 50% gutters. */
+@media (max-width: 1100px) and (min-width: 801px) {
+  .settings.settings-split { grid-template-columns: 220px 1fr; }
+  .settings-pane { padding: 1.2rem 1.3rem 2rem; }
+}
+@media (min-width: 1800px) {
+  .app-content { max-width: 1480px; }
+  .settings.settings-split { max-width: 1300px; }
+};
 }
 .teams-settings-help code {
   background: rgba(255, 255, 255, 0.08);
