@@ -24,6 +24,18 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.144',
+    date: 'June 12, 2026',
+    highlight: 'UX P2 polish batch 1 — six small layout fixes',
+    changes: [
+      { type: 'improved', text: 'Settings navigation now handles long titles and blurbs cleanly. The chevron arrow no longer gets squeezed off the right edge of the nav rail when entry text is long; titles ellipsis at one line, blurbs clamp at two.' },
+      { type: 'improved', text: 'On QHD (2560×1440) and larger displays, the dialer content area now extends to 1480px wide (was 1280px) so Settings tables and lists fill more of the available screen instead of sitting in 50 percent gutters. Recents, Voicemail, and Messages also widen slightly on very large displays for less aggressive name truncation.' },
+      { type: 'fixed', text: 'Bottom-nav unread badge no longer drifts onto adjacent tabs at narrow widths and no longer overlaps the icon when the count reaches 99+. The badge is now anchored to the individual tab icon wrapper instead of relying on fragile percentage-based positioning.' },
+      { type: 'improved', text: 'Praise modal close button is now 40px (was 32px) and full opacity instead of 70 percent. Easier to find and easier to click.' },
+      { type: 'fixed', text: 'Copy-toast notification no longer renders on top of open modals. The z-index was set to 5000 (the highest in the codebase) which incorrectly placed it above modal backdrops at 800-1300. Dropped to 100 so it sits above page content but below any modal.' },
+    ],
+  },
+  {
     version: '0.10.143',
     date: 'June 12, 2026',
     highlight: 'Auto-update security hardening — signature verification now enforced during EV cert procurement window',
