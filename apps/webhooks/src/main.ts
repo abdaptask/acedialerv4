@@ -105,7 +105,7 @@ async function lookupUserDidNumber(userDidId: number | null | undefined): Promis
 }
 
 /**
- * v0.10.133 - Pick the canonical toNumber for an inbound Call row.
+ * v0.10.133/v0.10.134 - Pick the canonical toNumber for an inbound Call row.
  *
  * Background: for TeXML voicemail trial users, Telnyx fires call.*
  * webhook events ONLY for the SIP-delivery leg. The payload's toNumber
@@ -114,10 +114,16 @@ async function lookupUserDidNumber(userDidId: number | null | undefined): Promis
  * Recents query filter (which excludes any toNumber matching a known
  * sipUsername to hide duplicate infrastructure rows).
  *
- * Strategy: if attribution found a UserDid (via connection_id - Pass 0),
- * use UserDid.didNumber as the canonical toNumber. Otherwise, fall back
- * to whatever the webhook said (which for normal PSTN-leg events IS
- * already the phone number).
+ * Strategy:
+ *   1. If rawToNumber already looks like a phone number, accept it.
+ *   2. Else if userDidId is set (Pass 0 connection_id matched), use
+ *      that UserDid.didNumber.
+ *   3. Else if userId is set (Pass 1/2 sipUsername matched - typical
+ *      for TeXML trial users because their connection_id is the shared
+ *      TELNYX_VOICEMAIL_CC_APP_ID, causing Pass 0 to skip - see Edge
+ *      Case A in resolveUserAndDid), look up the user's UserDids and
+ *      pick the activeUserDidId (or first by id) and use its didNumber.
+ *   4. Else return the rawToNumber unchanged.
  *
  * Only applies to direction=inbound. Outbound toNumber is the dialed
  * external party and never needs override.
@@ -126,6 +132,7 @@ async function canonicalInboundToNumber(opts: {
   direction: 'inbound' | 'outbound';
   rawToNumber: string;
   userDidId: number | null;
+  userId?: number | null;
 }): Promise<string> {
   if (opts.direction !== 'inbound') return opts.rawToNumber;
   // If rawToNumber already looks like a phone number (+ or all digits),
@@ -135,9 +142,36 @@ async function canonicalInboundToNumber(opts: {
     return opts.rawToNumber;
   }
   // Otherwise it's a SIP credential username or similar non-phone string.
-  // Look up the matched UserDid's didNumber and use that.
-  const didNumber = await lookupUserDidNumber(opts.userDidId);
-  return didNumber ?? opts.rawToNumber;
+  // Path A: matched UserDid via Pass 0 (connection_id) - has didNumber directly.
+  const didNumberA = await lookupUserDidNumber(opts.userDidId);
+  if (didNumberA) return didNumberA;
+  // Path B (v0.10.134): Pass 1/2 attribution by sipUsername only sets
+  // userId; UserDid wasn't pinpointed. Look up the user's primary
+  // UserDid (activeUserDidId if set, else first by id) and use its
+  // didNumber. This is the path that fires for TeXML trial users
+  // because their connection_id is the shared CC App ID.
+  if (opts.userId) {
+    const u = await prisma.user.findUnique({
+      where: { id: opts.userId },
+      select: {
+        activeUserDidId: true,
+        userDids: {
+          take: 1,
+          orderBy: { id: 'asc' },
+          select: { didNumber: true },
+        },
+      },
+    });
+    if (u?.activeUserDidId) {
+      const activeDid = await prisma.userDid.findUnique({
+        where: { id: u.activeUserDidId },
+        select: { didNumber: true },
+      });
+      if (activeDid?.didNumber) return activeDid.didNumber;
+    }
+    if (u?.userDids?.[0]?.didNumber) return u.userDids[0].didNumber;
+  }
+  return opts.rawToNumber;
 }
 
 async function resolveUserAndDid(opts: {
@@ -561,6 +595,7 @@ app.post('/webhooks/telnyx/calls', async (request) => {
           direction,
           rawToNumber: toNumber,
           userDidId,
+          userId: ownerUserId,
         });
 
         await prisma.call.upsert({
@@ -748,23 +783,16 @@ app.post('/webhooks/telnyx/calls', async (request) => {
               '[telnyx] hangup-create: could not attribute call - skipping',
             );
           } else {
-            // v0.10.133 - normalize toNumber via the connection-id-matched
-            // UserDid before insertion. resolveUserId only returns the
-            // userId (no userDidId), so we have to do an extra lookup here
-            // to canonicalize. Acceptable because this branch is the rare
-            // race-fallback path; most calls go through the call.initiated
-            // upsert above.
-            const hangupCreateCanonicalToNumber = await (async () => {
-              if (direction !== 'inbound') return toNumber;
-              const trimmed = (toNumber ?? '').trim();
-              if (trimmed.startsWith('+') || /^\d{7,}$/.test(trimmed)) return toNumber;
-              const did = await prisma.userDid.findFirst({
-                where: { userId: ownerUserId },
-                orderBy: { id: 'asc' },
-                select: { didNumber: true },
-              });
-              return did?.didNumber ?? toNumber;
-            })();
+            // v0.10.134 - reuse the central canonicalInboundToNumber helper.
+            // The helper handles the case where userDidId is null (which it
+            // always is in this path because resolveUserId only returns
+            // userId) by looking up the user's primary UserDid via userId.
+            const hangupCreateCanonicalToNumber = await canonicalInboundToNumber({
+              direction,
+              rawToNumber: toNumber,
+              userDidId: null,
+              userId: ownerUserId,
+            });
             await prisma.call.create({
               data: {
                 userId: ownerUserId,

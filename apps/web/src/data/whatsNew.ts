@@ -24,6 +24,15 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.134',
+    date: 'June 12, 2026',
+    highlight: 'Completes the v0.10.133 missing-Recents fix - works for TeXML trial users too',
+    changes: [
+      { type: 'fixed', text: 'v0.10.133 introduced canonicalInboundToNumber but it only worked when attribution had matched a specific UserDid via connection_id. For TeXML voicemail trial users, the webhook payload connection_id is the shared TELNYX_VOICEMAIL_CC_APP_ID (the same Voice API App is shared across all migrated trial users), so the UserDid lookup is intentionally skipped to avoid wrong attribution. Attribution then succeeds via sipUsername (Pass 1 or 2) but only sets userId, not userDidId. Without a userDidId, v0.10.133s canonicalization silently fell back to the raw SIP credential username - same outcome as before the fix. This release teaches canonicalInboundToNumber to ALSO accept the resolved userId and look up the users primary UserDid (activeUserDidId, else first by id) for the didNumber. Now any inbound Call row whose toNumber is a SIP username gets rewritten to the dialed phone number, regardless of which attribution pass matched.' },
+      { type: 'fixed', text: 'Server-only. No client changes. Once Render redeploys ace-dialer-webhooks, future TeXML trial calls land with correct toNumber. The v0.10.133 backfill script (rewritten with a userDidId IS NOT NULL guard to avoid touching legacy pre-v0.10.108 mis-attribution rows) can be run separately to repair historical rows.' },
+    ],
+  },
+  {
     version: '0.10.133',
     date: 'June 12, 2026',
     highlight: 'Fixed: answered inbound calls were missing from Recents for TeXML voicemail trial users',
