@@ -14,12 +14,16 @@ interface AceElectronBridge {
   declineCall: () => void;
   // v0.10.120 - floater Hold & Accept click bridge.
   holdAndAcceptCall?: () => void;
+  // v0.10.129 - floater Reply with Text click bridge.
+  replyWithText?: () => void;
   notifyCallEnded: () => void;
   onAcceptRequest: (cb: () => void) => () => void;
   onDeclineRequest: (cb: () => void) => () => void;
   // v0.10.120 - main-window subscription fired when the floater user
   // clicked Hold & Accept. Optional so older preloads still typecheck.
   onHoldAndAcceptRequest?: (cb: () => void) => () => void;
+  // v0.10.129 - main-window subscription for floater Reply with Text.
+  onReplyWithTextRequest?: (cb: () => void) => () => void;
   onClose: (cb: () => void) => () => void;
   getQueryParam: (name: string) => string | null;
   // Phase 7 — Microsoft SSO bridge

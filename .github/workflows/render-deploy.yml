@@ -1,0 +1,80 @@
+# Render deploy-hook fallback.
+#
+# WHY THIS EXISTS:
+#   render.yaml has autoDeploy: true on all three services (api, socket,
+#   webhooks), but Render's GitHub-integration auto-deploy is unreliable
+#   when changes are in monorepo paths that don't exactly match the
+#   service's rootDir filter. We've been forced to use Manual Deploy
+#   through the dashboard multiple times even when the YAML says it
+#   should auto-deploy.
+#
+#   This workflow is the belt-and-suspenders fallback. It triggers on
+#   every push to main and POSTs to each Render service's deploy hook,
+#   which forces an immediate redeploy regardless of path filters.
+#
+# REQUIRED GITHUB SECRETS (one-time setup):
+#   RENDER_HOOK_API       - deploy hook URL for ace-dialer-api
+#   RENDER_HOOK_SOCKET    - deploy hook URL for ace-dialer-socket
+#   RENDER_HOOK_WEBHOOKS  - deploy hook URL for ace-dialer-webhooks
+#
+#   To get each one: Render dashboard -> service -> Settings -> scroll
+#   to "Deploy Hook" -> "Create Deploy Hook" -> copy URL. Then add to
+#   GitHub repo Settings -> Secrets and variables -> Actions -> New
+#   repository secret.
+#
+# SAFETY:
+#   Each curl uses `|| true` semantics so a missing secret (e.g. user
+#   hasn't set one up yet) doesn't fail the entire workflow. The job
+#   reports which hooks fired vs. were skipped.
+#
+#   If you ever want to skip the auto-deploy on a specific commit, add
+#   `[skip-render]` to the commit message.
+
+name: Render deploy hooks
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  trigger-render-deploys:
+    runs-on: ubuntu-latest
+    if: "!contains(github.event.head_commit.message, '[skip-render]')"
+    steps:
+      - name: Trigger ace-dialer-api deploy
+        env:
+          HOOK: ${{ secrets.RENDER_HOOK_API }}
+        run: |
+          if [ -n "$HOOK" ]; then
+            echo "Pinging API deploy hook..."
+            curl -fsSL -X POST "$HOOK" && echo "API: triggered" || echo "API: hook returned error"
+          else
+            echo "API: RENDER_HOOK_API secret not set, skipping"
+          fi
+
+      - name: Trigger ace-dialer-socket deploy
+        env:
+          HOOK: ${{ secrets.RENDER_HOOK_SOCKET }}
+        run: |
+          if [ -n "$HOOK" ]; then
+            echo "Pinging Socket deploy hook..."
+            curl -fsSL -X POST "$HOOK" && echo "Socket: triggered" || echo "Socket: hook returned error"
+          else
+            echo "Socket: RENDER_HOOK_SOCKET secret not set, skipping"
+          fi
+
+      - name: Trigger ace-dialer-webhooks deploy
+        env:
+          HOOK: ${{ secrets.RENDER_HOOK_WEBHOOKS }}
+        run: |
+          if [ -n "$HOOK" ]; then
+            echo "Pinging Webhooks deploy hook..."
+            curl -fsSL -X POST "$HOOK" && echo "Webhooks: triggered" || echo "Webhooks: hook returned error"
+          else
+            echo "Webhooks: RENDER_HOOK_WEBHOOKS secret not set, skipping"
+          fi
+
+      - name: Summary
+        run: |
+          echo "Render deploy hooks fired (or skipped if secret missing)."
+          echo "Check each service's Events tab in the Render dashboard to confirm."

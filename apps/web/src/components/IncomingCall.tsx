@@ -111,6 +111,49 @@ export default function IncomingCall() {
 
   const callerLabel = getFavoriteName(callerNumber) ?? jd?.name ?? formatNumber(callerNumber);
 
+  // v0.10.129 - subscribe to ace:reply-with-text-request from the Electron
+  // floater. Wrapped in try/catch + extensive console.log so when the
+  // previous v0.10.122/.125/.127-style crash happens we get diagnostic
+  // data instead of a silent renderer crash. THIS IS A DRAFT/DIAGNOSTIC
+  // BUILD - install with DevTools open (Ctrl+Shift+I) BEFORE making a
+  // test call, watch the Console tab for any red errors.
+  useEffect(() => {
+    if (!incoming) return;
+    console.log('[reply-with-text] subscribing, incoming.callId=', incoming?.callId, 'callerNumber=', callerNumber);
+    let offReply: (() => void) | undefined;
+    try {
+      offReply = window.ace?.onReplyWithTextRequest?.(() => {
+        try {
+          console.log('[reply-with-text] IPC received from floater, dispatching CustomEvent');
+          const to = callerNumber;
+          if (!to) {
+            console.warn('[reply-with-text] no callerNumber, aborting');
+            return;
+          }
+          window.dispatchEvent(new CustomEvent('ace:reply-after-decline', {
+            detail: { number: to, label: callerLabel },
+          }));
+          declineCall();
+        } catch (innerErr) {
+          console.error('[reply-with-text] handler threw:', innerErr);
+        }
+      });
+      console.log('[reply-with-text] subscribed OK, unsubscribe fn type=', typeof offReply);
+    } catch (err) {
+      console.error('[reply-with-text] subscribe threw:', err);
+    }
+    return () => {
+      try {
+        if (offReply) {
+          console.log('[reply-with-text] unsubscribing');
+          offReply();
+        }
+      } catch (cleanupErr) {
+        console.error('[reply-with-text] cleanup threw:', cleanupErr);
+      }
+    };
+  }, [incoming, callerNumber, callerLabel, declineCall]);
+
   // Reply button: only for real phone numbers (not SIP-URI internal calls),
   // and hidden during Hold & Accept (3 buttons already shown).
   const replyableNumber = (callerNumber || '').replace(/[\s()-]/g, '');

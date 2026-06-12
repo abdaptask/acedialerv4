@@ -24,6 +24,16 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.129',
+    date: 'June 12, 2026',
+    highlight: 'Reply with Text returns to the floating popup (diagnostic build) + Render auto-deploy fix',
+    changes: [
+      { type: 'new', text: 'Reply with Text button is back on the floating call popup. After three previous attempts (v0.10.122/.125/.127) all crashed the renderer for unknown reasons, this build adds the same feature with extensive try/catch + console.log instrumentation around the subscribe/unsubscribe logic so we can finally capture what is going wrong. If you hit the blank-window bug again, please open DevTools (Ctrl+Shift+I) BEFORE making a test call and screenshot the Console tab when the crash happens. Note: this is a Draft release - do not auto-distribute until we have confirmation that it is stable.' },
+      { type: 'improved', text: 'Render backend auto-deploys: added a GitHub Actions workflow (.github/workflows/render-deploy.yml) that pings each Render service deploy hook on every push to main, providing a reliable belt-and-suspenders fallback for the unreliable path-filter based auto-deploy. Requires three GitHub secrets (RENDER_HOOK_API, RENDER_HOOK_SOCKET, RENDER_HOOK_WEBHOOKS) which are deploy-hook URLs copied from each Render service Settings page. No more manual Render dashboard clicks to redeploy after a code push.' },
+      { type: 'fixed', text: 'Internal: the v0.10.129 changes were applied via a single local Node script (scripts/apply-v129-changes.mjs) to bypass the workspace-sync corruption that has been silently truncating source files between every Edit-tool round-trip. Combined with v0.10.128 null-byte stripper, the build pipeline is now resilient to both classes of bridge bug.' },
+    ],
+  },
+  {
     version: '0.10.128',
     date: 'June 12, 2026',
     highlight: 'Stable baseline after a bumpy release week - dialer is reliable again',

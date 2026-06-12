@@ -33,6 +33,9 @@ contextBridge.exposeInMainWorld('ace', {
   // Main forwards to main window via ace:hold-and-accept-request which
   // SipContext subscribes to and routes to sipService.holdAndAcceptCall.
   holdAndAcceptCall: () => ipcRenderer.send('ace:hold-and-accept'),
+  // v0.10.129 - floater "Reply with Text" click bridge. Mirrors the
+  // pattern used by acceptCall/declineCall/holdAndAcceptCall above.
+  replyWithText: () => ipcRenderer.send('ace:reply-with-text'),
   notifyCallEnded: () => ipcRenderer.send('ace:call-ended'),
   onAcceptRequest: (cb: () => void) => {
     const handler = () => cb();
@@ -50,6 +53,14 @@ contextBridge.exposeInMainWorld('ace', {
     const handler = () => cb();
     ipcRenderer.on('ace:hold-and-accept-request', handler);
     return () => ipcRenderer.removeListener('ace:hold-and-accept-request', handler);
+  },
+  // v0.10.129 - main window subscribes; fires when the floater user picked
+  // Reply with Text. Main window's IncomingCall.tsx handles the decline +
+  // dispatches the ace:reply-after-decline CustomEvent for the SMS sheet.
+  onReplyWithTextRequest: (cb: () => void) => {
+    const handler = () => cb();
+    ipcRenderer.on('ace:reply-with-text-request', handler);
+    return () => ipcRenderer.removeListener('ace:reply-with-text-request', handler);
   },
   onClose: (cb: () => void) => {
     const handler = () => cb();
