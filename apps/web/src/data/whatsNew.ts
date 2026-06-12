@@ -24,6 +24,32 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.137',
+    date: 'June 12, 2026',
+    highlight: 'Catches up the What is New list (the entries for 0.10.135 and 0.10.136 were missing from the previous build)',
+    changes: [
+      { type: 'fixed', text: 'The What is New screen now correctly shows entries for v0.10.135 (60s SIP reconnect feature-flag canary) and v0.10.136 (UX batch fixes - keyboard focus ring, latent crash prevention, dialpad fits at 1366x768 with 125 percent DPI). They were missing from the previous build due to a release-script anchor mismatch.' },
+    ],
+  },
+  {
+    version: '0.10.136',
+    date: 'June 12, 2026',
+    highlight: 'Three high-impact UI/UX fixes - keyboard focus, latent crash prevention, dialpad fits on 1366x768 laptops',
+    changes: [
+      { type: 'improved', text: 'Keyboard navigation now shows a visible focus ring when you Tab through any page. Mouse interactions are unchanged.' },
+      { type: 'fixed', text: 'Prevented a latent React crash in the Telnyx status banner. Same Rules-of-Hooks violation that crashed the floater Reply with Text feature multiple times.' },
+      { type: 'fixed', text: 'Dialpad green call button no longer gets clipped at 1366x768 with Windows 125 percent display scaling - the most common business laptop config.' },
+    ],
+  },
+  {
+    version: '0.10.135',
+    date: 'June 12, 2026',
+    highlight: 'Experimental canary - 60 second periodic full SIP reconnect disabled',
+    changes: [
+      { type: 'improved', text: 'Experimental build (canary). The previous behavior of tearing down and rebuilding the entire SIP connection every 60 seconds is feature-flagged OFF. The 15-second normal SIP register refresh keeps the registration alive. If inbound call delivery stays clean, this becomes the new default.' },
+    ],
+  },
+  {
     version: '0.10.134',
     date: 'June 12, 2026',
     highlight: 'Completes the v0.10.133 missing-Recents fix - works for TeXML trial users too',
