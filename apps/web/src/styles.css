@@ -1721,6 +1721,15 @@ body {
   margin-top: 0.6rem;
   flex: 0 0 auto;
 }
+/* v0.10.148 - UX-029 - hint the compositor before transform-animation-heavy elements
+   render. Reduces paint jank on lower-end laptops. */
+.incoming-btn,
+.in-call-btn,
+.return-to-call,
+.recents-row,
+.thread-row {
+  will-change: transform;
+}
 .in-call-controls {
   display: flex;
   gap: 2.5rem;

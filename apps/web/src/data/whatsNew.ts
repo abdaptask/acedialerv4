@@ -24,6 +24,14 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.148',
+    date: 'June 12, 2026',
+    highlight: 'UX P3 polish — paint-hint optimization on frequently-animated UI',
+    changes: [
+      { type: 'improved', text: 'Performance hint added to elements that animate on every interaction (incoming-call buttons, in-call control buttons, return-to-call banner, list rows). The browser now knows to promote these to their own compositor layer ahead of time, eliminating small paint stutters on lower-end laptops.' },
+    ],
+  },
+  {
     version: '0.10.147',
     date: 'June 12, 2026',
     highlight: 'UX P2 polish batch 4 — Diagnostics tail bounded',
