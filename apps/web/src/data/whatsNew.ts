@@ -24,6 +24,15 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.149',
+    date: 'June 12, 2026',
+    highlight: 'Fixed: in-app voicemail greeting recordings now play correctly (webm → mp3 server-side transcode)',
+    changes: [
+      { type: 'fixed', text: 'Custom voicemail greetings recorded with the in-app Record button now play correctly when callers reach voicemail. Previously, browsers MediaRecorder API produced WebM audio which Telnyx could not decode, causing callers to hear "an application error has occurred" instead of the greeting. The API now transcodes WebM uploads to MP3 server-side before storing them, so the entire recording flow now works end-to-end. Users on the TeXML voicemail trial who recorded greetings before this release should re-record (one tap in Settings) so their greeting becomes the new MP3-encoded version.' },
+      { type: 'fixed', text: 'Internal: added ffmpeg-static + fluent-ffmpeg dependencies to the API service. Transcoding runs at upload time (a few hundred milliseconds for a 30-second greeting), saved to Supabase Storage as audio/mpeg. No client-side changes - the in-app Record button works the same way.' },
+    ],
+  },
+  {
     version: '0.10.148',
     date: 'June 12, 2026',
     highlight: 'UX P3 polish — paint-hint optimization on frequently-animated UI',

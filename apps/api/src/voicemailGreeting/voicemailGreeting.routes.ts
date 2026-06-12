@@ -20,6 +20,60 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { prisma } from '@ace/db';
 import { config } from '../config.js';
+// v0.10.149 - bundled ffmpeg binary for webm→mp3 transcode at upload time.
+// In-app MediaRecorder produces audio/webm which Telnyx <Play> cannot
+// decode, causing "application error has occurred" during voicemail
+// playback for TeXML trial users. Transcoding at upload fixes the
+// playback path without changing the client-side recording flow.
+import ffmpegPath from 'ffmpeg-static';
+import ffmpeg from 'fluent-ffmpeg';
+import { tmpdir } from 'node:os';
+import { writeFile, readFile, unlink } from 'node:fs/promises';
+import { join as pathJoin } from 'node:path';
+
+// v0.10.149 - ffmpeg-static's TS types declare the default export as a
+// module rather than a string in some toolchains; cast to string to
+// satisfy fluent-ffmpeg's signature. At runtime ffmpegPath is always a
+// path string (or null when the platform binary isn't bundled).
+if (ffmpegPath) {
+  ffmpeg.setFfmpegPath(ffmpegPath as unknown as string);
+}
+
+/**
+ * v0.10.149 - Transcode a buffer of webm-encoded audio to MP3 using the
+ * bundled ffmpeg-static binary. Writes input to a temp file, runs
+ * ffmpeg with libmp3lame at 64kbps (voice quality, small file), reads
+ * the output back into a buffer, and cleans up both temp files.
+ *
+ * 64kbps mono is plenty for a voicemail greeting (Telnyx caps audio
+ * quality at 8kHz/PCM anyway on the call path).
+ *
+ * Throws if ffmpeg fails. Caller should catch and return 502 to the
+ * client with a friendly message.
+ */
+async function transcodeWebmToMp3(input: Buffer): Promise<Buffer<ArrayBufferLike>> {
+  const stamp = Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+  const tmpIn = pathJoin(tmpdir(), `vm-greeting-${stamp}.webm`);
+  const tmpOut = pathJoin(tmpdir(), `vm-greeting-${stamp}.mp3`);
+  await writeFile(tmpIn, input);
+  try {
+    await new Promise<void>((resolve, reject) => {
+      ffmpeg(tmpIn)
+        .audioCodec('libmp3lame')
+        .audioBitrate('64k')
+        .audioChannels(1)
+        .toFormat('mp3')
+        .on('end', () => resolve())
+        .on('error', (err) => reject(err))
+        .save(tmpOut);
+    });
+    return await readFile(tmpOut);
+  } finally {
+    // Best-effort cleanup. If unlink fails (e.g. transcode crashed
+    // before writing tmpOut), don't surface that to the caller.
+    await Promise.allSettled([unlink(tmpIn), unlink(tmpOut)]);
+  }
+}
 
 interface JwtPayload {
   sub: number;
@@ -191,19 +245,53 @@ export async function voicemailGreetingRoutes(app: FastifyInstance) {
         return reply.code(500).send({ error: 'Supabase Storage not configured' });
       }
 
-      const bytes = Buffer.from(dataBase64, 'base64');
+      // v0.10.149 - explicitly type as the wider Buffer<ArrayBufferLike>
+      // variant so the post-transcode reassignment from readFile (which
+      // returns the wider variant) is compatible. Runtime is identical;
+      // this just matches what the @types/node strict generics expect.
+      let bytes: Buffer<ArrayBufferLike> = Buffer.from(dataBase64, 'base64');
       if (bytes.length > MAX_BYTES) {
         return reply.code(413).send({ error: `File too large (max ${MAX_BYTES / 1024 / 1024} MB).` });
       }
 
-      const safeName = filename.replace(/[^a-zA-Z0-9._-]/g, '_');
+      // v0.10.149 - if upload is webm (in-app MediaRecorder output),
+      // transcode to mp3 so Telnyx <Play> can decode it. We adjust both
+      // the bytes and the downstream filename/mime so the storage write
+      // and the User row record reflect mp3.
+      let effectiveMime = normalizedMime;
+      let effectiveFilename = filename;
+      if (normalizedMime === 'audio/webm') {
+        try {
+          const startMs = Date.now();
+          bytes = await transcodeWebmToMp3(bytes);
+          effectiveMime = 'audio/mpeg';
+          effectiveFilename = filename.replace(/\.[^.]+$/, '') + '.mp3';
+          app.log.info(
+            { userId: u.sub, type, durMs: Date.now() - startMs, outBytes: bytes.length },
+            '[vm-greeting] webm→mp3 transcoded',
+          );
+        } catch (transcodeErr) {
+          app.log.error(
+            { err: transcodeErr instanceof Error ? transcodeErr.message : String(transcodeErr), userId: u.sub },
+            '[vm-greeting] webm→mp3 transcode failed',
+          );
+          return reply.code(502).send({
+            error: 'Greeting recording could not be processed. Try uploading an MP3 file instead.',
+          });
+        }
+      }
+
+      const safeName = effectiveFilename.replace(/[^a-zA-Z0-9._-]/g, '_');
       const objectPath = `voicemail-greetings/u${u.sub}/${type}/${Date.now()}_${safeName}`;
       const uploadUrl = `${config.supabaseUrl}/storage/v1/object/${config.supabaseMediaBucket}/${objectPath}`;
       const uploadRes = await fetch(uploadUrl, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${config.supabaseServiceKey}`,
-          'Content-Type': normalizedMime,
+          // v0.10.149 - use effectiveMime so transcoded webm files get
+          // stored with audio/mpeg content-type. Telnyx + browsers
+          // then receive the right MIME on fetch.
+          'Content-Type': effectiveMime,
           'x-upsert': 'true',
         },
         body: bytes,
@@ -223,7 +311,9 @@ export async function voicemailGreetingRoutes(app: FastifyInstance) {
         where: { id: u.sub },
         data: {
           [c.url]: publicUrl,
-          [c.filename]: filename,
+          // v0.10.149 - record the *effective* filename so the Settings
+          // UI shows the .mp3 extension that's actually stored.
+          [c.filename]: effectiveFilename,
           [c.mode]: 'audio',
         },
         select: { [c.url]: true, [c.filename]: true, [c.mode]: true },
