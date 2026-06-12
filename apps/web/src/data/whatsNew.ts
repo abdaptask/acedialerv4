@@ -24,6 +24,15 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.147',
+    date: 'June 12, 2026',
+    highlight: 'UX P2 polish batch 4 — Diagnostics tail bounded',
+    changes: [
+      { type: 'improved', text: 'Settings → Diagnostics log preview no longer grows unbounded as the in-memory buffer fills. Tail is now capped at 50% of viewport height with internal scroll, so the page header stays visible. The full export still includes everything.' },
+      { type: 'fixed', text: 'Note: original batch 4 also planned empty-state illustrations, number-display label, and Recents Block icon spacing - those need component-level edits and were deferred. Will follow in a future release.' },
+    ],
+  },
+  {
     version: '0.10.146',
     date: 'June 12, 2026',
     highlight: 'UX P2 polish batch 3 — narrow-viewport fixes',

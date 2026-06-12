@@ -8241,6 +8241,11 @@ body::-webkit-scrollbar { display: none; }
 }
 .diagnostics-tail-wrapper > summary:hover { color: var(--text, #0f172a); }
 .diagnostics-tail {
+  /* v0.10.147 - UX-038 - cap tail height so it doesn't grow unbounded
+     as the log buffer fills. Internal scroll keeps the page header
+     visible. */
+  max-height: 50vh;
+  overflow-y: auto;
   margin: 8px 0 0 0;
   padding: 10px 12px;
   background: #0f172a;
