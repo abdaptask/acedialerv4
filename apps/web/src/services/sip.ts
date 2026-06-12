@@ -18,6 +18,23 @@ import { getHoldMusicEnabled, getHoldMusicDataUrl } from '../lib/userPrefs';
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type RTCSession = any; // jssip's RTCSession type is JSDoc-only
 
+// v0.10.135 EXPERIMENT - 60s periodic reconnect feature flag.
+//
+// The v0.10.113 critical fix tears down + rebuilds the entire JsSIP UA
+// every 60 seconds to combat a Telnyx server-side bug where inbound
+// INVITE routing went stale despite an active REGISTER. In practice
+// the ~600ms gap each minute means ~1% of inbound calls bounce to
+// voicemail, plus users hitting the gap during SSO land in a Disconnected
+// state requiring Ctrl+Shift+R.
+//
+// Hypothesis: the Telnyx bug may have been server-side-fixed since June 9
+// (when v0.10.113 shipped). The 15s force-register should keep registration
+// fresh via normal SIP REGISTER refreshes.
+//
+// Canary on Abdulla's machine. Flag stays OFF unless we observe stale
+// routing (calls going to voicemail despite Registered=green) over 24h.
+const ENABLE_60S_PERIODIC_RECONNECT = false;
+
 // v0.10.60 — Added 'reconnecting' as an intermediate state between
 // 'registered' and 'disconnected'. With the Connection Health beta on,
 // brief disconnect blips (< 5s) are hidden entirely, sustained gaps
