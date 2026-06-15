@@ -2680,7 +2680,23 @@ body {
   align-items: center;
   justify-content: center;
 }
-.settings-pane-body { max-width: 560px; }
+/* v0.10.155 - explicit scroll constraint for sub-pages that
+   exceed viewport at 720p (Users mgmt, Audit Log, etc.). Without
+   this, content overflows the outer page scroll which is confusing
+   because the section header is sticky. Internal scroll on the pane
+   body keeps the sticky header visible while content scrolls.
+   140px offset accounts for top header + section nav + bottom padding. */
+.settings-pane-body {
+  max-width: 560px;
+  overflow-y: auto;
+  max-height: calc(100vh - 140px);
+  scroll-behavior: smooth;
+}
+/* Tighten the offset further on truly short viewports so we don't
+   leave a tiny scrollable strip. */
+@media (max-height: 800px) {
+  .settings-pane-body { max-height: calc(100vh - 120px); }
+}
 .settings-section { display: flex; flex-direction: column; gap: 1rem; }
 .settings-blurb { margin: 0; font-size: 0.88rem; color: rgba(255, 255, 255, 0.6); line-height: 1.45; }
 @media (max-width: 800px) {
@@ -4148,7 +4164,10 @@ body {
 }
 
 .incoming-caller {
-  font-size: 32px;
+  /* v0.10.155 - scale with viewport so caller name + line badge +
+     action buttons all fit on 720p screens without the buttons
+     getting pushed below the fold. At 720p ~25px, at 1080p+ 32px. */
+  font-size: clamp(22px, 3.5vh, 32px);
   font-weight: 600;
   margin-bottom: 8px;
   word-break: break-all;
@@ -4228,8 +4247,11 @@ body {
   display: flex;
   justify-content: center;
   align-items: flex-end;
-  gap: 36px;
-  padding: 0 24px;
+  /* v0.10.155 - scale gap+padding with viewport WIDTH so the
+     Accept-button label doesn't clip at narrow widths. At 1280px
+     gap ~24px, at 1920px+ 36px. */
+  gap: clamp(16px, 4vw, 36px);
+  padding: 0 clamp(16px, 5vw, 24px);
 }
 
 /* v0.10.137 - UX-005 - missing class definitions.
@@ -4508,8 +4530,12 @@ body {
 .ic-ctrl:disabled { opacity: 0.35; cursor: not-allowed; }
 
 .ic-ctrl-icon {
-  width: 64px;
-  height: 64px;
+  /* v0.10.155 - smooth-scale with viewport height. The two existing
+     @media (max-height: 700px) blocks (lines ~1721, ~4462) still
+     pin to 56px on truly short viewports, but for the broad 700-1080
+     range, this clamp handles the gradient naturally. */
+  width: clamp(48px, 9vh, 64px);
+  height: clamp(48px, 9vh, 64px);
   border-radius: 50%;
   background: var(--ic-ctrl-bg, #1f2937);
   color: #e5e7eb;
@@ -4527,8 +4553,11 @@ body {
 }
 
 .hangup-btn {
-  width: 72px;
-  height: 72px;
+  /* v0.10.155 - scale with viewport so the in-call view doesn't
+     overflow at 720p. At 720p ~72px (10vh hits the max), at smaller
+     viewports scales down to 56px floor for usability. */
+  width: clamp(56px, 10vh, 72px);
+  height: clamp(56px, 10vh, 72px);
   border-radius: 50%;
   border: none;
   background: #ef4444;
@@ -4538,7 +4567,7 @@ body {
   justify-content: center;
   cursor: pointer;
   box-shadow: 0 8px 24px rgba(239, 68, 68, 0.4);
-  margin-top: 8px;
+  margin-top: clamp(4px, 1vh, 8px);
 }
 .hangup-btn:active { transform: scale(0.95); }
 

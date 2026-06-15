@@ -24,6 +24,16 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.155',
+    date: 'June 15, 2026',
+    highlight: 'All primary screens now display correctly on lower-resolution monitors.',
+    changes: [
+      { type: 'fixed', text: 'Incoming-call screen: the Accept and Decline buttons sometimes got pushed below the visible area on 1366x768 laptops. The caller name and action buttons now scale to your window size so everything stays visible and reachable.' },
+      { type: 'fixed', text: 'In-call view: the hang-up button and on-screen controls (mute, hold, keypad, transfer) now scale with your window so the bottom of the screen stays usable on smaller displays.' },
+      { type: 'improved', text: 'Settings: long sub-pages (User Management, Audit Log, etc.) now scroll smoothly inside the settings pane instead of pushing content off-screen, with the section header staying visible while you scroll.' },
+    ],
+  },
+  {
     version: '0.10.154',
     date: 'June 15, 2026',
     highlight: 'Dialpad now scales properly on lower-resolution screens.',
