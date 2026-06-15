@@ -18,7 +18,16 @@
 
 import { getNotificationPrefs } from '../lib/userPrefs';
 
-export type RingtoneSlug = 'classic' | 'modern' | 'chime' | 'pulse';
+// v0.10.150 - widened to also accept admin-uploaded ringtone refs
+// (literal 'upload:<id>' strings). Previous narrow type made the
+// upload-path branch in start() unreachable because getCurrentRingtoneSlug
+// would treat unknown slugs as invalid and fall back to 'classic'.
+export type RingtoneSlug =
+  | 'classic'
+  | 'modern'
+  | 'chime'
+  | 'pulse'
+  | `upload:${string}`;
 
 export interface RingtonePresetDef {
   /** Each oscillator gets a frequency + waveform. Stacked = mixed in. */
@@ -109,8 +118,19 @@ export function getRingtonePresets(): Array<{ slug: RingtoneSlug; label: string;
  */
 export function getCurrentRingtoneSlug(): RingtoneSlug {
   try {
-    const v = sessionStorage.getItem('ace_ringtone') as RingtoneSlug | null;
-    if (v && PRESETS[v]) return v;
+    const v = sessionStorage.getItem('ace_ringtone');
+    if (!v) return DEFAULT_RINGTONE;
+    // v0.10.150 - accept either a synthesized preset slug OR an
+    // 'upload:<id>' admin-uploaded ringtone reference. Previously this
+    // function only validated PRESETS membership, which silently
+    // dropped uploaded ringtones back to the default.
+    if (v.startsWith('upload:') && v.length > 'upload:'.length) {
+      return v as RingtoneSlug;
+    }
+    if ((PRESETS as Record<string, unknown>)[v]) {
+      return v as RingtoneSlug;
+    }
+    console.warn('[ringtone] unknown slug in sessionStorage, using default:', v);
   } catch { /* noop */ }
   return DEFAULT_RINGTONE;
 }
@@ -151,6 +171,9 @@ class Ringtone {
     if (!prefs.ringtone) return;
 
     const effectiveSlug = slug ?? getCurrentRingtoneSlug();
+    // v0.10.150 - log the resolved slug so users reporting "ringtone
+    // didn't change" can be diagnosed quickly via the diagnostics log.
+    console.info('[ringtone] start() resolved slug =', effectiveSlug, '(from', slug ? 'argument' : 'sessionStorage', ')');
 
     // v0.10.76 — Admin-uploaded ringtone path. Slug looks like
     // 'upload:<id>'; we look up the cached data URL in sessionStorage,

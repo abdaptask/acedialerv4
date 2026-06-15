@@ -24,6 +24,15 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.150',
+    date: 'June 13, 2026',
+    highlight: 'Fixed: admin-uploaded ringtones now play correctly when selected',
+    changes: [
+      { type: 'fixed', text: 'When you picked an admin-uploaded ringtone in Settings, the dialer would save the selection but still play the default Classic ringtone on incoming calls. The validation function silently rejected any slug that wasnt one of the four built-in presets, dropping uploaded ringtone references and falling back to the default. The fix accepts both built-in presets and upload references. The four built-in presets (Classic, Modern, Chime, Pulse) were already working; this only affects admin-uploaded sounds.' },
+      { type: 'improved', text: 'Diagnostic: ringtone start() now logs the resolved slug at info level. If you ever report "the ringtone didnt change," your Settings > Diagnostics export will show exactly which slug played, making the diagnosis instant.' },
+    ],
+  },
+  {
     version: '0.10.149',
     date: 'June 12, 2026',
     highlight: 'Fixed: in-app voicemail greeting recordings now play correctly (webm → mp3 server-side transcode)',

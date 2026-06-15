@@ -1,6 +1,6 @@
 # ACE Dialer — Project State
 
-**Last updated:** June 12, 2026 (end of day)
+**Last updated:** June 12, 2026 (LATE end of day — second session, 23 releases shipped)
 **Maintained by:** Claude (update at end of every working session)
 
 This file is a living snapshot of where the project stands. New Claude
@@ -26,9 +26,19 @@ If you're a fresh Claude session opening this project:
 
 | Stream | Version | Status | Where |
 |---|---|---|---|
-| Stable client release | v0.10.132 | **Published** to all 40+ ApTask users | GitHub release `v0.10.132` |
-| Canary client release | v0.10.135 | **Draft only**, abdulla's machine | GitHub Releases page (Draft badge) |
-| Backend (api/webhooks/socket) | v0.10.134 deployed | Live on Render | Render dashboard |
+| Latest committed | v0.10.149 | Pushed to origin/main, builds queued | GitHub Actions |
+| Stable published (auto-update) | v0.10.132 | **Published** to all 40+ ApTask users | GitHub release `v0.10.132` |
+| Backend (api/webhooks/socket) | up through v0.10.149 deployed | Live on Render | Render dashboard |
+| Auto-update status | LOCKED (EV cert procurement window) | v0.10.143 enforces signing | docs/ev-cert-procurement.md |
+
+**June 12, 2026 shipping summary — 22 releases in one day:**
+- v0.10.128 (baseline) → v0.10.149 (webm transcode)
+- All 14 P1 UX findings closed (UI_UX_AUDIT.md)
+- 3 P0 QA findings closed: QA-001 socket auth, QA-003 EV cert gate, QA-005 webhook_dedup
+- 10 P2/P3 UX findings shipped across v0.10.144-148
+- 1 production bug fixed: voicemail greeting application error (webm→mp3 transcode)
+- 1 stability fix: React error #310 in Reply with Text (v0.10.130)
+- 1 major-architectural: connection-id-based canonical toNumber (v0.10.133/134)
 
 **What v0.10.132 includes for users:**
 
