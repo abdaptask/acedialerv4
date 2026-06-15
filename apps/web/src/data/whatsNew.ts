@@ -24,6 +24,14 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.153',
+    date: 'June 15, 2026',
+    highlight: 'Fixed: dialer no longer offers a lower version as an update.',
+    changes: [
+      { type: 'fixed', text: 'If a draft build was installed for testing, the dialer would sometimes show an "Update available" toast pointing at an older published release. The dialer now compares the offered version to whats installed and only shows the toast when its a real upgrade.' },
+    ],
+  },
+  {
     version: '0.10.152',
     date: 'June 15, 2026',
     highlight: 'Fixed: voicemail greeting sounded choppy/staticky when other ACE Dialer users called you.',

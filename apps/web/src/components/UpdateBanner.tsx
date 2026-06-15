@@ -76,16 +76,32 @@ export default function UpdateBanner() {
   // Path A — silent auto-update events from the Electron main process.
   useEffect(() => {
     if (!hasAutoUpdater) return;
+    // v0.10.153 - second line of defense. Even though main now guards
+    // against downgrade IPC, the renderer compares offered vs local
+    // before transitioning state. If the offered version is not
+    // strictly newer than the running app, log it and ignore.
+    const isUpgrade = (offered: string | null): boolean => {
+      if (!offered) return true; // unknown version - let main decide; main has already filtered
+      const cmp = compareSemver(offered, localVersion);
+      if (cmp <= 0) {
+        console.warn('[update-banner] ignoring non-newer version', offered, '(local', localVersion + ')');
+        return false;
+      }
+      return true;
+    };
     const unsubAvail = ace!.onUpdateAvailable!((info) => {
+      if (!isUpgrade(info.version)) return;
       setState({ phase: 'available', version: info.version });
     });
     const unsubProg = ace!.onUpdateProgress?.((info) => {
       setState((prev) => {
         const version = ('version' in prev) ? prev.version ?? null : null;
+        if (!isUpgrade(version)) return prev;
         return { phase: 'downloading', version, percent: info.percent };
       });
     });
     const unsubDone = ace!.onUpdateDownloaded!((info) => {
+      if (!isUpgrade(info.version)) return;
       setState({ phase: 'downloaded', version: info.version });
     });
     // v0.9.1 — also subscribe to errors. Without this, a failed download
@@ -114,14 +130,25 @@ export default function UpdateBanner() {
     if (typeof ace!.getUpdateState === 'function') {
       void ace!.getUpdateState().then((s) => {
         if (!s || s.phase === 'idle' || s.phase === 'checking') return;
+        // v0.10.153 - apply the downgrade guard to the rehydrate path
+        // too. A stale state-mirror entry could otherwise drag the
+        // banner back into a 'downloading'/'available' state pointing
+        // at an older version after a remount.
+        const offeredV = s.version ?? null;
+        if (offeredV && compareSemver(offeredV, localVersion) <= 0 && s.phase !== 'error') {
+          console.warn('[update-banner] rehydrate ignored - non-newer version', offeredV, '(local', localVersion + ')');
+          return;
+        }
         if (s.phase === 'downloaded') {
-          setState({ phase: 'downloaded', version: s.version ?? null });
+          setState({ phase: 'downloaded', version: offeredV });
         } else if (s.phase === 'downloading') {
-          setState({ phase: 'downloading', version: s.version ?? null, percent: s.percent ?? 0 });
+          setState({ phase: 'downloading', version: offeredV, percent: s.percent ?? 0 });
         } else if (s.phase === 'available') {
-          setState({ phase: 'available', version: s.version ?? null });
+          setState({ phase: 'available', version: offeredV });
         } else if (s.phase === 'error') {
-          setState({ phase: 'error', version: s.version ?? null, message: s.message ?? 'Update failed' });
+          // Errors are always shown - they carry a 'failed to update' message
+          // regardless of version direction.
+          setState({ phase: 'error', version: offeredV, message: s.message ?? 'Update failed' });
         }
       }).catch(() => { /* main process not ready yet — events will catch up */ });
     }

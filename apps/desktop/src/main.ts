@@ -57,6 +57,25 @@ function findProtocolUrl(argv: readonly string[]): string | null {
   return null;
 }
 
+// v0.10.153 - tiny semver-ish comparator for the downgrade guard.
+// Mirrors the one in apps/web/src/components/UpdateBanner.tsx so main
+// and renderer stay consistent. Returns positive if a > b, 0 if equal,
+// negative if a < b. Non-numeric segments are coerced to 0.
+function compareSemverParts(a: string, b: string): number {
+  const parse = (v: string) => v.split(/[.\-+]/).map((p) => {
+    const n = parseInt(p, 10);
+    return Number.isFinite(n) ? n : 0;
+  });
+  const aP = parse(a);
+  const bP = parse(b);
+  const len = Math.max(aP.length, bP.length);
+  for (let i = 0; i < len; i++) {
+    const diff = (aP[i] ?? 0) - (bP[i] ?? 0);
+    if (diff !== 0) return diff;
+  }
+  return 0;
+}
+
 /** Deliver the SSO callback URL to the main window's renderer. If the
  *  window doesn't exist yet (cold start), buffer in `pendingSsoUrl` and
  *  flush after the renderer signals it's ready via 'ace:sso-ready'. */
@@ -914,6 +933,12 @@ function initAutoUpdater() {
 
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
+  // v0.10.153 - explicit downgrade lock. Default in electron-updater is
+  // already false, but we've seen the renderer get notified about an
+  // older version when an admin had a draft build installed. Being
+  // explicit documents intent and gives belt-and-suspenders alongside
+  // the per-event guards we add below.
+  (autoUpdater as unknown as { allowDowngrade?: boolean }).allowDowngrade = false;
 
   // v0.10.151 - Unconditional Windows code-signing bypass restored.
   //
@@ -953,10 +978,22 @@ function initAutoUpdater() {
     lastUpdateState = { phase: 'checking' };
   });
   autoUpdater.on('update-available', (info) => {
-    console.log('[auto-update] update available', info?.version);
-    lastUpdateState = { phase: 'available', version: info?.version ?? null };
+    // v0.10.153 - guard against spurious downgrade prompts. When an
+    // admin installs a draft build that's newer than the latest
+    // published release, electron-updater can still surface the
+    // published release as "available". Compare versions here and
+    // bail if we'd be offering a downgrade.
+    const offered = info?.version ?? null;
+    const current = app.getVersion();
+    if (offered && compareSemverParts(offered, current) <= 0) {
+      console.log('[auto-update] ignoring update-available for non-newer version', offered, '<=', current);
+      lastUpdateState = { phase: 'idle' };
+      return;
+    }
+    console.log('[auto-update] update available', offered);
+    lastUpdateState = { phase: 'available', version: offered };
     if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('ace:update-available', { version: info?.version ?? null });
+      mainWindow.webContents.send('ace:update-available', { version: offered });
     }
   });
   autoUpdater.on('update-not-available', () => {
