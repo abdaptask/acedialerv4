@@ -16,6 +16,12 @@ declare module 'fluent-ffmpeg' {
     audioCodec(codec: string): FfmpegCommand;
     audioBitrate(bitrate: string | number): FfmpegCommand;
     audioChannels(channels: number): FfmpegCommand;
+    // v0.10.152 - added when we switched the voicemail-greeting
+    // transcode output to WAV at 48 kHz. TypeScript prefers explicit
+    // declare-module fallbacks over @types/fluent-ffmpeg in resolution
+    // order, so any method we call on FfmpegCommand has to be listed
+    // here or it surfaces as TS2339 even when @types is installed.
+    audioFrequency(freq: number): FfmpegCommand;
     toFormat(format: string): FfmpegCommand;
     on(event: 'end', listener: () => void): FfmpegCommand;
     on(event: 'error', listener: (err: Error) => void): FfmpegCommand;
