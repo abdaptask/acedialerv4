@@ -6302,6 +6302,13 @@ button.call-pill-info:hover { background: rgba(255, 255, 255, 0.05); }
 
 .users-admin-table {
   width: 100%;
+  /* v0.10.162 - min-width forces the table to stay wide enough for
+     all 8 columns even when the .users-admin-table-wrap (v0.10.160)
+     is narrower. The wrapper's overflow-x:auto then kicks in and the
+     user can horizontally scroll to reach Version / Last sign-in /
+     Actions columns. Without min-width, width:100% compressed those
+     columns into invisible widths. */
+  min-width: 920px;
   border-collapse: collapse;
   font-size: 13px;
 }

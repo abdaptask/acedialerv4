@@ -24,6 +24,14 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.162',
+    date: 'June 15, 2026',
+    highlight: 'Admin > Users: all 8 columns now reachable via horizontal scroll.',
+    changes: [
+      { type: 'fixed', text: 'The Users admin table was hiding the Version, Last sign-in, and Action (Call/Text/Menu) columns at common window widths. Added a minimum width to the table so when the settings pane is narrower than the full table, you can scroll horizontally to reach the hidden columns instead of having them compressed to nothing.' },
+    ],
+  },
+  {
     version: '0.10.161',
     date: 'June 15, 2026',
     highlight: 'Internal diagnostic improvements (no user-visible changes).',
