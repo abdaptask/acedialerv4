@@ -143,7 +143,13 @@ export default function App() {
   useEffect(() => {
     if (!window.ace?.onDeepLink) return;
     const unsub = window.ace.onDeepLink((data) => {
-      if (!data?.to) return;
+      // v0.10.156 - voicemail variant carries id, not to.
+      if (data.action === 'voicemail') {
+        if (!data.id) return;
+        navigate(`/voicemail/${encodeURIComponent(data.id)}/play`);
+        return;
+      }
+      if (!data.to) return;
       const route =
         data.action === 'call'
           ? `/keypad?to=${encodeURIComponent(data.to)}`
@@ -201,6 +207,10 @@ export default function App() {
           to use the web fallback. */}
       <Route path="/auto/call" element={<AutoRoute action="call" />} />
       <Route path="/auto/sms" element={<AutoRoute action="sms" />} />
+      {/* v0.10.156 - voicemail Listen button from Teams cards. Same
+          pattern: try to fire ace-dialer://voicemail?id=X, fall back to
+          the web playback page if no desktop app or after timeout. */}
+      <Route path="/auto/voicemail" element={<AutoRoute action="voicemail" />} />
       <Route
         path="/"
         element={

@@ -31,8 +31,14 @@ interface AceElectronBridge {
   onSsoCallback: (cb: (url: string) => void) => () => void;
   notifyReadyForSso: () => void;
   // v0.10.4 Task 10 — Deep-link bridge (Teams card buttons)
+  // v0.10.156 - widened for the voicemail Listen button.
   onDeepLink?: (
-    cb: (data: { action: 'call' | 'sms'; to: string }) => void,
+    cb: (
+      data:
+        | { action: 'call'; to: string }
+        | { action: 'sms'; to: string }
+        | { action: 'voicemail'; id: string },
+    ) => void,
   ) => () => void;
   notifyReadyForDeepLink?: () => void;
   // v0.10.9 — System power events (resume from sleep / unlock screen).

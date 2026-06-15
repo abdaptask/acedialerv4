@@ -167,8 +167,13 @@ export function buildSmsDeepLink(toNumber: string, prefillText?: string): string
   return `${webBase()}/auto/sms?to=${cleaned}${t}`;
 }
 
-/** Voicemail playback URL — stays as a web route (audio playback is
- *  a browser-rendered page, not a desktop action). */
+/** Voicemail playback URL.
+ *  v0.10.156 - was direct web URL; now routes through /auto/voicemail
+ *  so the AutoRoute page fires ace-dialer://voicemail?id=X and the
+ *  Electron desktop app handles it natively when installed.
+ *  Web fallback: /auto/voicemail navigates to /voicemail/{id}/play
+ *  after the protocol attempt times out, so browser-only users get the
+ *  same playback page they had before. */
 export function buildVoicemailPlaybackUrl(voicemailId: number): string {
-  return `${webBase()}/voicemail/${voicemailId}/play`;
+  return `${webBase()}/auto/voicemail?id=${voicemailId}`;
 }

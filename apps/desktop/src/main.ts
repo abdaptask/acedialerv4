@@ -42,10 +42,14 @@ let pendingSsoUrl: string | null = null;
  *  When the OS launches us cold from `ace-dialer://call?to=...`, we
  *  buffer the action here until the renderer signals it's ready via
  *  'ace:deep-link-ready'. */
-interface PendingDeepLink {
-  action: 'call' | 'sms';
-  to: string;
-}
+// v0.10.156 - widened to a discriminated union so the deep-link
+// transport supports the Teams voicemail Listen button. call/sms still
+// carry a 'to' (phone number); voicemail carries an 'id' (DB row id of
+// the voicemail to open).
+type PendingDeepLink =
+  | { action: 'call'; to: string }
+  | { action: 'sms'; to: string }
+  | { action: 'voicemail'; id: string };
 let pendingDeepLink: PendingDeepLink | null = null;
 
 /** Find an ace-dialer:// URL in an argv array. Windows passes it as the
@@ -94,15 +98,18 @@ function handleSsoCallback(url: string) {
  *  handleSsoCallback's pattern. Used for ace-dialer://call?to=...
  *  and ace-dialer://sms?to=... events triggered from Teams card
  *  buttons (via the /auto/call and /auto/sms web pages). */
-function handleDeepLink(action: 'call' | 'sms', to: string) {
+// v0.10.156 - takes the full payload so the call/sms/voicemail
+// variants all use the same plumbing. Renderer gets the same object
+// it would build from a URL parser.
+function handleDeepLink(payload: PendingDeepLink) {
   if (mainWindow && !mainWindow.isDestroyed()) {
     if (!mainWindow.isVisible()) mainWindow.show();
     if (mainWindow.isMinimized()) mainWindow.restore();
     mainWindow.focus();
-    mainWindow.webContents.send('ace:deep-link', { action, to });
+    mainWindow.webContents.send('ace:deep-link', payload);
     pendingDeepLink = null;
   } else {
-    pendingDeepLink = { action, to };
+    pendingDeepLink = payload;
   }
 }
 
@@ -136,7 +143,17 @@ function routeProtocolUrl(url: string) {
         console.warn('[deep-link] missing ?to= param', url);
         return;
       }
-      handleDeepLink(action, to);
+      handleDeepLink({ action, to });
+      return;
+    }
+    // v0.10.156 - voicemail action from the Teams Listen card button.
+    if (action === 'voicemail') {
+      const id = parsed.searchParams.get('id') ?? '';
+      if (!id) {
+        console.warn('[deep-link] missing ?id= param', url);
+        return;
+      }
+      handleDeepLink({ action: 'voicemail', id });
       return;
     }
     console.warn('[deep-link] unrecognised action', { url, host: action });
@@ -806,12 +823,18 @@ ipcMain.on('ace:sso-ready', () => {
 });
 
 // v0.10.4 Task 10 — Renderer says "I'm ready to receive deep-link
-// actions" (call / sms from Teams cards). Flush any buffered cold-start
-// deep link. Listening separately from SSO so the renderer can decide
-// when it has the UI mounted vs. just the auth flow ready.
+// actions" (call / sms / voicemail from Teams cards). Flush any
+// buffered cold-start deep link. Listening separately from SSO so the
+// renderer can decide when it has the UI mounted vs. just the auth
+// flow ready.
+//
+// v0.10.156 - handleDeepLink takes the discriminated payload directly
+// now, so we hand it the whole pendingDeepLink object instead of
+// destructuring (which broke for the voicemail variant that uses
+// `id` instead of `to`).
 ipcMain.on('ace:deep-link-ready', () => {
   if (pendingDeepLink) {
-    handleDeepLink(pendingDeepLink.action, pendingDeepLink.to);
+    handleDeepLink(pendingDeepLink);
   }
 });
 

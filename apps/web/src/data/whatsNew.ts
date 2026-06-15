@@ -24,6 +24,14 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.156',
+    date: 'June 15, 2026',
+    highlight: 'Teams voicemail Listen button now opens the desktop dialer.',
+    changes: [
+      { type: 'fixed', text: 'Clicking Listen on a voicemail notification in Teams used to open the web playback page in your browser. It now opens the ACE Dialer desktop app directly, matching how the Call back and Send text buttons already worked. If you do not have the desktop app installed, it still falls back to the web page so nothing breaks.' },
+    ],
+  },
+  {
     version: '0.10.155',
     date: 'June 15, 2026',
     highlight: 'All primary screens now display correctly on lower-resolution monitors.',

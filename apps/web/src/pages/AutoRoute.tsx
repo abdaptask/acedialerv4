@@ -31,21 +31,31 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { Loader2, ArrowRight } from 'lucide-react';
 
 interface AutoRouteProps {
-  /** 'call' for /auto/call, 'sms' for /auto/sms. Drives the protocol
-   *  scheme suffix + the eventual web route the fallback navigates to. */
-  action: 'call' | 'sms';
+  /** 'call' for /auto/call, 'sms' for /auto/sms, 'voicemail' for
+   *  /auto/voicemail (v0.10.156). Drives the protocol scheme suffix
+   *  + the eventual web route the fallback navigates to. */
+  action: 'call' | 'sms' | 'voicemail';
 }
 
 export default function AutoRoute({ action }: AutoRouteProps) {
   const [params] = useSearchParams();
   const navigate = useNavigate();
-  const to = params.get('to') ?? '';
+  // v0.10.156 - call/sms carry a 'to' phone number; voicemail carries
+  // an 'id' (DB row id of the voicemail to play). Read the right param
+  // based on action so the rest of the component is action-agnostic.
+  const to = action === 'voicemail'
+    ? (params.get('id') ?? '')
+    : (params.get('to') ?? '');
   const [protocolTried, setProtocolTried] = useState(false);
 
   useEffect(() => {
     if (!to) {
-      // Missing required param — bounce to keypad/messages without it.
-      navigate(action === 'call' ? '/keypad' : '/messages', { replace: true });
+      // Missing required param — bounce to a sensible fallback page.
+      const missingFallback =
+        action === 'call' ? '/keypad' :
+        action === 'sms' ? '/messages' :
+        '/voicemail';
+      navigate(missingFallback, { replace: true });
       return;
     }
 
@@ -58,9 +68,9 @@ export default function AutoRoute({ action }: AutoRouteProps) {
     const inElectron = typeof window !== 'undefined' && !!(window as { ace?: unknown }).ace;
     if (inElectron) {
       const webRoute =
-        action === 'call'
-          ? `/keypad?to=${encodeURIComponent(to)}`
-          : `/messages?to=${encodeURIComponent(to)}`;
+        action === 'call' ? `/keypad?to=${encodeURIComponent(to)}` :
+        action === 'sms'  ? `/messages?to=${encodeURIComponent(to)}` :
+                            `/voicemail/${encodeURIComponent(to)}/play`;
       navigate(webRoute, { replace: true });
       return;
     }
@@ -71,12 +81,12 @@ export default function AutoRoute({ action }: AutoRouteProps) {
     // which made the previous implementation always fall back to web
     // even when the desktop app was installed.
     //
-    // window.location.href is the standard pattern (Slack/Zoom/Teams
-    // all use it). The browser shows a native "Open <app>?" dialog
-    // on first launch; once the user clicks Allow + checks
-    // "Always allow", subsequent clicks open the desktop directly
-    // with no prompt.
-    const url = `ace-dialer://${action}?to=${encodeURIComponent(to)}`;
+    // v0.10.156 - voicemail action uses ?id= query param to match the
+    // Electron protocol-handler's parsing (see apps/desktop/src/main.ts
+    // routeProtocolUrl).
+    const url = action === 'voicemail'
+      ? `ace-dialer://voicemail?id=${encodeURIComponent(to)}`
+      : `ace-dialer://${action}?to=${encodeURIComponent(to)}`;
     try {
       window.location.href = url;
     } catch {
@@ -110,15 +120,19 @@ export default function AutoRoute({ action }: AutoRouteProps) {
     return () => clearTimeout(closeTimer);
   }, [to, action, navigate]);
 
-  const label = action === 'call' ? 'Opening the dialer' : 'Opening the composer';
+  // v0.10.156 - voicemail variant gets its own label + fallback.
+  const label =
+    action === 'call' ? 'Opening the dialer' :
+    action === 'sms'  ? 'Opening the composer' :
+                        'Opening voicemail';
   const fallbackText =
-    action === 'call'
-      ? 'Open in browser dialer'
-      : 'Open in browser composer';
+    action === 'call' ? 'Open in browser dialer' :
+    action === 'sms'  ? 'Open in browser composer' :
+                        'Open voicemail in browser';
   const fallbackRoute =
-    action === 'call'
-      ? `/keypad?to=${encodeURIComponent(to)}`
-      : `/messages?to=${encodeURIComponent(to)}`;
+    action === 'call' ? `/keypad?to=${encodeURIComponent(to)}` :
+    action === 'sms'  ? `/messages?to=${encodeURIComponent(to)}` :
+                        `/voicemail/${encodeURIComponent(to)}/play`;
 
   return (
     <div className="auto-route-page">

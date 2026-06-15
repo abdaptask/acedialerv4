@@ -82,9 +82,24 @@ contextBridge.exposeInMainWorld('ace', {
     return () => ipcRenderer.removeListener('ace:sso-callback', handler);
   },
   notifyReadyForSso: () => ipcRenderer.send('ace:sso-ready'),
-  onDeepLink: (cb: (data: { action: 'call' | 'sms'; to: string }) => void) => {
-    const handler = (_e: unknown, data: { action: 'call' | 'sms'; to: string }) =>
-      cb(data);
+  // v0.10.156 - widened to accept the voicemail variant. call/sms
+  // carry a 'to' field; voicemail carries an 'id' field. Renderer
+  // discriminates on data.action.
+  onDeepLink: (
+    cb: (
+      data:
+        | { action: 'call'; to: string }
+        | { action: 'sms'; to: string }
+        | { action: 'voicemail'; id: string },
+    ) => void,
+  ) => {
+    const handler = (
+      _e: unknown,
+      data:
+        | { action: 'call'; to: string }
+        | { action: 'sms'; to: string }
+        | { action: 'voicemail'; id: string },
+    ) => cb(data);
     ipcRenderer.on('ace:deep-link', handler);
     return () => ipcRenderer.removeListener('ace:deep-link', handler);
   },
