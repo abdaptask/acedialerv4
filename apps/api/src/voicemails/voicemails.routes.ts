@@ -2,8 +2,54 @@
 // Voicemail records are inserted by the webhook handler when Telnyx finishes
 // recording an unanswered call. The user endpoints below read + mark as
 // listened.
+//
+// v0.10.157 - audio refresh helper for older recordings whose stored
+// signed URL has expired. See task #28 + the audio proxy route below.
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { prisma } from '@ace/db';
+
+// v0.10.157 - Parse a Telnyx recording UUID out of a stored download URL.
+// Telnyx URLs typically embed the recording_id as a UUID in the path,
+// e.g. https://api.telnyx.com/v2/recordings/<uuid>/download/<token>.mp3
+// or https://media.telnyx.com/v2/recording/<uuid>.mp3. Returns null if
+// no UUID-shaped segment is present (older test setups using S3, etc.).
+function extractRecordingIdFromUrl(url: string): string | null {
+  const m = url.match(/\/recordings?\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i);
+  return m ? m[1] : null;
+}
+
+// v0.10.157 - Query Telnyx Recordings API for a fresh signed download URL.
+// Used when the stored URL returns 401/403 (signature expired). Returns
+// null on any error so the caller can surface the original failure
+// without masking it. We prefer the mp3 download_url; fall back to wav.
+async function getFreshTelnyxDownloadUrl(
+  recordingId: string,
+  telnyxKey: string,
+): Promise<string | null> {
+  try {
+    const res = await fetch(
+      `https://api.telnyx.com/v2/recordings/${encodeURIComponent(recordingId)}`,
+      { method: 'GET', headers: { Authorization: `Bearer ${telnyxKey}` } },
+    );
+    if (!res.ok) return null;
+    const body = (await res.json()) as {
+      data?: {
+        download_urls?: { mp3?: string; wav?: string };
+        // Some Telnyx responses use 'recording_url' as a flat field
+        // (older API shape). Accept either.
+        recording_url?: string;
+      };
+    };
+    return (
+      body?.data?.download_urls?.mp3 ??
+      body?.data?.download_urls?.wav ??
+      body?.data?.recording_url ??
+      null
+    );
+  } catch {
+    return null;
+  }
+}
 
 interface JwtPayload {
   sub: number;
@@ -100,9 +146,13 @@ export async function voicemailsRoutes(app: FastifyInstance) {
   // upstream MP3 with our Telnyx API key, stream the bytes back with
   // an audio Content-Type so the HTML5 <audio> tag plays it.
   //
-  // We DON'T cache the upstream URL — it's tied to our Telnyx account
-  // and rotating credentials means a stale URL would 401 anyway. Each
-  // playback fetches fresh.
+  // v0.10.157 - older recordings (months back) have a stored
+  // recordingUrl whose signature has expired, so the upstream fetch
+  // returns 401 or 403 even with a valid Bearer token. When that
+  // happens, parse the recording UUID out of the stored URL, query
+  // Telnyx Recordings API to get a fresh signed download URL, and
+  // retry once. Brand-new voicemails are unaffected because their
+  // stored URL still works on the first try.
   app.get(
     '/voicemails/:id/audio',
     { onRequest: [app.authenticate] },
@@ -122,20 +172,45 @@ export async function voicemailsRoutes(app: FastifyInstance) {
         return reply.code(404).send({ error: 'No recording available' });
       }
       const telnyxKey = process.env.TELNYX_API_KEY;
-      try {
+
+      // Helper: attempt a single upstream fetch with appropriate auth.
+      const tryFetch = async (url: string) => {
         const headers: Record<string, string> = {};
-        // Only attach Telnyx Bearer when the URL is actually on
-        // api.telnyx.com. Some legacy rows might point at signed S3
-        // URLs from older test setups — sending Bearer on those is
-        // harmless but explicit-gating avoids leaking the key.
-        if (telnyxKey && /(^|\.)telnyx\.com\//.test(vm.recordingUrl)) {
+        if (telnyxKey && /(^|\.)telnyx\.com\//.test(url)) {
           headers.Authorization = `Bearer ${telnyxKey}`;
         }
-        const upstream = await fetch(vm.recordingUrl, { method: 'GET', headers });
+        return fetch(url, { method: 'GET', headers });
+      };
+
+      try {
+        // First attempt: the URL captured at receive-time.
+        let upstream = await tryFetch(vm.recordingUrl);
+
+        // v0.10.157 - recover from expired signed URLs. 401/403 on a
+        // Telnyx URL almost always means the URL signature lapsed
+        // (not an auth-key issue, since the same key works for fresh
+        // recordings). Try refreshing once.
+        if (
+          (upstream.status === 401 || upstream.status === 403) &&
+          telnyxKey
+        ) {
+          const recordingId = extractRecordingIdFromUrl(vm.recordingUrl);
+          if (recordingId) {
+            const freshUrl = await getFreshTelnyxDownloadUrl(recordingId, telnyxKey);
+            if (freshUrl) {
+              request.log.info(
+                { voicemailId: vm.id, recordingId },
+                '[voicemail] stored URL expired, retrying with fresh signed URL',
+              );
+              upstream = await tryFetch(freshUrl);
+            }
+          }
+        }
+
         if (!upstream.ok) {
           request.log.warn(
             { voicemailId: vm.id, status: upstream.status },
-            '[voicemail] upstream audio fetch failed',
+            '[voicemail] upstream audio fetch failed (after refresh attempt)',
           );
           return reply.code(502).send({
             error: `Failed to fetch audio: HTTP ${upstream.status}`,

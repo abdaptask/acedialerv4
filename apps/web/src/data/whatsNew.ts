@@ -24,6 +24,14 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.157',
+    date: 'June 15, 2026',
+    highlight: 'Fixed: older voicemails now play correctly.',
+    changes: [
+      { type: 'fixed', text: 'Older voicemails would show their transcript but fail with "Failed to fetch audio: HTTP 403" when you pressed play. The audio links Telnyx gave us at the time the message was left have a limited lifetime and were expiring on older recordings. The dialer now automatically fetches a fresh audio link from Telnyx when the original one stops working, so every voicemail in your inbox plays again — no action required from you.' },
+    ],
+  },
+  {
     version: '0.10.156',
     date: 'June 15, 2026',
     highlight: 'Teams voicemail Listen button now opens the desktop dialer.',
