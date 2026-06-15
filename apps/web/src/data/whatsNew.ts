@@ -24,6 +24,14 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.160',
+    date: 'June 15, 2026',
+    highlight: 'Admin > Users: all columns and action icons now reachable.',
+    changes: [
+      { type: 'fixed', text: 'The Users admin table had 8 columns but only the first 5 fit in the settings pane, hiding Version, Last Login, and the Call/Text/More icons. The table now scrolls horizontally inside the pane so every column is reachable at any window width.' },
+    ],
+  },
+  {
     version: '0.10.159',
     date: 'June 15, 2026',
     highlight: 'Voicemail playback restored after a regression.',

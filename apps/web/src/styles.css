@@ -6290,6 +6290,16 @@ button.call-pill-info:hover { background: rgba(255, 255, 255, 0.05); }
   margin-bottom: 14px;
 }
 
+/* v0.10.160 - horizontal-scroll wrapper for the Users admin table.
+   Lets the user scroll right to reach the Version, Last Login, and
+   Actions columns that overflow the settings pane. */
+.users-admin-table-wrap {
+  width: 100%;
+  overflow-x: auto;
+  /* Smoothing on touch devices + iOS-style scroll. */
+  -webkit-overflow-scrolling: touch;
+}
+
 .users-admin-table {
   width: 100%;
   border-collapse: collapse;

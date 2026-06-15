@@ -3115,6 +3115,12 @@ function UsersAdminSection() {
 
       {error && <div className="error" style={{ marginBottom: 12 }}>{error}</div>}
 
+      {/* v0.10.160 - horizontal-scroll wrapper around the Users table.
+          The table has 8 columns (User/Email/Role/Status/DID/Version/
+          LastLogin/Actions) that exceed the 560px settings pane width.
+          Without this wrapper the Actions column (Call/Text/Menu) is
+          clipped off-screen and unreachable. */}
+      <div className="users-admin-table-wrap">
       <table className="users-admin-table">
         <thead>
           <tr>
@@ -3559,6 +3565,7 @@ function UsersAdminSection() {
           )}
         </tbody>
       </table>
+      </div>
 
       {showInvite && (
         <InviteUserModal
