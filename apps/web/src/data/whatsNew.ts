@@ -24,6 +24,14 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.152',
+    date: 'June 15, 2026',
+    highlight: 'Fixed: voicemail greeting sounded choppy/staticky when other ACE Dialer users called you.',
+    changes: [
+      { type: 'fixed', text: 'When another ACE Dialer user called you and hit your voicemail, your greeting sounded choppy or staticky. Phone (PSTN) callers heard the same greeting fine. The dialer was storing greetings as MP3, and Telnyx then had to re-encode that MP3 to a different audio codec for delivery to dialer listeners, which generated audible warble. We now store greetings as lossless WAV so Telnyx can deliver them cleanly to both phone and dialer callers. Existing greetings need to be re-recorded once to get the improvement.' },
+    ],
+  },
+  {
     version: '0.10.151',
     date: 'June 15, 2026',
     highlight: 'Auto-update restored. You no longer need to manually install update files.',

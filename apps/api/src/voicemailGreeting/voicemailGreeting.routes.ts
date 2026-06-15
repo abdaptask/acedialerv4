@@ -20,11 +20,16 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { prisma } from '@ace/db';
 import { config } from '../config.js';
-// v0.10.149 - bundled ffmpeg binary for webm→mp3 transcode at upload time.
+// v0.10.152 - bundled ffmpeg binary for webm→wav transcode at upload time.
 // In-app MediaRecorder produces audio/webm which Telnyx <Play> cannot
-// decode, causing "application error has occurred" during voicemail
-// playback for TeXML trial users. Transcoding at upload fixes the
-// playback path without changing the client-side recording flow.
+// decode (caused "application error has occurred" for TeXML trial
+// users in v0.10.149). v0.10.149 transcoded webm→mp3 64kbps, which
+// fixed playback but produced choppy/staticky audio for WebRTC
+// listeners because Telnyx then re-encoded mp3→Opus for delivery
+// (double-lossy chain with incompatible psychoacoustic models).
+// v0.10.152 switches the output to WAV PCM 16-bit mono 48kHz - lossless
+// so Telnyx can do a single clean wav→Opus (or wav→G.711) on the
+// delivery path. Larger file (~10x mp3) but acceptable at this scale.
 import ffmpegPath from 'ffmpeg-static';
 import ffmpeg from 'fluent-ffmpeg';
 import { tmpdir } from 'node:os';
@@ -40,29 +45,42 @@ if (ffmpegPath) {
 }
 
 /**
- * v0.10.149 - Transcode a buffer of webm-encoded audio to MP3 using the
- * bundled ffmpeg-static binary. Writes input to a temp file, runs
- * ffmpeg with libmp3lame at 64kbps (voice quality, small file), reads
- * the output back into a buffer, and cleans up both temp files.
+ * v0.10.152 - Transcode a buffer of webm-encoded audio to lossless WAV
+ * (PCM 16-bit mono 48kHz) using the bundled ffmpeg-static binary.
  *
- * 64kbps mono is plenty for a voicemail greeting (Telnyx caps audio
- * quality at 8kHz/PCM anyway on the call path).
+ * Why WAV instead of MP3: Telnyx <Play> re-encodes whatever we hand it
+ * into Opus (for WebRTC listeners) or G.711 (for PSTN listeners). If
+ * our file is already MP3, Telnyx has to go MP3 -> Opus, which is a
+ * lossy-to-lossy transcode between two codecs with incompatible
+ * psychoacoustic models. The result is audible warble/static for
+ * WebRTC listeners (PSTN listeners are fine because MP3 -> G.711 is
+ * fundamentally a downsample/quantize). Handing Telnyx a lossless
+ * WAV eliminates the codec-mismatch artifact entirely - it becomes a
+ * single clean WAV -> {Opus|G.711} step.
+ *
+ * Trade-off: 10s of 48kHz mono PCM 16-bit ~= 960 KB (vs ~80 KB at
+ * 64kbps mp3). Acceptable at our scale and well under Telnyx Play's
+ * media size cap.
  *
  * Throws if ffmpeg fails. Caller should catch and return 502 to the
  * client with a friendly message.
  */
-async function transcodeWebmToMp3(input: Buffer): Promise<Buffer<ArrayBufferLike>> {
+async function transcodeWebmToWav(input: Buffer): Promise<Buffer<ArrayBufferLike>> {
   const stamp = Date.now() + '-' + Math.random().toString(36).slice(2, 8);
   const tmpIn = pathJoin(tmpdir(), `vm-greeting-${stamp}.webm`);
-  const tmpOut = pathJoin(tmpdir(), `vm-greeting-${stamp}.mp3`);
+  const tmpOut = pathJoin(tmpdir(), `vm-greeting-${stamp}.wav`);
   await writeFile(tmpIn, input);
   try {
     await new Promise<void>((resolve, reject) => {
       ffmpeg(tmpIn)
-        .audioCodec('libmp3lame')
-        .audioBitrate('64k')
+        // PCM 16-bit signed little-endian = standard uncompressed WAV.
+        .audioCodec('pcm_s16le')
+        // 48 kHz matches WebRTC Opus native sample rate so Telnyx can
+        // pass through to Opus without resampling. PSTN path resamples
+        // cleanly 48k -> 8k regardless.
+        .audioFrequency(48000)
         .audioChannels(1)
-        .toFormat('mp3')
+        .toFormat('wav')
         .on('end', () => resolve())
         .on('error', (err: Error) => reject(err))
         .save(tmpOut);
@@ -255,20 +273,22 @@ export async function voicemailGreetingRoutes(app: FastifyInstance) {
       }
 
       // v0.10.149 - if upload is webm (in-app MediaRecorder output),
-      // transcode to mp3 so Telnyx <Play> can decode it. We adjust both
-      // the bytes and the downstream filename/mime so the storage write
-      // and the User row record reflect mp3.
+      // v0.10.152 - transcode to WAV (lossless) so Telnyx <Play> can
+      // decode it AND so Telnyx's onward Opus / G.711 transcoding for
+      // WebRTC / PSTN listeners is a single clean step (no codec-
+      // mismatch artifacts). We adjust both the bytes and the
+      // downstream filename/mime so storage + User row reflect wav.
       let effectiveMime = normalizedMime;
       let effectiveFilename = filename;
       if (normalizedMime === 'audio/webm') {
         try {
           const startMs = Date.now();
-          bytes = await transcodeWebmToMp3(bytes);
-          effectiveMime = 'audio/mpeg';
-          effectiveFilename = filename.replace(/\.[^.]+$/, '') + '.mp3';
+          bytes = await transcodeWebmToWav(bytes);
+          effectiveMime = 'audio/wav';
+          effectiveFilename = filename.replace(/\.[^.]+$/, '') + '.wav';
           app.log.info(
             { userId: u.sub, type, durMs: Date.now() - startMs, outBytes: bytes.length },
-            '[vm-greeting] webm→mp3 transcoded',
+            '[vm-greeting] webm→wav transcoded',
           );
         } catch (transcodeErr) {
           app.log.error(
@@ -288,8 +308,8 @@ export async function voicemailGreetingRoutes(app: FastifyInstance) {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${config.supabaseServiceKey}`,
-          // v0.10.149 - use effectiveMime so transcoded webm files get
-          // stored with audio/mpeg content-type. Telnyx + browsers
+          // v0.10.152 - use effectiveMime so transcoded webm files get
+          // stored with audio/wav content-type. Telnyx + browsers
           // then receive the right MIME on fetch.
           'Content-Type': effectiveMime,
           'x-upsert': 'true',
@@ -311,8 +331,8 @@ export async function voicemailGreetingRoutes(app: FastifyInstance) {
         where: { id: u.sub },
         data: {
           [c.url]: publicUrl,
-          // v0.10.149 - record the *effective* filename so the Settings
-          // UI shows the .mp3 extension that's actually stored.
+          // v0.10.152 - record the *effective* filename so the Settings
+          // UI shows the .wav extension that's actually stored.
           [c.filename]: effectiveFilename,
           [c.mode]: 'audio',
         },
