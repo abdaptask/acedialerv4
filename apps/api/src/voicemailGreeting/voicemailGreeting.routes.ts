@@ -64,7 +64,7 @@ async function transcodeWebmToMp3(input: Buffer): Promise<Buffer<ArrayBufferLike
         .audioChannels(1)
         .toFormat('mp3')
         .on('end', () => resolve())
-        .on('error', (err) => reject(err))
+        .on('error', (err: Error) => reject(err))
         .save(tmpOut);
     });
     return await readFile(tmpOut);
