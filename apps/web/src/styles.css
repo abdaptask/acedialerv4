@@ -2692,14 +2692,6 @@ body {
   max-height: calc(100vh - 140px);
   scroll-behavior: smooth;
 }
-/* v0.10.158 - the 560px cap above blocks Users / Audit Log tables which
-   need 650-700px to render all columns without horizontal clipping. Use
-   :has() to widen ONLY the panes hosting those tables. Other Settings
-   sub-pages keep the original 560px reading width. */
-.settings-pane-body:has(.users-admin-table),
-.settings-pane-body:has(.audit-log-row-main) {
-  max-width: 720px;
-}
 /* Tighten the offset further on truly short viewports so we don't
    leave a tiny scrollable strip. */
 @media (max-height: 800px) {
@@ -6298,25 +6290,6 @@ button.call-pill-info:hover { background: rgba(255, 255, 255, 0.05); }
   margin-bottom: 14px;
 }
 
-/* v0.10.158 - audit log + users tables: responsive overrides at narrow
-   viewport so column proportions don't squash text past readability.
-   The 700px breakpoint matches the new .settings-pane-body :has()
-   override above so the rules engage in the right viewport range. */
-@media (max-width: 700px) {
-  .audit-log-row-main {
-    grid-template-columns: 80px 1fr 24px;
-    font-size: 12px;
-  }
-  .audit-log-when { font-size: 11px; }
-  .users-admin-table { font-size: 12px; }
-  .users-admin-table th,
-  .users-admin-table td { padding: 8px 6px; }
-  /* Hide the email column at the narrowest viewport; the user's name and
-     DID are still visible. Email is recoverable by hovering / clicking
-     into the user row. */
-  .users-admin-table .users-admin-email-cell { display: none; }
-}
-
 .users-admin-table {
   width: 100%;
   border-collapse: collapse;
@@ -6384,38 +6357,9 @@ button.call-pill-info:hover { background: rgba(255, 255, 255, 0.05); }
 [data-theme="light"] .status-pill.inactive { background: rgba(215, 0, 21, 0.10); color: #d70015; }
 
 .users-admin-actions {
-  /* v0.10.158 - width was 44px (sized for the original kebab-only column).
-     v0.10.94 added Call + Text icons making 3 icons total. The 44px cap
-     clipped the new icons. Auto width + nowrap lets the row decide how
-     much horizontal space the action cluster needs. min-width guarantees
-     room for all three icons even at the narrowest pane width. */
   position: relative;
-  width: auto;
-  min-width: 110px;
-  white-space: nowrap;
+  width: 44px;
   text-align: right;
-}
-
-/* v0.10.158 - bulk-sync results table (Settings > Migrate > Bulk-refresh
-   SMS output) was rendered inline with overflow:auto on the wrapper but
-   no column constraints. Adding table-layout:fixed + proportional widths
-   keeps the table inside its pane without horizontal scroll juggling. */
-.bulk-sync-results-table {
-  width: 100%;
-  table-layout: fixed;
-}
-.bulk-sync-results-table th:nth-child(1),
-.bulk-sync-results-table td:nth-child(1) { width: 35%; }
-.bulk-sync-results-table th:nth-child(2),
-.bulk-sync-results-table td:nth-child(2) { width: 25%; }
-.bulk-sync-results-table th:nth-child(3),
-.bulk-sync-results-table td:nth-child(3) { width: 20%; }
-.bulk-sync-results-table th:nth-child(4),
-.bulk-sync-results-table td:nth-child(4) { width: 20%; }
-.bulk-sync-results-table td {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 .users-admin-menu {
   position: absolute;

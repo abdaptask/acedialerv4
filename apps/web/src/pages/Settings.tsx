@@ -3176,7 +3176,7 @@ function UsersAdminSection() {
                     </div>
                   </div>
                 </td>
-                <td className="users-admin-email users-admin-email-cell">{r.email}</td>
+                <td className="users-admin-email">{r.email}</td>
                 <td>
                   <span className={`role-pill ${r.isAdmin ? 'admin' : 'user'}`}>
                     {r.isAdmin ? 'Admin' : 'User'}
