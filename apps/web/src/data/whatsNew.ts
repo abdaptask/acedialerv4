@@ -24,6 +24,14 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.151',
+    date: 'June 15, 2026',
+    highlight: 'Auto-update restored. You no longer need to manually install update files.',
+    changes: [
+      { type: 'fixed', text: 'Auto-update was blocked on Windows because the dialer was waiting for a code-signing certificate that has not been procured yet. The dialer now installs updates directly from GitHub, the same way it did before. You will get future versions automatically without any action.' },
+    ],
+  },
+  {
     version: '0.10.150',
     date: 'June 13, 2026',
     highlight: 'Fixed: admin-uploaded ringtones now play correctly when selected',

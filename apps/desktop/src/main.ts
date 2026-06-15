@@ -915,42 +915,37 @@ function initAutoUpdater() {
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
 
-  // v0.9.4 — TEMPORARY: bypass Windows code-signing verification because
-  // we don't have an EV cert yet (see task #194 / #233). Without this,
-  // v0.10.143 - QA-003 - gate the code-signing override behind an
-  // explicit env var so we stop silently shipping with verification off.
+  // v0.10.151 - Unconditional Windows code-signing bypass restored.
   //
-  // BACKGROUND: electron-updater refuses to install ANY update on Windows
-  // when package.json declares publisherName: "ApTask" but the EXE isn't
-  // actually signed. The publisher-name check fails and the user sees
-  // "Update failed: not signed by the application owner". The historical
-  // workaround was to make verifyUpdateCodeSignature a no-op resolver.
+  // electron-updater refuses to install any update on Windows when
+  // package.json declares publisherName: "ApTask" but the .exe is not
+  // actually signed. We do not currently have a code-signing cert (OV
+  // or EV), so we override verifyUpdateCodeSignature to a no-op
+  // resolver. This lets auto-update keep working for the 40 internal
+  // ApTask users.
   //
-  // The trade-off was real supply-chain risk: an attacker controlling
-  // GitHub Releases could push a malicious .exe and every dialer auto-
-  // installs it. With the v0.10.143 gate active, the override is
-  // DISABLED by default. Auto-update will fail until we ship an
-  // EV-signed binary OR the user sets ACE_BYPASS_CODE_SIGNING to the
-  // magic value below.
+  // TRADE-OFF: if our GitHub repo were compromised, an attacker could
+  // push a malicious .exe and every dialer would auto-install it on
+  // next update poll. Bounded by: internal-only distribution, repo
+  // access is owner-only. Revisit when shipping outside ApTask or when
+  // user count grows materially.
   //
-  // See docs/ev-cert-procurement.md for the procurement plan + how to
-  // wire the signature into the GitHub Actions build pipeline.
+  // v0.10.143 added a gate (ACE_BYPASS_CODE_SIGNING env var) to close
+  // this hole pending cert procurement. v0.10.151 reverts that gate
+  // because cert procurement is deferred and users were stuck unable
+  // to auto-update.
+  //
+  // To re-close this hole later: procure an OV or EV cert (see
+  // docs/ev-cert-procurement.md), wire signing into
+  // .github/workflows/build-desktop.yml, then re-add the gate.
   if (process.platform === 'win32') {
-    if (process.env.ACE_BYPASS_CODE_SIGNING === 'allowed-during-procurement') {
-      console.warn(
-        '[auto-update] WARNING: code-signing verification override ACTIVE via ' +
-          'ACE_BYPASS_CODE_SIGNING env var. This bypasses Windows publisher-name ' +
-          'verification - supply-chain risk if attacker controls GitHub Releases.',
-      );
-      (autoUpdater as unknown as {
-        verifyUpdateCodeSignature?: (publisherNames: string[], file: string) => Promise<string | null>;
-      }).verifyUpdateCodeSignature = async () => null;
-    } else {
-      console.log(
-        '[auto-update] code-signing verification ENFORCED (default). Auto-update ' +
-          "will fail until the binary is EV-signed. See docs/ev-cert-procurement.md.",
-      );
-    }
+    console.log(
+      '[auto-update] Windows code-signing verification BYPASSED (no cert yet). ' +
+        'See v0.10.151 comment for trade-off context.',
+    );
+    (autoUpdater as unknown as {
+      verifyUpdateCodeSignature?: (publisherNames: string[], file: string) => Promise<string | null>;
+    }).verifyUpdateCodeSignature = async () => null;
   }
 
   autoUpdater.on('checking-for-update', () => {
