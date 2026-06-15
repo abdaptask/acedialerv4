@@ -1103,10 +1103,15 @@ body {
 }
 
 /* ============ DIALPAD ============ */
+/* v0.10.154 - all sizing here is viewport-height-responsive via clamp().
+   No more abrupt media-query jumps; the dialpad scales smoothly from
+   600px viewports (chromebook) up to 1080p+ desktops. Min is sized so a
+   1280x720 window remains touch-comfortable; max preserves the original
+   v0.10.x look on tall screens. */
 .dialpad {
   width: 100%;
   max-width: 420px;
-  padding: 1rem 1.5rem 2rem;
+  padding: clamp(0.5rem, 1.5vh, 1rem) 1.5rem clamp(0.8rem, 2.5vh, 2rem);
   display: flex;
   flex-direction: column;
   /* v0.10.73 — Switched from justify-content:flex-end to flex-start,
@@ -1127,23 +1132,13 @@ body {
      itself rather than the page body, so the bottom-nav stays in place. */
   overflow-y: auto;
 }
-/* v0.10.136 - UX-007 - shrink the dialpad on short viewports.
-   1366x768 with Windows 125% DPI scaling = ~480 device-pixel height for
-   the dialpad after tab bar + header + (sometimes) update-banner +
-   return-to-call-banner. The pre-fix keypad needed ~525px. The buttons
-   below get reduced from 72px to 60px which saves enough vertical space
-   for the green call button to sit fully on screen without scrolling.
-   No effect on taller viewports (the media query bails out above 720px). */
-@media (max-height: 720px) {
-  .keypad-btn,
-  .call-btn,
-  .backspace-btn,
-  .contacts-btn { width: 60px; height: 60px; }
-  .keypad-btn .digit { font-size: 1.7rem; }
-  .keypad { gap: 0.7rem 0; }
-  .dialpad-actions { padding-top: 0.8rem; }
-  .number-display { padding: 0.7rem 0.5rem; min-height: 3.4rem; }
-}
+/* v0.10.154 - REMOVED the v0.10.136 max-height:720 media query.
+   It was the wrong abstraction: 1366x768 maximized Electron windows give
+   ~738px of viewport - JUST above the 720px threshold - so the query
+   never fired and the keypad overflowed. Replaced with clamp()-based
+   sizing on the individual rules below, which scales smoothly with
+   viewport height across ALL resolutions (no abrupt boundary).
+   See .keypad-btn / .keypad / .call-btn / .number-display below. */
 /* ============ DIALPAD TOP STRIP (hint + status) ============ */
 .dialpad-top {
   display: flex;
@@ -1166,8 +1161,9 @@ body {
   align-items: center;
   justify-content: center;
   gap: 0.5rem;
-  padding: 1.2rem 0.5rem;
-  min-height: 4.5rem;
+  /* v0.10.154 - scale with viewport. At 720px ~ 65px tall; at 1080px ~ 72px. */
+  padding: clamp(0.5rem, 1.6vh, 1.2rem) 0.5rem;
+  min-height: clamp(2.8rem, 7vh, 4.5rem);
   width: 100%;
   max-width: 440px;
   margin: 0 auto;
@@ -1215,7 +1211,9 @@ body {
 .keypad {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 1.1rem 0;
+  /* v0.10.154 - row gap scales with viewport so the 4 keypad rows + the
+     action row all fit on shorter screens. */
+  gap: clamp(0.4rem, 1.3vh, 1.1rem) 0;
   justify-items: center;
   margin-bottom: 0.5rem;
 }
@@ -1223,8 +1221,11 @@ body {
   background: rgba(255, 255, 255, 0.15);
   border: none;
   color: #fff;
-  width: 75px;
-  height: 75px;
+  /* v0.10.154 - viewport-responsive sizing. 8.5vh hits the sweet spot
+     for both 1280x720 (~61px) and full HD (75px max). 48px floor keeps
+     the touch target usable even on tiny laptops. */
+  width: clamp(48px, 8.5vh, 75px);
+  height: clamp(48px, 8.5vh, 75px);
   border-radius: 50%;
   cursor: pointer;
   display: flex;
@@ -1241,7 +1242,9 @@ body {
   transform: scale(0.96);
 }
 .keypad-btn .digit {
-  font-size: 2.1rem;
+  /* v0.10.154 - scale digit size with button size. At 720px viewport
+     ~1.55rem; at 1080px ~2.1rem (max). */
+  font-size: clamp(1.3rem, 3vh, 2.1rem);
   font-weight: 400;
   line-height: 1;
 }
@@ -1262,7 +1265,9 @@ body {
   grid-template-columns: repeat(3, 1fr);
   gap: 0;
   justify-items: center;
-  padding-top: 1.5rem;
+  /* v0.10.154 - scales with viewport so the call button isn't pushed
+     under the bottom nav on 720p screens. */
+  padding-top: clamp(0.5rem, 1.6vh, 1.5rem);
   align-items: center;
   /* v0.10.73 — Push to the bottom of the dialpad container when there's
      extra room (so the dial button visually anchors at the bottom on
@@ -1276,8 +1281,10 @@ body {
   background: #34c759;
   border: none;
   color: #fff;
-  width: 75px;
-  height: 75px;
+  /* v0.10.154 - match .keypad-btn scaling so the action row aligns
+     visually with the keypad above. */
+  width: clamp(48px, 8.5vh, 75px);
+  height: clamp(48px, 8.5vh, 75px);
   border-radius: 50%;
   cursor: pointer;
   display: flex;
@@ -1295,8 +1302,9 @@ body {
   border: none;
   color: #fff;
   cursor: pointer;
-  width: 75px;
-  height: 75px;
+  /* v0.10.154 - match .keypad-btn scaling. */
+  width: clamp(48px, 8.5vh, 75px);
+  height: clamp(48px, 8.5vh, 75px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1322,8 +1330,9 @@ body {
   border: none;
   color: #fff;
   cursor: pointer;
-  width: 75px;
-  height: 75px;
+  /* v0.10.154 - match .keypad-btn scaling. */
+  width: clamp(48px, 8.5vh, 75px);
+  height: clamp(48px, 8.5vh, 75px);
   border-radius: 50%;
   display: flex;
   align-items: center;
@@ -1334,8 +1343,16 @@ body {
 }
 .contacts-btn:hover { background: rgba(255, 255, 255, 0.25); }
 .contacts-btn:active { background: rgba(255, 255, 255, 0.35); transform: scale(0.96); }
-.contacts-btn svg { width: 28px; height: 28px; }
-.contacts-btn-spacer { display: block; width: 75px; height: 75px; }
+/* v0.10.154 - SVG and spacer scale with their parents. */
+.contacts-btn svg {
+  width: clamp(20px, 3.5vh, 28px);
+  height: clamp(20px, 3.5vh, 28px);
+}
+.contacts-btn-spacer {
+  display: block;
+  width: clamp(48px, 8.5vh, 75px);
+  height: clamp(48px, 8.5vh, 75px);
+}
 [data-theme="light"] .contacts-btn {
   background: rgba(0, 0, 0, 0.06);
   color: var(--text);

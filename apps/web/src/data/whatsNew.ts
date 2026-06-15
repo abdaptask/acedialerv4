@@ -24,6 +24,14 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.154',
+    date: 'June 15, 2026',
+    highlight: 'Dialpad now scales properly on lower-resolution screens.',
+    changes: [
+      { type: 'fixed', text: 'On 1366x768 laptops and other lower-resolution screens, the call button sometimes got pushed off-screen by the keypad. The dialpad now scales smoothly with your window size, so the call button stays fully visible at any resolution from 1280x720 up.' },
+    ],
+  },
+  {
     version: '0.10.153',
     date: 'June 15, 2026',
     highlight: 'Fixed: dialer no longer offers a lower version as an update.',
