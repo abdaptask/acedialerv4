@@ -24,6 +24,14 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.161',
+    date: 'June 15, 2026',
+    highlight: 'Internal diagnostic improvements (no user-visible changes).',
+    changes: [
+      { type: 'improved', text: 'Server-side: voicemail audio playback now writes detailed step-by-step logs so the engineering team can diagnose any future playback issue from the server logs alone. No change to how the dialer behaves.' },
+    ],
+  },
+  {
     version: '0.10.160',
     date: 'June 15, 2026',
     highlight: 'Admin > Users: all columns and action icons now reachable.',

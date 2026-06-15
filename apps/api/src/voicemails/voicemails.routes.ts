@@ -18,36 +18,62 @@ function extractRecordingIdFromUrl(url: string): string | null {
   return m ? m[1] : null;
 }
 
-// v0.10.157 - Query Telnyx Recordings API for a fresh signed download URL.
-// Used when the stored URL returns 401/403 (signature expired). Returns
-// null on any error so the caller can surface the original failure
-// without masking it. We prefer the mp3 download_url; fall back to wav.
+// v0.10.157/.161 - Query Telnyx Recordings API for a fresh signed
+// download URL. v0.10.161 widened the return type so callers receive
+// BOTH the url (or null) AND a structured diagnostic explaining why
+// it might be null. Lets us log the actual failure mode (Telnyx 404,
+// 401, parse error, etc.) instead of silently bailing.
+interface TelnyxRefreshResult {
+  url: string | null;
+  diagnostic: {
+    telnyxStatus?: number;
+    bodyKeys?: string[];
+    errSample?: string;
+    err?: string;
+  };
+}
 async function getFreshTelnyxDownloadUrl(
   recordingId: string,
   telnyxKey: string,
-): Promise<string | null> {
+): Promise<TelnyxRefreshResult> {
   try {
     const res = await fetch(
       `https://api.telnyx.com/v2/recordings/${encodeURIComponent(recordingId)}`,
       { method: 'GET', headers: { Authorization: `Bearer ${telnyxKey}` } },
     );
-    if (!res.ok) return null;
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '');
+      return {
+        url: null,
+        diagnostic: {
+          telnyxStatus: res.status,
+          errSample: errText.slice(0, 300),
+        },
+      };
+    }
     const body = (await res.json()) as {
       data?: {
         download_urls?: { mp3?: string; wav?: string };
-        // Some Telnyx responses use 'recording_url' as a flat field
-        // (older API shape). Accept either.
         recording_url?: string;
       };
     };
-    return (
+    const url =
       body?.data?.download_urls?.mp3 ??
       body?.data?.download_urls?.wav ??
       body?.data?.recording_url ??
-      null
-    );
-  } catch {
-    return null;
+      null;
+    return {
+      url,
+      diagnostic: {
+        telnyxStatus: res.status,
+        bodyKeys: body?.data ? Object.keys(body.data) : [],
+      },
+    };
+  } catch (e) {
+    return {
+      url: null,
+      diagnostic: { err: e instanceof Error ? e.message : String(e) },
+    };
   }
 }
 
@@ -182,34 +208,83 @@ export async function voicemailsRoutes(app: FastifyInstance) {
         return fetch(url, { method: 'GET', headers });
       };
 
-      try {
-        // First attempt: the URL captured at receive-time.
-        let upstream = await tryFetch(vm.recordingUrl);
+      // v0.10.161 - log every decision point so failures can be
+      // diagnosed from Render logs alone. The previous code only
+      // logged the generic "fetch failed" line at the end and we
+      // couldn't tell which step in the chain broke (regex, Telnyx
+      // API call, retry, etc.). All log lines include voicemailId.
+      const urlHost = (() => {
+        try { return new URL(vm.recordingUrl).hostname; }
+        catch { return 'invalid-url'; }
+      })();
+      request.log.info(
+        { voicemailId: vm.id, hasTelnyxKey: !!telnyxKey, urlHost },
+        '[voicemail] audio proxy: start',
+      );
 
-        // v0.10.157 - recover from expired signed URLs. 401/403 on a
-        // Telnyx URL almost always means the URL signature lapsed
-        // (not an auth-key issue, since the same key works for fresh
-        // recordings). Try refreshing once.
+      try {
+        let upstream = await tryFetch(vm.recordingUrl);
+        request.log.info(
+          { voicemailId: vm.id, firstAttemptStatus: upstream.status },
+          '[voicemail] audio proxy: first fetch attempt',
+        );
+
         if (
           (upstream.status === 401 || upstream.status === 403) &&
           telnyxKey
         ) {
           const recordingId = extractRecordingIdFromUrl(vm.recordingUrl);
-          if (recordingId) {
-            const freshUrl = await getFreshTelnyxDownloadUrl(recordingId, telnyxKey);
+          if (!recordingId) {
+            request.log.warn(
+              {
+                voicemailId: vm.id,
+                urlSample: vm.recordingUrl.split('?')[0].slice(0, 200),
+              },
+              '[voicemail] regex did NOT extract a recordingId from URL',
+            );
+          } else {
+            const { url: freshUrl, diagnostic } =
+              await getFreshTelnyxDownloadUrl(recordingId, telnyxKey);
+            request.log.info(
+              {
+                voicemailId: vm.id,
+                recordingId,
+                gotFreshUrl: !!freshUrl,
+                ...diagnostic,
+              },
+              '[voicemail] Telnyx Recordings API lookup result',
+            );
             if (freshUrl) {
               request.log.info(
                 { voicemailId: vm.id, recordingId },
                 '[voicemail] stored URL expired, retrying with fresh signed URL',
               );
               upstream = await tryFetch(freshUrl);
+              request.log.info(
+                { voicemailId: vm.id, retryStatus: upstream.status },
+                '[voicemail] retry with fresh URL result',
+              );
             }
           }
+        } else if (
+          (upstream.status === 401 || upstream.status === 403) &&
+          !telnyxKey
+        ) {
+          request.log.warn(
+            { voicemailId: vm.id, firstAttemptStatus: upstream.status },
+            '[voicemail] TELNYX_API_KEY not set - cannot refresh expired URLs',
+          );
         }
 
         if (!upstream.ok) {
+          // Capture upstream body sample so a 403 XML from S3 (or
+          // anything else) is visible in the log line.
+          const bodySample = await upstream
+            .text()
+            .catch(() => '')
+            .then((t) => t.slice(0, 300));
           request.log.warn(
-            { voicemailId: vm.id, status: upstream.status },
+            { voicemailId: vm.id, status: upstream.status, bodySample },
             '[voicemail] upstream audio fetch failed (after refresh attempt)',
           );
           return reply.code(502).send({
