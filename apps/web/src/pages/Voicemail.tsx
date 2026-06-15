@@ -487,6 +487,13 @@ function VoicemailRow({
   // Voicemail's webhook payload doesn't always include duration; the audio
   // element itself knows the right answer once metadata loads.
   const [actualDuration, setActualDuration] = useState<number | null>(null);
+  // v0.10.158 - blob URL backing the <audio> element. Built from a JWT-
+  // authenticated fetch of our /voicemails/:id/audio proxy endpoint
+  // (which now refreshes expired Telnyx signed URLs server-side via
+  // v0.10.157+v0.10.158 refresh logic). Replaces the old approach of
+  // pointing <audio src> at raw vm.recordingUrl, which only works while
+  // the Telnyx signed URL is still in its 10-minute lifetime.
+  const [audioBlobUrl, setAudioBlobUrl] = useState<string | null>(null);
 
   // Apply playback rate whenever it changes (and after the audio element mounts).
   useEffect(() => {
@@ -508,28 +515,59 @@ function VoicemailRow({
     // both opens the player AND starts playing.
     el.play().catch(() => { /* autoplay may be blocked; user can press play */ });
     return () => el.removeEventListener('loadedmetadata', onLoaded);
-  }, [expanded]);
+  }, [expanded, audioBlobUrl]);
 
-  // Lightweight pre-fetch of duration for the *collapsed* row too. We hide
-  // the audio element off-screen, ask for metadata only, and update state
-  // when the duration arrives. No data downloaded beyond the headers.
+  // v0.10.158 - fetch the audio bytes through our API proxy when the
+  // row expands, then expose them as a blob URL to the <audio> element.
+  // Why: <audio src=...> can't carry an Authorization header, so we
+  // can't point it at /voicemails/:id/audio directly. Blob URL is the
+  // standard workaround (same pattern as VoicemailPlay.tsx).
+  // Cleanup: revoke the URL on collapse/unmount so we don't leak memory.
   useEffect(() => {
-    if (!vm.recordingUrl || actualDuration !== null) return;
-    const probe = document.createElement('audio');
-    probe.preload = 'metadata';
-    probe.src = vm.recordingUrl;
-    const onLoaded = () => {
-      if (isFinite(probe.duration) && probe.duration > 0) {
-        setActualDuration(probe.duration);
+    if (!expanded) {
+      // Row collapsed - free the blob URL we may have created.
+      setAudioBlobUrl((prev) => {
+        if (prev) URL.revokeObjectURL(prev);
+        return null;
+      });
+      return;
+    }
+    const token = sessionStorage.getItem('ace_token');
+    if (!token) return;
+    let cancelled = false;
+    let createdUrl: string | null = null;
+    (async () => {
+      try {
+        const { getVoicemailAudioBlob } = await import('../api');
+        const url = await getVoicemailAudioBlob(token, vm.id);
+        if (cancelled) {
+          URL.revokeObjectURL(url);
+          return;
+        }
+        createdUrl = url;
+        setAudioBlobUrl(url);
+      } catch (e) {
+        console.warn('[vm-row] audio proxy fetch failed', e);
+        // Leave audioBlobUrl null - the <audio> shows 0:00 / 0:00 and
+        // user gets visual feedback that something didn't work. Server
+        // logs (apps/api logs) will have the upstream details.
       }
-    };
-    probe.addEventListener('loadedmetadata', onLoaded);
-    // Cleanup so we don't leak audio elements.
+    })();
     return () => {
-      probe.removeEventListener('loadedmetadata', onLoaded);
-      probe.src = '';
+      cancelled = true;
+      if (createdUrl) URL.revokeObjectURL(createdUrl);
     };
-  }, [vm.recordingUrl, actualDuration]);
+  }, [expanded, vm.id]);
+
+  // v0.10.158 - REMOVED the collapsed-row duration probe. It pointed
+  // <audio src> at the raw vm.recordingUrl which now 403s for older
+  // voicemails (Telnyx S3 signed URLs expire after 10 minutes). We
+  // could re-implement as a proxy-based probe but it'd fetch the entire
+  // audio file just to read metadata - expensive at list-view scale.
+  // Instead we trust vm.durationSeconds (server-stored) for the
+  // collapsed-row label; the real duration is discovered when the user
+  // expands the row and the proxied <audio> loads metadata (see the
+  // useEffect at "When the row expands..." above).
 
   // Prefer the discovered duration over the (possibly bad) stored one.
   const displaySeconds = actualDuration ?? vm.durationSeconds;
@@ -612,7 +650,12 @@ function VoicemailRow({
           <audio
             ref={audioRef}
             controls
-            src={vm.recordingUrl}
+            /* v0.10.158 - audioBlobUrl is built from our authenticated
+               /voicemails/:id/audio proxy, which transparently refreshes
+               expired Telnyx signed URLs server-side. While the blob is
+               still being fetched the src is empty (audio element shows
+               0:00 / 0:00) - acceptable; usually finishes in <500ms. */
+            src={audioBlobUrl ?? undefined}
             preload="metadata"
             style={{ width: '100%' }}
             onPlay={async () => {

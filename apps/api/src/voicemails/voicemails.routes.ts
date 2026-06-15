@@ -8,14 +8,51 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { prisma } from '@ace/db';
 
-// v0.10.157 - Parse a Telnyx recording UUID out of a stored download URL.
-// Telnyx URLs typically embed the recording_id as a UUID in the path,
-// e.g. https://api.telnyx.com/v2/recordings/<uuid>/download/<token>.mp3
-// or https://media.telnyx.com/v2/recording/<uuid>.mp3. Returns null if
-// no UUID-shaped segment is present (older test setups using S3, etc.).
+// v0.10.157/.158 - Parse a Telnyx recording UUID out of a stored
+// download URL. The previous v0.10.157 regex only matched the
+// /recordings/<uuid>/ path style which DIDN'T cover the actual S3
+// pattern Telnyx uses for hosted-voicemail recordings:
+//   https://s3.amazonaws.com/telephony-recorder-prod/<account_uuid>/
+//     <YYYY-MM-DD>/<recording_uuid>-<timestamp>.mp3
+// v0.10.158 tries multiple patterns in order, falling back to "any
+// UUID in the path, prefer the last one" so future Telnyx URL shape
+// changes don't silently break the refresh path again.
 function extractRecordingIdFromUrl(url: string): string | null {
-  const m = url.match(/\/recordings?\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i);
-  return m ? m[1] : null;
+  // Strip query string so signature params don't interfere with matching.
+  const path = url.split('?')[0];
+
+  // Pattern A: Telnyx S3 telephony-recorder-prod filename:
+  //   /.../<recording_uuid>-<timestamp>.{mp3,wav}
+  const s3Filename = path.match(
+    /\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-\d+\.(?:mp3|wav)$/i,
+  );
+  if (s3Filename) return s3Filename[1];
+
+  // Pattern B: api.telnyx.com/v2/recordings/<uuid>/...
+  const apiPath = path.match(
+    /\/recordings?\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i,
+  );
+  if (apiPath) return apiPath[1];
+
+  // Pattern C: simple /<uuid>.{mp3,wav}
+  const simpleFilename = path.match(
+    /\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.(?:mp3|wav)$/i,
+  );
+  if (simpleFilename) return simpleFilename[1];
+
+  // Pattern D (last resort): any UUID anywhere in the path. Multiple
+  // UUIDs are common (account_id + recording_id); prefer the LAST one
+  // since the account/connection id usually comes first in the path.
+  const allUuids = [
+    ...path.matchAll(
+      /([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/gi,
+    ),
+  ];
+  if (allUuids.length > 0) {
+    return allUuids[allUuids.length - 1][1];
+  }
+
+  return null;
 }
 
 // v0.10.157 - Query Telnyx Recordings API for a fresh signed download URL.

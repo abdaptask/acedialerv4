@@ -24,6 +24,16 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.158',
+    date: 'June 15, 2026',
+    highlight: 'Older voicemails play again, and the Users admin page shows all action icons.',
+    changes: [
+      { type: 'fixed', text: 'Voicemails older than 10 minutes now play correctly. The audio player goes through the dialer API which automatically refreshes the stored audio link with a fresh one, so the 403 expired-URL error is fixed for both the in-list player and the dedicated playback page.' },
+      { type: 'fixed', text: 'Admin > Users: the Call, Text, and More-actions icons on each user row were getting clipped at narrower window widths because the action column was set to a fixed 44px width that pre-dated those features. The column now sizes to its content, so all three icons are reachable at any window size.' },
+      { type: 'improved', text: 'Admin > Audit Log and Admin > Users tables now have more horizontal room at narrower window widths so the columns don\'t get squashed. The Settings sub-panes for these tables widen automatically; other Settings sub-pages keep their original reading width.' },
+    ],
+  },
+  {
     version: '0.10.157',
     date: 'June 15, 2026',
     highlight: 'Fixed: older voicemails now play correctly.',
