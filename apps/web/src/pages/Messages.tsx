@@ -286,9 +286,20 @@ export default function Messages() {
           {error && <div className="error" style={{ margin: '0 1rem 1rem' }}>{error}</div>}
 
           {!loading && threads.length === 0 && !error && (
+            // v0.10.167 UX-021 - empty state with icon + heading + CTA.
+            // MessageSquarePlus is already imported at the top of this
+            // file - reuse it instead of adding another lucide icon.
             <div className="empty-state">
-              <p>No conversations yet.</p>
-              <p className="muted">Tap the compose icon to start one.</p>
+              <MessageSquarePlus size={40} className="empty-state-icon" />
+              <h2>No conversations yet</h2>
+              <p>Your text-message threads will appear here.</p>
+              <button
+                type="button"
+                className="device-action primary"
+                onClick={() => setShowCompose(true)}
+              >
+                Compose new message
+              </button>
             </div>
           )}
 

@@ -397,14 +397,40 @@ export default function Dialpad() {
               className="number-display-input"
               value={formatNumber(number)}
               placeholder="Enter phone number"
+              /* v0.10.167 UX-020 - explicit aria-label so screen readers
+                 announce "Phone number to dial" instead of just the
+                 (typed digits) with no context. */
+              aria-label="Phone number to dial"
               spellCheck={false}
               autoComplete="off"
               onChange={(e) => {
+                // v0.10.167 UX-041 - preserve caret position across the
+                // re-format that happens when smartNormalize prepends '+'
+                // or formatNumber inserts spaces/parens. Previously
+                // typing a digit in the middle of an existing number
+                // jumped the cursor to the end. We measure the number
+                // of DIGIT characters before the caret, run the format,
+                // then put the caret back at the same digit-index.
+                const inputEl = e.target;
+                const caretBefore = inputEl.selectionStart ?? inputEl.value.length;
+                const digitsBeforeCaret = inputEl.value
+                  .slice(0, caretBefore)
+                  .replace(/[^\d*#+]/g, '').length;
                 // Store raw chars; let formatter re-format on next render.
                 // smartNormalize prepends '+' when a complete international
                 // number is recognized (e.g., 12 digits starting with 91 → India).
-                const raw = e.target.value.replace(/[^\d*#+]/g, '');
+                const raw = inputEl.value.replace(/[^\d*#+]/g, '');
                 setNumber(smartNormalize(raw) || '');
+                requestAnimationFrame(() => {
+                  const formatted = formatNumber(smartNormalize(raw) || '');
+                  let pos = 0;
+                  let seen = 0;
+                  while (pos < formatted.length && seen < digitsBeforeCaret) {
+                    if (/[\d*#+]/.test(formatted[pos])) seen++;
+                    pos++;
+                  }
+                  try { inputEl.setSelectionRange(pos, pos); } catch { /* noop */ }
+                });
               }}
               onPaste={(e) => {
                 // Intercept paste to do smart country-code detection so things

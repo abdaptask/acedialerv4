@@ -3155,7 +3155,13 @@ body {
   opacity: 0.85;
   background: transparent;
   border: none;
-  padding: 4px;
+  /* v0.10.167 UX-025 - bumped padding 4px -> 8px and added horizontal
+     margin so Recents row icons aren't packed tight. Reduces mis-taps
+     where users hit Block when reaching for the Star icon. The icons
+     inside (Star/Block/Phone at size={16}) still render at the same
+     visual pixel size; only the click hitbox + visual gap changed. */
+  padding: 8px;
+  margin: 0 2px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -4137,6 +4143,12 @@ body {
 
 /* Full-screen ring (shown on /keypad or login) */
 .incoming-fullscreen {
+  /* v0.10.167 UX-023 - allow internal scroll on very short windows
+     (~480px height with title bar + taskbar) so the Accept button
+     never falls below the viewport. padding around the inner block
+     gives the scroll a comfortable margin. */
+  overflow-y: auto;
+  padding: 20px 0;
   position: fixed;
   inset: 0;
   background: linear-gradient(180deg, #0a3a2e 0%, #0a1f1a 100%);
@@ -6298,6 +6310,19 @@ button.call-pill-info:hover { background: rgba(255, 255, 255, 0.05); }
   width: 100%;
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
+}
+
+/* v0.10.167 UX-021 - empty-state pages get a centered muted icon
+   above the heading. Used by Recents and Messages (and consistent
+   with Voicemail/Favorites which already had similar icons inline). */
+.empty-state-icon {
+  color: rgba(255, 255, 255, 0.35);
+  margin: 0 auto 1rem;
+  opacity: 0.7;
+  display: block;
+}
+[data-theme="light"] .empty-state-icon {
+  color: rgba(0, 0, 0, 0.35);
 }
 
 /* v0.10.166 - Users admin row: status dot + name + role pill inline

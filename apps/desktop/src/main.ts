@@ -401,10 +401,24 @@ function createRingerWindow(callerNumber?: string, hasActiveCall: boolean = fals
     return;
   }
 
-  const display = screen.getPrimaryDisplay();
+  // v0.10.167 UX-046 - open the floater on the SAME monitor as the
+  // main dialer window, not always the primary monitor. Multi-monitor
+  // users were getting the ringer popped up on the wrong screen.
+  const mainBounds = mainWindow?.getBounds();
+  const display = mainBounds
+    ? screen.getDisplayNearestPoint({
+        x: mainBounds.x + Math.floor(mainBounds.width / 2),
+        y: mainBounds.y + Math.floor(mainBounds.height / 2),
+      })
+    : screen.getPrimaryDisplay();
   const wa = display.workArea;
-  const w = 440;
-  const h = 240;
+  // v0.10.167 UX-045 - scale floater size with the display's DPI so
+  // it doesn't look tiny on 4K monitors at 200% scaling. 440x240 is
+  // the baseline for 100% scaling; on >1.5x displays bump to 560x300
+  // so effective CSS pixels stay roughly constant.
+  const scale = display.scaleFactor || 1;
+  const w = scale > 1.5 ? 560 : 440;
+  const h = scale > 1.5 ? 300 : 240;
   const x = wa.x + wa.width - w - 24;
   const y = wa.y + wa.height - h - 24;
 

@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { PhoneIncoming, PhoneOutgoing, PhoneMissed, Phone, RefreshCcw, Play, Search, X, MessageSquare, ArrowLeft, Star, Ban } from 'lucide-react';
+import { PhoneIncoming, PhoneOutgoing, PhoneMissed, Phone, RefreshCcw, Play, Search, X, MessageSquare, ArrowLeft, Star, Ban, Clock } from 'lucide-react';
 import { getCalls, addBlockedNumber, type CallRecord } from '../api';
 import { useSip } from '../contexts/SipContext';
 import { useJobDivaContact, getCachedJobDivaName } from '../hooks/useJobDivaContact';
@@ -470,9 +470,21 @@ export default function Recents() {
       {error && <div className="error" style={{ margin: '0 1rem 1rem' }}>{error}</div>}
 
       {!loading && calls.length === 0 && !error && (
+        // v0.10.167 UX-021 - empty state with icon + heading + CTA.
+        // Previously two text lines with no clear next action. Now
+        // a Clock icon, an h2-style heading, body copy, and an "Open
+        // keypad" button so a new user has something concrete to do.
         <div className="empty-state">
-          <p>No calls yet.</p>
-          <p className="muted">Calls you make will show up here.</p>
+          <Clock size={40} className="empty-state-icon" />
+          <h2>No recent calls</h2>
+          <p>Your call history will appear here.</p>
+          <button
+            type="button"
+            className="device-action primary"
+            onClick={() => navigate('/keypad')}
+          >
+            Open keypad
+          </button>
         </div>
       )}
 

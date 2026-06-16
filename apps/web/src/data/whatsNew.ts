@@ -24,6 +24,19 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.167',
+    date: 'June 16, 2026',
+    highlight: 'UX polish across the dialer.',
+    changes: [
+      { type: 'improved', text: 'Empty Recents and Messages views now show a clearer icon + heading + button to get started, instead of just two short sentences.' },
+      { type: 'improved', text: 'Typing a digit in the middle of an existing phone number no longer jumps the cursor to the end.' },
+      { type: 'improved', text: 'Block button on each Recents row got a little more breathing room so its not easy to confuse with the Favorite (star) icon.' },
+      { type: 'improved', text: 'Incoming-call full-screen view scrolls internally on very short windows, so the Accept button is always reachable.' },
+      { type: 'improved', text: 'Floating ringer window now opens on the same monitor as the main dialer (not always the primary monitor), and scales larger on 4K screens.' },
+      { type: 'improved', text: 'Accessibility: phone-number input now announces itself properly to screen readers.' },
+    ],
+  },
+  {
     version: '0.10.166',
     date: 'June 16, 2026',
     highlight: 'Users admin table redesigned to fit without horizontal scroll.',
