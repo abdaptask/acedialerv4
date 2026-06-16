@@ -6392,30 +6392,60 @@ button.call-pill-info:hover { background: rgba(255, 255, 255, 0.05); }
 
 .users-admin-table {
   width: 100%;
-  /* v0.10.166 - removed min-width:920px. With v0.10.166 collapsing 3
-     columns into the User cell (status dot + role pill + email-under-SSO),
-     the table only has 5 columns and fits in any reasonable pane width
-     without needing horizontal scroll. */
-  /* v0.10.171 - table-layout: fixed so column widths honor the <th>
-     style attributes instead of growing to fit content. Without this,
-     the User cell expands to its natural width and the action column
-     gets pushed off the right edge on narrow viewports (e.g., when
-     DevTools is docked). User explicitly does not want horizontal
-     scroll on this table. */
-  table-layout: fixed;
+  /* v0.10.172 - reverted v0.10.171's table-layout:fixed which was
+     clipping name + role pill + SSO badge + email in the User cell
+     even at full window widths. The DID column is now folded into
+     the User cell (phone number on its own line below the name),
+     so the table only has 4 columns (User / Version / Last sign-in
+     / Actions) — narrow enough to fit any reasonable viewport
+     without horizontal scroll. */
   border-collapse: collapse;
   font-size: 13px;
 }
-/* v0.10.171 - the User cell stacks status-dot + name + role pill +
-   SSO badge + email vertically. text-overflow ellipsis on overflow
-   so the long emails like firstname.lastname@aptask.com don't blow
-   out the column when User gets squeezed. */
-.users-admin-table td:first-child {
-  overflow: hidden;
+
+/* v0.10.172 - small [M] SSO badge that sits inline right after the
+   status dot in the User cell. Replaces the full "Microsoft SSO"
+   text line that used to sit below the name. Microsoft brand blue
+   square with a white "M" — readable at 14px, doesn't compete with
+   the name. Skipped entirely for local-password accounts (we just
+   omit the badge for r.provider === 'local'). */
+.users-admin-sso-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 3px;
+  background: #2563eb;
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  flex-shrink: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  user-select: none;
 }
-.users-admin-table td:first-child .users-admin-name-line,
-.users-admin-table td:first-child > * {
-  min-width: 0;
+
+/* v0.10.172 - phone number row inside the User cell, just below the
+   name line. Replaces the separate DID column. Uses the same muted
+   font treatment as the email line for consistency. Multi-DID users
+   get a "+N" badge inline. */
+.users-admin-phone {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  margin-top: 2px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.users-admin-phone-multi {
+  font-size: 0.65rem;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgba(245, 158, 11, 0.15);
+  color: #92400e;
+  font-weight: 600;
 }
 .users-admin-table th {
   text-align: left;

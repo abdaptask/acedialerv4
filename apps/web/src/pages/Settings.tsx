@@ -3135,35 +3135,26 @@ function UsersAdminSection() {
               // colored dot, role as an inline pill, email under the SSO
               // badge). SortKey type is unchanged so sortRows() can still
               // handle those keys if exposed via a future UI surface.
-              // v0.10.171 - explicit column widths so table-layout:fixed
-              // (added in v0.10.171 styles.css) distributes the table by
-              // these numbers rather than by content size. Numbers chosen
-              // so the table total stays under ~720px and fits even when
-              // DevTools is docked or the window is narrow. User cell
-              // gets the remainder.
-              const ths: Array<{ key: SortKey; label: string; width?: number }> = [
-                { key: 'name', label: 'User' }, // no width → takes the remainder
-                { key: 'did', label: 'DID', width: 130 },
-                { key: 'version', label: 'Version', width: 100 },
-                { key: 'lastLogin', label: 'Last sign-in', width: 130 },
+              // v0.10.172 - DID column removed; phone number now lives
+              // inside the User cell. table-layout:fixed reverted to
+              // default auto (User cell takes its natural width again).
+              const ths: Array<{ key: SortKey; label: string }> = [
+                { key: 'name', label: 'User' },
+                { key: 'version', label: 'Version' },
+                { key: 'lastLogin', label: 'Last sign-in' },
               ];
               return ths.map((c) => {
                 const active = sortKey === c.key;
                 const arrow = active ? (sortDir === 'asc' ? ' ↑' : ' ↓') : '';
-                const style: React.CSSProperties = {
-                  cursor: 'pointer',
-                  userSelect: 'none',
-                  whiteSpace: 'nowrap',
-                };
-                if (c.width) {
-                  style.width = c.width;
-                  style.minWidth = c.width;
-                }
                 return (
                   <th
                     key={c.key}
                     onClick={() => toggleSort(c.key)}
-                    style={style}
+                    style={{
+                      cursor: 'pointer',
+                      userSelect: 'none',
+                      whiteSpace: 'nowrap',
+                    }}
                     title={`Sort by ${c.label}`}
                     aria-sort={active ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}
                   >
@@ -3172,10 +3163,8 @@ function UsersAdminSection() {
                 );
               });
             })()}
-            {/* v0.10.171 - actions column width dropped to 130 to keep
-                the whole table under ~720px so it fits even when
-                DevTools is docked or the window is narrow. No horizontal
-                scroll — that's been a hard requirement since v0.10.166. */}
+            {/* v0.10.170 - explicit width on Actions <th> so the column
+                stays sized for Call + Message + ⋯ icons. */}
             <th aria-label="Actions" style={{ width: 130, minWidth: 130 }} />
           </tr>
         </thead>
@@ -3228,62 +3217,63 @@ function UsersAdminSection() {
                           title={statusDotTitle}
                           aria-label={statusDotTitle}
                         />
+                        {/* v0.10.172 - small [M] badge for Microsoft SSO
+                            accounts, inline right after the status dot.
+                            Replaces the full "Microsoft SSO" text line
+                            that used to sit below the name. Local-password
+                            accounts (admin break-glass) omit the badge. */}
+                        {r.provider !== 'local' && (
+                          <span
+                            className="users-admin-sso-badge"
+                            title="Signed in with Microsoft"
+                            aria-label="Microsoft SSO"
+                          >
+                            M
+                          </span>
+                        )}
                         <span>{rowName(r)}</span>
                         <span className={`role-pill ${r.isAdmin ? 'admin' : 'user'}`}>
                           {r.isAdmin ? 'Admin' : 'User'}
                         </span>
                       </div>
-                      <div className="muted small">{r.provider === 'local' ? 'Local password' : 'Microsoft SSO'}</div>
+                      {/* v0.10.172 - phone number inline, just below the
+                          name. Replaces the separate DID column. Default
+                          DID is shown; users with multiple lines get a
+                          "+N" badge next to it. */}
+                      {(() => {
+                        if (r.userDids.length === 0) {
+                          return r.didNumber ? (
+                            <div className="users-admin-phone">{r.didNumber}</div>
+                          ) : null;
+                        }
+                        const defaultDid =
+                          r.userDids.find((d) => d.isDefault) || r.userDids[0];
+                        const extras = r.userDids.length - 1;
+                        return (
+                          <div
+                            className="users-admin-phone"
+                            title={
+                              extras > 0
+                                ? `Default line; ${extras} additional ${extras === 1 ? 'line' : 'lines'} (Manage lines for details)`
+                                : 'Default line'
+                            }
+                          >
+                            <span>{defaultDid.didNumber}</span>
+                            {extras > 0 && (
+                              <span className="users-admin-phone-multi">+{extras}</span>
+                            )}
+                          </div>
+                        );
+                      })()}
                       <div className="muted small">{r.email}</div>
                     </div>
                   </div>
                 </td>
-                <td className="muted small">
-                  {/* v0.10.40 — Show the user's default-assigned line
-                      (from UserDid rows) instead of the legacy
-                      User.didNumber, which doesn't track adds/changes.
-                      If they have more than one line, show "+N" badge. */}
-                  {/* v0.10.108 — Show ALL DIDs assigned to the user, not
-                      just the default + "+N" badge. Default DID gets a
-                      blue "default" pill; the rest stack underneath. */}
-                  {(() => {
-                    if (r.userDids.length === 0) {
-                      return r.didNumber || '—';
-                    }
-                    const sorted = [...r.userDids].sort((a, b) => {
-                      if (a.isDefault && !b.isDefault) return -1;
-                      if (!a.isDefault && b.isDefault) return 1;
-                      return a.didNumber.localeCompare(b.didNumber);
-                    });
-                    return (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                        {sorted.map((d) => (
-                          <span
-                            key={d.didNumber}
-                            style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}
-                            title={d.isDefault ? 'Default line' : 'Additional line'}
-                          >
-                            {d.didNumber}
-                            {d.isDefault && sorted.length > 1 && (
-                              <span
-                                style={{
-                                  fontSize: '0.65rem',
-                                  padding: '1px 5px',
-                                  borderRadius: 4,
-                                  background: 'rgba(59,130,246,0.12)',
-                                  color: '#1d4ed8',
-                                  fontWeight: 600,
-                                }}
-                              >
-                                default
-                              </span>
-                            )}
-                          </span>
-                        ))}
-                      </div>
-                    );
-                  })()}
-                </td>
+                {/* v0.10.172 - the separate DID column was removed; the
+                    phone number is now rendered inside the User cell
+                    just below the name. Multi-DID users get a "+N"
+                    badge inline. Full per-line management remains in
+                    the ⋯ menu → Manage lines modal. */}
                 {/* v0.10.111 - Version column: latest seen dialer version
                     across this user's devices. Mixed versions get a yellow
                     badge so admin can spot users running older clients. */}

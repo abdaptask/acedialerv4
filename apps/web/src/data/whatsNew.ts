@@ -24,6 +24,15 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.172',
+    date: 'June 16, 2026',
+    highlight: 'Admin Users table: compact rows with phone number inline.',
+    changes: [
+      { type: 'improved', text: 'Each user row in Settings → Users now shows the phone number directly below the name. The standalone DID column is gone, and the "Microsoft SSO" text line is replaced with a small blue [M] badge inline next to the status dot. Less vertical space, more horizontal room, no horizontal scroll at any reasonable window width.' },
+      { type: 'fixed', text: 'Reverted the v0.10.171 layout change that was clipping names and emails on the right side of the User cell.' },
+    ],
+  },
+  {
     version: '0.10.171',
     date: 'June 16, 2026',
     highlight: 'Admin Users table fits without horizontal scroll.',
