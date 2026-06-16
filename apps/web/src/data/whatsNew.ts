@@ -24,6 +24,14 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.170',
+    date: 'June 16, 2026',
+    highlight: 'Admin: Users table row actions visible again.',
+    changes: [
+      { type: 'fixed', text: 'On the admin Users table, the Call, Message, and ⋯ (more actions) icons on each row were getting clipped off the right edge after the compact-row redesign. They are visible again on every row.' },
+    ],
+  },
+  {
     version: '0.10.169',
     date: 'June 16, 2026',
     highlight: 'Accessibility + visual polish pass.',

@@ -6462,8 +6462,20 @@ button.call-pill-info:hover { background: rgba(255, 255, 255, 0.05); }
 
 .users-admin-actions {
   position: relative;
-  width: 44px;
+  /* v0.10.170 - was width:44px which fit only the ⋯ kebab and clipped
+     the Call + Message quick-action buttons added in v0.10.94. The
+     three icon-btn elements need ~110px of real width; sizing the
+     cell to 150px gives breathing room + keeps the icons flush right. */
+  width: 150px;
+  min-width: 150px;
   text-align: right;
+  white-space: nowrap;
+}
+.users-admin-actions .icon-btn {
+  /* Ensure the inline icon-btn group stays on a single line and the
+     buttons line up nicely with consistent gaps. */
+  display: inline-flex;
+  vertical-align: middle;
 }
 .users-admin-menu {
   position: absolute;

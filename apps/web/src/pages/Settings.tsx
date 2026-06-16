@@ -3161,7 +3161,12 @@ function UsersAdminSection() {
                 );
               });
             })()}
-            <th aria-label="actions" />
+            {/* v0.10.170 - belt-and-suspenders with the CSS width on
+                .users-admin-actions. Without an explicit width here,
+                table-layout:auto sometimes collapsed this column when
+                the LAST SIGN-IN cell wrapped onto two lines, hiding the
+                Call/Message/⋯ icons off the visible edge. */}
+            <th aria-label="Actions" style={{ width: 150, minWidth: 150 }} />
           </tr>
         </thead>
         <tbody>
