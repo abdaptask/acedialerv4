@@ -3130,11 +3130,13 @@ function UsersAdminSection() {
                 cell — no inner <button> so the existing thead CSS still
                 applies. */}
             {(() => {
+              // v0.10.166 - Email/Role/Status removed from the header bar.
+              // Their data is now shown inside the User cell (status as a
+              // colored dot, role as an inline pill, email under the SSO
+              // badge). SortKey type is unchanged so sortRows() can still
+              // handle those keys if exposed via a future UI surface.
               const ths: Array<{ key: SortKey; label: string }> = [
                 { key: 'name', label: 'User' },
-                { key: 'email', label: 'Email' },
-                { key: 'role', label: 'Role' },
-                { key: 'status', label: 'Status' },
                 { key: 'did', label: 'DID' },
                 { key: 'version', label: 'Version' },
                 { key: 'lastLogin', label: 'Last sign-in' },
@@ -3169,29 +3171,57 @@ function UsersAdminSection() {
               r.isAdmin && r.isActive && activeAdminCount === 1;
             const lastDeactivateWouldStrand =
               r.isAdmin && r.isActive && activeAdminCount === 1;
+            // v0.10.166 - compute status-dot color from isActive + lastLoginAt:
+            //   red    = inactive
+            //   orange = active but stale (last sign-in >30 days ago OR never)
+            //   green  = active + recent (within 30 days)
+            const STALE_THRESHOLD_MS = 30 * 24 * 60 * 60 * 1000;
+            let statusDotClass: 'active' | 'stale' | 'inactive';
+            let statusDotTitle: string;
+            if (!r.isActive) {
+              statusDotClass = 'inactive';
+              statusDotTitle = 'Inactive';
+            } else if (!r.lastLoginAt) {
+              statusDotClass = 'stale';
+              statusDotTitle = 'Active, never signed in';
+            } else {
+              const ageMs = Date.now() - new Date(r.lastLoginAt).getTime();
+              if (ageMs > STALE_THRESHOLD_MS) {
+                statusDotClass = 'stale';
+                const days = Math.floor(ageMs / (24 * 60 * 60 * 1000));
+                statusDotTitle = `Active, last signed in ${days} days ago`;
+              } else {
+                statusDotClass = 'active';
+                statusDotTitle = 'Active';
+              }
+            }
             return (
               <tr key={r.id} className={r.isActive ? '' : 'inactive'}>
+                {/* v0.10.166 - User cell is now self-contained: avatar + name
+                    with status dot and role pill on the first line, SSO badge
+                    + email stacked underneath. Replaces 4 separate cells
+                    (User/Email/Role/Status) and saves ~400px of table width. */}
                 <td>
                   <div className="users-admin-name">
                     <span className="users-admin-avatar" aria-hidden="true">
                       {(r.firstName?.[0] ?? r.email[0] ?? '?').toUpperCase()}
                     </span>
                     <div>
-                      <div>{rowName(r)}</div>
+                      <div className="users-admin-name-line">
+                        <span
+                          className={`users-admin-status-dot ${statusDotClass}`}
+                          title={statusDotTitle}
+                          aria-label={statusDotTitle}
+                        />
+                        <span>{rowName(r)}</span>
+                        <span className={`role-pill ${r.isAdmin ? 'admin' : 'user'}`}>
+                          {r.isAdmin ? 'Admin' : 'User'}
+                        </span>
+                      </div>
                       <div className="muted small">{r.provider === 'local' ? 'Local password' : 'Microsoft SSO'}</div>
+                      <div className="muted small">{r.email}</div>
                     </div>
                   </div>
-                </td>
-                <td className="users-admin-email">{r.email}</td>
-                <td>
-                  <span className={`role-pill ${r.isAdmin ? 'admin' : 'user'}`}>
-                    {r.isAdmin ? 'Admin' : 'User'}
-                  </span>
-                </td>
-                <td>
-                  <span className={`status-pill ${r.isActive ? 'active' : 'inactive'}`}>
-                    {r.isActive ? 'Active' : 'Inactive'}
-                  </span>
                 </td>
                 <td className="muted small">
                   {/* v0.10.40 — Show the user's default-assigned line
@@ -3561,7 +3591,7 @@ function UsersAdminSection() {
             );
           })}
           {filtered.length === 0 && (
-            <tr><td colSpan={7} className="muted small" style={{ padding: '1rem', textAlign: 'center' }}>No users match.</td></tr>
+            <tr><td colSpan={5} className="muted small" style={{ padding: '1rem', textAlign: 'center' }}>No users match.</td></tr>
           )}
         </tbody>
       </table>

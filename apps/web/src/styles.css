@@ -6291,24 +6291,51 @@ button.call-pill-info:hover { background: rgba(255, 255, 255, 0.05); }
 }
 
 /* v0.10.160 - horizontal-scroll wrapper for the Users admin table.
-   Lets the user scroll right to reach the Version, Last Login, and
-   Actions columns that overflow the settings pane. */
+   v0.10.166 - overflow-x is essentially a no-op now since v0.10.166
+   compacted the table to 5 columns. Keeping the wrapper as a safety
+   net in case future columns are added back. */
 .users-admin-table-wrap {
   width: 100%;
   overflow-x: auto;
-  /* Smoothing on touch devices + iOS-style scroll. */
   -webkit-overflow-scrolling: touch;
+}
+
+/* v0.10.166 - Users admin row: status dot + name + role pill inline
+   on the first line inside the User cell. Replaces the previous
+   standalone Email/Role/Status columns. */
+.users-admin-name-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.users-admin-status-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  vertical-align: middle;
+}
+.users-admin-status-dot.active {
+  background: #22c55e;
+  box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.2);
+}
+.users-admin-status-dot.stale {
+  background: #f97316;
+  box-shadow: 0 0 0 2px rgba(249, 115, 22, 0.2);
+}
+.users-admin-status-dot.inactive {
+  background: #ef4444;
+  box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.2);
 }
 
 .users-admin-table {
   width: 100%;
-  /* v0.10.162 - min-width forces the table to stay wide enough for
-     all 8 columns even when the .users-admin-table-wrap (v0.10.160)
-     is narrower. The wrapper's overflow-x:auto then kicks in and the
-     user can horizontally scroll to reach Version / Last sign-in /
-     Actions columns. Without min-width, width:100% compressed those
-     columns into invisible widths. */
-  min-width: 920px;
+  /* v0.10.166 - removed min-width:920px. With v0.10.166 collapsing 3
+     columns into the User cell (status dot + role pill + email-under-SSO),
+     the table only has 5 columns and fits in any reasonable pane width
+     without needing horizontal scroll. */
   border-collapse: collapse;
   font-size: 13px;
 }

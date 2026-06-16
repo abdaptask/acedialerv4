@@ -24,6 +24,14 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.166',
+    date: 'June 16, 2026',
+    highlight: 'Users admin table redesigned to fit without horizontal scroll.',
+    changes: [
+      { type: 'improved', text: 'The Users admin table no longer requires horizontal scrolling. Status is now a colored dot next to each users name (green active, orange stale, red inactive). Role is shown as a small pill right beside the name. Email is tucked under the Microsoft SSO badge in the same cell. All the same information is visible at a glance and the table fits comfortably on a 1366x768 laptop.' },
+    ],
+  },
+  {
     version: '0.10.165',
     date: 'June 16, 2026',
     highlight: 'Older voicemails play - take three.',
