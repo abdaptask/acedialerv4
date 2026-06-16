@@ -24,6 +24,14 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.165',
+    date: 'June 16, 2026',
+    highlight: 'Older voicemails play - take three.',
+    changes: [
+      { type: 'fixed', text: 'Continued the fix for older-voicemail playback. The previous attempts looked up recordings by the wrong identifier. This release uses caller number + recipient number + timestamp - the same lookup pattern our voicemail-receipt code already uses successfully.' },
+    ],
+  },
+  {
     version: '0.10.164',
     date: 'June 16, 2026',
     highlight: 'Older voicemails actually play now (proper fix).',

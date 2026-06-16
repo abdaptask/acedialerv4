@@ -53,15 +53,16 @@ function extractRecordingIdFromUrl(url: string): string | null {
   return null;
 }
 
-// v0.10.157/.161/.164 - Query Telnyx Recordings API for a fresh
+// v0.10.157/.161/.164/.165 - Query Telnyx Recordings API for a fresh
 // signed download URL.
 //
-// v0.10.164 - Switched from GET /v2/recordings/{recording_id} (which
-// returned 404 because the URL-filename UUID isn't a usable Telnyx
-// recording_id) to GET /v2/recordings?filter[call_session_id]=...
-// The list endpoint filters by call_session_id, which is what's
-// stored in Voicemail.telnyxCallId (despite the column name) per the
-// v0.10.121 dedup-key fix in texmlVoicemail.ts.
+// v0.10.165 - Switched to from+to+created_at filter pattern (mirroring
+// texmlVoicemail.ts:listTelnyxRecordings which is known-working). The
+// call_session_id filter Telnyx exposes expects a UUID format, but our
+// vm.telnyxCallId stores the v3:... opaque session ID - so 422
+// "is invalid". The from/to/timestamp combination uniquely identifies
+// a voicemail in practice (caller hangs up exactly once per call) and
+// a tight ±window means we always pick the right recording.
 interface TelnyxRefreshResult {
   url: string | null;
   diagnostic: {
@@ -73,13 +74,25 @@ interface TelnyxRefreshResult {
   };
 }
 async function getFreshTelnyxDownloadUrl(
-  callSessionId: string,
+  fromNumber: string,
+  toNumber: string,
+  receivedAt: Date,
   telnyxKey: string,
 ): Promise<TelnyxRefreshResult> {
   try {
+    // Window: 5 seconds before to 30 seconds after receivedAt. The
+    // recording's created_at on Telnyx's side usually lands within a
+    // few seconds of when we wrote the Voicemail row. ±30s gives us
+    // enough slack without overlapping a subsequent voicemail from
+    // the same caller.
+    const gteMs = receivedAt.getTime() - 5_000;
+    const lteMs = receivedAt.getTime() + 30_000;
     const params = new URLSearchParams();
-    params.set('filter[call_session_id]', callSessionId);
-    params.set('page[size]', '1');
+    params.set('filter[from]', fromNumber);
+    params.set('filter[to]', toNumber);
+    params.set('filter[created_at][gte]', new Date(gteMs).toISOString());
+    params.set('filter[created_at][lte]', new Date(lteMs).toISOString());
+    params.set('page[size]', '5');
     const res = await fetch(
       `https://api.telnyx.com/v2/recordings?${params.toString()}`,
       { method: 'GET', headers: { Authorization: `Bearer ${telnyxKey}` } },
@@ -99,20 +112,38 @@ async function getFreshTelnyxDownloadUrl(
         id?: string;
         download_urls?: { mp3?: string; wav?: string };
         recording_url?: string;
+        recording_started_at?: string;
       }>;
     };
-    const first = body?.data?.[0];
+    // Pick the recording whose recording_started_at is closest to
+    // receivedAt. In practice the window should contain only one
+    // match; this is just belt-and-suspenders for callers who left
+    // back-to-back voicemails within the window.
+    const candidates = body?.data ?? [];
+    const target = receivedAt.getTime();
+    let best: typeof candidates[number] | undefined = candidates[0];
+    let bestDelta = Infinity;
+    for (const c of candidates) {
+      if (!c.recording_started_at) continue;
+      const t = Date.parse(c.recording_started_at);
+      if (Number.isNaN(t)) continue;
+      const delta = Math.abs(t - target);
+      if (delta < bestDelta) {
+        bestDelta = delta;
+        best = c;
+      }
+    }
     const url =
-      first?.download_urls?.mp3 ??
-      first?.download_urls?.wav ??
-      first?.recording_url ??
+      best?.download_urls?.mp3 ??
+      best?.download_urls?.wav ??
+      best?.recording_url ??
       null;
     return {
       url,
       diagnostic: {
         telnyxStatus: res.status,
-        matchCount: body?.data?.length ?? 0,
-        bodyKeys: first ? Object.keys(first) : [],
+        matchCount: candidates.length,
+        bodyKeys: best ? Object.keys(best) : [],
       },
     };
   } catch (e) {
@@ -385,10 +416,11 @@ export async function voicemailsRoutes(app: FastifyInstance) {
     }
     const vm = await prisma.voicemail.findFirst({
       where: { id: vmId, userId: user.sub },
-      // v0.10.164 - also select telnyxCallId (which actually stores
-      // call_session_id per the v0.10.121 dedup fix). That's the key
-      // we use to refresh via Telnyx Recordings API.
-      select: { id: true, recordingUrl: true, telnyxCallId: true },
+      // v0.10.165 - select fromNumber/toNumber/receivedAt instead of
+      // telnyxCallId. Those three together uniquely identify a
+      // voicemail in Telnyx's recordings index (caller hangs up
+      // exactly once per call).
+      select: { id: true, recordingUrl: true, fromNumber: true, toNumber: true, receivedAt: true },
     });
     if (!vm) return reply.code(404).send({ error: 'Not found' });
     if (!vm.recordingUrl) {
@@ -404,31 +436,33 @@ export async function voicemailsRoutes(app: FastifyInstance) {
       return { url: vm.recordingUrl };
     }
 
-    // v0.10.164 - call_session_id is the right key. Use vm.telnyxCallId
-    // when present (most rows since v0.10.121). For older rows where
-    // it's null, fall back to URL extraction (won't actually work
-    // against Telnyx's API today since those UUIDs aren't recording_ids,
-    // but we keep the path so the fallback chain remains exhaustive).
-    const callSessionId = vm.telnyxCallId;
-    if (!callSessionId) {
+    // v0.10.165 - all three fields are required to filter Telnyx
+    // recordings reliably. If any is missing, the row is corrupt and
+    // we can't refresh.
+    if (!vm.fromNumber || !vm.toNumber || !vm.receivedAt) {
       request.log.warn(
-        { voicemailId: vm.id },
-        '[voicemail] fresh-url: vm.telnyxCallId is NULL - cannot refresh, returning stored URL as fallback',
+        { voicemailId: vm.id, hasFrom: !!vm.fromNumber, hasTo: !!vm.toNumber, hasReceivedAt: !!vm.receivedAt },
+        '[voicemail] fresh-url: missing fromNumber/toNumber/receivedAt - returning stored URL as fallback',
       );
       return { url: vm.recordingUrl };
     }
 
-    const { url: freshUrl, diagnostic } = await getFreshTelnyxDownloadUrl(callSessionId, telnyxKey);
+    const { url: freshUrl, diagnostic } = await getFreshTelnyxDownloadUrl(
+      vm.fromNumber,
+      vm.toNumber,
+      vm.receivedAt,
+      telnyxKey,
+    );
     if (!freshUrl) {
       request.log.warn(
-        { voicemailId: vm.id, callSessionId, ...diagnostic },
+        { voicemailId: vm.id, fromNumber: vm.fromNumber, toNumber: vm.toNumber, ...diagnostic },
         '[voicemail] fresh-url: Telnyx Recordings API did not return a URL - returning stored URL as fallback',
       );
       return { url: vm.recordingUrl };
     }
 
     request.log.info(
-      { voicemailId: vm.id, callSessionId, ...diagnostic },
+      { voicemailId: vm.id, ...diagnostic },
       '[voicemail] fresh-url: returning fresh signed URL',
     );
     return { url: freshUrl };
