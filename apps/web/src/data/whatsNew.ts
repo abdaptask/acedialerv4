@@ -24,6 +24,15 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.168',
+    date: 'June 16, 2026',
+    highlight: 'Two audio bug fixes.',
+    changes: [
+      { type: 'fixed', text: 'When dialing out, the dialer used to play your selected ringtone in your own ear while waiting for the other side to pick up. It now plays the standard phone ringback instead. Your selected ringtone still plays as expected for incoming calls.' },
+      { type: 'fixed', text: 'Voicemail play button on the main list used to require two clicks - the first expanded the row but did not start playback. Now a single click expands AND starts playing the recording.' },
+    ],
+  },
+  {
     version: '0.10.167',
     date: 'June 16, 2026',
     highlight: 'UX polish across the dialer.',

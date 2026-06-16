@@ -523,6 +523,15 @@ function VoicemailRow({
 
   // When the row expands, start playback automatically and capture the
   // real duration from the audio element's metadata.
+  //
+  // v0.10.168 - dep array also includes audioUrl. Before this fix:
+  // clicking the row's play button expanded the row, but the auto-play
+  // tried to play the STALE vm.recordingUrl (which 403s for older
+  // voicemails). By the time the fresh URL arrived from
+  // /voicemails/:id/fresh-url, the play() had already failed silently
+  // and the user had to press the <audio> element's own play button to
+  // actually start. With audioUrl in deps, this effect re-runs the
+  // moment the fresh URL is set, calling play() with the now-valid src.
   useEffect(() => {
     if (!expanded || !audioRef.current) return;
     const el = audioRef.current;
@@ -536,7 +545,7 @@ function VoicemailRow({
     // both opens the player AND starts playing.
     el.play().catch(() => { /* autoplay may be blocked; user can press play */ });
     return () => el.removeEventListener('loadedmetadata', onLoaded);
-  }, [expanded]);
+  }, [expanded, audioUrl]);
 
   // Lightweight pre-fetch of duration for the *collapsed* row too. We hide
   // the audio element off-screen, ask for metadata only, and update state

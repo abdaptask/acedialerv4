@@ -89,9 +89,18 @@ export default function InCall() {
 
   // Local ringback while we're waiting for the other side to pick up.
   // Some VoIP destinations don't send early media so we'd otherwise hear silence.
+  //
+  // v0.10.168 - explicit 'classic' slug. ringtone.start() with no args
+  // defaults to the user's SAVED ringtone preference (the one they
+  // chose for INCOMING calls). That meant outbound calls played the
+  // user's custom ringtone in their own ear - users who picked the
+  // "Pulse" low-square preset for incoming heard that on outbound,
+  // which sounds wrong. 'classic' is 440+480 Hz - the standard
+  // North-American PSTN ringback that everyone recognizes as
+  // "phone is ringing on the other end."
   useEffect(() => {
     if (callState.state === 'calling' || callState.state === 'ringing') {
-      ringtone.start();
+      ringtone.start('classic');
       return () => ringtone.stop();
     }
     return undefined;
