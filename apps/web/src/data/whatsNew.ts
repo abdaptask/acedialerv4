@@ -24,6 +24,14 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.164',
+    date: 'June 16, 2026',
+    highlight: 'Older voicemails actually play now (proper fix).',
+    changes: [
+      { type: 'fixed', text: 'v0.10.163 introduced an endpoint to ask Telnyx for a fresh download link, but the lookup used the wrong identifier and Telnyx returned 404. v0.10.164 fixes the lookup to use the call session id, which is what Telnyx expects. Older voicemails should now play immediately on click.' },
+    ],
+  },
+  {
     version: '0.10.163',
     date: 'June 16, 2026',
     highlight: 'Older voicemails now play again.',

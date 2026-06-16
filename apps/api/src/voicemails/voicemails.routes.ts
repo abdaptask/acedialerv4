@@ -53,27 +53,35 @@ function extractRecordingIdFromUrl(url: string): string | null {
   return null;
 }
 
-// v0.10.157/.161 - Query Telnyx Recordings API for a fresh signed
-// download URL. v0.10.161 widened the return type so callers receive
-// BOTH the url (or null) AND a structured diagnostic explaining why
-// it might be null. Lets us log the actual failure mode (Telnyx 404,
-// 401, parse error, etc.) instead of silently bailing.
+// v0.10.157/.161/.164 - Query Telnyx Recordings API for a fresh
+// signed download URL.
+//
+// v0.10.164 - Switched from GET /v2/recordings/{recording_id} (which
+// returned 404 because the URL-filename UUID isn't a usable Telnyx
+// recording_id) to GET /v2/recordings?filter[call_session_id]=...
+// The list endpoint filters by call_session_id, which is what's
+// stored in Voicemail.telnyxCallId (despite the column name) per the
+// v0.10.121 dedup-key fix in texmlVoicemail.ts.
 interface TelnyxRefreshResult {
   url: string | null;
   diagnostic: {
     telnyxStatus?: number;
+    matchCount?: number;
     bodyKeys?: string[];
     errSample?: string;
     err?: string;
   };
 }
 async function getFreshTelnyxDownloadUrl(
-  recordingId: string,
+  callSessionId: string,
   telnyxKey: string,
 ): Promise<TelnyxRefreshResult> {
   try {
+    const params = new URLSearchParams();
+    params.set('filter[call_session_id]', callSessionId);
+    params.set('page[size]', '1');
     const res = await fetch(
-      `https://api.telnyx.com/v2/recordings/${encodeURIComponent(recordingId)}`,
+      `https://api.telnyx.com/v2/recordings?${params.toString()}`,
       { method: 'GET', headers: { Authorization: `Bearer ${telnyxKey}` } },
     );
     if (!res.ok) {
@@ -87,21 +95,24 @@ async function getFreshTelnyxDownloadUrl(
       };
     }
     const body = (await res.json()) as {
-      data?: {
+      data?: Array<{
+        id?: string;
         download_urls?: { mp3?: string; wav?: string };
         recording_url?: string;
-      };
+      }>;
     };
+    const first = body?.data?.[0];
     const url =
-      body?.data?.download_urls?.mp3 ??
-      body?.data?.download_urls?.wav ??
-      body?.data?.recording_url ??
+      first?.download_urls?.mp3 ??
+      first?.download_urls?.wav ??
+      first?.recording_url ??
       null;
     return {
       url,
       diagnostic: {
         telnyxStatus: res.status,
-        bodyKeys: body?.data ? Object.keys(body.data) : [],
+        matchCount: body?.data?.length ?? 0,
+        bodyKeys: first ? Object.keys(first) : [],
       },
     };
   } catch (e) {
@@ -374,7 +385,10 @@ export async function voicemailsRoutes(app: FastifyInstance) {
     }
     const vm = await prisma.voicemail.findFirst({
       where: { id: vmId, userId: user.sub },
-      select: { id: true, recordingUrl: true },
+      // v0.10.164 - also select telnyxCallId (which actually stores
+      // call_session_id per the v0.10.121 dedup fix). That's the key
+      // we use to refresh via Telnyx Recordings API.
+      select: { id: true, recordingUrl: true, telnyxCallId: true },
     });
     if (!vm) return reply.code(404).send({ error: 'Not found' });
     if (!vm.recordingUrl) {
@@ -390,26 +404,31 @@ export async function voicemailsRoutes(app: FastifyInstance) {
       return { url: vm.recordingUrl };
     }
 
-    const recordingId = extractRecordingIdFromUrl(vm.recordingUrl);
-    if (!recordingId) {
+    // v0.10.164 - call_session_id is the right key. Use vm.telnyxCallId
+    // when present (most rows since v0.10.121). For older rows where
+    // it's null, fall back to URL extraction (won't actually work
+    // against Telnyx's API today since those UUIDs aren't recording_ids,
+    // but we keep the path so the fallback chain remains exhaustive).
+    const callSessionId = vm.telnyxCallId;
+    if (!callSessionId) {
       request.log.warn(
-        { voicemailId: vm.id, urlSample: vm.recordingUrl.split('?')[0].slice(0, 200) },
-        '[voicemail] fresh-url: regex did NOT extract recordingId - returning stored URL as fallback',
+        { voicemailId: vm.id },
+        '[voicemail] fresh-url: vm.telnyxCallId is NULL - cannot refresh, returning stored URL as fallback',
       );
       return { url: vm.recordingUrl };
     }
 
-    const { url: freshUrl, diagnostic } = await getFreshTelnyxDownloadUrl(recordingId, telnyxKey);
+    const { url: freshUrl, diagnostic } = await getFreshTelnyxDownloadUrl(callSessionId, telnyxKey);
     if (!freshUrl) {
       request.log.warn(
-        { voicemailId: vm.id, recordingId, ...diagnostic },
+        { voicemailId: vm.id, callSessionId, ...diagnostic },
         '[voicemail] fresh-url: Telnyx Recordings API did not return a URL - returning stored URL as fallback',
       );
       return { url: vm.recordingUrl };
     }
 
     request.log.info(
-      { voicemailId: vm.id, recordingId },
+      { voicemailId: vm.id, callSessionId, ...diagnostic },
       '[voicemail] fresh-url: returning fresh signed URL',
     );
     return { url: freshUrl };
