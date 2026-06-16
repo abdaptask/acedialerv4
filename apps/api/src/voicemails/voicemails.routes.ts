@@ -274,7 +274,10 @@ export async function voicemailsRoutes(app: FastifyInstance) {
       }
       const vm = await prisma.voicemail.findFirst({
         where: { id: vmId, userId: user.sub },
-        select: { id: true, recordingUrl: true },
+        // v0.10.165 hotfix - also select fromNumber/toNumber/receivedAt
+        // so the refresh path can call getFreshTelnyxDownloadUrl's new
+        // signature (filter by from/to/timestamp instead of recording id).
+        select: { id: true, recordingUrl: true, fromNumber: true, toNumber: true, receivedAt: true },
       });
       if (!vm) return reply.code(404).send({ error: 'Not found' });
       if (!vm.recordingUrl) {
@@ -316,22 +319,34 @@ export async function voicemailsRoutes(app: FastifyInstance) {
           (upstream.status === 401 || upstream.status === 403) &&
           telnyxKey
         ) {
-          const recordingId = extractRecordingIdFromUrl(vm.recordingUrl);
-          if (!recordingId) {
+          // v0.10.165 hotfix - same from/to/timestamp lookup pattern
+          // as the /voicemails/:id/fresh-url endpoint uses. The
+          // URL-extracted recording UUID was the wrong identifier
+          // (v0.10.157 / v0.10.163 / v0.10.164 all hit different
+          // failures with it). Filter by sender + recipient + a
+          // tight time window around receivedAt to find the
+          // matching recording reliably.
+          if (!vm.fromNumber || !vm.toNumber || !vm.receivedAt) {
             request.log.warn(
               {
                 voicemailId: vm.id,
-                urlSample: vm.recordingUrl.split('?')[0].slice(0, 200),
+                hasFrom: !!vm.fromNumber,
+                hasTo: !!vm.toNumber,
+                hasReceivedAt: !!vm.receivedAt,
               },
-              '[voicemail] regex did NOT extract a recordingId from URL',
+              '[voicemail] audio proxy: missing fromNumber/toNumber/receivedAt - cannot refresh',
             );
           } else {
             const { url: freshUrl, diagnostic } =
-              await getFreshTelnyxDownloadUrl(recordingId, telnyxKey);
+              await getFreshTelnyxDownloadUrl(
+                vm.fromNumber,
+                vm.toNumber,
+                vm.receivedAt,
+                telnyxKey,
+              );
             request.log.info(
               {
                 voicemailId: vm.id,
-                recordingId,
                 gotFreshUrl: !!freshUrl,
                 ...diagnostic,
               },
@@ -339,7 +354,7 @@ export async function voicemailsRoutes(app: FastifyInstance) {
             );
             if (freshUrl) {
               request.log.info(
-                { voicemailId: vm.id, recordingId },
+                { voicemailId: vm.id },
                 '[voicemail] stored URL expired, retrying with fresh signed URL',
               );
               upstream = await tryFetch(freshUrl);
