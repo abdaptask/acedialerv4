@@ -224,6 +224,13 @@ body {
   max-width: 1480px;
   margin: 0 auto;
   width: 100%;
+  /* v0.10.169 - UX-026 - merged from a second .app-content {} block
+     that previously lived ~880 lines below this one. Two declarations
+     of the same selector with different semantics fragments the cascade
+     and breaks "find the rule" in DevTools. */
+  overflow-y: auto;
+  display: flex;
+  justify-content: center;
 }
 /* v0.10.144 - UX-016 - on QHD+ monitors, give the listing-style pages
    (Recents, Voicemail, Messages) a slightly wider column so contact
@@ -381,7 +388,11 @@ body {
   left: 0;
   right: auto;
   min-width: max(260px, 100%);
-  max-width: 360px;
+  /* v0.10.169 - UX-028 - was a flat 360px which clipped past the
+     right edge of the viewport on narrow Electron windows or mobile.
+     min() lets the menu cap at 360px on wide, but shrink to fit the
+     viewport minus 24px gutter on narrow. */
+  max-width: min(360px, calc(100vw - 24px));
   /* IMPORTANT: solid opaque background. --surface in this project is
      defined as rgba(118, 118, 128, 0.18) — a translucent gray — so any
      dropdown using var(--surface) shows page content bleeding through.
@@ -1096,11 +1107,10 @@ body {
   align-items: center;
 }
 .logout-btn:hover { color: #fff; }
-.app-content {
-  overflow-y: auto;
-  display: flex;
-  justify-content: center;
-}
+
+/* v0.10.169 - UX-026 - the second .app-content {} declaration that
+   used to live here (overflow-y/display/justify-content) was merged
+   into the primary .app-content rule near the top of this file. */
 
 /* ============ DIALPAD ============ */
 /* v0.10.154 - all sizing here is viewport-height-responsive via clamp().
@@ -4005,6 +4015,14 @@ body {
   color: #fff;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
 }
+/* v0.10.169 - UX-035 - segmented theme control needs a visible focus
+   ring for keyboard navigation. Uses the same --accent token as the
+   global focus-visible rules so it matches the rest of the app. */
+.theme-picker-btn:focus-visible {
+  outline: 2px solid var(--accent, #0a84ff);
+  outline-offset: 2px;
+  border-radius: 7px;
+}
 .vm-list {
   list-style: none;
   margin: 0;
@@ -5489,23 +5507,12 @@ button.call-pill-info:hover { background: rgba(255, 255, 255, 0.05); }
 }
 .held-line-hangup:hover { background: rgba(255, 59, 48, 0.32); color: #fff; }
 
-.held-line-strip {
-  display: flex;
-  align-items: stretch;
-  justify-content: space-between;
-  gap: 0;
-  background: linear-gradient(90deg, #1f2937 0%, #374151 100%);
-  color: #e5e7eb;
-  border: none;
-  border-radius: 12px;
-  padding: 10px 14px;
-  margin: 0 12px 8px;
-  width: calc(100% - 24px);
-  max-width: 440px;
-  cursor: pointer;
-  text-align: left;
-}
-.held-line-strip:hover { background: linear-gradient(90deg, #374151 0%, #4b5563 100%); }
+/* v0.10.169 - UX-036 - the duplicate .held-line-strip declaration that
+   used to live here was removed. The primary declaration is in the HELD
+   LINE STRIP section ~3700 lines above. The dual-call view (which is
+   what this duplicate was originally for) now uses .call-pill /
+   .calls-strip per the comment 200 lines above. No JSX references
+   .held-line-strip directly anywhere in the codebase. */
 .held-tag {
   font-size: 11px;
   text-transform: uppercase;
@@ -5621,6 +5628,34 @@ button.call-pill-info:hover { background: rgba(255, 255, 255, 0.05); }
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+/* v0.10.169 - UX-052 - the bottom Close button on the audio-output
+   picker had no base CSS rule, so it inherited browser-default <button>
+   styling that looked like a text link. Given proper button styling
+   that mirrors the rest of the modal-close family (rounded bg, hover).
+   Kept as a TEXT button (not an X icon) because it sits at the bottom
+   of the popover, not in a header alongside a title. */
+.audio-picker-close {
+  align-self: center;
+  margin-top: 4px;
+  padding: 8px 18px;
+  border-radius: 9px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.08);
+  color: #e5e7eb;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+.audio-picker-close:hover {
+  background: rgba(255, 255, 255, 0.14);
+  border-color: rgba(255, 255, 255, 0.22);
+}
+.audio-picker-close:focus-visible {
+  outline: 2px solid var(--accent, #0a84ff);
+  outline-offset: 2px;
 }
 
 /* ============ CHAT TAB (avatars + 6-tab spacing) ============ */
@@ -8065,6 +8100,17 @@ body::-webkit-scrollbar { display: none; }
   font-weight: 700;
   letter-spacing: 0;
   text-transform: none;
+  /* v0.10.169 - UX-054 - the pill has a title tooltip explaining the
+     status, but no hover affordance to hint at it. Subtle brightness
+     bump on hover/focus. Cursor stays default (the pill isn't a
+     button, just a labeled indicator), but the brightness signals
+     "look at me" while the tooltip is appearing. */
+  transition: filter 0.12s ease, transform 0.12s ease;
+}
+.pending-status-pill-letter:hover,
+.pending-status-pill-letter:focus-visible {
+  filter: brightness(1.12);
+  transform: scale(1.05);
 }
 
 /* Accepted status — green-on-light pill colors. Reuse existing invited

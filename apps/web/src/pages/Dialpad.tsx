@@ -481,7 +481,18 @@ export default function Dialpad() {
             sipState !== 'registered' ||
             (!hasDialableInput && !hasLastDialed)
           }
-          aria-label={hasDialableInput ? 'Call' : 'Recall last number'}
+          /* v0.10.169 - UX-048 - was a binary ternary that said
+             "Recall last number" even when the input was empty AND no
+             last-dialed number existed (so the button was disabled).
+             Now three states so SR users hear what the button actually
+             does in its current state. */
+          aria-label={
+            hasDialableInput
+              ? 'Call'
+              : hasLastDialed
+                ? 'Recall last number'
+                : 'Type a number to call'
+          }
           title={
             !hasDialableInput && hasLastDialed
               ? 'Press to bring back the last dialed number'

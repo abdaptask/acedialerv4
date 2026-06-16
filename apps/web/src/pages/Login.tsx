@@ -233,8 +233,13 @@ export default function Login({ onSuccess }: Props) {
         )}
 
         {/* Break-glass: tucked-away password form */}
-        <div className="auth-divider">
-          <span>or</span>
+        {/* v0.10.169 - UX-047 - the divider line + "or" is purely visual.
+            Screen readers were reading "or" as content between the SSO
+            and password-form sections. role="separator" + aria-hidden
+            on the inner span tells assistive tech to announce a divider
+            rather than the literal word. */}
+        <div className="auth-divider" role="separator" aria-orientation="horizontal">
+          <span aria-hidden="true">or</span>
         </div>
 
         <button

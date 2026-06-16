@@ -24,6 +24,20 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.169',
+    date: 'June 16, 2026',
+    highlight: 'Accessibility + visual polish pass.',
+    changes: [
+      { type: 'improved', text: 'Theme picker (Light / Dark / Auto buttons in Settings) now shows a clear focus ring when you tab to it.' },
+      { type: 'improved', text: 'Audio-output picker close button looks like a proper button now instead of underlined text.' },
+      { type: 'improved', text: 'Status pills in the Pending Users table give a subtle visual hint on hover so you know to look for the tooltip.' },
+      { type: 'improved', text: 'Outbound-number dropdown no longer clips off the right edge on narrow windows.' },
+      { type: 'improved', text: 'Screen readers now announce the dial button label correctly based on whether you have a number typed, a recallable last number, or neither.' },
+      { type: 'improved', text: 'Login page divider is now announced to screen readers as a separator instead of reading the word "or" out loud.' },
+      { type: 'fixed', text: 'Internal CSS cleanup - consolidated duplicate style declarations that could conflict with each other.' },
+    ],
+  },
+  {
     version: '0.10.168',
     date: 'June 16, 2026',
     highlight: 'Two audio bug fixes.',
