@@ -8,14 +8,49 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { prisma } from '@ace/db';
 
-// v0.10.157 - Parse a Telnyx recording UUID out of a stored download URL.
-// Telnyx URLs typically embed the recording_id as a UUID in the path,
-// e.g. https://api.telnyx.com/v2/recordings/<uuid>/download/<token>.mp3
-// or https://media.telnyx.com/v2/recording/<uuid>.mp3. Returns null if
-// no UUID-shaped segment is present (older test setups using S3, etc.).
+// v0.10.157/.163 - Parse a Telnyx recording UUID out of a stored
+// download URL. v0.10.163 broadened the regex to also match the
+// actual Telnyx S3 telephony-recorder-prod filename pattern:
+//   /.../<account_id>/<date>/<recording_id>-<timestamp>.mp3
+// Earlier versions only matched /recordings/<uuid>/ paths and silently
+// returned null for the S3 filename pattern, defeating the refresh
+// logic for any voicemail Telnyx stored on S3 (i.e., basically all of
+// them). New regex tries multiple patterns in order; the last-resort
+// branch picks the rightmost UUID in the path since the account_id
+// typically comes before the recording_id.
 function extractRecordingIdFromUrl(url: string): string | null {
-  const m = url.match(/\/recordings?\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i);
-  return m ? m[1] : null;
+  // Strip query string so signature params don't interfere with matching.
+  const path = url.split('?')[0];
+
+  // Pattern A: Telnyx S3 telephony-recorder-prod filename
+  //   /.../<recording_uuid>-<timestamp>.{mp3,wav}
+  const s3Filename = path.match(
+    /\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-\d+\.(?:mp3|wav)$/i,
+  );
+  if (s3Filename) return s3Filename[1];
+
+  // Pattern B: api.telnyx.com/v2/recordings/<uuid>/...
+  const apiPath = path.match(
+    /\/recordings?\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i,
+  );
+  if (apiPath) return apiPath[1];
+
+  // Pattern C: simple /<uuid>.{mp3,wav}
+  const simpleFilename = path.match(
+    /\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.(?:mp3|wav)$/i,
+  );
+  if (simpleFilename) return simpleFilename[1];
+
+  // Pattern D (last resort): any UUID anywhere in the path. Prefer
+  // the rightmost since account_id usually precedes recording_id.
+  const allUuids = [
+    ...path.matchAll(
+      /([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/gi,
+    ),
+  ];
+  if (allUuids.length > 0) return allUuids[allUuids.length - 1][1];
+
+  return null;
 }
 
 // v0.10.157/.161 - Query Telnyx Recordings API for a fresh signed
@@ -104,7 +139,7 @@ export async function voicemailsRoutes(app: FastifyInstance) {
   // GET /voicemails — list newest-first, capped at 100. Also purges any
   // voicemails past the 30-day retention window before returning, so the
   // user never sees expired rows.
-  app.get('/voicemails', { onRequest: [app.authenticate] }, async (request: FastifyRequest) => {
+  app.get('/voicemails', { onRequest: [app.authenticate] }, async (request: FastifyRequest, reply) => {
     const user = request.user as JwtPayload;
     const purged = await purgeExpired(user.sub);
     if (purged > 0) {
@@ -121,6 +156,12 @@ export async function voicemailsRoutes(app: FastifyInstance) {
         },
       },
     });
+    // v0.10.163 - short browser cache to reduce bandwidth from the
+    // polling pattern in the Voicemail list view. 30s is short enough
+    // that a brand-new voicemail still appears within reason, long
+    // enough to cut down on ~75% of redundant fetches during normal
+    // listening sessions.
+    reply.header('Cache-Control', 'private, max-age=30');
     return items;
   });
 
@@ -308,6 +349,71 @@ export async function voicemailsRoutes(app: FastifyInstance) {
       }
     },
   );
+
+  // v0.10.163 - GET /voicemails/:id/fresh-url
+  // Returns a freshly-signed Telnyx S3 download URL for the voicemail's
+  // recording. The stored vm.recordingUrl is signed with a finite
+  // expiry (Telnyx currently uses 10 min); after that window the URL
+  // returns 403. The frontend hits this endpoint on row expand to
+  // get a fresh URL it can hand to the <audio> element.
+  //
+  // Falls back to the stored URL on any internal failure (no API key,
+  // unparseable URL, Telnyx error) so fresh voicemails - whose stored
+  // URL still works - never regress.
+  //
+  // Why we return a URL instead of proxying audio bytes through our
+  // server: keeps our outbound bandwidth low. Audio still streams
+  // browser <-> S3 directly. Render bandwidth measured in KB per click,
+  // not MB.
+  app.get('/voicemails/:id/fresh-url', { onRequest: [app.authenticate] }, async (request, reply) => {
+    const user = request.user as JwtPayload;
+    const { id } = request.params as { id: string };
+    const vmId = Number(id);
+    if (!Number.isFinite(vmId)) {
+      return reply.code(400).send({ error: 'Invalid id' });
+    }
+    const vm = await prisma.voicemail.findFirst({
+      where: { id: vmId, userId: user.sub },
+      select: { id: true, recordingUrl: true },
+    });
+    if (!vm) return reply.code(404).send({ error: 'Not found' });
+    if (!vm.recordingUrl) {
+      return reply.code(404).send({ error: 'No recording available' });
+    }
+
+    const telnyxKey = process.env.TELNYX_API_KEY;
+    if (!telnyxKey) {
+      request.log.warn(
+        { voicemailId: vm.id },
+        '[voicemail] fresh-url: no TELNYX_API_KEY - returning stored URL as fallback',
+      );
+      return { url: vm.recordingUrl };
+    }
+
+    const recordingId = extractRecordingIdFromUrl(vm.recordingUrl);
+    if (!recordingId) {
+      request.log.warn(
+        { voicemailId: vm.id, urlSample: vm.recordingUrl.split('?')[0].slice(0, 200) },
+        '[voicemail] fresh-url: regex did NOT extract recordingId - returning stored URL as fallback',
+      );
+      return { url: vm.recordingUrl };
+    }
+
+    const { url: freshUrl, diagnostic } = await getFreshTelnyxDownloadUrl(recordingId, telnyxKey);
+    if (!freshUrl) {
+      request.log.warn(
+        { voicemailId: vm.id, recordingId, ...diagnostic },
+        '[voicemail] fresh-url: Telnyx Recordings API did not return a URL - returning stored URL as fallback',
+      );
+      return { url: vm.recordingUrl };
+    }
+
+    request.log.info(
+      { voicemailId: vm.id, recordingId },
+      '[voicemail] fresh-url: returning fresh signed URL',
+    );
+    return { url: freshUrl };
+  });
 
   // PATCH /voicemails/:id  { listened?: boolean }
   app.patch('/voicemails/:id', { onRequest: [app.authenticate] }, async (request, reply) => {

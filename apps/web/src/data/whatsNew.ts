@@ -24,6 +24,15 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.163',
+    date: 'June 16, 2026',
+    highlight: 'Older voicemails now play again.',
+    changes: [
+      { type: 'fixed', text: 'Voicemails older than ~10 minutes were silently failing to play (showing 0:00 / 0:00). Telnyx signs the audio links with a short expiry; the dialer now asks for a freshly-signed link each time you open a voicemail, so all of your voicemails play regardless of how old they are.' },
+      { type: 'improved', text: 'Server responses are now gzip/brotli compressed which cuts data usage by roughly 40-50% on the lists you see in Voicemail, Recents, and Messages.' },
+    ],
+  },
+  {
     version: '0.10.162',
     date: 'June 15, 2026',
     highlight: 'Admin > Users: all 8 columns now reachable via horizontal scroll.',

@@ -487,11 +487,39 @@ function VoicemailRow({
   // Voicemail's webhook payload doesn't always include duration; the audio
   // element itself knows the right answer once metadata loads.
   const [actualDuration, setActualDuration] = useState<number | null>(null);
+  // v0.10.163 - <audio src> backing. Defaults to vm.recordingUrl (the
+  // stored URL, valid for fresh voicemails). On row expand we ask the
+  // API for a fresh signed URL via /voicemails/:id/fresh-url to handle
+  // OLDER voicemails whose stored URL has lapsed past Telnyx's 10-min
+  // signature window. If the fresh-URL fetch fails for any reason,
+  // we keep the stored URL - so fresh voicemails never regress.
+  const [audioUrl, setAudioUrl] = useState<string>(vm.recordingUrl);
 
   // Apply playback rate whenever it changes (and after the audio element mounts).
   useEffect(() => {
     if (audioRef.current) audioRef.current.playbackRate = playbackRate;
   }, [playbackRate, expanded]);
+
+  // v0.10.163 - on row expand, ask the API for a fresh signed Telnyx
+  // URL. If we get one, swap it into audioUrl so <audio src> uses the
+  // fresh URL. If anything fails, audioUrl stays at vm.recordingUrl
+  // (the original behavior for fresh voicemails).
+  useEffect(() => {
+    if (!expanded) return;
+    const token = sessionStorage.getItem('ace_token');
+    if (!token) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { getFreshVoicemailUrl } = await import('../api');
+        const fresh = await getFreshVoicemailUrl(token, vm.id);
+        if (!cancelled && fresh) setAudioUrl(fresh);
+      } catch {
+        /* keep audioUrl = vm.recordingUrl as fallback */
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [expanded, vm.id]);
 
   // When the row expands, start playback automatically and capture the
   // real duration from the audio element's metadata.
@@ -612,7 +640,12 @@ function VoicemailRow({
           <audio
             ref={audioRef}
             controls
-            src={vm.recordingUrl}
+            /* v0.10.163 - audioUrl starts as vm.recordingUrl and is
+               replaced with a freshly-signed Telnyx URL when the
+               useEffect above completes. Older voicemails play after
+               that swap; fresh voicemails play immediately because
+               vm.recordingUrl is still valid. */
+            src={audioUrl}
             preload="metadata"
             style={{ width: '100%' }}
             onPlay={async () => {

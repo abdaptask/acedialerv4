@@ -2,6 +2,7 @@
 // Phase 1: /health, /, /auth/login, /auth/me.
 // Phase 5.1: /calls, /calls/:id.
 import Fastify, { type FastifyReply, type FastifyRequest } from 'fastify';
+import compress from '@fastify/compress';
 import cors from '@fastify/cors';
 import jwt from '@fastify/jwt';
 import { config } from './config.js';
@@ -36,6 +37,18 @@ const app = Fastify({
   logger: { level: config.logLevel },
   // 16 MB body limit so base64-encoded MMS uploads fit (max 10 MB payload).
   bodyLimit: 16 * 1024 * 1024,
+});
+
+// v0.10.163 - gzip/brotli compression for JSON responses. Cuts
+// outbound bandwidth ~40-50% on the Voicemail / Recents / Messages
+// list endpoints (the chatty pollers). Threshold of 1KB skips
+// compressing tiny payloads where compression overhead exceeds savings.
+// global: false so individual routes can opt out via { compress: false }
+// if they ever ship binary content that's already compressed.
+await app.register(compress, {
+  global: true,
+  threshold: 1024,
+  encodings: ['br', 'gzip'],
 });
 
 await app.register(cors, {

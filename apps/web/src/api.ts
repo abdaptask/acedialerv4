@@ -624,6 +624,26 @@ export async function getVoicemails(token: string): Promise<VoicemailRecord[]> {
   return res.json();
 }
 
+// v0.10.163 - Fetch a freshly-signed Telnyx URL for a voicemail's
+// recording. Telnyx's stored signed URLs expire after ~10 min, so
+// older voicemails need a fresh URL at play time. Server falls back
+// to the stored URL if anything goes wrong on its side (no API key,
+// regex failure, Telnyx error), so this never blocks playback of
+// fresh voicemails. Caller still has vm.recordingUrl as a final
+// fallback if THIS fetch itself fails (network error, 5xx, etc).
+export async function getFreshVoicemailUrl(token: string, id: number): Promise<string | null> {
+  try {
+    const res = await fetch(`${API_URL}/voicemails/${id}/fresh-url`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) return null;
+    const body = (await res.json()) as { url?: string };
+    return body?.url ?? null;
+  } catch {
+    return null;
+  }
+}
+
 // v0.10.2 Task 9 — single voicemail metadata + audio for the playback page.
 export async function getVoicemail(token: string, id: number): Promise<VoicemailRecord> {
   const res = await fetch(`${API_URL}/voicemails/${id}`, {
