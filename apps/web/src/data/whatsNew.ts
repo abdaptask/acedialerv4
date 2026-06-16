@@ -24,6 +24,14 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.171',
+    date: 'June 16, 2026',
+    highlight: 'Admin Users table fits without horizontal scroll.',
+    changes: [
+      { type: 'fixed', text: 'Settings → Users no longer needs horizontal scroll to see the Call, Message, and ⋯ icons on the right of each row, even when the window is narrow or DevTools is docked. Column widths are now fixed so the whole table always fits.' },
+    ],
+  },
+  {
     version: '0.10.170',
     date: 'June 16, 2026',
     highlight: 'Admin: Users table row actions visible again.',

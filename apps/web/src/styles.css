@@ -6396,8 +6396,26 @@ button.call-pill-info:hover { background: rgba(255, 255, 255, 0.05); }
      columns into the User cell (status dot + role pill + email-under-SSO),
      the table only has 5 columns and fits in any reasonable pane width
      without needing horizontal scroll. */
+  /* v0.10.171 - table-layout: fixed so column widths honor the <th>
+     style attributes instead of growing to fit content. Without this,
+     the User cell expands to its natural width and the action column
+     gets pushed off the right edge on narrow viewports (e.g., when
+     DevTools is docked). User explicitly does not want horizontal
+     scroll on this table. */
+  table-layout: fixed;
   border-collapse: collapse;
   font-size: 13px;
+}
+/* v0.10.171 - the User cell stacks status-dot + name + role pill +
+   SSO badge + email vertically. text-overflow ellipsis on overflow
+   so the long emails like firstname.lastname@aptask.com don't blow
+   out the column when User gets squeezed. */
+.users-admin-table td:first-child {
+  overflow: hidden;
+}
+.users-admin-table td:first-child .users-admin-name-line,
+.users-admin-table td:first-child > * {
+  min-width: 0;
 }
 .users-admin-table th {
   text-align: left;
@@ -6462,12 +6480,13 @@ button.call-pill-info:hover { background: rgba(255, 255, 255, 0.05); }
 
 .users-admin-actions {
   position: relative;
-  /* v0.10.170 - was width:44px which fit only the ⋯ kebab and clipped
-     the Call + Message quick-action buttons added in v0.10.94. The
-     three icon-btn elements need ~110px of real width; sizing the
-     cell to 150px gives breathing room + keeps the icons flush right. */
-  width: 150px;
-  min-width: 150px;
+  /* v0.10.171 - dropped from 150 -> 130 to keep table total below ~720px
+     so the table never needs horizontal scroll even when DevTools is
+     docked or window is narrow. Three icon-btn elements at ~30px each
+     plus 4px gap = ~98px content + 16px cell padding = 114px. 130 leaves
+     ~16px slack so icons stay flush-right without being cramped. */
+  width: 130px;
+  min-width: 130px;
   text-align: right;
   white-space: nowrap;
 }

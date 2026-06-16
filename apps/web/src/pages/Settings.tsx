@@ -3135,24 +3135,35 @@ function UsersAdminSection() {
               // colored dot, role as an inline pill, email under the SSO
               // badge). SortKey type is unchanged so sortRows() can still
               // handle those keys if exposed via a future UI surface.
-              const ths: Array<{ key: SortKey; label: string }> = [
-                { key: 'name', label: 'User' },
-                { key: 'did', label: 'DID' },
-                { key: 'version', label: 'Version' },
-                { key: 'lastLogin', label: 'Last sign-in' },
+              // v0.10.171 - explicit column widths so table-layout:fixed
+              // (added in v0.10.171 styles.css) distributes the table by
+              // these numbers rather than by content size. Numbers chosen
+              // so the table total stays under ~720px and fits even when
+              // DevTools is docked or the window is narrow. User cell
+              // gets the remainder.
+              const ths: Array<{ key: SortKey; label: string; width?: number }> = [
+                { key: 'name', label: 'User' }, // no width → takes the remainder
+                { key: 'did', label: 'DID', width: 130 },
+                { key: 'version', label: 'Version', width: 100 },
+                { key: 'lastLogin', label: 'Last sign-in', width: 130 },
               ];
               return ths.map((c) => {
                 const active = sortKey === c.key;
                 const arrow = active ? (sortDir === 'asc' ? ' ↑' : ' ↓') : '';
+                const style: React.CSSProperties = {
+                  cursor: 'pointer',
+                  userSelect: 'none',
+                  whiteSpace: 'nowrap',
+                };
+                if (c.width) {
+                  style.width = c.width;
+                  style.minWidth = c.width;
+                }
                 return (
                   <th
                     key={c.key}
                     onClick={() => toggleSort(c.key)}
-                    style={{
-                      cursor: 'pointer',
-                      userSelect: 'none',
-                      whiteSpace: 'nowrap',
-                    }}
+                    style={style}
                     title={`Sort by ${c.label}`}
                     aria-sort={active ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}
                   >
@@ -3161,12 +3172,11 @@ function UsersAdminSection() {
                 );
               });
             })()}
-            {/* v0.10.170 - belt-and-suspenders with the CSS width on
-                .users-admin-actions. Without an explicit width here,
-                table-layout:auto sometimes collapsed this column when
-                the LAST SIGN-IN cell wrapped onto two lines, hiding the
-                Call/Message/⋯ icons off the visible edge. */}
-            <th aria-label="Actions" style={{ width: 150, minWidth: 150 }} />
+            {/* v0.10.171 - actions column width dropped to 130 to keep
+                the whole table under ~720px so it fits even when
+                DevTools is docked or the window is narrow. No horizontal
+                scroll — that's been a hard requirement since v0.10.166. */}
+            <th aria-label="Actions" style={{ width: 130, minWidth: 130 }} />
           </tr>
         </thead>
         <tbody>
