@@ -2883,6 +2883,10 @@ function UsersAdminSection() {
   const [refreshFromPulseTarget, setRefreshFromPulseTarget] = useState<AdminUserRow | null>(null);
   const [openMenuId, setOpenMenuId] = useState<number | null>(null);
   const [search, setSearch] = useState('');
+  // v0.10.173 - card-redesign status filter pills (All / Active / Stale / Inactive).
+  // Replaces the v0.9.9 "Show N deactivated" checkbox. Default to 'all'
+  // so admins still see everyone unless they narrow down.
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive' | 'stale'>('all');
   // v0.9.8 — Hard-delete modal target. null = closed.
   const [hardDeleteTarget, setHardDeleteTarget] = useState<AdminUserRow | null>(null);
   // v0.10.0 Task 27 — Manage Lines modal target. null = closed.
@@ -2900,7 +2904,10 @@ function UsersAdminSection() {
   // = null) preserves the server-returned createdAt-desc order so new
   // admins land on the familiar "newest users first" view.
   type SortKey = 'name' | 'email' | 'role' | 'status' | 'did' | 'lastLogin' | 'version';
-  const [sortKey, setSortKey] = useState<SortKey | null>(null);
+  // v0.10.173 - default to name asc so the new card list is sorted
+  // out of the box. The card layout has a Sort dropdown next to the
+  // filter pills (no more column-header click target).
+  const [sortKey, setSortKey] = useState<SortKey | null>('name');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
   function toggleSort(key: SortKey) {
     if (sortKey === key) {
@@ -2965,7 +2972,20 @@ function UsersAdminSection() {
   // v0.9.9: hide deactivated users by default. Soft-deactivated rows from
   // a failed hard-delete were leaking into this list and confusing admins.
   const filtered = rows.filter((r) => {
-    if (!showInactive && !r.isActive) return false;
+    // v0.10.173 - status filter from filter-pill row. 'all' is the
+    // default and lets every status through. 'active'/'stale'/
+    // 'inactive' narrow to just that bucket. Replaces the older
+    // showInactive checkbox which only handled the binary active vs
+    // not. The active/stale split is computed the same way as the
+    // status-dot color logic in the card render below.
+    {
+      const STALE_MS = 30 * 24 * 60 * 60 * 1000;
+      let bucket: 'active' | 'stale' | 'inactive';
+      if (!r.isActive) bucket = 'inactive';
+      else if (!r.lastLoginAt || (Date.now() - new Date(r.lastLoginAt).getTime()) > STALE_MS) bucket = 'stale';
+      else bucket = 'active';
+      if (statusFilter !== 'all' && bucket !== statusFilter) return false;
+    }
     const q = search.trim().toLowerCase();
     if (!q) return true;
     const name = [r.firstName, r.lastName].filter(Boolean).join(' ').toLowerCase();
@@ -3091,7 +3111,11 @@ function UsersAdminSection() {
         </div>
       </div>
 
-      <div className="search-bar" style={{ marginBottom: 12, display: 'flex', alignItems: 'center', gap: 12 }}>
+      {/* v0.10.173 - search + filter-pill row + sort dropdown above
+          the card list. Replaces the column-header sort UI (gone now
+          that the table is gone). statusFilter state lives in the
+          parent component (added in v0.10.173). */}
+      <div className="search-bar" style={{ marginBottom: 8, display: 'flex', alignItems: 'center', gap: 12 }}>
         <input
           type="search"
           className="search-input"
@@ -3100,75 +3124,70 @@ function UsersAdminSection() {
           onChange={(e) => setSearch(e.target.value)}
           style={{ flex: 1 }}
         />
-        {inactiveCount > 0 && (
-          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.82rem', whiteSpace: 'nowrap', cursor: 'pointer' }}>
-            <input
-              type="checkbox"
-              checked={showInactive}
-              onChange={(e) => setShowInactive(e.target.checked)}
-              style={{ margin: 0 }}
-            />
-            Show {inactiveCount} deactivated
-          </label>
-        )}
+      </div>
+      <div className="users-admin-filter-row">
+        {(() => {
+          const counts = {
+            all: rows.length,
+            active: 0,
+            stale: 0,
+            inactive: 0,
+          };
+          const STALE_MS = 30 * 24 * 60 * 60 * 1000;
+          for (const r of rows) {
+            if (!r.isActive) counts.inactive++;
+            else if (!r.lastLoginAt || (Date.now() - new Date(r.lastLoginAt).getTime()) > STALE_MS) counts.stale++;
+            else counts.active++;
+          }
+          const pills: Array<{ key: typeof statusFilter; label: string; count: number }> = [
+            { key: 'all', label: 'All', count: counts.all },
+            { key: 'active', label: 'Active', count: counts.active },
+            { key: 'stale', label: 'Stale', count: counts.stale },
+            { key: 'inactive', label: 'Inactive', count: counts.inactive },
+          ];
+          return pills.map((p) => (
+            <button
+              key={p.key}
+              type="button"
+              className={`users-admin-filter-pill${statusFilter === p.key ? ' active' : ''}`}
+              onClick={() => setStatusFilter(p.key)}
+            >
+              {p.label}
+              <span className="users-admin-filter-pill-count">{p.count}</span>
+            </button>
+          ));
+        })()}
+        <span className="users-admin-sort">
+          Sort:
+          <select
+            value={sortKey ?? 'name'}
+            onChange={(e) => setSortKey(e.target.value as SortKey)}
+            aria-label="Sort users by"
+          >
+            <option value="name">Name</option>
+            <option value="lastLogin">Last sign-in</option>
+            <option value="version">Version</option>
+          </select>
+          <button
+            type="button"
+            className="users-admin-filter-pill"
+            onClick={() => setSortDir(sortDir === 'asc' ? 'desc' : 'asc')}
+            title={sortDir === 'asc' ? 'Ascending — click to flip' : 'Descending — click to flip'}
+            style={{ padding: '5px 10px' }}
+          >
+            {sortDir === 'asc' ? '↑' : '↓'}
+          </button>
+        </span>
       </div>
 
       {error && <div className="error" style={{ marginBottom: 12 }}>{error}</div>}
 
-      {/* v0.10.160 - horizontal-scroll wrapper around the Users table.
-          The table has 8 columns (User/Email/Role/Status/DID/Version/
-          LastLogin/Actions) that exceed the 560px settings pane width.
-          Without this wrapper the Actions column (Call/Text/Menu) is
-          clipped off-screen and unreachable. */}
-      <div className="users-admin-table-wrap">
-      <table className="users-admin-table">
-        <thead>
-          <tr>
-            {/* v0.10.91 — Each header is now a sort toggle. Click once to
-                sort ascending, click again to flip to descending. The active
-                column shows an arrow indicator. Header click target is the
-                cell — no inner <button> so the existing thead CSS still
-                applies. */}
-            {(() => {
-              // v0.10.166 - Email/Role/Status removed from the header bar.
-              // Their data is now shown inside the User cell (status as a
-              // colored dot, role as an inline pill, email under the SSO
-              // badge). SortKey type is unchanged so sortRows() can still
-              // handle those keys if exposed via a future UI surface.
-              // v0.10.172 - DID column removed; phone number now lives
-              // inside the User cell. table-layout:fixed reverted to
-              // default auto (User cell takes its natural width again).
-              const ths: Array<{ key: SortKey; label: string }> = [
-                { key: 'name', label: 'User' },
-                { key: 'version', label: 'Version' },
-                { key: 'lastLogin', label: 'Last sign-in' },
-              ];
-              return ths.map((c) => {
-                const active = sortKey === c.key;
-                const arrow = active ? (sortDir === 'asc' ? ' ↑' : ' ↓') : '';
-                return (
-                  <th
-                    key={c.key}
-                    onClick={() => toggleSort(c.key)}
-                    style={{
-                      cursor: 'pointer',
-                      userSelect: 'none',
-                      whiteSpace: 'nowrap',
-                    }}
-                    title={`Sort by ${c.label}`}
-                    aria-sort={active ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}
-                  >
-                    {c.label}{arrow}
-                  </th>
-                );
-              });
-            })()}
-            {/* v0.10.170 - explicit width on Actions <th> so the column
-                stays sized for Call + Message + ⋯ icons. */}
-            <th aria-label="Actions" style={{ width: 130, minWidth: 130 }} />
-          </tr>
-        </thead>
-        <tbody>
+      {/* v0.10.173 - converted from <table> to card rows. Each card
+          stacks: avatar with [M] SSO badge + name + status pill +
+          email · phone subtitle + version/seen meta pills + action
+          icons. Filter pills + sort dropdown are above (replacing
+          column-header click-to-sort). */}
+      <div className="users-admin-cards">
           {filtered.map((r) => {
             const isSelf = me?.id === r.id;
             const lastDemoteWouldStrand =
@@ -3199,122 +3218,92 @@ function UsersAdminSection() {
                 statusDotTitle = 'Active';
               }
             }
+            // v0.10.173 - per-row derived values for the card layout.
+            const statusPillLabel =
+              statusDotClass === 'active' ? 'Active' :
+              statusDotClass === 'stale' ? 'Stale' : 'Inactive';
+            const latestVersion = r.latestVersion;
+            const distinctVersions = r.distinctVersions || (latestVersion ? [latestVersion] : []);
+            const mixedVersions = distinctVersions.length > 1;
+            const versionTooltip = mixedVersions
+              ? `Multiple versions in use: ${distinctVersions.join(', ')}`
+              : (r.latestSeenAt
+                  ? `Last heartbeat: ${new Date(r.latestSeenAt).toLocaleString('en-US', { timeZone: 'America/New_York', dateStyle: 'short', timeStyle: 'short' })}`
+                  : 'Recently seen');
+            const lastSeenLabel = r.lastLoginAt
+              ? new Date(r.lastLoginAt).toLocaleString('en-US', { timeZone: 'America/New_York', dateStyle: 'short', timeStyle: 'short' })
+              : 'Never';
+            const phoneDefault = r.userDids.find((d) => d.isDefault) || r.userDids[0];
+            const phoneNumber = phoneDefault ? phoneDefault.didNumber : (r.didNumber || null);
+            const phoneExtras = r.userDids.length > 1 ? r.userDids.length - 1 : 0;
             return (
-              <tr key={r.id} className={r.isActive ? '' : 'inactive'}>
-                {/* v0.10.166 - User cell is now self-contained: avatar + name
-                    with status dot and role pill on the first line, SSO badge
-                    + email stacked underneath. Replaces 4 separate cells
-                    (User/Email/Role/Status) and saves ~400px of table width. */}
-                <td>
-                  <div className="users-admin-name">
-                    <span className="users-admin-avatar" aria-hidden="true">
-                      {(r.firstName?.[0] ?? r.email[0] ?? '?').toUpperCase()}
+              <div key={r.id} className={`users-admin-card ${r.isActive ? '' : 'inactive'}`}>
+                {/* Avatar with M SSO badge overlay in bottom-right */}
+                <div className="users-admin-card-avatar-wrap">
+                  <span className="users-admin-card-avatar" aria-hidden="true">
+                    {(r.firstName?.[0] ?? r.email[0] ?? '?').toUpperCase()}
+                  </span>
+                  {r.provider !== 'local' && (
+                    <span
+                      className="users-admin-card-m-badge"
+                      title="Signed in with Microsoft"
+                      aria-label="Microsoft SSO"
+                    >
+                      M
                     </span>
-                    <div>
-                      <div className="users-admin-name-line">
-                        <span
-                          className={`users-admin-status-dot ${statusDotClass}`}
-                          title={statusDotTitle}
-                          aria-label={statusDotTitle}
-                        />
-                        {/* v0.10.172 - small [M] badge for Microsoft SSO
-                            accounts, inline right after the status dot.
-                            Replaces the full "Microsoft SSO" text line
-                            that used to sit below the name. Local-password
-                            accounts (admin break-glass) omit the badge. */}
-                        {r.provider !== 'local' && (
+                  )}
+                </div>
+                {/* Card body: name + status pill + admin pill / subtitle / meta pills */}
+                <div className="users-admin-card-body">
+                  <div className="users-admin-card-name-row">
+                    <span className="users-admin-card-name">{rowName(r)}</span>
+                    <span
+                      className={`users-admin-card-status-pill ${statusDotClass}`}
+                      title={statusDotTitle}
+                    >
+                      <span className={`users-admin-status-dot ${statusDotClass}`} />
+                      {statusPillLabel}
+                    </span>
+                    {r.isAdmin && (
+                      <span className="users-admin-card-role-pill admin">Admin</span>
+                    )}
+                  </div>
+                  <div className="users-admin-card-subtitle">
+                    {r.email}
+                    {phoneNumber ? (
+                      <>
+                        {' · '}
+                        <span style={{ fontVariantNumeric: 'tabular-nums' }}>{phoneNumber}</span>
+                        {phoneExtras > 0 && (
                           <span
-                            className="users-admin-sso-badge"
-                            title="Signed in with Microsoft"
-                            aria-label="Microsoft SSO"
+                            className="users-admin-phone-multi"
+                            style={{ marginLeft: 6 }}
+                            title={`${phoneExtras} additional line${phoneExtras === 1 ? '' : 's'} (Manage lines for details)`}
                           >
-                            M
+                            +{phoneExtras}
                           </span>
                         )}
-                        <span>{rowName(r)}</span>
-                        <span className={`role-pill ${r.isAdmin ? 'admin' : 'user'}`}>
-                          {r.isAdmin ? 'Admin' : 'User'}
-                        </span>
-                      </div>
-                      {/* v0.10.172 - phone number inline, just below the
-                          name. Replaces the separate DID column. Default
-                          DID is shown; users with multiple lines get a
-                          "+N" badge next to it. */}
-                      {(() => {
-                        if (r.userDids.length === 0) {
-                          return r.didNumber ? (
-                            <div className="users-admin-phone">{r.didNumber}</div>
-                          ) : null;
-                        }
-                        const defaultDid =
-                          r.userDids.find((d) => d.isDefault) || r.userDids[0];
-                        const extras = r.userDids.length - 1;
-                        return (
-                          <div
-                            className="users-admin-phone"
-                            title={
-                              extras > 0
-                                ? `Default line; ${extras} additional ${extras === 1 ? 'line' : 'lines'} (Manage lines for details)`
-                                : 'Default line'
-                            }
-                          >
-                            <span>{defaultDid.didNumber}</span>
-                            {extras > 0 && (
-                              <span className="users-admin-phone-multi">+{extras}</span>
-                            )}
-                          </div>
-                        );
-                      })()}
-                      <div className="muted small">{r.email}</div>
-                    </div>
+                      </>
+                    ) : null}
                   </div>
-                </td>
-                {/* v0.10.172 - the separate DID column was removed; the
-                    phone number is now rendered inside the User cell
-                    just below the name. Multi-DID users get a "+N"
-                    badge inline. Full per-line management remains in
-                    the ⋯ menu → Manage lines modal. */}
-                {/* v0.10.111 - Version column: latest seen dialer version
-                    across this user's devices. Mixed versions get a yellow
-                    badge so admin can spot users running older clients. */}
-                <td className="muted small" style={{ whiteSpace: 'nowrap' }}>
-                  {(() => {
-                    const v = r.latestVersion;
-                    if (!v) return <span style={{ color: '#9ca3af' }}>—</span>;
-                    const distinct = r.distinctVersions || [v];
-                    const mixed = distinct.length > 1;
-                    const tooltip = mixed
-                      ? `Multiple versions in use: ${distinct.join(', ')}`
-                      : (r.latestSeenAt
-                          ? `Last heartbeat: ${new Date(r.latestSeenAt).toLocaleString('en-US', { timeZone: 'America/New_York', dateStyle: 'short', timeStyle: 'short' })}`
-                          : 'Recently seen');
-                    return (
-                      <span title={tooltip} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                        v{v}
-                        {mixed && (
-                          <span
-                            style={{
-                              fontSize: '0.65rem',
-                              padding: '1px 5px',
-                              borderRadius: 4,
-                              background: 'rgba(245,158,11,0.15)',
-                              color: '#92400e',
-                              fontWeight: 600,
-                            }}
-                          >
-                            +{distinct.length - 1}
-                          </span>
+                  <div className="users-admin-card-meta">
+                    {latestVersion && (
+                      <span className="users-admin-card-meta-pill" title={versionTooltip}>
+                        <span className="users-admin-card-meta-label">ver</span>
+                        v{latestVersion}
+                        {mixedVersions && (
+                          <span className="users-admin-card-meta-extra">+{distinctVersions.length - 1}</span>
                         )}
                       </span>
-                    );
-                  })()}
-                </td>
-                <td className="muted small">
-                  {r.lastLoginAt
-                    ? new Date(r.lastLoginAt).toLocaleString('en-US', { timeZone: 'America/New_York', dateStyle: 'short', timeStyle: 'short' })
-                    : 'Never'}
-                </td>
-                <td className="users-admin-actions">
+                    )}
+                    <span className="users-admin-card-meta-pill">
+                      <span className="users-admin-card-meta-label">seen</span>
+                      {lastSeenLabel}
+                    </span>
+                  </div>
+                </div>
+                {/* Card actions on the right - call, message, ⋯ kebab. */}
+                <div className="users-admin-card-actions">
                   {/* v0.10.94 — Quick-action buttons: Call + SMS the user
                       directly. Routes admin's own dialer to /keypad?to=DID
                       (call) or /messages?to=DID (SMS). Only shown when the
@@ -3591,15 +3580,15 @@ function UsersAdminSection() {
                       </button>
                     </div>
                   )}
-                </td>
-              </tr>
+                </div>
+              </div>
             );
           })}
           {filtered.length === 0 && (
-            <tr><td colSpan={5} className="muted small" style={{ padding: '1rem', textAlign: 'center' }}>No users match.</td></tr>
+            <div className="muted small" style={{ padding: '1rem', textAlign: 'center' }}>
+              No users match.
+            </div>
           )}
-        </tbody>
-      </table>
       </div>
 
       {showInvite && (

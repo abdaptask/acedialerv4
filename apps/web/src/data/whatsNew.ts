@@ -24,6 +24,17 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.173',
+    date: 'June 17, 2026',
+    highlight: 'Admin Users: redesigned as card rows with filter pills.',
+    changes: [
+      { type: 'improved', text: 'Settings → Users is now a clean list of cards instead of a table. Each card shows a large avatar with a Microsoft SSO badge, name + status pill, email · phone, and version + last-seen as soft pills.' },
+      { type: 'improved', text: 'New filter pills above the list — All / Active / Stale / Inactive — with live counts. Replaces the "Show N deactivated" checkbox.' },
+      { type: 'improved', text: 'Sort dropdown next to the filter pills (Name / Last sign-in / Version) plus an up/down toggle. Replaces the column-header click-to-sort.' },
+      { type: 'improved', text: 'Call / Message / ⋯ icons stay flush-right on every card and never need horizontal scrolling.' },
+    ],
+  },
+  {
     version: '0.10.172',
     date: 'June 16, 2026',
     highlight: 'Admin Users table: compact rows with phone number inline.',

@@ -6447,6 +6447,298 @@ button.call-pill-info:hover { background: rgba(255, 255, 255, 0.05); }
   color: #92400e;
   font-weight: 600;
 }
+
+/* v0.10.173 - Users admin redesigned from <table> to card rows.
+   Cards stack vertically with a subtle background, large avatar
+   on the left (with an [M] SSO badge overlay in the bottom-right
+   corner of the avatar), name + status pill on the first line,
+   email · phone subtitle on the second, version + last-seen pills
+   on the third, and action icons flush right. */
+
+.users-admin-filter-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.users-admin-filter-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  color: var(--text-dim);
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+  font-family: inherit;
+}
+.users-admin-filter-pill:hover {
+  background: rgba(255, 255, 255, 0.10);
+  color: var(--text);
+}
+.users-admin-filter-pill.active {
+  background: var(--accent, #0a84ff);
+  color: #fff;
+  border-color: var(--accent, #0a84ff);
+}
+.users-admin-filter-pill-count {
+  font-size: 0.72rem;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.18);
+  color: inherit;
+  font-weight: 600;
+}
+[data-theme="light"] .users-admin-filter-pill {
+  background: rgba(0, 0, 0, 0.04);
+  border-color: rgba(0, 0, 0, 0.10);
+  color: var(--text-dim);
+}
+[data-theme="light"] .users-admin-filter-pill:hover {
+  background: rgba(0, 0, 0, 0.06);
+  color: var(--text);
+}
+[data-theme="light"] .users-admin-filter-pill.active {
+  background: var(--accent, #0a84ff);
+  color: #fff;
+  border-color: var(--accent, #0a84ff);
+}
+.users-admin-sort {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.82rem;
+  color: var(--text-dim);
+}
+.users-admin-sort select {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  color: var(--text);
+  padding: 5px 10px;
+  border-radius: 8px;
+  font-family: inherit;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+[data-theme="light"] .users-admin-sort select {
+  background: rgba(0, 0, 0, 0.04);
+  border-color: rgba(0, 0, 0, 0.10);
+  color: var(--text);
+}
+
+/* Card list container */
+.users-admin-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* Individual card */
+.users-admin-card {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 16px;
+  background: var(--bg-elevated, rgba(255, 255, 255, 0.04));
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  transition: background 0.12s, border-color 0.12s;
+  position: relative;
+}
+.users-admin-card:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+[data-theme="light"] .users-admin-card {
+  background: #fff;
+  border-color: rgba(0, 0, 0, 0.08);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02);
+}
+[data-theme="light"] .users-admin-card:hover {
+  background: #fafbfc;
+}
+
+/* Avatar with M badge overlay */
+.users-admin-card-avatar-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+.users-admin-card-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 52px;
+  height: 52px;
+  border-radius: 12px;
+  background: rgba(99, 102, 241, 0.18);
+  color: #6366f1;
+  font-size: 1.35rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  user-select: none;
+}
+[data-theme="light"] .users-admin-card-avatar {
+  background: rgba(99, 102, 241, 0.12);
+  color: #4f46e5;
+}
+.users-admin-card-m-badge {
+  position: absolute;
+  bottom: -3px;
+  right: -3px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+  background: rgba(99, 102, 241, 0.22);
+  color: #4f46e5;
+  font-size: 0.7rem;
+  font-weight: 800;
+  border: 2px solid var(--bg-elevated, #1c1c1e);
+  user-select: none;
+}
+[data-theme="light"] .users-admin-card-m-badge {
+  background: rgba(99, 102, 241, 0.18);
+  color: #4338ca;
+  border-color: #fff;
+}
+
+/* Card body (middle column) */
+.users-admin-card-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.users-admin-card-name-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.users-admin-card-name {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text);
+}
+.users-admin-card-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-dim);
+}
+[data-theme="light"] .users-admin-card-status-pill {
+  background: rgba(0, 0, 0, 0.04);
+}
+.users-admin-card-status-pill.active {
+  color: #16a34a;
+}
+.users-admin-card-status-pill.inactive {
+  color: #ef4444;
+}
+.users-admin-card-status-pill.stale {
+  color: #f97316;
+}
+.users-admin-card-status-pill .users-admin-status-dot {
+  width: 8px;
+  height: 8px;
+  box-shadow: none;
+}
+.users-admin-card-role-pill {
+  font-size: 0.7rem;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+.users-admin-card-role-pill.admin {
+  background: rgba(245, 158, 11, 0.18);
+  color: #b45309;
+}
+.users-admin-card-subtitle {
+  font-size: 0.82rem;
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.users-admin-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+.users-admin-card-meta-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+[data-theme="light"] .users-admin-card-meta-pill {
+  background: rgba(0, 0, 0, 0.04);
+}
+.users-admin-card-meta-label {
+  opacity: 0.6;
+  font-weight: 500;
+}
+.users-admin-card-meta-extra {
+  font-size: 0.65rem;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgba(245, 158, 11, 0.15);
+  color: #b45309;
+  font-weight: 600;
+}
+
+/* Card actions (right side) */
+.users-admin-card-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  position: relative;
+}
+.users-admin-card-actions .icon-btn {
+  width: 36px;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 9px;
+  transition: background 0.12s;
+}
+.users-admin-card-actions .icon-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+[data-theme="light"] .users-admin-card-actions .icon-btn {
+  background: rgba(0, 0, 0, 0.04);
+}
+[data-theme="light"] .users-admin-card-actions .icon-btn:hover {
+  background: rgba(0, 0, 0, 0.08);
+}
+
+/* Inactive card - no opacity change per design spec (v0.10.173).
+   Status pill color does the visual work. */
+.users-admin-card.inactive { /* intentionally empty */ }
+
 .users-admin-table th {
   text-align: left;
   font-weight: 600;
