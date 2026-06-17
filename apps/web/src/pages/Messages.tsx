@@ -2,7 +2,12 @@
 // thread list on the left (or full screen on narrow), thread detail on the right.
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Send, ArrowLeft, RefreshCcw, MessageSquarePlus, Image as ImageIcon, Search, X, Zap, Phone, History, Star, Ban, Smile, FileText, Clock, Trash2, Pencil } from 'lucide-react';
+import { Send, ArrowLeft, RefreshCcw, MessageSquarePlus, Image as ImageIcon, Search, X, Zap, Phone, History, Star, Ban, Smile, FileText, Clock, Trash2, Pencil, MessageSquare, Voicemail as VoicemailIcon } from 'lucide-react';
+// v0.10.176 - DidSwitcher reused as the "Your line" pill below the
+// thread header. Same component as the global header switcher; talks
+// to POST /me/active-did, so switching here switches the user's active
+// outbound DID everywhere.
+import DidSwitcher from '../components/DidSwitcher';
 import {
   getThreads,
   getThread,
@@ -86,6 +91,50 @@ function formatRelative(iso: string): string {
     date.getDate() === yesterday.getDate();
   if (isYesterday) return `Yesterday, ${timeStr}`;
   return `${date.toLocaleDateString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric' })}, ${timeStr}`;
+}
+
+// v0.10.176 — Time-of-day only formatter, used by the per-run
+// timestamps in the new grouped bubble layout. Date context is
+// already shown by the day separator pill above.
+function formatTimeOnly(iso: string): string {
+  const date = new Date(iso);
+  if (!iso || Number.isNaN(date.getTime())) return '';
+  return date.toLocaleTimeString('en-US', {
+    timeZone: 'America/New_York',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+}
+
+// v0.10.176 — Relative day label for the separator pills.
+//   Today / Yesterday / Mon (weekday for 2-6 days back) /
+//   Jun 1 (same year) / Jun 1, 2025 (older).
+function formatDayLabel(iso: string): string {
+  const d = new Date(iso);
+  if (!iso || Number.isNaN(d.getTime())) return '';
+  const now = new Date();
+  const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const startTarget = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const diffDays = Math.round((startToday.getTime() - startTarget.getTime()) / (24 * 60 * 60 * 1000));
+  if (diffDays === 0) return 'Today';
+  if (diffDays === 1) return 'Yesterday';
+  if (diffDays > 1 && diffDays < 7) {
+    return d.toLocaleDateString('en-US', { timeZone: 'America/New_York', weekday: 'short' });
+  }
+  if (d.getFullYear() === now.getFullYear()) {
+    return d.toLocaleDateString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric' });
+  }
+  return d.toLocaleDateString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+// v0.10.176 — Initials from a contact label, used by the header avatar
+// AND the small avatar that appears before the first bubble of each
+// inbound run. Mirrors the helper used in Voicemail.tsx (v0.10.175).
+function initialsFromLabel(label: string): string {
+  const parts = label.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return '?';
+  if (parts.length === 1) return parts[0]!.slice(0, 2).toUpperCase();
+  return (parts[0]![0]! + (parts[parts.length - 1]![0] ?? '')).toUpperCase();
 }
 
 // v0.10.59 — "Will fire at..." labels for scheduled messages.
@@ -734,53 +783,101 @@ function ThreadDetail({ number, onBack }: ThreadDetailProps) {
 
   return (
     <div className="thread-detail">
-      <div className="thread-header">
-        <button className="icon-btn" onClick={onBack} aria-label="Back">
+      {/* v0.10.176 — Redesigned thread header. Avatar on the left,
+          name + (optional star) + phone subtitle with inline activity
+          counts as the middle column, Block + green Call icons on the
+          right. Activity badges:
+            - Messages count: informational, non-clickable (user is
+              already viewing this thread's messages).
+            - Calls count: navigates to /recents filtered for this contact.
+            - Voicemails count: navigates to /voicemail filtered for this
+              contact.
+          Both navigations include from= so the back-bar returns here. */}
+      <div className="thread-header thread-header-v2">
+        <button className="icon-btn thread-back-btn" onClick={onBack} aria-label="Back">
           <ArrowLeft size={18} />
         </button>
-        <div className="thread-header-name">
-          {/* v0.10.30 — Reorganized for clarity. Contact name on top with
-              their phone number directly below; "Your line:" pill below
-              that so users can tell at a glance which is theirs vs the
-              contact's. Previously the line pill was sandwiched between
-              the name and contact number, which looked like it belonged
-              to the contact. */}
-          <span className="thread-header-contact">
-            <span className="thread-header-contact-name">{displayName}</span>
-            {displayName !== formatNumber(number) && (
-              <span className="thread-header-sub">{formatNumber(number)}</span>
+        <span className="thread-header-avatar" aria-hidden="true">
+          {initialsFromLabel(displayName)}
+        </span>
+        <div className="thread-header-meta">
+          <div className="thread-header-line1">
+            <span className="thread-header-name-v2">{displayName}</span>
+            {favorited && (
+              <button
+                type="button"
+                className="thread-header-fav-inline"
+                onClick={handleToggleFav}
+                aria-label="Remove from favorites"
+                title="Remove from favorites"
+              >
+                <Star size={16} fill="currentColor" strokeWidth={0} />
+              </button>
             )}
-          </span>
-          {(() => {
-            const lastWithDid = [...messages].reverse().find((m) => m.userDid);
-            if (!lastWithDid?.userDid) return null;
-            return (
-              <span className="thread-header-your-line">
-                <span className="thread-header-your-line-label">Your line:</span>
-                <LineBadge userDid={lastWithDid.userDid} variant="header" />
+            {!favorited && (
+              <button
+                type="button"
+                className="thread-header-fav-inline thread-header-fav-empty"
+                onClick={handleToggleFav}
+                aria-label="Add to favorites"
+                title="Add to favorites"
+              >
+                <Star size={16} strokeWidth={1.75} />
+              </button>
+            )}
+            {blocked && (
+              <span
+                className="thread-blocked-badge"
+                title="You blocked this number. Manage in Settings → Blocked numbers."
+              >
+                <Ban size={12} /> Blocked
               </span>
-            );
-          })()}
+            )}
+          </div>
+          <div className="thread-header-line2">
+            {displayName !== formatNumber(number) && (
+              <span className="thread-header-sub-v2">{formatNumber(number)}</span>
+            )}
+            {history && (
+              <span className="thread-header-badges">
+                {history.summary.messageCount > 0 && (
+                  <span
+                    className="thread-header-badge"
+                    title={`${history.summary.messageCount} messages with this contact`}
+                  >
+                    <MessageSquare size={13} aria-hidden="true" />
+                    {history.summary.messageCount}
+                  </span>
+                )}
+                {history.summary.callCount > 0 && (
+                  <button
+                    type="button"
+                    className="thread-header-badge clickable"
+                    onClick={() => navigate(`/recents?phone=${encodeURIComponent(number)}&from=${encodeURIComponent('/messages?to=' + number)}`)}
+                    title={`${history.summary.callCount} calls — open call log filtered to this contact`}
+                  >
+                    <Phone size={13} aria-hidden="true" />
+                    {history.summary.callCount}
+                  </button>
+                )}
+                {history.summary.voicemailCount > 0 && (
+                  <button
+                    type="button"
+                    className="thread-header-badge clickable"
+                    onClick={() => navigate(`/voicemail?phone=${encodeURIComponent(number)}&from=${encodeURIComponent('/messages?to=' + number)}`)}
+                    title={`${history.summary.voicemailCount} voicemails — open voicemail log filtered to this contact`}
+                  >
+                    <VoicemailIcon size={13} aria-hidden="true" />
+                    {history.summary.voicemailCount}
+                  </button>
+                )}
+              </span>
+            )}
+          </div>
         </div>
-        {blocked && (
-          <span
-            className="thread-blocked-badge"
-            title="You blocked this number. Manage in Settings → Blocked numbers."
-          >
-            <Ban size={14} /> Blocked
-          </span>
-        )}
-        <button
-          className={`icon-btn thread-fav-btn ${favorited ? 'active' : ''}`}
-          onClick={handleToggleFav}
-          aria-label={favorited ? 'Remove from favorites' : 'Add to favorites'}
-          title={favorited ? 'Remove from favorites' : 'Add to favorites'}
-        >
-          <Star size={18} fill={favorited ? 'currentColor' : 'none'} />
-        </button>
         {!blocked && (
           <button
-            className="icon-btn thread-block-btn"
+            className="icon-btn thread-block-btn-v2"
             onClick={handleBlock}
             aria-label="Block this number"
             title="Block this number"
@@ -789,14 +886,23 @@ function ThreadDetail({ number, onBack }: ThreadDetailProps) {
           </button>
         )}
         <button
-          className="icon-btn thread-call-btn"
+          className="icon-btn thread-call-btn-v2"
           onClick={handleCall}
           aria-label="Call this number"
           title="Call"
           disabled={sipState !== 'registered'}
         >
-          <Phone size={18} />
+          <Phone size={18} fill="currentColor" strokeWidth={0} />
         </button>
+      </div>
+
+      {/* v0.10.176 — Your-line bar (the outbound DID switcher). Same
+          DidSwitcher component used in the app header. Switching here
+          calls POST /me/active-did, so it persists across sessions and
+          applies to all outbound (not just this thread). */}
+      <div className="thread-your-line-bar">
+        <span className="thread-your-line-label">Your line</span>
+        <DidSwitcher />
       </div>
 
       {favModal && (
@@ -884,34 +990,10 @@ function ThreadDetail({ number, onBack }: ThreadDetailProps) {
         </div>
       )}
 
-      {history && (history.summary.callCount > 0 || history.summary.voicemailCount > 0 || history.summary.messageCount > 0) && (
-        <button
-          type="button"
-          className="thread-history-bar"
-          onClick={() => setShowHistory(true)}
-          title="See full interaction history"
-        >
-          <History size={14} />
-          <span className="thread-history-counts">
-            {history.summary.messageCount > 0 && (
-              <span><strong>{history.summary.messageCount}</strong>{' '}
-                {history.summary.messageCount === 1 ? 'message' : 'messages'}
-              </span>
-            )}
-            {history.summary.callCount > 0 && (
-              <span><strong>{history.summary.callCount}</strong>{' '}
-                {history.summary.callCount === 1 ? 'call' : 'calls'}
-              </span>
-            )}
-            {history.summary.voicemailCount > 0 && (
-              <span><strong>{history.summary.voicemailCount}</strong>{' '}
-                {history.summary.voicemailCount === 1 ? 'voicemail' : 'voicemails'}
-              </span>
-            )}
-          </span>
-          <span className="thread-history-action">View timeline</span>
-        </button>
-      )}
+      {/* v0.10.176 — thread-history-bar removed; counts now live in the
+          header as small inline badges. The interaction-timeline modal
+          (setShowHistory) is still defined but no longer has a trigger
+          on this page; removable in a follow-up cleanup. */}
 
       {error && <div className="error" style={{ margin: '0 1rem' }}>{error}</div>}
 
@@ -961,53 +1043,108 @@ function ThreadDetail({ number, onBack }: ThreadDetailProps) {
         </div>
       )}
 
+      {/* v0.10.176 - Grouped bubble renderer.
+          Walks the messages in order, emitting:
+            (a) a day-separator pill whenever the calendar day changes,
+            (b) a "run" wrapper that groups consecutive same-direction
+                messages. Inbound runs render the sender's initials
+                avatar to the left of the bubble stack. Each run shows
+                ONE timestamp at the bottom (time-of-day only, since
+                the day context is already in the separator above).
+          Bubble DOM stays the same (.bubble.out / .bubble.in) so the
+          existing CSS for body / media / fail-blurb still applies. */}
       <div className="msg-stream" ref={scrollRef}>
         {loading && messages.length === 0 && <div className="muted">Loading…</div>}
-        {messages.map((m) => {
-          // v0.10.72 — Surface a friendly blurb on failed / delivery_failed
-          // bubbles. The `errors` JSON column holds the Telnyx error
-          // envelope (when present); telnyxErrorBlurb extracts the code
-          // and returns a short label + detail. Renders as a small red
-          // info strip below the bubble text.
-          const isFailedStatus =
-            m.direction === 'outbound' &&
-            (m.status === 'failed' || m.status === 'delivery_failed');
-          const failBlurb = isFailedStatus
-            ? telnyxErrorBlurb(m.errors ?? m.status)
-            : null;
-          return (
-            <div
-              key={m.id}
-              className={`bubble ${m.direction === 'outbound' ? 'out' : 'in'}${isFailedStatus ? ' bubble-failed' : ''}`}
-            >
-              {m.body && <div className="bubble-text">{m.body}</div>}
-              {m.mediaUrls?.length > 0 && (
-                <div className="bubble-media">
-                  {m.mediaUrls.map((u, i) => (
-                    <a key={i} href={u} target="_blank" rel="noreferrer">
-                      <img src={u} alt="attachment" />
-                    </a>
-                  ))}
+        {(() => {
+          type Group =
+            | { kind: 'day'; key: string; label: string }
+            | { kind: 'run'; key: string; dir: 'in' | 'out'; items: MessageRecord[] };
+          const groups: Group[] = [];
+          let lastDayKey = '';
+          let currentRun: { dir: 'in' | 'out'; items: MessageRecord[] } | null = null;
+          for (const m of messages) {
+            const d = new Date(m.createdAt);
+            const dayKey = Number.isNaN(d.getTime()) ? 'unknown' : d.toDateString();
+            if (dayKey !== lastDayKey) {
+              if (currentRun) {
+                groups.push({ kind: 'run', key: `run-${currentRun.items[0]!.id}`, dir: currentRun.dir, items: currentRun.items });
+                currentRun = null;
+              }
+              groups.push({ kind: 'day', key: `day-${dayKey}`, label: formatDayLabel(m.createdAt) });
+              lastDayKey = dayKey;
+            }
+            const dir: 'in' | 'out' = m.direction === 'outbound' ? 'out' : 'in';
+            if (!currentRun || currentRun.dir !== dir) {
+              if (currentRun) {
+                groups.push({ kind: 'run', key: `run-${currentRun.items[0]!.id}`, dir: currentRun.dir, items: currentRun.items });
+              }
+              currentRun = { dir, items: [] };
+            }
+            currentRun.items.push(m);
+          }
+          if (currentRun) {
+            groups.push({ kind: 'run', key: `run-${currentRun.items[0]!.id}`, dir: currentRun.dir, items: currentRun.items });
+          }
+          const avatarInitials = initialsFromLabel(displayName);
+          return groups.map((g) => {
+            if (g.kind === 'day') {
+              return (
+                <div key={g.key} className="msg-day-sep" role="separator">
+                  <span className="msg-day-sep-pill">{g.label}</span>
                 </div>
-              )}
-              {failBlurb && (
-                <div
-                  className="bubble-fail-blurb"
-                  title={failBlurb.detail}
-                >
-                  <strong>{failBlurb.short}.</strong>{' '}
-                  <span className="muted">{failBlurb.detail}</span>
-                </div>
-              )}
-              <div className="bubble-meta">
-                {formatRelative(m.createdAt)}
-                {m.direction === 'outbound' && (
-                  <span className="bubble-status"> · {m.status}</span>
+              );
+            }
+            const lastItem = g.items[g.items.length - 1]!;
+            return (
+              <div key={g.key} className={`bubble-run ${g.dir}`}>
+                {g.dir === 'in' && (
+                  <span className="bubble-run-avatar" aria-hidden="true">
+                    {avatarInitials}
+                  </span>
                 )}
+                <div className="bubble-stack">
+                  {g.items.map((m) => {
+                    const isFailedStatus =
+                      m.direction === 'outbound' &&
+                      (m.status === 'failed' || m.status === 'delivery_failed');
+                    const failBlurb = isFailedStatus
+                      ? telnyxErrorBlurb(m.errors ?? m.status)
+                      : null;
+                    return (
+                      <div
+                        key={m.id}
+                        className={`bubble ${m.direction === 'outbound' ? 'out' : 'in'}${isFailedStatus ? ' bubble-failed' : ''}`}
+                      >
+                        {m.body && <div className="bubble-text">{m.body}</div>}
+                        {m.mediaUrls?.length > 0 && (
+                          <div className="bubble-media">
+                            {m.mediaUrls.map((u, i) => (
+                              <a key={i} href={u} target="_blank" rel="noreferrer">
+                                <img src={u} alt="attachment" />
+                              </a>
+                            ))}
+                          </div>
+                        )}
+                        {failBlurb && (
+                          <div className="bubble-fail-blurb" title={failBlurb.detail}>
+                            <strong>{failBlurb.short}.</strong>{' '}
+                            <span className="muted">{failBlurb.detail}</span>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                  <div className="bubble-run-time">
+                    {formatTimeOnly(lastItem.createdAt)}
+                    {lastItem.direction === 'outbound' && (lastItem.status === 'failed' || lastItem.status === 'delivery_failed') && (
+                      <span className="bubble-status"> · {lastItem.status}</span>
+                    )}
+                  </div>
+                </div>
               </div>
-            </div>
-          );
-        })}
+            );
+          });
+        })()}
       </div>
 
       <input

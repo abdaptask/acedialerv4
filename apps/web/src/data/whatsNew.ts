@@ -24,6 +24,19 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.176',
+    date: 'June 17, 2026',
+    highlight: 'Conversation thread: redesigned header with clickable activity counts.',
+    changes: [
+      { type: 'improved', text: 'Thread header redesigned — large initials avatar, contact name with inline favorite star, phone number subtitle, and small inline activity badges showing how many messages / calls / voicemails you have with this contact.' },
+      { type: 'new', text: 'Clicking the calls badge jumps to your Recents tab filtered to this contact. Clicking the voicemails badge jumps to your Voicemail tab filtered to this contact. Back-bars return you to the thread.' },
+      { type: 'improved', text: '"Your line" pill moved below the header — it is now a real switcher (the same DidSwitcher that lives in the app header), so you can change the outbound line from inside the thread.' },
+      { type: 'improved', text: 'Message stream restyled: day-separator pills (Today / Yesterday / Mon / Jun 1) between days, the contact\'s initials avatar appears before grouped inbound bubbles, one time-of-day stamp at the bottom of each grouped run instead of per-bubble.' },
+      { type: 'improved', text: 'Outbound bubbles are now solid indigo with white text; inbound bubbles are a soft gray. Send button is a round indigo circle.' },
+      { type: 'fixed', text: 'No backend or schema changes — the Block / Call / favorite / quick replies / emoji / templates / schedule send / paste-to-attach / Telnyx error blurbs all work exactly as before.' },
+    ],
+  },
+  {
     version: '0.10.175',
     date: 'June 17, 2026',
     highlight: 'Voicemail tab: redesigned as cards + new Saved (Pin) feature.',
