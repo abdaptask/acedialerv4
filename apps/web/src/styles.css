@@ -3362,6 +3362,403 @@ body {
   border-bottom-color: rgba(0, 0, 0, 0.06);
 }
 
+/* v0.10.175 - Voicemail tab card-style redesign.
+   Each row has two visual lines:
+     1. avatar (initials, light indigo) + unread dot + name + timestamp
+     2. big indigo play button + decorative SVG waveform + duration chip
+        + speed chip + kebab
+   Bulk-select replaces the avatar with a checkbox cell. */
+
+.vm-card-list {
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+.vm-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  background: transparent;
+  transition: background 0.12s ease;
+  position: relative;
+}
+.vm-card:last-child { border-bottom: none; }
+.vm-card:hover { background: rgba(255, 255, 255, 0.03); }
+[data-theme="light"] .vm-card {
+  border-bottom-color: rgba(0, 0, 0, 0.06);
+}
+[data-theme="light"] .vm-card:hover {
+  background: rgba(0, 0, 0, 0.02);
+}
+.vm-card.selected {
+  background: rgba(79, 70, 229, 0.06);
+}
+[data-theme="light"] .vm-card.selected {
+  background: rgba(79, 70, 229, 0.05);
+}
+
+/* Top row: avatar + dot + name + timestamp. */
+.vm-card-top {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.vm-card-avatar {
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: rgba(99, 102, 241, 0.14);
+  color: #4f46e5;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.92rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  user-select: none;
+}
+[data-theme="light"] .vm-card-avatar {
+  background: rgba(99, 102, 241, 0.12);
+  color: #4f46e5;
+}
+.vm-card-checkbox {
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-dim);
+}
+[data-theme="light"] .vm-card-checkbox {
+  background: rgba(0, 0, 0, 0.04);
+  color: #4b5563;
+}
+.vm-card-checkbox.is-checked {
+  background: rgba(79, 70, 229, 0.18);
+  color: #4f46e5;
+}
+.vm-card-unread-dot {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #6366f1;
+  box-shadow: 0 0 0 0 rgba(99, 102, 241, 0.5);
+}
+.vm-card-name {
+  flex: 1;
+  min-width: 0;
+  font-weight: 600;
+  font-size: 0.98rem;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.vm-card-name.is-unread { color: var(--text); }
+.vm-card-name.is-read { color: var(--text); opacity: 0.85; }
+.vm-card-time {
+  flex-shrink: 0;
+  font-size: 0.82rem;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* Bottom row: play + waveform + duration/speed + kebab. */
+.vm-card-bottom {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-left: 52px; /* align under the avatar column */
+}
+.vm-card-play {
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: #4f46e5;
+  border: none;
+  color: #fff;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.12s ease, transform 0.08s ease;
+  padding: 0;
+}
+.vm-card-play:hover { background: #4338ca; }
+.vm-card-play:active { transform: scale(0.96); }
+.vm-card-play.is-playing { background: #4338ca; }
+
+/* Decorative SVG waveform. CSS sizes the SVG. */
+.vm-card-waveform {
+  flex: 1;
+  min-width: 60px;
+  height: 28px;
+  display: block;
+  color: #6366f1;
+  opacity: 0.85;
+}
+[data-theme="light"] .vm-card-waveform {
+  opacity: 0.85;
+}
+
+.vm-card-bottom-meta {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.85rem;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+.vm-card-duration {
+  white-space: nowrap;
+}
+.vm-card-speed-chip {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text);
+  cursor: pointer;
+  font-family: inherit;
+  font-variant-numeric: tabular-nums;
+  transition: background 0.12s ease;
+}
+.vm-card-speed-chip:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+[data-theme="light"] .vm-card-speed-chip {
+  background: rgba(0, 0, 0, 0.04);
+  border-color: rgba(0, 0, 0, 0.10);
+  color: #111827;
+}
+[data-theme="light"] .vm-card-speed-chip:hover {
+  background: rgba(0, 0, 0, 0.08);
+}
+.vm-card-speed-chip.is-active-rate {
+  background: rgba(99, 102, 241, 0.18);
+  border-color: rgba(99, 102, 241, 0.30);
+  color: #4f46e5;
+}
+
+/* Expiry warning soft pill - red when <=1 day, amber when 2-7. Not
+   rendered when > 7 days (the "Auto-deleting soon" filter pill
+   surfaces those rows; per-row clutter avoided). */
+.vm-card-expires {
+  font-size: 0.74rem;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.vm-card-expires.warn {
+  background: rgba(245, 158, 11, 0.18);
+  color: #b45309;
+}
+.vm-card-expires.danger {
+  background: rgba(239, 68, 68, 0.18);
+  color: #dc2626;
+}
+
+/* Kebab dropdown (mirrors the Recents one). */
+.vm-card-kebab-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+.vm-card-kebab-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  padding: 0;
+}
+.vm-card-kebab-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text);
+}
+[data-theme="light"] .vm-card-kebab-btn:hover {
+  background: rgba(0, 0, 0, 0.06);
+  color: #111827;
+}
+.vm-card-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  min-width: 220px;
+  z-index: 30;
+  background: var(--bg-elevated, #1f1f22);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+}
+[data-theme="light"] .vm-card-menu {
+  background: #fff;
+  border-color: rgba(0, 0, 0, 0.10);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.10);
+}
+.vm-card-menu-header {
+  padding: 6px 10px 8px;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-dim);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  margin-bottom: 4px;
+}
+[data-theme="light"] .vm-card-menu-header {
+  border-bottom-color: rgba(0, 0, 0, 0.06);
+}
+.vm-card-menu-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  background: transparent;
+  border: none;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 0.88rem;
+  text-align: left;
+  border-radius: 6px;
+  cursor: pointer;
+  width: 100%;
+}
+.vm-card-menu-item:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+[data-theme="light"] .vm-card-menu-item:hover {
+  background: rgba(0, 0, 0, 0.04);
+}
+.vm-card-menu-item.danger { color: #ef4444; }
+.vm-card-menu-item .menu-icon {
+  flex-shrink: 0;
+  opacity: 0.85;
+}
+.vm-card-menu-note {
+  padding: 4px 10px 8px;
+  font-size: 0.72rem;
+  color: var(--text-dim);
+  line-height: 1.4;
+}
+
+/* Filter pill row above the list - reuses Recents pill chrome. */
+.vm-filter-row {
+  display: flex;
+  gap: 0.4rem;
+  padding: 0.4rem 1rem 0.6rem;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.vm-filter-row::-webkit-scrollbar { display: none; }
+.vm-filter-chip {
+  flex-shrink: 0;
+  padding: 0.35rem 0.85rem;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-dim);
+  font-size: 0.82rem;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+.vm-filter-chip:hover {
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
+}
+.vm-filter-chip.is-active {
+  background: #4f46e5;
+  color: #fff;
+  border-color: #4f46e5;
+}
+[data-theme="light"] .vm-filter-chip {
+  background: rgba(0, 0, 0, 0.05);
+  color: #444;
+  border-color: rgba(0, 0, 0, 0.08);
+}
+[data-theme="light"] .vm-filter-chip:hover {
+  background: rgba(0, 0, 0, 0.09);
+  color: #111;
+}
+[data-theme="light"] .vm-filter-chip.is-active {
+  background: #4f46e5;
+  color: #fff;
+  border-color: #4f46e5;
+}
+
+/* Inline player + transcript when row is expanded. */
+.vm-card-player {
+  padding: 6px 16px 12px 68px; /* line up with bottom row */
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+[data-theme="light"] .vm-card-player {
+  border-bottom-color: rgba(0, 0, 0, 0.06);
+}
+.vm-card-transcript {
+  margin: 10px 0 0;
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 8px;
+  font-size: 0.88rem;
+  line-height: 1.5;
+  color: var(--text);
+}
+[data-theme="light"] .vm-card-transcript {
+  background: rgba(0, 0, 0, 0.03);
+}
+.vm-card-transcript-tag {
+  display: inline-block;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-dim);
+  margin-right: 8px;
+  font-weight: 600;
+}
+
+/* Saved (pinned) star indicator next to name. */
+.vm-card-pin-indicator {
+  flex-shrink: 0;
+  color: #f59e0b;
+  display: inline-flex;
+  margin-left: 6px;
+}
+
+/* Narrow viewport: stack the bottom row meta below. */
+@media (max-width: 440px) {
+  .vm-card-bottom {
+    flex-wrap: wrap;
+  }
+  .vm-card-waveform {
+    flex-basis: 100%;
+    order: 3;
+  }
+}
+
+
 /* Narrow viewport: collapse the meta column under the body. */
 @media (max-width: 440px) {
   .recents-card {

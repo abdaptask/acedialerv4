@@ -1,4 +1,664 @@
-// v0.10.175 — Voicemail tab redesigned as a card list. Each row has
+#!/usr/bin/env node
+// v0.10.175 - Voicemail tab card-style redesign + Pin (Saved) feature.
+//
+// SCOPE
+//   * Voicemail.tsx fully rewritten as a card list: initials avatar +
+//     purple unread dot + name + timestamp on the top row; large indigo
+//     play button + decorative SVG waveform + duration + speed chip +
+//     kebab on the bottom row. Bulk-select mode still works (checkboxes
+//     replace the avatar; toolbar shows Mark read / Mark unread / Delete).
+//   * Filter pills above the list: All / Unread / Saved / Auto-deleting
+//     soon. "Auto-deleting soon" surfaces rows with <= 7 days remaining.
+//   * Per-row 30-day countdown badge KEPT but only rendered when <= 7
+//     days remain (orange/red soft pill on the right of the bottom row).
+//     Reduces visual clutter on rows that are nowhere near expiry.
+//   * Pin feature: kebab menu has Pin / Unpin. Pinning sets
+//     Voicemail.savedAt = now() (new column). Pinned rows match the
+//     "Saved" filter. Auto-delete still applies to pinned rows per
+//     the agreed semantics (Pin is a tag, not a retention extender);
+//     the kebab tooltip says so.
+//   * Locked behaviors PRESERVED: B1 fresh-URL on expand, B2 single-
+//     click-play (deps stay [expanded, audioUrl]), v0.10.103 onPlay
+//     failsafe markListened, v0.10.67 unreadCountChanged dispatch,
+//     auto-poll for missing transcripts, real-duration probe.
+//
+// SCHEMA CHANGE
+//   * packages/db/prisma/schema.prisma — adds `savedAt DateTime? @map("saved_at")`
+//   * Required follow-up after this script: `npm run db:push -w packages/db`
+//
+// NEW ENDPOINTS
+//   * POST /voicemails/:id/pin   -> sets savedAt = now()
+//   * POST /voicemails/:id/unpin -> sets savedAt = null
+//
+// VERSION BUMP: 0.10.174 -> 0.10.175
+
+import { readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { join } from 'node:path';
+
+const ROOT = process.cwd();
+console.log(`[apply-v175] CWD: ${ROOT}`);
+
+function applyEdits(relPath, edits) {
+  const fp = join(ROOT, relPath);
+  if (!existsSync(fp)) {
+    console.error(`[apply-v175] FATAL: file not found: ${fp}`);
+    process.exit(1);
+  }
+  let content = readFileSync(fp, 'utf8');
+  const initialLen = content.length;
+  const usesCRLF = content.includes('\r\n');
+  const normalize = (s) => usesCRLF ? s.replace(/\r?\n/g, '\r\n') : s.replace(/\r\n/g, '\n');
+  for (const [i, edit] of edits.entries()) {
+    const find = normalize(edit.find);
+    const replace = normalize(edit.replace);
+    if (!content.includes(find)) {
+      console.error(`[apply-v175] FATAL in ${relPath}: edit #${i+1} (${edit.label}) - anchor not found`);
+      console.error(`  anchor (first 240 chars): ${JSON.stringify(find.slice(0, 240))}`);
+      process.exit(1);
+    }
+    if (content.split(find).length - 1 > 1) {
+      console.error(`[apply-v175] FATAL: duplicate match for edit #${i+1} (${edit.label}) in ${relPath}`);
+      process.exit(1);
+    }
+    content = content.replace(find, replace);
+    console.log(`  OK ${relPath} edit ${i+1}/${edits.length} (${edit.label})`);
+  }
+  writeFileSync(fp, content, 'utf8');
+  console.log(`  ${relPath}: ${initialLen} -> ${content.length} bytes (${usesCRLF ? 'CRLF' : 'LF'})`);
+}
+
+function writeFile(relPath, content) {
+  const fp = join(ROOT, relPath);
+  if (!existsSync(fp)) {
+    console.error(`[apply-v175] FATAL: file not found (refuse to create): ${fp}`);
+    process.exit(1);
+  }
+  const existing = readFileSync(fp, 'utf8');
+  const usesCRLF = existing.includes('\r\n');
+  const out = usesCRLF ? content.replace(/\r?\n/g, '\r\n') : content.replace(/\r\n/g, '\n');
+  writeFileSync(fp, out, 'utf8');
+  console.log(`  OK ${relPath}: ${existing.length} -> ${out.length} bytes (full rewrite, ${usesCRLF ? 'CRLF' : 'LF'})`);
+}
+
+// =====================================================================
+// 1. Prisma schema - add Voicemail.savedAt column
+// =====================================================================
+applyEdits('packages/db/prisma/schema.prisma', [
+  {
+    label: 'add savedAt column to Voicemail model (pin / Saved filter, v0.10.175)',
+    find: `  listenedAt      DateTime? @map("listened_at")`,
+    replace: `  listenedAt      DateTime? @map("listened_at")
+  /// v0.10.175 — user-pinned voicemails surface in the Saved filter.
+  /// Pin sets this to now(); Unpin sets it back to null. Pinning is a
+  /// tag, NOT a retention extender — the 30-day auto-delete in
+  /// purgeExpired() still applies. This matches the chosen semantics.
+  savedAt         DateTime? @map("saved_at")`,
+  },
+]);
+
+// =====================================================================
+// 2. API routes - add POST /voicemails/:id/pin + /unpin
+//    Inject right before the closing `}` of voicemailsRoutes().
+// =====================================================================
+applyEdits('apps/api/src/voicemails/voicemails.routes.ts', [
+  {
+    label: 'add POST /voicemails/:id/pin and /unpin endpoints before close of voicemailsRoutes()',
+    find: `  // DELETE /voicemails/:id
+  app.delete('/voicemails/:id', { onRequest: [app.authenticate] }, async (request, reply) => {
+    const user = request.user as JwtPayload;
+    const { id } = request.params as { id: string };
+    const existing = await prisma.voicemail.findFirst({
+      where: { id: Number(id), userId: user.sub },
+    });
+    if (!existing) return reply.code(404).send({ error: 'Not found' });
+    await prisma.voicemail.delete({ where: { id: existing.id } });
+    return { ok: true };
+  });
+}`,
+    replace: `  // DELETE /voicemails/:id
+  app.delete('/voicemails/:id', { onRequest: [app.authenticate] }, async (request, reply) => {
+    const user = request.user as JwtPayload;
+    const { id } = request.params as { id: string };
+    const existing = await prisma.voicemail.findFirst({
+      where: { id: Number(id), userId: user.sub },
+    });
+    if (!existing) return reply.code(404).send({ error: 'Not found' });
+    await prisma.voicemail.delete({ where: { id: existing.id } });
+    return { ok: true };
+  });
+
+  // v0.10.175 — POST /voicemails/:id/pin
+  // Marks a voicemail as Saved by stamping savedAt=now(). Pinned rows
+  // show up under the "Saved" filter in the Voicemail tab. Pinning is
+  // a tag only — the 30-day auto-delete cron still applies (per the
+  // agreed UX: pin doesn't extend retention).
+  app.post('/voicemails/:id/pin', { onRequest: [app.authenticate] }, async (request, reply) => {
+    const user = request.user as JwtPayload;
+    const { id } = request.params as { id: string };
+    const existing = await prisma.voicemail.findFirst({
+      where: { id: Number(id), userId: user.sub },
+    });
+    if (!existing) return reply.code(404).send({ error: 'Not found' });
+    const updated = await prisma.voicemail.update({
+      where: { id: existing.id },
+      data: { savedAt: new Date() },
+    });
+    return updated;
+  });
+
+  // v0.10.175 — POST /voicemails/:id/unpin
+  // Clears the Saved tag (sets savedAt back to null).
+  app.post('/voicemails/:id/unpin', { onRequest: [app.authenticate] }, async (request, reply) => {
+    const user = request.user as JwtPayload;
+    const { id } = request.params as { id: string };
+    const existing = await prisma.voicemail.findFirst({
+      where: { id: Number(id), userId: user.sub },
+    });
+    if (!existing) return reply.code(404).send({ error: 'Not found' });
+    const updated = await prisma.voicemail.update({
+      where: { id: existing.id },
+      data: { savedAt: null },
+    });
+    return updated;
+  });
+}`,
+  },
+]);
+
+// =====================================================================
+// 3. apps/web/src/api.ts - add savedAt field + pin/unpin helpers
+// =====================================================================
+applyEdits('apps/web/src/api.ts', [
+  {
+    label: 'add savedAt field to VoicemailRecord interface',
+    find: `export interface VoicemailRecord {
+  id: number;
+  fromNumber: string;
+  toNumber: string;
+  recordingUrl: string;
+  durationSeconds: number;
+  transcription: string | null;
+  receivedAt: string;
+  listenedAt: string | null;
+  userDid?: RowUserDid | null;
+}`,
+    replace: `export interface VoicemailRecord {
+  id: number;
+  fromNumber: string;
+  toNumber: string;
+  recordingUrl: string;
+  durationSeconds: number;
+  transcription: string | null;
+  receivedAt: string;
+  listenedAt: string | null;
+  // v0.10.175 — null when not pinned, ISO timestamp when pinned.
+  // Pinning is a tag; auto-delete still applies to pinned rows.
+  savedAt: string | null;
+  userDid?: RowUserDid | null;
+}`,
+  },
+  {
+    label: 'add pin/unpin client helpers after deleteVoicemail()',
+    find: `export async function deleteVoicemail(token: string, id: number): Promise<void> {
+  await fetch(\`\${API_URL}/voicemails/\${id}\`, {
+    method: 'DELETE',
+    headers: { Authorization: \`Bearer \${token}\` },
+  });
+}`,
+    replace: `export async function deleteVoicemail(token: string, id: number): Promise<void> {
+  await fetch(\`\${API_URL}/voicemails/\${id}\`, {
+    method: 'DELETE',
+    headers: { Authorization: \`Bearer \${token}\` },
+  });
+}
+
+// v0.10.175 — pin / unpin a voicemail. Pinning stamps savedAt=now() so
+// the row matches the "Saved" filter. Pin does NOT extend retention —
+// the 30-day auto-delete cron still runs on pinned rows.
+export async function pinVoicemail(token: string, id: number): Promise<void> {
+  const res = await fetch(\`\${API_URL}/voicemails/\${id}/pin\`, {
+    method: 'POST',
+    headers: { Authorization: \`Bearer \${token}\` },
+  });
+  if (!res.ok) throw new Error(\`HTTP \${res.status}\`);
+}
+
+export async function unpinVoicemail(token: string, id: number): Promise<void> {
+  const res = await fetch(\`\${API_URL}/voicemails/\${id}/unpin\`, {
+    method: 'POST',
+    headers: { Authorization: \`Bearer \${token}\` },
+  });
+  if (!res.ok) throw new Error(\`HTTP \${res.status}\`);
+}`,
+  },
+]);
+
+// =====================================================================
+// 4. styles.css - append voicemail card-redesign block
+// =====================================================================
+const CSS_BLOCK = `
+/* v0.10.175 - Voicemail tab card-style redesign.
+   Each row has two visual lines:
+     1. avatar (initials, light indigo) + unread dot + name + timestamp
+     2. big indigo play button + decorative SVG waveform + duration chip
+        + speed chip + kebab
+   Bulk-select replaces the avatar with a checkbox cell. */
+
+.vm-card-list {
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+.vm-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  background: transparent;
+  transition: background 0.12s ease;
+  position: relative;
+}
+.vm-card:last-child { border-bottom: none; }
+.vm-card:hover { background: rgba(255, 255, 255, 0.03); }
+[data-theme="light"] .vm-card {
+  border-bottom-color: rgba(0, 0, 0, 0.06);
+}
+[data-theme="light"] .vm-card:hover {
+  background: rgba(0, 0, 0, 0.02);
+}
+.vm-card.selected {
+  background: rgba(79, 70, 229, 0.06);
+}
+[data-theme="light"] .vm-card.selected {
+  background: rgba(79, 70, 229, 0.05);
+}
+
+/* Top row: avatar + dot + name + timestamp. */
+.vm-card-top {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.vm-card-avatar {
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: rgba(99, 102, 241, 0.14);
+  color: #4f46e5;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.92rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  user-select: none;
+}
+[data-theme="light"] .vm-card-avatar {
+  background: rgba(99, 102, 241, 0.12);
+  color: #4f46e5;
+}
+.vm-card-checkbox {
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-dim);
+}
+[data-theme="light"] .vm-card-checkbox {
+  background: rgba(0, 0, 0, 0.04);
+  color: #4b5563;
+}
+.vm-card-checkbox.is-checked {
+  background: rgba(79, 70, 229, 0.18);
+  color: #4f46e5;
+}
+.vm-card-unread-dot {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #6366f1;
+  box-shadow: 0 0 0 0 rgba(99, 102, 241, 0.5);
+}
+.vm-card-name {
+  flex: 1;
+  min-width: 0;
+  font-weight: 600;
+  font-size: 0.98rem;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.vm-card-name.is-unread { color: var(--text); }
+.vm-card-name.is-read { color: var(--text); opacity: 0.85; }
+.vm-card-time {
+  flex-shrink: 0;
+  font-size: 0.82rem;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* Bottom row: play + waveform + duration/speed + kebab. */
+.vm-card-bottom {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-left: 52px; /* align under the avatar column */
+}
+.vm-card-play {
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: #4f46e5;
+  border: none;
+  color: #fff;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.12s ease, transform 0.08s ease;
+  padding: 0;
+}
+.vm-card-play:hover { background: #4338ca; }
+.vm-card-play:active { transform: scale(0.96); }
+.vm-card-play.is-playing { background: #4338ca; }
+
+/* Decorative SVG waveform. CSS sizes the SVG. */
+.vm-card-waveform {
+  flex: 1;
+  min-width: 60px;
+  height: 28px;
+  display: block;
+  color: #6366f1;
+  opacity: 0.85;
+}
+[data-theme="light"] .vm-card-waveform {
+  opacity: 0.85;
+}
+
+.vm-card-bottom-meta {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.85rem;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+.vm-card-duration {
+  white-space: nowrap;
+}
+.vm-card-speed-chip {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text);
+  cursor: pointer;
+  font-family: inherit;
+  font-variant-numeric: tabular-nums;
+  transition: background 0.12s ease;
+}
+.vm-card-speed-chip:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+[data-theme="light"] .vm-card-speed-chip {
+  background: rgba(0, 0, 0, 0.04);
+  border-color: rgba(0, 0, 0, 0.10);
+  color: #111827;
+}
+[data-theme="light"] .vm-card-speed-chip:hover {
+  background: rgba(0, 0, 0, 0.08);
+}
+.vm-card-speed-chip.is-active-rate {
+  background: rgba(99, 102, 241, 0.18);
+  border-color: rgba(99, 102, 241, 0.30);
+  color: #4f46e5;
+}
+
+/* Expiry warning soft pill - red when <=1 day, amber when 2-7. Not
+   rendered when > 7 days (the "Auto-deleting soon" filter pill
+   surfaces those rows; per-row clutter avoided). */
+.vm-card-expires {
+  font-size: 0.74rem;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.vm-card-expires.warn {
+  background: rgba(245, 158, 11, 0.18);
+  color: #b45309;
+}
+.vm-card-expires.danger {
+  background: rgba(239, 68, 68, 0.18);
+  color: #dc2626;
+}
+
+/* Kebab dropdown (mirrors the Recents one). */
+.vm-card-kebab-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+.vm-card-kebab-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  padding: 0;
+}
+.vm-card-kebab-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text);
+}
+[data-theme="light"] .vm-card-kebab-btn:hover {
+  background: rgba(0, 0, 0, 0.06);
+  color: #111827;
+}
+.vm-card-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  min-width: 220px;
+  z-index: 30;
+  background: var(--bg-elevated, #1f1f22);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+}
+[data-theme="light"] .vm-card-menu {
+  background: #fff;
+  border-color: rgba(0, 0, 0, 0.10);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.10);
+}
+.vm-card-menu-header {
+  padding: 6px 10px 8px;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-dim);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  margin-bottom: 4px;
+}
+[data-theme="light"] .vm-card-menu-header {
+  border-bottom-color: rgba(0, 0, 0, 0.06);
+}
+.vm-card-menu-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  background: transparent;
+  border: none;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 0.88rem;
+  text-align: left;
+  border-radius: 6px;
+  cursor: pointer;
+  width: 100%;
+}
+.vm-card-menu-item:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+[data-theme="light"] .vm-card-menu-item:hover {
+  background: rgba(0, 0, 0, 0.04);
+}
+.vm-card-menu-item.danger { color: #ef4444; }
+.vm-card-menu-item .menu-icon {
+  flex-shrink: 0;
+  opacity: 0.85;
+}
+.vm-card-menu-note {
+  padding: 4px 10px 8px;
+  font-size: 0.72rem;
+  color: var(--text-dim);
+  line-height: 1.4;
+}
+
+/* Filter pill row above the list - reuses Recents pill chrome. */
+.vm-filter-row {
+  display: flex;
+  gap: 0.4rem;
+  padding: 0.4rem 1rem 0.6rem;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.vm-filter-row::-webkit-scrollbar { display: none; }
+.vm-filter-chip {
+  flex-shrink: 0;
+  padding: 0.35rem 0.85rem;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-dim);
+  font-size: 0.82rem;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+.vm-filter-chip:hover {
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
+}
+.vm-filter-chip.is-active {
+  background: #4f46e5;
+  color: #fff;
+  border-color: #4f46e5;
+}
+[data-theme="light"] .vm-filter-chip {
+  background: rgba(0, 0, 0, 0.05);
+  color: #444;
+  border-color: rgba(0, 0, 0, 0.08);
+}
+[data-theme="light"] .vm-filter-chip:hover {
+  background: rgba(0, 0, 0, 0.09);
+  color: #111;
+}
+[data-theme="light"] .vm-filter-chip.is-active {
+  background: #4f46e5;
+  color: #fff;
+  border-color: #4f46e5;
+}
+
+/* Inline player + transcript when row is expanded. */
+.vm-card-player {
+  padding: 6px 16px 12px 68px; /* line up with bottom row */
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+[data-theme="light"] .vm-card-player {
+  border-bottom-color: rgba(0, 0, 0, 0.06);
+}
+.vm-card-transcript {
+  margin: 10px 0 0;
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 8px;
+  font-size: 0.88rem;
+  line-height: 1.5;
+  color: var(--text);
+}
+[data-theme="light"] .vm-card-transcript {
+  background: rgba(0, 0, 0, 0.03);
+}
+.vm-card-transcript-tag {
+  display: inline-block;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-dim);
+  margin-right: 8px;
+  font-weight: 600;
+}
+
+/* Saved (pinned) star indicator next to name. */
+.vm-card-pin-indicator {
+  flex-shrink: 0;
+  color: #f59e0b;
+  display: inline-flex;
+  margin-left: 6px;
+}
+
+/* Narrow viewport: stack the bottom row meta below. */
+@media (max-width: 440px) {
+  .vm-card-bottom {
+    flex-wrap: wrap;
+  }
+  .vm-card-waveform {
+    flex-basis: 100%;
+    order: 3;
+  }
+}
+`;
+
+// Anchor: Voicemail-related styles live alongside Messages/Recents.
+// Append at a stable anchor — the last well-known voicemail-existing
+// rule. We append after the global modal styles block (line ~3964
+// in the current file). Use the END of styles.css as the anchor: the
+// final closing `}` of the last existing rule is unsafe (file may
+// grow), so use a known late-file landmark. We grep for the
+// recents-card-recording closing brace which we just added in
+// v0.10.174 (so this anchor was uniquely placed by the prior run).
+applyEdits('apps/web/src/styles.css', [
+  {
+    label: 'append v0.10.175 voicemail card-redesign styles after the v0.10.174 recents-card-recording rule',
+    find: `[data-theme="light"] .recents-card-recording {
+  border-bottom-color: rgba(0, 0, 0, 0.06);
+}`,
+    replace: `[data-theme="light"] .recents-card-recording {
+  border-bottom-color: rgba(0, 0, 0, 0.06);
+}
+` + CSS_BLOCK,
+  },
+]);
+
+// =====================================================================
+// 5. Voicemail.tsx - full file rewrite
+// =====================================================================
+const VOICEMAIL_TSX = `// v0.10.175 — Voicemail tab redesigned as a card list. Each row has
 // two lines: avatar+dot+name+timestamp on top, big play+waveform+
 // duration+speed+kebab on bottom. Pin (Saved) feature via kebab menu.
 // Locked behaviors preserved: B1 fresh-URL, B2 single-click-play,
@@ -43,7 +703,7 @@ function formatDuration(seconds: number): string {
   if (!seconds) return '0:00';
   const m = Math.floor(seconds / 60);
   const s = seconds % 60;
-  return `${m}:${s.toString().padStart(2, '0')}`;
+  return \`\${m}:\${s.toString().padStart(2, '0')}\`;
 }
 
 function formatNumber(raw: string): string {
@@ -66,12 +726,12 @@ function formatTime(iso: string): string {
     date.getFullYear() === yesterday.getFullYear() &&
     date.getMonth() === yesterday.getMonth() &&
     date.getDate() === yesterday.getDate();
-  if (isYesterday) return `Yesterday, ${timeStr}`;
-  return `${date.toLocaleDateString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric' })}, ${timeStr}`;
+  if (isYesterday) return \`Yesterday, \${timeStr}\`;
+  return \`\${date.toLocaleDateString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric' })}, \${timeStr}\`;
 }
 
 function initialsFromLabel(label: string): string {
-  const parts = label.trim().split(/\s+/).filter(Boolean);
+  const parts = label.trim().split(/\\s+/).filter(Boolean);
   if (parts.length === 0) return '?';
   if (parts.length === 1) return parts[0]!.slice(0, 2).toUpperCase();
   return (parts[0]![0]! + (parts[parts.length - 1]![0] ?? '')).toUpperCase();
@@ -99,7 +759,7 @@ function Waveform({ seed }: { seed: number }) {
   return (
     <svg
       className="vm-card-waveform"
-      viewBox={`0 0 ${bars * 4} 28`}
+      viewBox={\`0 0 \${bars * 4} 28\`}
       preserveAspectRatio="none"
       aria-hidden="true"
     >
@@ -166,7 +826,7 @@ export default function Voicemail() {
   const [searchParams] = useSearchParams();
   const contactFilter = searchParams.get('phone');
   const fromUrl = searchParams.get('from');
-  const contactWant = contactFilter ? (contactFilter.replace(/[^\d]/g, '').slice(-10)) : '';
+  const contactWant = contactFilter ? (contactFilter.replace(/[^\\d]/g, '').slice(-10)) : '';
 
   function toggleSelected(id: number) {
     setSelected((prev) => {
@@ -182,7 +842,7 @@ export default function Voicemail() {
   const filtered = useMemo(() => {
     let base = items;
     if (contactWant) {
-      base = items.filter((vm) => (vm.fromNumber || '').replace(/[^\d]/g, '').slice(-10) === contactWant);
+      base = items.filter((vm) => (vm.fromNumber || '').replace(/[^\\d]/g, '').slice(-10) === contactWant);
     }
     if (vmFilter === 'unread') {
       base = base.filter((vm) => !vm.listenedAt);
@@ -197,9 +857,9 @@ export default function Voicemail() {
     }
     const q = search.trim().toLowerCase();
     if (!q) return base;
-    const qDigits = q.replace(/[^\d]/g, '');
+    const qDigits = q.replace(/[^\\d]/g, '');
     return base.filter((vm) => {
-      const digits = (vm.fromNumber || '').replace(/[^\d]/g, '');
+      const digits = (vm.fromNumber || '').replace(/[^\\d]/g, '');
       if (qDigits && digits.includes(qDigits)) return true;
       if ((vm.transcription ?? '').toLowerCase().includes(q)) return true;
       const favName = getFavoriteName(vm.fromNumber);
@@ -309,7 +969,7 @@ export default function Voicemail() {
   async function handleBulkDelete() {
     const token = sessionStorage.getItem('ace_token');
     if (!token || selected.size === 0) return;
-    if (!confirm(`Delete ${selected.size} voicemail${selected.size === 1 ? '' : 's'}?`)) return;
+    if (!confirm(\`Delete \${selected.size} voicemail\${selected.size === 1 ? '' : 's'}?\`)) return;
     const ids = Array.from(selected);
     setItems((prev) => prev.filter((p) => !selected.has(p.id)));
     setSelected(new Set());
@@ -364,7 +1024,7 @@ export default function Voicemail() {
   function handleCallBack(vm: VoicemailRecord) {
     if (!vm.fromNumber) return;
     if (sipState !== 'registered') {
-      alert(`SIP not ready (${sipState}). Try again in a moment.`);
+      alert(\`SIP not ready (\${sipState}). Try again in a moment.\`);
       return;
     }
     call(vm.fromNumber);
@@ -372,7 +1032,7 @@ export default function Voicemail() {
   }
   function handleSendSms(vm: VoicemailRecord) {
     if (!vm.fromNumber) return;
-    navigate(`/messages?to=${encodeURIComponent(vm.fromNumber)}`);
+    navigate(\`/messages?to=\${encodeURIComponent(vm.fromNumber)}\`);
   }
 
   return (
@@ -382,7 +1042,7 @@ export default function Voicemail() {
           type="button"
           className="contact-filter-bar"
           onClick={goBack}
-          aria-label={`Back to ${contactLabel || 'previous page'}`}
+          aria-label={\`Back to \${contactLabel || 'previous page'}\`}
         >
           <ArrowLeft size={16} />
           <span className="contact-filter-text">
@@ -462,7 +1122,7 @@ export default function Voicemail() {
                 type="button"
                 role="tab"
                 aria-selected={active}
-                className={`vm-filter-chip${active ? ' is-active' : ''}`}
+                className={\`vm-filter-chip\${active ? ' is-active' : ''}\`}
                 onClick={() => setVmFilter(opt.v)}
               >
                 {opt.label}
@@ -679,7 +1339,7 @@ function VoicemailCard({
   let expiresEl: JSX.Element | null = null;
   if (daysLeft > 0 && daysLeft <= 7) {
     const cls = daysLeft <= 1 ? 'vm-card-expires danger' : 'vm-card-expires warn';
-    const text = daysLeft === 1 ? 'Auto-deletes tomorrow' : `Deletes in ${daysLeft}d`;
+    const text = daysLeft === 1 ? 'Auto-deletes tomorrow' : \`Deletes in \${daysLeft}d\`;
     expiresEl = <span className={cls}>{text}</span>;
   }
 
@@ -711,7 +1371,7 @@ function VoicemailCard({
   return (
     <>
       <div
-        className={`vm-card${checked ? ' selected' : ''}`}
+        className={\`vm-card\${checked ? ' selected' : ''}\`}
         role="listitem"
         onClick={selectMode ? onToggleSelect : undefined}
       >
@@ -719,7 +1379,7 @@ function VoicemailCard({
         <div className="vm-card-top">
           {selectMode ? (
             <span
-              className={`vm-card-checkbox${checked ? ' is-checked' : ''}`}
+              className={\`vm-card-checkbox\${checked ? ' is-checked' : ''}\`}
               aria-hidden="true"
             >
               {checked ? <CheckSquare size={18} /> : <Square size={18} />}
@@ -732,7 +1392,7 @@ function VoicemailCard({
           {!selectMode && unread && (
             <span className="vm-card-unread-dot" aria-label="Unread" />
           )}
-          <span className={`vm-card-name ${unread ? 'is-unread' : 'is-read'}`}>
+          <span className={\`vm-card-name \${unread ? 'is-unread' : 'is-read'}\`}>
             {label}
             {pinned && (
               <span className="vm-card-pin-indicator" aria-label="Saved">
@@ -748,7 +1408,7 @@ function VoicemailCard({
           <div className="vm-card-bottom" onClick={(e) => e.stopPropagation()}>
             <button
               type="button"
-              className={`vm-card-play${isPlaying ? ' is-playing' : ''}`}
+              className={\`vm-card-play\${isPlaying ? ' is-playing' : ''}\`}
               aria-label={isPlaying ? 'Pause voicemail' : 'Play voicemail'}
               title={isPlaying ? 'Pause' : 'Play'}
               onClick={handlePlayClick}
@@ -764,10 +1424,10 @@ function VoicemailCard({
               </span>
               <button
                 type="button"
-                className={`vm-card-speed-chip${playbackRate !== 1 ? ' is-active-rate' : ''}`}
+                className={\`vm-card-speed-chip\${playbackRate !== 1 ? ' is-active-rate' : ''}\`}
                 onClick={cycleSpeed}
                 title="Click to cycle playback speed"
-                aria-label={`Playback speed ${playbackRate}x. Click to cycle.`}
+                aria-label={\`Playback speed \${playbackRate}x. Click to cycle.\`}
               >
                 {playbackRate}×
               </button>
@@ -889,3 +1549,97 @@ function VoicemailCard({
     </>
   );
 }
+`;
+
+writeFile('apps/web/src/pages/Voicemail.tsx', VOICEMAIL_TSX);
+
+// =====================================================================
+// 6. Version bumps 0.10.174 -> 0.10.175
+// =====================================================================
+const PKGS = [
+  'package.json',
+  'apps/api/package.json',
+  'apps/web/package.json',
+  'apps/desktop/package.json',
+  'apps/socket/package.json',
+  'apps/webhooks/package.json',
+  'packages/db/package.json',
+];
+let bumped = 0;
+for (const rp of PKGS) {
+  const fp = join(ROOT, rp);
+  if (!existsSync(fp)) continue;
+  let c = readFileSync(fp, 'utf8');
+  const before = c;
+  c = c.replace(/"version":\s*"0\.10\.174"/, '"version": "0.10.175"');
+  if (c !== before) {
+    writeFileSync(fp, c, 'utf8');
+    console.log(`  OK ${rp}: bumped 0.10.174 -> 0.10.175`);
+    bumped++;
+  } else {
+    console.warn(`  WARN ${rp}: no 0.10.174 anchor found (already bumped?)`);
+  }
+}
+if (bumped === 0) {
+  console.error('[apply-v175] FATAL: no package.json files bumped. Aborting.');
+  process.exit(1);
+}
+
+applyEdits('apps/web/src/components/DiagnosticsSection.tsx', [
+  {
+    label: 'bump APP_VERSION',
+    find: `const APP_VERSION = '0.10.174';`,
+    replace: `const APP_VERSION = '0.10.175';`,
+  },
+]);
+
+applyEdits('apps/web/src/data/whatsNew.ts', [
+  {
+    label: 'add v0.10.175 entry at top of WHATS_NEW array',
+    find: `export const WHATS_NEW: ReleaseEntry[] = [
+  {
+    version: '0.10.174',`,
+    replace: `export const WHATS_NEW: ReleaseEntry[] = [
+  {
+    version: '0.10.175',
+    date: 'June 17, 2026',
+    highlight: 'Voicemail tab: redesigned as cards + new Saved (Pin) feature.',
+    changes: [
+      { type: 'improved', text: 'Voicemail rows are now two-line cards: avatar (initials in light indigo) + unread dot + name + timestamp on top; large indigo play button + waveform + duration + speed chip + ⋯ on the bottom.' },
+      { type: 'new', text: 'Filter pills above the list: All / Unread / Saved / Auto-deleting soon. Each shows a live count.' },
+      { type: 'new', text: 'Pin (Saved) — the ⋯ menu has a Pin action that tags a voicemail so you can find it later under the Saved filter. Pinning does NOT extend retention; the 30-day auto-delete still applies (the menu spells this out under the Pin action).' },
+      { type: 'improved', text: 'Per-row auto-delete countdown is now a small soft pill that only appears when 7 days or less remain (amber 2-7, red ≤1). Less visual clutter on rows that are nowhere near expiry.' },
+      { type: 'improved', text: 'Playback-speed selector is now a single chip next to the duration that cycles 1× → 1.5× → 2× → 0.5× → 1× on click.' },
+      { type: 'improved', text: 'Bulk-select mode still works (checkboxes replace the avatar; toolbar has Mark read / Mark unread / Delete).' },
+      { type: 'fixed', text: 'Locked behaviors preserved: single-click-play (B2), fresh-URL on expand for older voicemails (B1), real audio duration probe, mark-as-listened on actual play.' },
+    ],
+  },
+  {
+    version: '0.10.174',`,
+  },
+]);
+
+console.log('\n[apply-v175] DONE');
+console.log('');
+console.log('NEXT STEPS (CRITICAL - schema change requires db push):');
+console.log('');
+console.log('  # 1. Generate the Prisma client locally so TS sees the new field');
+console.log('  npm run db:generate');
+console.log('');
+console.log('  # 2. Push the schema change to your Supabase Postgres');
+console.log('  npm run db:push -w packages/db');
+console.log('');
+console.log('  # 3. Compile-check');
+console.log('  npx tsc --noEmit -p apps/web/tsconfig.json');
+console.log('  npx tsc --noEmit -p apps/api/tsconfig.json');
+console.log('');
+console.log('  # 4. Diff + commit + tag + push');
+console.log('  git diff --stat');
+console.log('  git add -A');
+console.log('  git commit -m "v0.10.175: Voicemail redesign - card rows + Pin/Saved feature + db migration"');
+console.log('  git tag v0.10.175');
+console.log('  git push origin main');
+console.log('  git push origin v0.10.175');
+console.log('');
+console.log('  # 5. On Render API service: redeploy will run Prisma generate again');
+console.log('  #    (the db push above already applied to prod Postgres).');

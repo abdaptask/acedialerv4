@@ -24,6 +24,20 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.175',
+    date: 'June 17, 2026',
+    highlight: 'Voicemail tab: redesigned as cards + new Saved (Pin) feature.',
+    changes: [
+      { type: 'improved', text: 'Voicemail rows are now two-line cards: avatar (initials in light indigo) + unread dot + name + timestamp on top; large indigo play button + waveform + duration + speed chip + ⋯ on the bottom.' },
+      { type: 'new', text: 'Filter pills above the list: All / Unread / Saved / Auto-deleting soon. Each shows a live count.' },
+      { type: 'new', text: 'Pin (Saved) — the ⋯ menu has a Pin action that tags a voicemail so you can find it later under the Saved filter. Pinning does NOT extend retention; the 30-day auto-delete still applies (the menu spells this out under the Pin action).' },
+      { type: 'improved', text: 'Per-row auto-delete countdown is now a small soft pill that only appears when 7 days or less remain (amber 2-7, red ≤1). Less visual clutter on rows that are nowhere near expiry.' },
+      { type: 'improved', text: 'Playback-speed selector is now a single chip next to the duration that cycles 1× → 1.5× → 2× → 0.5× → 1× on click.' },
+      { type: 'improved', text: 'Bulk-select mode still works (checkboxes replace the avatar; toolbar has Mark read / Mark unread / Delete).' },
+      { type: 'fixed', text: 'Locked behaviors preserved: single-click-play (B2), fresh-URL on expand for older voicemails (B1), real audio duration probe, mark-as-listened on actual play.' },
+    ],
+  },
+  {
     version: '0.10.174',
     date: 'June 17, 2026',
     highlight: 'Recents tab: redesigned as card rows with directional-arrow avatars.',

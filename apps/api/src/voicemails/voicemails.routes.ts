@@ -532,4 +532,39 @@ export async function voicemailsRoutes(app: FastifyInstance) {
     await prisma.voicemail.delete({ where: { id: existing.id } });
     return { ok: true };
   });
+
+  // v0.10.175 — POST /voicemails/:id/pin
+  // Marks a voicemail as Saved by stamping savedAt=now(). Pinned rows
+  // show up under the "Saved" filter in the Voicemail tab. Pinning is
+  // a tag only — the 30-day auto-delete cron still applies (per the
+  // agreed UX: pin doesn't extend retention).
+  app.post('/voicemails/:id/pin', { onRequest: [app.authenticate] }, async (request, reply) => {
+    const user = request.user as JwtPayload;
+    const { id } = request.params as { id: string };
+    const existing = await prisma.voicemail.findFirst({
+      where: { id: Number(id), userId: user.sub },
+    });
+    if (!existing) return reply.code(404).send({ error: 'Not found' });
+    const updated = await prisma.voicemail.update({
+      where: { id: existing.id },
+      data: { savedAt: new Date() },
+    });
+    return updated;
+  });
+
+  // v0.10.175 — POST /voicemails/:id/unpin
+  // Clears the Saved tag (sets savedAt back to null).
+  app.post('/voicemails/:id/unpin', { onRequest: [app.authenticate] }, async (request, reply) => {
+    const user = request.user as JwtPayload;
+    const { id } = request.params as { id: string };
+    const existing = await prisma.voicemail.findFirst({
+      where: { id: Number(id), userId: user.sub },
+    });
+    if (!existing) return reply.code(404).send({ error: 'Not found' });
+    const updated = await prisma.voicemail.update({
+      where: { id: existing.id },
+      data: { savedAt: null },
+    });
+    return updated;
+  });
 }

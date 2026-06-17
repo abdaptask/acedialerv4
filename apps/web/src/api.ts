@@ -613,6 +613,9 @@ export interface VoicemailRecord {
   transcription: string | null;
   receivedAt: string;
   listenedAt: string | null;
+  // v0.10.175 — null when not pinned, ISO timestamp when pinned.
+  // Pinning is a tag; auto-delete still applies to pinned rows.
+  savedAt: string | null;
   userDid?: RowUserDid | null;
 }
 
@@ -957,6 +960,25 @@ export async function deleteVoicemail(token: string, id: number): Promise<void> 
     method: 'DELETE',
     headers: { Authorization: `Bearer ${token}` },
   });
+}
+
+// v0.10.175 — pin / unpin a voicemail. Pinning stamps savedAt=now() so
+// the row matches the "Saved" filter. Pin does NOT extend retention —
+// the 30-day auto-delete cron still runs on pinned rows.
+export async function pinVoicemail(token: string, id: number): Promise<void> {
+  const res = await fetch(`${API_URL}/voicemails/${id}/pin`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+}
+
+export async function unpinVoicemail(token: string, id: number): Promise<void> {
+  const res = await fetch(`${API_URL}/voicemails/${id}/unpin`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
 }
 
 // ---------- Phase 5.3: Messages ----------

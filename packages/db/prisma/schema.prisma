@@ -496,6 +496,11 @@ model Voicemail {
   /// When the caller hung up after leaving the message.
   receivedAt      DateTime  @map("received_at")
   listenedAt      DateTime? @map("listened_at")
+  /// v0.10.175 — user-pinned voicemails surface in the Saved filter.
+  /// Pin sets this to now(); Unpin sets it back to null. Pinning is a
+  /// tag, NOT a retention extender — the 30-day auto-delete in
+  /// purgeExpired() still applies. This matches the chosen semantics.
+  savedAt         DateTime? @map("saved_at")
   /// v0.10.0 — Which of the user's DIDs this voicemail came in on.
   /// Voicemails are inbound-only by definition; we resolve via the
   /// toNumber match. NULL for legacy rows pre-backfill.
