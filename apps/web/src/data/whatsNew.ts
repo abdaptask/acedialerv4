@@ -24,6 +24,17 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.174',
+    date: 'June 17, 2026',
+    highlight: 'Recents tab: redesigned as card rows with directional-arrow avatars.',
+    changes: [
+      { type: 'improved', text: 'Recents is now a clean card list. Each row has a directional-arrow avatar (indigo for normal calls, red-pink for missed and caller-canceled), name + inline star if favorited, color-coded status + duration, and three action buttons (Message · ⋯ · green Call) flush right.' },
+      { type: 'improved', text: 'The ⋯ menu collects Copy number, Play recording (when one exists), Add/Remove favorite, and Block. The line your call touched ("On Main") shows at the top of the menu for multi-line users.' },
+      { type: 'improved', text: 'Filter pills (All / Inbound / Outgoing / Missed) restyled to indigo to match the new look.' },
+      { type: 'improved', text: 'Tap-to-copy preserved — single-tap on a row still copies the number to the clipboard with a brief toast.' },
+    ],
+  },
+  {
     version: '0.10.173',
     date: 'June 17, 2026',
     highlight: 'Admin Users: redesigned as card rows with filter pills.',

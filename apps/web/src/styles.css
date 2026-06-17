@@ -3088,9 +3088,9 @@ body {
   color: #fff;
 }
 .recents-filter-chip.is-active {
-  background: #3b82f6;
+  background: #4f46e5;
   color: #fff;
-  border-color: #3b82f6;
+  border-color: #4f46e5;
 }
 [data-theme="light"] .recents-filter-chip {
   background: rgba(0, 0, 0, 0.05);
@@ -3102,10 +3102,280 @@ body {
   color: #111;
 }
 [data-theme="light"] .recents-filter-chip.is-active {
-  background: #2563eb;
+  background: #4f46e5;
   color: #fff;
   border-color: #2563eb;
 }
+
+/* v0.10.174 - Recents tab card-style redesign.
+   Each row is a horizontal card with: directional-arrow avatar (light
+   indigo for normal, light red-pink for missed/caller-canceled), bold
+   name + inline favorite star, color-coded status text + duration on
+   the second line, timestamp on the right, and 3 action buttons (SMS,
+   kebab, green call). Block / Copy / Favorite / Play recording all
+   live inside the kebab dropdown. */
+
+.recents-card-list {
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+.recents-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  background: transparent;
+  transition: background 0.12s ease;
+  position: relative;
+}
+.recents-card:last-child { border-bottom: none; }
+.recents-card:hover { background: rgba(255, 255, 255, 0.03); }
+[data-theme="light"] .recents-card {
+  border-bottom-color: rgba(0, 0, 0, 0.06);
+}
+[data-theme="light"] .recents-card:hover {
+  background: rgba(0, 0, 0, 0.02);
+}
+
+/* Directional-arrow avatar. Indigo tint for normal calls; red-pink
+   tint for missed / caller-canceled. SVG arrow rotates per direction. */
+.recents-avatar-circle {
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: rgba(99, 102, 241, 0.14);
+  color: #4f46e5;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  user-select: none;
+}
+[data-theme="light"] .recents-avatar-circle {
+  background: rgba(99, 102, 241, 0.12);
+  color: #4f46e5;
+}
+.recents-avatar-circle.danger {
+  background: rgba(239, 68, 68, 0.12);
+  color: #dc2626;
+}
+[data-theme="light"] .recents-avatar-circle.danger {
+  background: rgba(254, 226, 226, 0.85);
+  color: #dc2626;
+}
+
+/* Card body (middle column - flex 1 so the right metadata stays
+   flush on the right edge no matter the row width). */
+.recents-card-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.recents-card-name-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.98rem;
+  font-weight: 600;
+  color: var(--text);
+}
+.recents-card-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+.recents-card-star-inline {
+  flex-shrink: 0;
+  color: #f59e0b;
+  display: inline-flex;
+}
+.recents-card-status {
+  font-size: 0.82rem;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+.recents-card-status .status-text {
+  font-weight: 500;
+}
+.recents-card-status.status-outgoing .status-text,
+.recents-card-status.status-inbound .status-text,
+.recents-card-status.status-forwarded .status-text {
+  color: #4f46e5;
+}
+[data-theme="light"] .recents-card-status.status-outgoing .status-text,
+[data-theme="light"] .recents-card-status.status-inbound .status-text,
+[data-theme="light"] .recents-card-status.status-forwarded .status-text {
+  color: #4f46e5;
+}
+.recents-card-status.status-missed .status-text,
+.recents-card-status.status-canceled .status-text,
+.recents-card-status.status-blocked .status-text,
+.recents-card-status.status-failed .status-text,
+.recents-card-status.status-busy .status-text {
+  color: #dc2626;
+}
+
+/* Right column: timestamp + action buttons stacked. On narrow widths
+   the buttons wrap below the timestamp. */
+.recents-card-meta {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+.recents-card-time {
+  font-size: 0.82rem;
+  color: var(--text-dim);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.recents-card-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* The three round-square action buttons. Default = light gray with a
+   subtle border; .call variant = solid green. */
+.recents-action-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+  padding: 0;
+}
+.recents-action-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--text);
+}
+[data-theme="light"] .recents-action-btn {
+  background: #fff;
+  border-color: rgba(0, 0, 0, 0.10);
+  color: #4b5563;
+}
+[data-theme="light"] .recents-action-btn:hover {
+  background: #f9fafb;
+  color: #111827;
+}
+.recents-action-btn.call {
+  background: #22c55e;
+  border-color: #22c55e;
+  color: #fff;
+}
+.recents-action-btn.call:hover {
+  background: #16a34a;
+  border-color: #16a34a;
+  color: #fff;
+}
+
+/* Kebab menu (popover). Anchored under the kebab button with a
+   small offset. Click-outside listener in the React component
+   closes it. */
+.recents-card-kebab-wrap {
+  position: relative;
+}
+.recents-card-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  min-width: 200px;
+  z-index: 30;
+  background: var(--bg-elevated, #1f1f22);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+}
+[data-theme="light"] .recents-card-menu {
+  background: #fff;
+  border-color: rgba(0, 0, 0, 0.10);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.10);
+}
+.recents-card-menu-header {
+  padding: 6px 10px 8px;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-dim);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  margin-bottom: 4px;
+}
+[data-theme="light"] .recents-card-menu-header {
+  border-bottom-color: rgba(0, 0, 0, 0.06);
+}
+.recents-card-menu-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  background: transparent;
+  border: none;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 0.88rem;
+  text-align: left;
+  border-radius: 6px;
+  cursor: pointer;
+  width: 100%;
+}
+.recents-card-menu-item:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+[data-theme="light"] .recents-card-menu-item:hover {
+  background: rgba(0, 0, 0, 0.04);
+}
+.recents-card-menu-item.danger {
+  color: #ef4444;
+}
+.recents-card-menu-item .menu-icon {
+  flex-shrink: 0;
+  opacity: 0.85;
+}
+
+/* Inline recording playback row (when user clicks Play in kebab). */
+.recents-card-recording {
+  padding: 10px 16px 14px 68px; /* 16+40+12 = align with body column */
+  margin-top: -10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+[data-theme="light"] .recents-card-recording {
+  border-bottom-color: rgba(0, 0, 0, 0.06);
+}
+
+/* Narrow viewport: collapse the meta column under the body. */
+@media (max-width: 440px) {
+  .recents-card {
+    flex-wrap: wrap;
+  }
+  .recents-card-meta {
+    width: 100%;
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+    padding-left: 52px; /* indent under avatar */
+  }
+}
+
 
 .call-list {
   list-style: none;
