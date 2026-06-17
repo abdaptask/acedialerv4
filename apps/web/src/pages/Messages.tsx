@@ -2,7 +2,7 @@
 // thread list on the left (or full screen on narrow), thread detail on the right.
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Send, ArrowLeft, RefreshCcw, MessageSquarePlus, Image as ImageIcon, Search, X, Zap, Phone, History, Star, Ban, Smile, FileText, Clock, Trash2, Pencil, MessageSquare, Voicemail as VoicemailIcon } from 'lucide-react';
+import { Send, ArrowLeft, RefreshCcw, MessageSquarePlus, Image as ImageIcon, Search, X, Zap, Phone, History, Star, Ban, Smile, FileText, Clock, Trash2, Pencil, MessageSquare, Voicemail as VoicemailIcon, Download } from 'lucide-react';
 // v0.10.176 - DidSwitcher reused as the "Your line" pill below the
 // thread header. Same component as the global header switcher; talks
 // to POST /me/active-did, so switching here switches the user's active
@@ -135,6 +135,37 @@ function initialsFromLabel(label: string): string {
   if (parts.length === 0) return '?';
   if (parts.length === 1) return parts[0]!.slice(0, 2).toUpperCase();
   return (parts[0]![0]! + (parts[parts.length - 1]![0] ?? '')).toUpperCase();
+}
+
+// v0.10.177 — Download an MMS attachment directly to disk instead of
+// forcing the user to open it in a new tab and right-click → Save As.
+// Implementation: fetch the URL with mode:'cors', read body as a Blob,
+// create an object URL, programmatically click a temporary <a download>
+// with that URL + a sensible filename, then revoke the object URL.
+// If fetch rejects (CORS, network), fall back to window.open so users
+// always get SOMETHING they can manually save from. `baseFilename`
+// becomes 'baseFilename.ext' where the extension is sniffed from the
+// URL path; falls back to .jpg.
+async function downloadMedia(url: string, baseFilename: string): Promise<void> {
+  const extMatch = url.match(/\.(jpe?g|png|gif|webp|heic|mp4|mov|m4a|mp3|wav|webm|pdf)(?:\?|$|#)/i);
+  const ext = (extMatch?.[1] ?? 'jpg').toLowerCase();
+  try {
+    const res = await fetch(url, { mode: 'cors' });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const blob = await res.blob();
+    const blobUrl = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = blobUrl;
+    a.download = `${baseFilename}.${ext}`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    window.setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+  } catch {
+    // CORS error or network failure — graceful degrade to opening the
+    // URL in a new tab (the v0.10.176-and-prior behavior).
+    window.open(url, '_blank', 'noopener,noreferrer');
+  }
 }
 
 // v0.10.59 — "Will fire at..." labels for scheduled messages.
@@ -1119,9 +1150,33 @@ function ThreadDetail({ number, onBack }: ThreadDetailProps) {
                         {m.mediaUrls?.length > 0 && (
                           <div className="bubble-media">
                             {m.mediaUrls.map((u, i) => (
-                              <a key={i} href={u} target="_blank" rel="noreferrer">
-                                <img src={u} alt="attachment" />
-                              </a>
+                              <div key={i} className="bubble-media-item">
+                                {/* v0.10.177 — image still opens larger in a
+                                    new tab on click. Download ↓ button to the
+                                    right handles the save-to-disk path so the
+                                    user doesn't need to open + right-click. */}
+                                <a
+                                  href={u}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="bubble-media-link"
+                                  title="Open full-size in new tab"
+                                >
+                                  <img src={u} alt="attachment" />
+                                </a>
+                                <button
+                                  type="button"
+                                  className="bubble-media-download"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    void downloadMedia(u, `mms-${m.id}-${i + 1}`);
+                                  }}
+                                  aria-label="Download attachment"
+                                  title="Download"
+                                >
+                                  <Download size={14} />
+                                </button>
+                              </div>
                             ))}
                           </div>
                         )}

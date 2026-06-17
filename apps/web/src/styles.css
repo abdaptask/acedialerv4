@@ -4083,6 +4083,67 @@ body {
 }
 .compose-row .send-btn svg { transform: translateX(1px); /* nudge paper plane visually */ }
 
+/* v0.10.177 — MMS attachment download overlay.
+   Each image bubble item is a positioned container holding the
+   existing <a><img/></a> (still opens in a new tab on click) plus
+   a small ↓ download button that appears on hover (and is always
+   visible on touch devices via the no-hover media query). The
+   button stops propagation so clicking it doesn't also trigger
+   the parent link. */
+.bubble-media-item {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+}
+.bubble-media-link {
+  display: block;
+  line-height: 0;
+}
+.bubble-media-link img {
+  max-width: min(100%, 240px);
+  border-radius: 10px;
+  display: block;
+}
+.bubble-media-download {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.72);
+  color: #fff;
+  border: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  opacity: 0;
+  transform: translateY(-2px);
+  transition: opacity 0.12s ease, transform 0.12s ease, background 0.12s ease;
+  padding: 0;
+  backdrop-filter: blur(2px);
+}
+.bubble-media-item:hover .bubble-media-download,
+.bubble-media-item:focus-within .bubble-media-download {
+  opacity: 1;
+  transform: translateY(0);
+}
+.bubble-media-download:hover {
+  background: rgba(15, 23, 42, 0.92);
+}
+.bubble-media-download:focus-visible {
+  outline: 2px solid #4f46e5;
+  outline-offset: 2px;
+}
+/* Always-visible on touch devices (no hover support). */
+@media (hover: none) {
+  .bubble-media-download {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 
 /* Narrow viewport: stack the bottom row meta below. */
 @media (max-width: 440px) {
@@ -6163,8 +6224,12 @@ body {
   z-index: 50;
 }
 .emoji-picker-grid {
+  /* v0.10.177 — was repeat(12, 1fr) which let each cell hit its
+     content min-size (~38px) and overflow the 360px popover. With
+     8 columns and minmax(0, 1fr) every cell shrinks to fit (24
+     emojis become a 8 × 3 grid). */
   display: grid;
-  grid-template-columns: repeat(12, 1fr);
+  grid-template-columns: repeat(8, minmax(0, 1fr));
   gap: 4px;
 }
 .emoji-picker-item {

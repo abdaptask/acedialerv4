@@ -24,6 +24,16 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.177',
+    date: 'June 17, 2026',
+    highlight: 'Download MMS images directly + emoji picker fits properly.',
+    changes: [
+      { type: 'new', text: 'Inbound (and outbound) MMS images now have a small ↓ download button overlaid on the top-right corner. Click it to save the image to disk — no more opening the image in a new tab and right-clicking to save.' },
+      { type: 'improved', text: 'Clicking the image itself still opens the full-size version in a new tab, same as before. Only the new ↓ button triggers the download.' },
+      { type: 'fixed', text: 'Emoji picker popover no longer has 3 emojis spilling out the right side. The grid is now 8 columns × 3 rows (was a 12-column grid that overflowed the popover background).' },
+    ],
+  },
+  {
     version: '0.10.176',
     date: 'June 17, 2026',
     highlight: 'Conversation thread: redesigned header with clickable activity counts.',
