@@ -2903,7 +2903,7 @@ function UsersAdminSection() {
   // click again to toggle ascending/descending. Default ordering (sortKey
   // = null) preserves the server-returned createdAt-desc order so new
   // admins land on the familiar "newest users first" view.
-  type SortKey = 'name' | 'email' | 'role' | 'status' | 'did' | 'lastLogin' | 'version';
+  type SortKey = 'name' | 'email' | 'role' | 'status' | 'did' | 'lastLogin' | 'version' | 'created';
   // v0.10.173 - default to name asc so the new card list is sorted
   // out of the box. The card layout has a Sort dropdown next to the
   // filter pills (no more column-header click target).
@@ -3024,6 +3024,11 @@ function UsersAdminSection() {
           return r.latestVersion
             ? r.latestVersion.split('.').map((n) => Number(n) || 0).reduce((a, b) => a * 1000 + b, 0)
             : -Infinity;
+        case 'created':
+          // v0.10.178 - sort by signup / invite date. Asc = oldest first,
+          // desc = newest first. createdAt is required on AdminUserRow,
+          // so the missing-value branch is mostly defensive.
+          return r.createdAt ? new Date(r.createdAt).getTime() : -Infinity;
       }
     };
     filtered.sort((a, b) => {
@@ -3167,6 +3172,10 @@ function UsersAdminSection() {
             <option value="name">Name</option>
             <option value="lastLogin">Last sign-in</option>
             <option value="version">Version</option>
+            {/* v0.10.178 - Date added. Combined with the existing
+                up/down arrow toggle this gives Oldest-first (asc)
+                and Newest-first (desc). */}
+            <option value="created">Date added</option>
           </select>
           <button
             type="button"
@@ -3241,7 +3250,19 @@ function UsersAdminSection() {
                 {/* Avatar with M SSO badge overlay in bottom-right */}
                 <div className="users-admin-card-avatar-wrap">
                   <span className="users-admin-card-avatar" aria-hidden="true">
-                    {(r.firstName?.[0] ?? r.email[0] ?? '?').toUpperCase()}
+                    {/* v0.10.178 - First + last initial when both are on
+                        file ("AS" for "Abdulla Sheikh"). Falls back to a
+                        single initial when only one name exists, then to
+                        email[0], then to '?'. Mirrors the initialsFromLabel
+                        pattern used in Voicemail.tsx and Messages.tsx. */}
+                    {(() => {
+                      const f = (r.firstName ?? '').trim();
+                      const l = (r.lastName ?? '').trim();
+                      if (f && l) return (f[0]! + l[0]!).toUpperCase();
+                      if (f) return f.slice(0, 2).toUpperCase();
+                      if (l) return l.slice(0, 2).toUpperCase();
+                      return (r.email[0] ?? '?').toUpperCase();
+                    })()}
                   </span>
                   {r.provider !== 'local' && (
                     <span

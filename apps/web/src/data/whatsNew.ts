@@ -24,6 +24,15 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.178',
+    date: 'June 18, 2026',
+    highlight: 'Admin Users: sort by date added + two-letter avatars.',
+    changes: [
+      { type: 'new', text: 'Settings → Users sort dropdown now has a "Date added" option. Combined with the up/down arrow next to it, you can list users oldest-first or newest-first.' },
+      { type: 'improved', text: 'Each user card avatar now shows first + last initials (e.g. "AS" for Abdulla Sheikh) instead of just the first letter. Single-name accounts still show a single initial; email-only accounts fall back to email[0].' },
+    ],
+  },
+  {
     version: '0.10.177',
     date: 'June 17, 2026',
     highlight: 'Download MMS images directly + emoji picker fits properly.',
