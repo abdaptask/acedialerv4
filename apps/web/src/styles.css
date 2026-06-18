@@ -4229,6 +4229,92 @@ body {
   color: #7f1d1d;
 }
 
+/* ====================================================================
+   v0.10.191 — Delivery status ticks + clickable Failed pill.
+   ==================================================================== */
+
+/* Outbound bubbles get extra right + bottom padding so the absolutely-
+   positioned tick doesn't overlap the text. */
+.msg-stream .bubble.out {
+  position: relative;
+  padding-right: 28px;
+  padding-bottom: 16px;
+}
+
+.bubble-status-tick {
+  position: absolute;
+  right: 8px;
+  bottom: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  pointer-events: none; /* tooltip only — no click target */
+}
+/* Faint by default — sent / queued. */
+.bubble-status-tick-queued,
+.bubble-status-tick-sent {
+  color: rgba(255, 255, 255, 0.6);
+}
+/* Bright when the carrier confirmed delivery. */
+.bubble-status-tick-delivered {
+  color: #ffffff;
+  opacity: 1;
+}
+
+/* The "Failed" pill — clickable, sits inside the bubble. Compact red
+   chip with an alert icon. */
+.bubble-fail-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 6px;
+  padding: 3px 8px;
+  border: 1px solid rgba(220, 38, 38, 0.5);
+  border-radius: 999px;
+  background: rgba(220, 38, 38, 0.18);
+  color: #fecaca;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  line-height: 1.1;
+  -webkit-appearance: none;
+}
+.bubble-fail-pill:hover { background: rgba(220, 38, 38, 0.28); }
+.bubble-fail-pill:focus-visible {
+  outline: 2px solid rgba(220, 38, 38, 0.7);
+  outline-offset: 1px;
+}
+[data-theme="light"] .bubble-fail-pill {
+  background: rgba(220, 38, 38, 0.10);
+  border-color: rgba(220, 38, 38, 0.45);
+  color: #991b1b;
+}
+[data-theme="light"] .bubble-fail-pill:hover { background: rgba(220, 38, 38, 0.18); }
+
+/* Expanded error details panel — drops in below the failed bubble when
+   the pill is clicked. */
+.bubble-fail-details {
+  margin-top: 6px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.30);
+  font-size: 12px;
+  line-height: 1.35;
+}
+.bubble-fail-details-short {
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+.bubble-fail-details-detail {
+  opacity: 0.85;
+  word-break: break-word;
+}
+[data-theme="light"] .bubble-fail-details {
+  background: rgba(127, 29, 29, 0.10);
+  color: #7f1d1d;
+}
+
 /* --- Compose row + send button restyle ----------------------------- */
 /* v0.10.182 — Send button changes from round icon-only to a pill
    with "Send" text + paper-plane icon. Wider (~80px) than the round

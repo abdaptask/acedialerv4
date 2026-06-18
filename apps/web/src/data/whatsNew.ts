@@ -24,6 +24,15 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.191',
+    date: 'June 18, 2026',
+    highlight: 'Delivery status ticks on every outbound message.',
+    changes: [
+      { type: 'new', text: 'Every outbound SMS/MMS now shows a small status tick in the bottom-right corner of its bubble — a clock while sending, a single check once sent, and a brighter double-check when the carrier confirms delivery.' },
+      { type: 'improved', text: 'Failed messages now show a compact red "Failed" pill instead of the always-visible inline error. Click the pill to expand the Telnyx error code and description.' },
+    ],
+  },
+  {
     version: '0.10.190',
     date: 'June 18, 2026',
     highlight: 'Ctrl+Enter now inserts a newline in the message composer.',

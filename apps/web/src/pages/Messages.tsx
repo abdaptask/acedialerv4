@@ -2,7 +2,7 @@
 // thread list on the left (or full screen on narrow), thread detail on the right.
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Send, ArrowLeft, RefreshCcw, MessageSquarePlus, Image as ImageIcon, Search, X, Zap, Phone, History, Star, Ban, Smile, FileText, Clock, Trash2, Pencil, MessageSquare, Voicemail as VoicemailIcon, Download } from 'lucide-react';
+import { Send, ArrowLeft, RefreshCcw, MessageSquarePlus, Image as ImageIcon, Search, X, Zap, Phone, History, Star, Ban, Smile, FileText, Clock, Trash2, Pencil, MessageSquare, Voicemail as VoicemailIcon, Download, Check, CheckCheck, AlertCircle } from 'lucide-react';
 // v0.10.176 - DidSwitcher reused as the "Your line" pill below the
 // thread header. Same component as the global header switcher; talks
 // to POST /me/active-did, so switching here switches the user's active
@@ -55,6 +55,38 @@ import {
 } from '../lib/userPrefs';
 import { formatPhone } from '../lib/phone';
 import LineBadge from '../components/LineBadge';
+
+// v0.10.191 — Outbound bubble status mapping. Telnyx event flow:
+//   message.queued / message.sent      → status='sent'
+//   message.delivered                  → status='delivered'
+//   message.finalized                  → status='delivered' | 'sent' | etc.
+//   message.sending_failed / .failed   → status='failed' | 'delivery_failed'
+function getStatusTickClass(status: string | undefined | null): string {
+  if (!status) return 'queued';
+  const s = String(status).toLowerCase();
+  if (s === 'delivered') return 'delivered';
+  if (s === 'sent') return 'sent';
+  if (s === 'queued' || s === 'sending' || s === 'accepted') return 'queued';
+  return 'sent';
+}
+function getStatusLabel(status: string | undefined | null): string {
+  if (!status) return 'Queued';
+  const s = String(status).toLowerCase();
+  if (s === 'delivered') return 'Delivered';
+  if (s === 'sent') return 'Sent';
+  if (s === 'queued' || s === 'sending') return 'Sending…';
+  if (s === 'accepted') return 'Accepted';
+  if (s === 'failed' || s === 'delivery_failed') return 'Failed';
+  // Anything unexpected — surface it raw so the user / support can see it.
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+function renderStatusIcon(status: string | undefined | null): JSX.Element {
+  const cls = getStatusTickClass(status);
+  if (cls === 'delivered') return <CheckCheck size={12} strokeWidth={2.5} />;
+  if (cls === 'sent') return <Check size={12} strokeWidth={2.5} />;
+  // 'queued' / 'sending' / unknown — clock
+  return <Clock size={12} strokeWidth={2.5} />;
+}
 
 function formatNumber(raw: string): string {
   return formatPhone(raw);
@@ -475,6 +507,10 @@ function ThreadDetail({ number, onBack }: ThreadDetailProps) {
   // Has the user already blocked this number? Hides the Block button
   // and shows a small "Blocked" badge instead. (#159)
   const [blocked, setBlocked] = useState(false);
+
+  // v0.10.191 — Which failed bubbles currently have their error details
+  // expanded. Default: collapsed (just a "Failed" pill). Click toggles.
+  const [expandedErrorIds, setExpandedErrorIds] = useState<Set<string>>(new Set());
 
   // Mark this thread as visited so the unread dot disappears from the
   // threads list. Fires on mount and on every poll (so if a new inbound
@@ -1181,19 +1217,55 @@ function ThreadDetail({ number, onBack }: ThreadDetailProps) {
                           </div>
                         )}
                         {failBlurb && (
-                          <div className="bubble-fail-blurb" title={failBlurb.detail}>
-                            <strong>{failBlurb.short}.</strong>{' '}
-                            <span className="muted">{failBlurb.detail}</span>
-                          </div>
+                          <>
+                            {/* v0.10.191 — Clickable "Failed" pill replaces the
+                                always-on inline blurb. Click toggles a details
+                                panel under the bubble with the Telnyx error
+                                code + description. */}
+                            <button
+                              type="button"
+                              className="bubble-fail-pill"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setExpandedErrorIds((prev) => {
+                                  const next = new Set(prev);
+                                  if (next.has(m.id)) next.delete(m.id);
+                                  else next.add(m.id);
+                                  return next;
+                                });
+                              }}
+                              aria-expanded={expandedErrorIds.has(m.id)}
+                              title="Click to see details"
+                            >
+                              <AlertCircle size={11} />
+                              <span>Failed</span>
+                            </button>
+                            {expandedErrorIds.has(m.id) && (
+                              <div className="bubble-fail-details">
+                                <div className="bubble-fail-details-short">{failBlurb.short}</div>
+                                <div className="bubble-fail-details-detail">{failBlurb.detail}</div>
+                              </div>
+                            )}
+                          </>
+                        )}
+                        {/* v0.10.191 — Delivery status tick on every successful
+                            outbound bubble. queued/sent → faint tick; delivered
+                            → bright double-tick. Failed bubbles use the pill
+                            above instead. */}
+                        {m.direction === 'outbound' && !isFailedStatus && (
+                          <span
+                            className={`bubble-status-tick bubble-status-tick-${getStatusTickClass(m.status)}`}
+                            title={getStatusLabel(m.status)}
+                            aria-label={getStatusLabel(m.status)}
+                          >
+                            {renderStatusIcon(m.status)}
+                          </span>
                         )}
                       </div>
                     );
                   })}
                   <div className="bubble-run-time">
                     {formatTimeOnly(lastItem.createdAt)}
-                    {lastItem.direction === 'outbound' && (lastItem.status === 'failed' || lastItem.status === 'delivery_failed') && (
-                      <span className="bubble-status"> · {lastItem.status}</span>
-                    )}
                   </div>
                 </div>
               </div>
