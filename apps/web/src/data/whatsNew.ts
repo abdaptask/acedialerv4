@@ -24,6 +24,14 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.186',
+    date: 'June 18, 2026',
+    highlight: 'Composer: forced gray surface everywhere — no more white in light mode.',
+    changes: [
+      { type: 'fixed', text: 'Composer area, text input, schedule clock, and all action pills now render as a coherent light-gray surface in light mode. No white anywhere except the indigo Send button accent.' },
+    ],
+  },
+  {
     version: '0.10.185',
     date: 'June 18, 2026',
     highlight: 'Composer: no white anywhere — one coherent gray treatment.',
