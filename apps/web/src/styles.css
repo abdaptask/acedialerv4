@@ -1699,6 +1699,45 @@ body {
 .tab:hover { color: rgba(255, 255, 255, 0.8); }
 .tab.active { color: #007aff; }
 
+/* v0.10.181 — Compact stat grid shown in the non-admin Usage view
+   instead of the fleet-wide table. Auto-fit columns so the cards
+   wrap to one row on wide windows and reflow to 2 columns on narrow
+   ones. Pure CSS, no library. */
+.my-usage-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+  margin-top: 8px;
+  margin-bottom: 12px;
+}
+.my-usage-stat-card {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+[data-theme="light"] .my-usage-stat-card {
+  background: #fff;
+  border-color: rgba(0, 0, 0, 0.08);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02);
+}
+.my-usage-stat-label {
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  font-weight: 500;
+  letter-spacing: 0.01em;
+}
+.my-usage-stat-value {
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+
 /* ============ EMPTY STATES (other tabs) ============ */
 .empty-state {
   padding: 3rem 1.5rem;

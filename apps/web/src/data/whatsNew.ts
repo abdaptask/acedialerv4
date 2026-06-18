@@ -24,6 +24,16 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.181',
+    date: 'June 18, 2026',
+    highlight: 'See your own call + SMS activity under Settings → Usage.',
+    changes: [
+      { type: 'new', text: 'Settings → Usage is no longer admin-only. Every user can now see their own calls (inbound / outbound / missed), talk time, and SMS sent/received — over the last 7, 30, or today range.' },
+      { type: 'new', text: 'Per-day stacked chart visualizes when your activity peaked.' },
+      { type: 'improved', text: 'Admins still see the original fleet-wide table (Top Users by Call Volume). Non-admins see a compact card grid of their own totals instead.' },
+    ],
+  },
+  {
     version: '0.10.180',
     date: 'June 18, 2026',
     highlight: 'Dialer scales properly when you resize to half-screen.',

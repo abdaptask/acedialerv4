@@ -743,4 +743,116 @@ export async function meRoutes(app: FastifyInstance) {
       return { ok: true, updated: result.count };
     },
   );
+
+  // ── GET /me/reports/usage ──────────────────────────────────────────
+  //
+  // v0.10.181 — Self-view of the existing admin Usage report. Returns
+  // the SAME UsageReport JSON shape that /admin/reports/usage returns,
+  // but every Call / Message query is filtered to userId = req.user.sub.
+  // The byUser array contains a single row (this user's totals) so the
+  // frontend can reuse the UsageReport TypeScript type without changes.
+  //
+  // Range semantics match the admin endpoint: 'today' | '7d' | '30d'.
+  app.get<{ Querystring: { range?: string } }>(
+    '/me/reports/usage',
+    { onRequest: [app.authenticate] },
+    async (request) => {
+      const u = request.user as JwtPayload;
+      const range = request.query.range ?? '7d';
+      const now = new Date();
+      let since: Date;
+      if (range === 'today') {
+        since = new Date(now); since.setUTCHours(0, 0, 0, 0);
+      } else if (range === '30d') {
+        since = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+      } else {
+        since = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      }
+
+      // Calls grouped by direction + status for this user only.
+      const callsByDir = await prisma.call.groupBy({
+        by: ['direction', 'status'],
+        where: { userId: u.sub, startedAt: { gte: since } },
+        _count: { _all: true },
+        _sum: { durationSeconds: true },
+      });
+      let inbound = 0, outbound = 0, missed = 0, talkSec = 0;
+      for (const r of callsByDir) {
+        const c = r._count._all;
+        const t = r._sum.durationSeconds ?? 0;
+        if (r.direction === 'inbound') {
+          if (['missed', 'no_answer', 'rejected'].includes(r.status)) missed += c;
+          else inbound += c;
+        } else if (r.direction === 'outbound') {
+          outbound += c;
+        }
+        talkSec += t;
+      }
+
+      // SMS grouped by direction for this user only.
+      const smsByDir = await prisma.message.groupBy({
+        by: ['direction'],
+        where: { userId: u.sub, createdAt: { gte: since } },
+        _count: { _all: true },
+      });
+      let smsSent = 0, smsReceived = 0;
+      for (const r of smsByDir) {
+        if (r.direction === 'outbound') smsSent += r._count._all;
+        else smsReceived += r._count._all;
+      }
+
+      // User row (so byUser[0] has a name/email/did for display).
+      const me = await prisma.user.findUnique({
+        where: { id: u.sub },
+        select: { id: true, email: true, firstName: true, lastName: true, didNumber: true },
+      });
+
+      const myRow = {
+        userId: u.sub,
+        email: me?.email ?? '(unknown)',
+        name:
+          ([me?.firstName, me?.lastName].filter(Boolean).join(' ').trim() ||
+            me?.email) ?? '(unknown)',
+        didNumber: me?.didNumber ?? null,
+        totalCalls: inbound + outbound + missed,
+        inbound,
+        outbound,
+        missed,
+        talkSeconds: talkSec,
+        smsSent,
+        smsReceived,
+      };
+
+      // Per-day chart, same logic as /admin/reports/usage but filtered.
+      const callsInWindow = await prisma.call.findMany({
+        where: { userId: u.sub, startedAt: { gte: since } },
+        select: { startedAt: true, direction: true, status: true },
+      });
+      const days = range === 'today' ? 1 : range === '30d' ? 30 : 7;
+      const byDay: Array<{ date: string; inbound: number; outbound: number; missed: number }> = [];
+      for (let i = 0; i < days; i += 1) {
+        const dayStart = new Date(now); dayStart.setUTCHours(0, 0, 0, 0);
+        dayStart.setUTCDate(dayStart.getUTCDate() - (days - 1 - i));
+        const dayEnd = new Date(dayStart); dayEnd.setUTCDate(dayEnd.getUTCDate() + 1);
+        let inb = 0, out = 0, mis = 0;
+        for (const c of callsInWindow) {
+          if (c.startedAt < dayStart || c.startedAt >= dayEnd) continue;
+          if (c.direction === 'inbound') {
+            if (['missed', 'no_answer', 'rejected'].includes(c.status)) mis += 1;
+            else inb += 1;
+          } else if (c.direction === 'outbound') {
+            out += 1;
+          }
+        }
+        byDay.push({ date: dayStart.toISOString().slice(0, 10), inbound: inb, outbound: out, missed: mis });
+      }
+
+      return {
+        range,
+        generatedAt: now.toISOString(),
+        byUser: [myRow],
+        byDay,
+      };
+    },
+  );
 }

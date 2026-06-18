@@ -120,6 +120,7 @@ import {
   getLiveOpsReport,
   getPresenceReport,
   getUsageReport,
+  getMyUsageReport,
   getQualityReport,
   getCostReport,
   getRecruiterReport,
@@ -308,7 +309,9 @@ const SECTIONS: SectionDef[] = [
   // match what the page actually shows.
   { key: 'live-ops', category: 'Reports', label: 'Live ops', icon: Activity, blurb: 'Real-time dashboard (admin only)', Component: LiveOpsSection, adminOnly: true },
   { key: 'presence', category: 'Reports', label: 'Presence', icon: Radio, blurb: 'Who is on call right now (admin only)', Component: PresenceSection, adminOnly: true },
-  { key: 'usage', category: 'Reports', label: 'Usage', icon: TrendingUp, blurb: 'Per-user volume + talk time (admin only)', Component: UsageSection, adminOnly: true },
+  // v0.10.181 — Usage section now also available to non-admin users.
+  // Personal view (their own activity) for non-admins; fleet view for admins.
+  { key: 'usage', category: 'Reports', label: 'Usage', icon: TrendingUp, blurb: 'Your call + SMS volume and talk time', Component: UsageSection },
   { key: 'quality', category: 'Reports', label: 'Quality', icon: AlertTriangle, blurb: 'Missed rate + hangup causes (admin only)', Component: QualitySection, adminOnly: true },
   { key: 'cost', category: 'Reports', label: 'Cost', icon: DollarSign, blurb: 'Telnyx spend per user + projection (admin only)', Component: CostSection, adminOnly: true },
   { key: 'recruiter', category: 'Reports', label: 'Recruiter', icon: Target, blurb: 'Reach + conversation rate (admin only)', Component: RecruiterSection, adminOnly: true },
@@ -5974,17 +5977,20 @@ function UsageSection() {
 
   useEffect(() => {
     const tok = sessionStorage.getItem('ace_token');
-    if (!tok) return;
+    if (!tok || !me) return;
     setLoading(true);
-    getUsageReport(tok, range)
+    // v0.10.181 — admins still see the fleet view via /admin/reports/usage;
+    // non-admins see their OWN data via the new /me/reports/usage endpoint.
+    const fetcher = me.isAdmin ? getUsageReport : getMyUsageReport;
+    fetcher(tok, range)
       .then((r) => { setData(r); setError(null); })
       .catch((e) => setError((e as Error).message))
       .finally(() => setLoading(false));
-  }, [range]);
+  }, [range, me]);
 
-  if (me && !me.isAdmin) {
-    return <div className="admin-empty"><ShieldCheck size={28} /><p><strong>Admin access required</strong></p></div>;
-  }
+  // v0.10.181 — admin-only gate removed. Section now renders the
+  // per-user view for non-admins (byUser table hidden; only the byDay
+  // chart + the user's own row stats shown).
   if (loading && !data) return <div className="muted">Loading…</div>;
   if (error && !data) return <div className="error">{error}</div>;
   if (!data) return null;
@@ -6003,8 +6009,12 @@ function UsageSection() {
     <div className="usage">
       <div className="liveops-header">
         <div>
-          <h3 style={{ margin: 0 }}>Usage</h3>
-          <p className="muted small" style={{ margin: '2px 0 0' }}>Per-user volume + talk time</p>
+          {/* v0.10.181 — admins see the fleet-wide Usage title; non-admins
+              see "My Usage" since their view is their own data only. */}
+          <h3 style={{ margin: 0 }}>{me?.isAdmin ? 'Usage' : 'My Usage'}</h3>
+          <p className="muted small" style={{ margin: '2px 0 0' }}>
+            {me?.isAdmin ? 'Per-user volume + talk time' : 'Your call + SMS volume and talk time'}
+          </p>
         </div>
         <div className="presence-filter">
           <button className={range === 'today' ? 'active' : ''} onClick={() => setRange('today')}>Today</button>
@@ -6031,30 +6041,81 @@ function UsageSection() {
         })}
       </div>
 
-      <div className="liveops-section-title">Top users by call volume</div>
-      <table className="presence-table">
-        <thead>
-          <tr><th>#</th><th>User</th><th>Total</th><th>In</th><th>Out</th><th>Missed</th><th>Talk time</th><th>SMS sent/recv</th></tr>
-        </thead>
-        <tbody>
-          {data.byUser.slice(0, 25).map((u, i) => (
-            <tr key={u.userId}>
-              <td><span className="liveops-rank">{i + 1}</span></td>
-              <td>
-                <div>{u.name}</div>
-                <div className="muted small">{u.email}</div>
-              </td>
-              <td><strong>{u.totalCalls}</strong></td>
-              <td>{u.inbound}</td>
-              <td>{u.outbound}</td>
-              <td>{u.missed}</td>
-              <td>{fmtTalk(u.talkSeconds)}</td>
-              <td className="muted small">{u.smsSent} / {u.smsReceived}</td>
-            </tr>
-          ))}
-          {data.byUser.length === 0 && <tr><td colSpan={8} className="muted" style={{ padding: '1rem', textAlign: 'center' }}>No activity in this range.</td></tr>}
-        </tbody>
-      </table>
+      {/* v0.10.181 — admin view shows the fleet-wide top users table;
+          non-admin view hides it (a single-row table would just be the
+          user's own activity summary, which is already visible from the
+          per-day chart above). Non-admins instead see a compact
+          summary card with their totals. */}
+      {me?.isAdmin ? (
+        <>
+          <div className="liveops-section-title">Top users by call volume</div>
+          <table className="presence-table">
+            <thead>
+              <tr><th>#</th><th>User</th><th>Total</th><th>In</th><th>Out</th><th>Missed</th><th>Talk time</th><th>SMS sent/recv</th></tr>
+            </thead>
+            <tbody>
+              {data.byUser.slice(0, 25).map((u, i) => (
+                <tr key={u.userId}>
+                  <td><span className="liveops-rank">{i + 1}</span></td>
+                  <td>
+                    <div>{u.name}</div>
+                    <div className="muted small">{u.email}</div>
+                  </td>
+                  <td><strong>{u.totalCalls}</strong></td>
+                  <td>{u.inbound}</td>
+                  <td>{u.outbound}</td>
+                  <td>{u.missed}</td>
+                  <td>{fmtTalk(u.talkSeconds)}</td>
+                  <td className="muted small">{u.smsSent} / {u.smsReceived}</td>
+                </tr>
+              ))}
+              {data.byUser.length === 0 && <tr><td colSpan={8} className="muted" style={{ padding: '1rem', textAlign: 'center' }}>No activity in this range.</td></tr>}
+            </tbody>
+          </table>
+        </>
+      ) : (
+        <>
+          <div className="liveops-section-title">Your totals</div>
+          {(() => {
+            const u = data.byUser[0];
+            if (!u || u.totalCalls + u.smsSent + u.smsReceived === 0) {
+              return <div className="muted" style={{ padding: '1rem' }}>No activity in this range.</div>;
+            }
+            return (
+              <div className="my-usage-stat-grid">
+                <div className="my-usage-stat-card">
+                  <div className="my-usage-stat-label">Total calls</div>
+                  <div className="my-usage-stat-value">{u.totalCalls}</div>
+                </div>
+                <div className="my-usage-stat-card">
+                  <div className="my-usage-stat-label">Talk time</div>
+                  <div className="my-usage-stat-value">{fmtTalk(u.talkSeconds)}</div>
+                </div>
+                <div className="my-usage-stat-card">
+                  <div className="my-usage-stat-label">Inbound</div>
+                  <div className="my-usage-stat-value">{u.inbound}</div>
+                </div>
+                <div className="my-usage-stat-card">
+                  <div className="my-usage-stat-label">Outbound</div>
+                  <div className="my-usage-stat-value">{u.outbound}</div>
+                </div>
+                <div className="my-usage-stat-card">
+                  <div className="my-usage-stat-label">Missed</div>
+                  <div className="my-usage-stat-value">{u.missed}</div>
+                </div>
+                <div className="my-usage-stat-card">
+                  <div className="my-usage-stat-label">SMS sent</div>
+                  <div className="my-usage-stat-value">{u.smsSent}</div>
+                </div>
+                <div className="my-usage-stat-card">
+                  <div className="my-usage-stat-label">SMS received</div>
+                  <div className="my-usage-stat-value">{u.smsReceived}</div>
+                </div>
+              </div>
+            );
+          })()}
+        </>
+      )}
     </div>
   );
 }

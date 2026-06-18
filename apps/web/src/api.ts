@@ -2762,6 +2762,17 @@ export async function getUsageReport(token: string, range: 'today' | '7d' | '30d
   return (await res.json()) as UsageReport;
 }
 
+// v0.10.181 — Per-user self-view of the Usage report. Same JSON shape
+// as the admin version but `byUser` contains a single row (this user)
+// and every aggregation is filtered to req.user.sub on the server side.
+export async function getMyUsageReport(token: string, range: 'today' | '7d' | '30d' = '7d'): Promise<UsageReport> {
+  const res = await fetch(`${API_URL}/me/reports/usage?range=${range}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return (await res.json()) as UsageReport;
+}
+
 export interface QualityReport {
   range: string;
   generatedAt: string;
