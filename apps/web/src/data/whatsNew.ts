@@ -24,6 +24,16 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.179',
+    date: 'June 18, 2026',
+    highlight: 'Resize the dialer freely + Call button sits next to the keypad.',
+    changes: [
+      { type: 'improved', text: 'The dialer window can now be resized down to a small floater (360 × 500 px) instead of being locked at 900 × 800. Use it alongside your other apps without dedicating half your screen.' },
+      { type: 'fixed', text: 'Bottom navigation (Favorites / Messages / Recents / Keypad / Voicemail) no longer disappears after exiting fullscreen or while you are dragging the window edges around.' },
+      { type: 'fixed', text: 'The green Call button on the keypad now sits directly below the number keys instead of being anchored to the bottom of the window. On wide screens, no more giant gap between the keypad and the Call button.' },
+    ],
+  },
+  {
     version: '0.10.178',
     date: 'June 18, 2026',
     highlight: 'Admin Users: sort by date added + two-letter avatars.',

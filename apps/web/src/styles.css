@@ -154,7 +154,14 @@ body {
 
 /* ============ APP SHELL ============ */
 .app-shell {
+  /* v0.10.179 — dvh (dynamic viewport height) updates correctly during
+     fullscreen <-> windowed transitions on Electron / modern browsers.
+     vh stays as a fallback for older engines. Without this, the stale
+     100vh value during an exit-fullscreen transition briefly made the
+     grid taller than the actual viewport, pushing the bottom nav (row
+     3 of the grid) out of view. */
   height: 100vh;
+  height: 100dvh;
   display: grid;
   grid-template-rows: auto 1fr auto;
   /* v0.10.145 - UX-024 - was #000 literal. Use the theme token so
@@ -1279,13 +1286,14 @@ body {
      under the bottom nav on 720p screens. */
   padding-top: clamp(0.5rem, 1.6vh, 1.5rem);
   align-items: center;
-  /* v0.10.73 — Push to the bottom of the dialpad container when there's
-     extra room (so the dial button visually anchors at the bottom on
-     tall viewports — matches the look that the old justify-content:flex-end
-     on .dialpad gave us). When the dialpad is SHORTER than its content,
-     this stops being effective and the actions naturally follow the
-     content stack, with the user able to scroll. Best of both. */
-  margin-top: auto;
+  /* v0.10.179 — REMOVED margin-top:auto. The v0.10.73 anchoring made the
+     Call button hug the viewport bottom on tall/wide windows, leaving a
+     visual gap between the keypad keys and the green button — flagged
+     during the v0.10.176 review. Now the action row sits directly below
+     the keypad with the natural padding-top gap. Empty space below the
+     dialpad on tall windows is acceptable (better than the disconnected
+     button), and the .dialpad container still has overflow-y:auto for
+     short viewports. */
 }
 .call-btn {
   background: #34c759;
@@ -1652,6 +1660,14 @@ body {
   padding: 0.4rem 0 0.6rem;
   -webkit-backdrop-filter: blur(20px);
   backdrop-filter: blur(20px);
+  /* v0.10.179 — sticky positioning so the bottom nav stays anchored to
+     the visible bottom of the window even if the .app-shell grid math
+     briefly mis-allocates during a resize or fullscreen transition.
+     Bottom:0 pins it to the viewport's bottom edge; z-index keeps it
+     above any page content that might overflow into the bottom row. */
+  position: sticky;
+  bottom: 0;
+  z-index: 100;
 }
 .tab {
   flex: 1;
