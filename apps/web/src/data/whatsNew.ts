@@ -24,6 +24,17 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.180',
+    date: 'June 18, 2026',
+    highlight: 'Dialer scales properly when you resize to half-screen.',
+    changes: [
+      { type: 'improved', text: 'The keypad now fills the available width on narrow windows instead of staying boxed at 420px. Snap the dialer to half your screen and the keys and Call button scale up to use the real estate.' },
+      { type: 'improved', text: 'Keypad buttons sized by min(viewport-height, viewport-width) instead of just height — so at 683 × 768 (half of a 1366 × 768 monitor) the keys go from 65px to ~92px. Touch-friendly at any reasonable window size.' },
+      { type: 'improved', text: 'Bottom-nav labels (Favorites / Messages / Recents / Keypad / Voicemail) are now readable at narrow widths — bumped from 0.65rem (~10px) to 0.75rem (~12px).' },
+      { type: 'improved', text: 'Horizontal padding on the dialpad scales with viewport width so narrow windows do not waste 1.5rem per side.' },
+    ],
+  },
+  {
     version: '0.10.179',
     date: 'June 18, 2026',
     highlight: 'Resize the dialer freely + Call button sits next to the keypad.',

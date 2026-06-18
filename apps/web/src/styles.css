@@ -1127,8 +1127,15 @@ body {
    v0.10.x look on tall screens. */
 .dialpad {
   width: 100%;
-  max-width: 420px;
-  padding: clamp(0.5rem, 1.5vh, 1rem) 1.5rem clamp(0.8rem, 2.5vh, 2rem);
+  /* v0.10.180 - was hard 420px which left huge empty gutters on narrow
+     desktop snaps (683 wide on a 1366x768 half-screen). clamp() lets
+     the dialpad stretch toward 460px when there's room, and stays
+     compact when the window is mobile-portrait sized. */
+  max-width: clamp(320px, 92vw, 460px);
+  /* v0.10.180 - horizontal padding now scales with vw so narrow viewports
+     don't lose 1.5rem per side. At 683 wide, 4vw = 27.3px (~1.7rem);
+     at 360 wide, 4vw = 14.4px (~0.9rem). Vertical padding unchanged. */
+  padding: clamp(0.5rem, 1.5vh, 1rem) clamp(0.6rem, 4vw, 1.5rem) clamp(0.8rem, 2.5vh, 2rem);
   display: flex;
   flex-direction: column;
   /* v0.10.73 — Switched from justify-content:flex-end to flex-start,
@@ -1238,11 +1245,14 @@ body {
   background: rgba(255, 255, 255, 0.15);
   border: none;
   color: #fff;
-  /* v0.10.154 - viewport-responsive sizing. 8.5vh hits the sweet spot
-     for both 1280x720 (~61px) and full HD (75px max). 48px floor keeps
-     the touch target usable even on tiny laptops. */
-  width: clamp(48px, 8.5vh, 75px);
-  height: clamp(48px, 8.5vh, 75px);
+  /* v0.10.180 - was clamp(48px, 8.5vh, 75px) which capped keys at 75
+     even on narrow desktop snaps where there was room for larger
+     touch targets. Now uses min(9vh, 18vw) so keys also respond to
+     viewport WIDTH; ceiling raised to 92px so half-screen snaps
+     (683x768) get ~92px keys instead of 65px. Floor at 56px to keep
+     them touch-friendly on tiny portrait windows. */
+  width: clamp(56px, min(9vh, 18vw), 92px);
+  height: clamp(56px, min(9vh, 18vw), 92px);
   border-radius: 50%;
   cursor: pointer;
   display: flex;
@@ -1299,10 +1309,10 @@ body {
   background: #34c759;
   border: none;
   color: #fff;
-  /* v0.10.154 - match .keypad-btn scaling so the action row aligns
-     visually with the keypad above. */
-  width: clamp(48px, 8.5vh, 75px);
-  height: clamp(48px, 8.5vh, 75px);
+  /* v0.10.180 - matches .keypad-btn scaling so the action row aligns
+     visually with the keypad above. See .keypad-btn for rationale. */
+  width: clamp(56px, min(9vh, 18vw), 92px);
+  height: clamp(56px, min(9vh, 18vw), 92px);
   border-radius: 50%;
   cursor: pointer;
   display: flex;
@@ -1320,9 +1330,9 @@ body {
   border: none;
   color: #fff;
   cursor: pointer;
-  /* v0.10.154 - match .keypad-btn scaling. */
-  width: clamp(48px, 8.5vh, 75px);
-  height: clamp(48px, 8.5vh, 75px);
+  /* v0.10.180 - matches .keypad-btn scaling. */
+  width: clamp(56px, min(9vh, 18vw), 92px);
+  height: clamp(56px, min(9vh, 18vw), 92px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1677,7 +1687,11 @@ body {
   flex-direction: column;
   align-items: center;
   gap: 0.2rem;
-  font-size: 0.65rem;
+  /* v0.10.180 - was 0.65rem (~10.4px) which was barely legible on
+     half-screen snaps. Bumped to 0.75rem (~12px) so Favorites /
+     Messages / Recents / Keypad / Voicemail labels read clearly
+     even when each tab cell is ~135px wide. */
+  font-size: 0.75rem;
   padding: 0.3rem;
   font-weight: 500;
   transition: color 0.1s ease;
