@@ -1246,110 +1246,115 @@ function ThreadDetail({ number, onBack }: ThreadDetailProps) {
         </div>
       )}
 
-      <div className="compose-row">
-        <button
-          type="button"
-          className="icon-btn"
-          onClick={handleAttach}
-          disabled={uploading}
-          aria-label="Attach image"
-        >
-          <ImageIcon size={20} />
-        </button>
-        {quickReplies.length > 0 && (
-          <button
-            type="button"
-            className="icon-btn"
-            onClick={() => setShowQuickReplies((v) => !v)}
-            aria-label="Quick replies"
-            title="Quick replies"
-          >
-            <Zap size={20} />
-          </button>
-        )}
-        {/* v0.10.29 — Emoji picker. Click → small grid of common emojis;
-            click an emoji to insert at cursor position. */}
-        <button
-          type="button"
-          className={`icon-btn${showEmojiPicker ? ' active' : ''}`}
-          onClick={() => setShowEmojiPicker((v) => !v)}
-          aria-label="Emoji"
-          title="Insert emoji"
-        >
-          <Smile size={20} />
-        </button>
-        {/* v0.10.52 — SMS templates picker. Click → popover grouped by
-            category. Picking a template inserts its body with
-            {firstName} pre-filled from the contact (if known); other
-            placeholders stay as `{varName}` for the user to fill before
-            sending. Hidden if no templates exist (admin hasn't seeded). */}
-        {templates.length > 0 && (
-          <button
-            type="button"
-            className={`icon-btn${showTemplatePicker ? ' active' : ''}`}
-            onClick={() => {
-              setShowTemplatePicker((v) => !v);
-              setShowEmojiPicker(false);
+      {/* v0.10.182 — Two-row composer. Row 1 holds the textarea and the
+          "send-side" controls (Clock for scheduled send + Send pill).
+          Row 2 holds the labeled action pills (MMS / Quick reply /
+          Emoji / Templates). Same handlers as before — only layout +
+          visual change. */}
+      <div className="compose-area">
+        <div className="compose-row compose-row-input">
+          {/* v0.10.29 — Textarea (not input) for multi-line drafts.
+              Enter sends; Shift+Enter inserts a newline. */}
+          <textarea
+            ref={composeInputRef}
+            className="compose-input"
+            placeholder="Text message"
+            title="Shift+Enter for new line, Enter to send"
+            value={draft}
+            rows={1}
+            onChange={(e) => setDraft(e.target.value)}
+            onPaste={(e) => void handlePaste(e)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                void handleSend();
+              }
             }}
-            aria-label="Templates"
-            title="Insert template"
+            autoCorrect="on"
+            autoCapitalize="sentences"
+            spellCheck={true}
+            autoComplete="on"
+          />
+          {uploading && <span className="muted" style={{ fontSize: 12 }}>uploading…</span>}
+          {attached.length > 0 && (
+            <span className="attach-pill" title={attached.join('\n')}>
+              📎 {attached.length}
+            </span>
+          )}
+          {/* v0.10.59 Schedule. Disabled when there's nothing to schedule. */}
+          <button
+            type="button"
+            className="icon-btn compose-icon-btn"
+            onClick={() => setShowScheduleModal({ mode: 'create' })}
+            disabled={sending || (!draft.trim() && attached.length === 0)}
+            aria-label="Schedule send"
+            title="Schedule send"
           >
-            <FileText size={20} />
+            <Clock size={18} />
           </button>
-        )}
-        {/* v0.10.29 — Textarea (not input) for multi-line drafts.
-            Enter sends; Shift+Enter inserts a newline. Browser-native
-            autoCorrect / spellCheck / autoCapitalize for typing assistance. */}
-        <textarea
-          ref={composeInputRef}
-          className="compose-input"
-          placeholder="Text message"
-          title="Shift+Enter for new line, Enter to send"
-          value={draft}
-          rows={1}
-          onChange={(e) => setDraft(e.target.value)}
-          onPaste={(e) => void handlePaste(e)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-              e.preventDefault();
-              void handleSend();
-            }
-          }}
-          autoCorrect="on"
-          autoCapitalize="sentences"
-          spellCheck={true}
-          autoComplete="on"
-        />
-        {uploading && <span className="muted" style={{ fontSize: 12 }}>uploading…</span>}
-        {attached.length > 0 && (
-          <span className="attach-pill" title={attached.join('\n')}>
-            📎 {attached.length}
-          </span>
-        )}
-        {/* v0.10.59 — Schedule button. Disabled when there's no draft +
-            no attachments (nothing to schedule). Opens the date/time
-            picker; on confirm, calls POST /me/scheduled-messages with the
-            current draft + attached, then clears the compose row same
-            as Send does. */}
-        <button
-          type="button"
-          className="icon-btn compose-icon-btn"
-          onClick={() => setShowScheduleModal({ mode: 'create' })}
-          disabled={sending || (!draft.trim() && attached.length === 0)}
-          aria-label="Schedule send"
-          title="Schedule send"
-        >
-          <Clock size={18} />
-        </button>
-        <button
-          type="button"
-          className="send-btn"
-          onClick={handleSend}
-          disabled={sending || (!draft.trim() && attached.length === 0)}
-          aria-label="Send"
-        >
-          <Send size={18} />
-        </button>
+          {/* v0.10.182 — Send is now a pill with "Send" text + arrow icon. */}
+          <button
+            type="button"
+            className="send-btn"
+            onClick={handleSend}
+            disabled={sending || (!draft.trim() && attached.length === 0)}
+            aria-label="Send"
+          >
+            <span className="send-btn-label">Send</span>
+            <Send size={16} />
+          </button>
+        </div>
+        <div className="compose-row-actions">
+          <button
+            type="button"
+            className="compose-action-pill"
+            onClick={handleAttach}
+            disabled={uploading}
+            aria-label="Attach image"
+            title="Attach image"
+          >
+            <ImageIcon size={16} />
+            <span>MMS</span>
+          </button>
+          {quickReplies.length > 0 && (
+            <button
+              type="button"
+              className="compose-action-pill"
+              onClick={() => setShowQuickReplies((v) => !v)}
+              aria-label="Quick replies"
+              title="Quick replies"
+            >
+              <Zap size={16} />
+              <span>Quick reply</span>
+            </button>
+          )}
+          {/* v0.10.29 Emoji picker. Icon-only pill — opens a grid of common emojis. */}
+          <button
+            type="button"
+            className={`compose-action-pill is-icon-only${showEmojiPicker ? ' is-active' : ''}`}
+            onClick={() => setShowEmojiPicker((v) => !v)}
+            aria-label="Insert emoji"
+            title="Insert emoji"
+          >
+            <Smile size={16} />
+          </button>
+          {/* v0.10.52 Templates. Hidden when admin hasn't seeded any. */}
+          {templates.length > 0 && (
+            <button
+              type="button"
+              className={`compose-action-pill${showTemplatePicker ? ' is-active' : ''}`}
+              onClick={() => {
+                setShowTemplatePicker((v) => !v);
+                setShowEmojiPicker(false);
+              }}
+              aria-label="Templates"
+              title="Insert template"
+            >
+              <FileText size={16} />
+              <span>Templates</span>
+            </button>
+          )}
+        </div>
       </div>
 
       {/* v0.10.29 — Emoji picker popover. Click an emoji to insert at

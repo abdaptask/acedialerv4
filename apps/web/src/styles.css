@@ -4129,19 +4129,25 @@ body {
 }
 
 /* --- Compose row + send button restyle ----------------------------- */
+/* v0.10.182 — Send button changes from round icon-only to a pill
+   with "Send" text + paper-plane icon. Wider (~80px) than the round
+   version; sits next to the Clock schedule icon on the top compose row. */
 .compose-row .send-btn {
-  width: 40px;
   height: 40px;
-  border-radius: 50%;
+  padding: 0 18px;
+  border-radius: 999px;
   background: #4f46e5;
   color: #fff;
   border: none;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: 8px;
   cursor: pointer;
   flex-shrink: 0;
-  padding: 0;
+  font-family: inherit;
+  font-size: 0.95rem;
+  font-weight: 600;
   transition: background 0.12s ease, transform 0.08s ease;
 }
 .compose-row .send-btn:hover { background: #4338ca; }
@@ -4150,7 +4156,81 @@ body {
   opacity: 0.45;
   cursor: not-allowed;
 }
-.compose-row .send-btn svg { transform: translateX(1px); /* nudge paper plane visually */ }
+.compose-row .send-btn svg { transform: translateX(1px) translateY(-1px); /* visual nudge */ }
+.compose-row .send-btn .send-btn-label { line-height: 1; }
+
+/* v0.10.182 — Two-row composer container. Row 1 (.compose-row-input)
+   holds the textarea + schedule clock + Send pill. Row 2
+   (.compose-row-actions) holds the labeled action pills (MMS /
+   Quick reply / emoji / Templates). */
+.compose-area {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+[data-theme="light"] .compose-area {
+  border-top-color: rgba(0, 0, 0, 0.06);
+}
+/* The .compose-row inherits its existing styles for the top row, but we
+   undo the border-top + padding since the parent .compose-area provides
+   them, and we don't want a double border between rows. */
+.compose-area .compose-row {
+  border-top: none;
+  padding: 0;
+}
+.compose-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.compose-action-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  height: 32px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  border: none;
+  color: var(--text);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 0.85rem;
+  font-weight: 500;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.compose-action-pill:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+.compose-action-pill:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.compose-action-pill.is-icon-only {
+  padding: 6px 10px;
+}
+.compose-action-pill.is-active {
+  background: rgba(99, 102, 241, 0.18);
+  color: #4f46e5;
+}
+[data-theme="light"] .compose-action-pill {
+  background: #f1f3f7;
+  color: #374151;
+}
+[data-theme="light"] .compose-action-pill:hover {
+  background: #e5e7ee;
+}
+[data-theme="light"] .compose-action-pill.is-active {
+  background: rgba(99, 102, 241, 0.14);
+  color: #4f46e5;
+}
+.compose-action-pill svg {
+  flex-shrink: 0;
+  opacity: 0.85;
+}
 
 /* v0.10.177 — MMS attachment download overlay.
    Each image bubble item is a positioned container holding the

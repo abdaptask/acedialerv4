@@ -24,6 +24,15 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.182',
+    date: 'June 18, 2026',
+    highlight: 'Message composer redesigned into a cleaner two-row layout.',
+    changes: [
+      { type: 'improved', text: 'Message composer is now two rows. Top row: text box, the schedule-send clock, and a "Send" pill (with the paper-plane icon — same one-click send, just clearer label). Bottom row: labeled action pills — MMS / Quick reply / 😊 / Templates — replacing the unlabeled icon strip.' },
+      { type: 'improved', text: 'No behavior changes. Schedule-send, quick replies, emoji picker, template picker, paste-to-attach, Enter-to-send, Shift+Enter for newline — all work exactly as before.' },
+    ],
+  },
+  {
     version: '0.10.181',
     date: 'June 18, 2026',
     highlight: 'See your own call + SMS activity under Settings → Usage.',
