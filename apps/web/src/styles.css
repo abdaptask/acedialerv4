@@ -3493,6 +3493,18 @@ body {
   color: #4f46e5 !important;
 }
 
+/* v0.10.189 — kill the legacy [data-theme="light"] .compose-row
+   { background: var(--bg-elevated) } rule from line ~4847 that was
+   adding a WHITE background to the top composer row (between the
+   text input, clock, and Send pill). Force transparent so the gray
+   card panel shows through. The bottom row uses .compose-row-actions
+   (no .compose-row class) so it was already transparent. */
+[data-theme="light"] .compose-area .compose-row,
+[data-theme="light"] .compose-area .compose-row-input {
+  background: transparent !important;
+  border-color: transparent !important;
+}
+
 /* Dark-mode equivalent — slight elevation card with slightly-more-
    elevated controls inside. */
 .compose-area .compose-input,

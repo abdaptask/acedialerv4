@@ -24,6 +24,14 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.189',
+    date: 'June 18, 2026',
+    highlight: 'Composer: removed the legacy white background between input/clock/send.',
+    changes: [
+      { type: 'fixed', text: 'A pre-existing legacy CSS rule was setting a white background on the top composer row (between the text input, schedule clock, and Send pill). That rule is now overridden — the gray card panel shows through cleanly between every control.' },
+    ],
+  },
+  {
     version: '0.10.188',
     date: 'June 18, 2026',
     highlight: 'Composer: card layout with all-gray controls inside.',
