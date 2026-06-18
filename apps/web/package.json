@@ -1,6 +1,6 @@
 {
   "name": "@ace/web",
-  "version": "0.10.183",
+  "version": "0.10.184",
   "private": true,
   "type": "module",
   "scripts": {

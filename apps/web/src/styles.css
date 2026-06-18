@@ -4168,18 +4168,56 @@ body {
 .compose-row .send-btn svg { transform: translateX(1px) translateY(-1px); /* visual nudge */ }
 .compose-row .send-btn .send-btn-label { line-height: 1; }
 
-/* v0.10.182 — Two-row composer container. Row 1 (.compose-row-input)
-   holds the textarea + schedule clock + Send pill. Row 2
-   (.compose-row-actions) holds the labeled action pills (MMS /
-   Quick reply / emoji / Templates). */
+/* v0.10.184 — Schedule-send clock button styled to match the action
+   pill aesthetic instead of the transparent .icon-btn it inherited
+   from. Same height as the Send pill (40px) so the input row reads
+   as a balanced trio: input | clock | Send. */
+.compose-row .compose-icon-btn {
+  width: 40px;
+  height: 40px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  color: var(--text);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  cursor: pointer;
+  padding: 0;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.compose-row .compose-icon-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.12);
+}
+.compose-row .compose-icon-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+[data-theme="light"] .compose-row .compose-icon-btn {
+  background: #ffffff;
+  border-color: rgba(0, 0, 0, 0.05);
+  color: #374151;
+}
+[data-theme="light"] .compose-row .compose-icon-btn:hover:not(:disabled) {
+  background: #f7f8fb;
+}
+
+/* v0.10.182 — Two-row composer container.
+   v0.10.184 — Now has an explicit themed surface (slightly off-white in
+   light mode, slight elevation in dark mode) so the composer reads as a
+   coherent footer panel instead of a stark white card inherited from
+   the page bg. */
 .compose-area {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding: 10px 12px;
+  gap: 8px;
+  padding: 12px 14px;
+  background: rgba(255, 255, 255, 0.03);
   border-top: 1px solid rgba(255, 255, 255, 0.06);
 }
 [data-theme="light"] .compose-area {
+  background: #f5f6fa;
   border-top-color: rgba(0, 0, 0, 0.06);
 }
 /* The .compose-row inherits its existing styles for the top row, but we
@@ -4226,15 +4264,19 @@ body {
   color: #4f46e5;
 }
 [data-theme="light"] .compose-action-pill {
-  background: #f1f3f7;
+  /* v0.10.184 — pure white pills on the slight-gray composer-area
+     (#f5f6fa). Reads as cards on a panel, not the same shade. */
+  background: #ffffff;
   color: #374151;
+  border: 1px solid rgba(0, 0, 0, 0.05);
 }
 [data-theme="light"] .compose-action-pill:hover {
-  background: #e5e7ee;
+  background: #f7f8fb;
 }
 [data-theme="light"] .compose-action-pill.is-active {
-  background: rgba(99, 102, 241, 0.14);
+  background: rgba(99, 102, 241, 0.12);
   color: #4f46e5;
+  border-color: rgba(99, 102, 241, 0.20);
 }
 .compose-action-pill svg {
   flex-shrink: 0;
@@ -6366,8 +6408,10 @@ body {
   background: rgba(255, 255, 255, 0.10);
 }
 [data-theme="light"] .compose-input {
-  border-color: rgba(0, 0, 0, 0.08);
-  background: #f1f3f7;
+  /* v0.10.184 — slightly lighter than the .compose-area (#f5f6fa) so
+     the input reads as a card on the panel, not the same shade. */
+  border-color: rgba(0, 0, 0, 0.06);
+  background: #ffffff;
   color: #111827;
 }
 [data-theme="light"] .compose-input::placeholder {
@@ -6376,7 +6420,7 @@ body {
 }
 [data-theme="light"] .compose-input:focus {
   border-color: rgba(99, 102, 241, 0.5);
-  background: #eaecf2;
+  background: #ffffff;
 }
 
 /* v0.10.29 — Emoji picker popover. Floats above the compose row.

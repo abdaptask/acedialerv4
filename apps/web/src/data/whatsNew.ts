@@ -24,6 +24,16 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.184',
+    date: 'June 18, 2026',
+    highlight: 'Composer: cleaner themed surface; clock matches the pill style.',
+    changes: [
+      { type: 'improved', text: 'The message composer footer panel now has a subtle themed background — slightly off-white in light mode, soft elevation in dark mode. No more stark white card on the page.' },
+      { type: 'improved', text: 'The Schedule-send clock button matches the action pill aesthetic (rounded, themed surface) instead of the previous transparent icon button that popped oddly.' },
+      { type: 'improved', text: 'Text input and action pills now use white-on-grey-panel contrast in light mode (cards on a panel) instead of grey-on-grey which blended together.' },
+    ],
+  },
+  {
     version: '0.10.183',
     date: 'June 18, 2026',
     highlight: 'Composer fixes: proper Send pill, themed input, one popover at a time.',
