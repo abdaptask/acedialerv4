@@ -24,6 +24,16 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.183',
+    date: 'June 18, 2026',
+    highlight: 'Composer fixes: proper Send pill, themed input, one popover at a time.',
+    changes: [
+      { type: 'fixed', text: 'Send button now renders as a proper "Send" pill with the paper-plane icon instead of getting squished into a 36px circle by a lingering global rule.' },
+      { type: 'fixed', text: 'Message text input now uses the dialer\'s theme colors (light surface in light mode, dark surface in dark mode) instead of being hardcoded dark even in light mode.' },
+      { type: 'fixed', text: 'Quick reply / Emoji / Templates popovers are now mutually exclusive — clicking any one of them closes the other two. No more all-three-stacked-on-screen.' },
+    ],
+  },
+  {
     version: '0.10.182',
     date: 'June 18, 2026',
     highlight: 'Message composer redesigned into a cleaner two-row layout.',

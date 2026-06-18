@@ -1319,8 +1319,17 @@ function ThreadDetail({ number, onBack }: ThreadDetailProps) {
           {quickReplies.length > 0 && (
             <button
               type="button"
-              className="compose-action-pill"
-              onClick={() => setShowQuickReplies((v) => !v)}
+              className={`compose-action-pill${showQuickReplies ? ' is-active' : ''}`}
+              onClick={() => {
+                // v0.10.183 — mutual exclusion. Open this popover ONLY;
+                // close the other two. If already open, just close it.
+                const next = !showQuickReplies;
+                setShowQuickReplies(next);
+                if (next) {
+                  setShowEmojiPicker(false);
+                  setShowTemplatePicker(false);
+                }
+              }}
               aria-label="Quick replies"
               title="Quick replies"
             >
@@ -1332,7 +1341,15 @@ function ThreadDetail({ number, onBack }: ThreadDetailProps) {
           <button
             type="button"
             className={`compose-action-pill is-icon-only${showEmojiPicker ? ' is-active' : ''}`}
-            onClick={() => setShowEmojiPicker((v) => !v)}
+            onClick={() => {
+              // v0.10.183 — mutual exclusion.
+              const next = !showEmojiPicker;
+              setShowEmojiPicker(next);
+              if (next) {
+                setShowQuickReplies(false);
+                setShowTemplatePicker(false);
+              }
+            }}
             aria-label="Insert emoji"
             title="Insert emoji"
           >
@@ -1344,8 +1361,14 @@ function ThreadDetail({ number, onBack }: ThreadDetailProps) {
               type="button"
               className={`compose-action-pill${showTemplatePicker ? ' is-active' : ''}`}
               onClick={() => {
-                setShowTemplatePicker((v) => !v);
-                setShowEmojiPicker(false);
+                // v0.10.183 — mutual exclusion (was previously only
+                // closing emoji; now also closes quick replies).
+                const next = !showTemplatePicker;
+                setShowTemplatePicker(next);
+                if (next) {
+                  setShowQuickReplies(false);
+                  setShowEmojiPicker(false);
+                }
               }}
               aria-label="Templates"
               title="Insert template"

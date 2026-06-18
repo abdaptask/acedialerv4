@@ -4133,9 +4133,14 @@ body {
    with "Send" text + paper-plane icon. Wider (~80px) than the round
    version; sits next to the Clock schedule icon on the top compose row. */
 .compose-row .send-btn {
+  /* v0.10.183 — explicit width:auto + min-width !important to defeat
+     the legacy global `.send-btn { width: 36px }` at line ~6403 which
+     was squishing this pill into a 36px circle. */
+  width: auto !important;
+  min-width: 90px !important;
   height: 40px;
   padding: 0 18px;
-  border-radius: 999px;
+  border-radius: 999px !important;
   background: #4f46e5;
   color: #fff;
   border: none;
@@ -4150,10 +4155,14 @@ body {
   font-weight: 600;
   transition: background 0.12s ease, transform 0.08s ease;
 }
-.compose-row .send-btn:hover { background: #4338ca; }
-.compose-row .send-btn:active { transform: scale(0.96); }
+.compose-row .send-btn:hover:not(:disabled) { background: #4338ca; }
+.compose-row .send-btn:active:not(:disabled) { transform: scale(0.96); }
 .compose-row .send-btn:disabled {
-  opacity: 0.45;
+  /* v0.10.183 — use a lighter solid background instead of opacity so the
+     "Send" label stays readable in the disabled state. */
+  background: #c7c5f0;
+  color: #fff;
+  opacity: 1;
   cursor: not-allowed;
 }
 .compose-row .send-btn svg { transform: translateX(1px) translateY(-1px); /* visual nudge */ }
@@ -6328,34 +6337,47 @@ body {
 }
 .compose-input {
   flex: 1;
-  /* v0.9.15 — Chat uses <textarea> for multi-line support. <textarea>
-     defaults to font-family: monospace in every browser, which is what
-     made the Chat compose row look "horrible" in the screenshots —
-     placeholder rendered as Courier. Inherit the page's font stack
-     instead so the input matches the rest of the dialer.
-     v0.10.29 — SMS compose is also a textarea now (was input). Height
-     auto-grows up to a cap so multi-line drafts (Shift+Enter) read
-     naturally. min-height matches the prior 38px so the row layout
-     stays consistent for short messages. */
   font-family: inherit;
   min-height: 38px;
-  /* v0.10.54 — Bumped from 160px to 220px. JS auto-resize (Messages.tsx)
-     caps at 200px and toggles overflow-y. Without this CSS bump, CSS
-     was clamping the box at 160px even when a template needed 180px to
-     show fully — leaving the user scrolling inside a tiny box. */
   max-height: 220px;
   padding: 8px 14px;
   border-radius: 18px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background: #1f2937;
-  color: #fff;
+  /* v0.10.183 — was hardcoded #1f2937 background / #fff text which
+     looked off in light mode (popped as dark on a light page). Theme-
+     aware now: subtle surface in both modes, var(--text) so the typed
+     content uses the page's text color. Border matches the
+     .compose-action-pill rest state for visual consistency. */
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
   font-size: 14px;
   line-height: 1.4;
   outline: none;
   resize: none;
   overflow-y: auto;
+  transition: background 0.12s ease, border-color 0.12s ease;
 }
-.compose-input:focus { border-color: #3b82f6; }
+.compose-input::placeholder {
+  color: var(--text-dim);
+  opacity: 0.7;
+}
+.compose-input:focus {
+  border-color: rgba(99, 102, 241, 0.5);
+  background: rgba(255, 255, 255, 0.10);
+}
+[data-theme="light"] .compose-input {
+  border-color: rgba(0, 0, 0, 0.08);
+  background: #f1f3f7;
+  color: #111827;
+}
+[data-theme="light"] .compose-input::placeholder {
+  color: #9ca3af;
+  opacity: 1;
+}
+[data-theme="light"] .compose-input:focus {
+  border-color: rgba(99, 102, 241, 0.5);
+  background: #eaecf2;
+}
 
 /* v0.10.29 — Emoji picker popover. Floats above the compose row.
    Two rows of 12 emojis, fixed grid. */
