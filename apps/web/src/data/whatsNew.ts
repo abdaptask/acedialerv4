@@ -24,6 +24,14 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.187',
+    date: 'June 18, 2026',
+    highlight: 'Message composer is now a clean card-row with rounded corners.',
+    changes: [
+      { type: 'improved', text: 'Message composer redesigned as a discrete rounded card sitting at the bottom of the thread. Soft gray panel with the text input, schedule clock, action pills (MMS / Quick reply / Emoji / Templates) as white pills inside. The indigo Send pill stays as the only accent color.' },
+    ],
+  },
+  {
     version: '0.10.186',
     date: 'June 18, 2026',
     highlight: 'Composer: forced gray surface everywhere — no more white in light mode.',
