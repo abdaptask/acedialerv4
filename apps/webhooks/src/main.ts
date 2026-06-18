@@ -1386,7 +1386,7 @@ const texmlHandler = async (request: any): Promise<string> => {
 
   // Build an ABSOLUTE URL for the Dial action - Telnyx requires absolute URLs.
   const proto = (request?.headers?.['x-forwarded-proto'] as string) ?? 'https';
-  const host = (request?.headers?.host as string) ?? 'ace-dialer-webhooks.onrender.com';
+  const host = (request?.headers?.host as string) ?? 'dialer.aptask.com';
   const baseUrl = (process.env.WEBHOOKS_PUBLIC_URL ?? `${proto}://${host}`).replace(/\/+$/, '');
   const dialStatusAction = `${baseUrl}/texml/dial-status`;
 
@@ -1433,7 +1433,7 @@ const dialStatusHandler = (request: any): string => {
   const status: string = (body.DialCallStatus ?? query.DialCallStatus ?? '').toString().toLowerCase();
 
   const proto = (request?.headers?.['x-forwarded-proto'] as string) ?? 'https';
-  const host = (request?.headers?.host as string) ?? 'ace-dialer-webhooks.onrender.com';
+  const host = (request?.headers?.host as string) ?? 'dialer.aptask.com';
   const baseUrl = (process.env.WEBHOOKS_PUBLIC_URL ?? `${proto}://${host}`).replace(/\/+$/, '');
   const recordAction = `${baseUrl}/webhooks/telnyx/voicemail`;
   const greeting =
