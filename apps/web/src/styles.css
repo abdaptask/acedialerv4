@@ -3452,44 +3452,45 @@ body {
   margin: 8px 12px !important;
 }
 
-/* Inner controls — pure WHITE pills inside the gray card. Hair-thin
-   border for definition. */
+/* v0.10.188 — Inner controls are GRAY, not white. Same gray family
+   as the card panel, just darker so they read as a subtle elevation
+   step. No borders — they'd add visual noise; the color shift alone
+   is enough to define the controls. */
 [data-theme="light"] .compose-area .compose-input,
 [data-theme="light"] .compose-area textarea.compose-input {
-  background: #ffffff !important;
-  border: 0.5px solid rgba(0, 0, 0, 0.05) !important;
-  color: #111827 !important;
+  background: #dbdfe6 !important;
+  border: 1px solid transparent !important;
+  color: #1f2937 !important;
 }
 [data-theme="light"] .compose-area .compose-input::placeholder {
-  color: #9ca3af !important;
+  color: #6b7280 !important;
   opacity: 1 !important;
 }
 [data-theme="light"] .compose-area .compose-input:focus {
-  background: #ffffff !important;
-  border-color: rgba(79, 70, 229, 0.45) !important;
+  background: #d3d8e0 !important;
+  border-color: rgba(79, 70, 229, 0.35) !important;
 }
 
 [data-theme="light"] .compose-area .compose-row .compose-icon-btn {
-  background: #ffffff !important;
-  border: 0.5px solid rgba(0, 0, 0, 0.05) !important;
+  background: #dbdfe6 !important;
+  border: 1px solid transparent !important;
   color: #374151 !important;
 }
 [data-theme="light"] .compose-area .compose-row .compose-icon-btn:hover:not(:disabled) {
-  background: #f7f8fb !important;
+  background: #cdd2db !important;
 }
 
 [data-theme="light"] .compose-area .compose-action-pill {
-  background: #ffffff !important;
-  border: 0.5px solid rgba(0, 0, 0, 0.05) !important;
+  background: #dbdfe6 !important;
+  border: none !important;
   color: #1f2937 !important;
 }
 [data-theme="light"] .compose-area .compose-action-pill:hover:not(:disabled) {
-  background: #f7f8fb !important;
+  background: #cdd2db !important;
 }
 [data-theme="light"] .compose-area .compose-action-pill.is-active {
-  background: rgba(79, 70, 229, 0.10) !important;
+  background: rgba(79, 70, 229, 0.14) !important;
   color: #4f46e5 !important;
-  border-color: rgba(79, 70, 229, 0.20) !important;
 }
 
 /* Dark-mode equivalent — slight elevation card with slightly-more-

@@ -24,6 +24,14 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.188',
+    date: 'June 18, 2026',
+    highlight: 'Composer: card layout with all-gray controls inside.',
+    changes: [
+      { type: 'fixed', text: 'Inner controls of the composer card (text input, schedule clock, action pills) are now gray, not white. Card panel + all controls share the gray family; only the Send pill remains indigo. No white surfaces anywhere in the composer.' },
+    ],
+  },
+  {
     version: '0.10.187',
     date: 'June 18, 2026',
     highlight: 'Message composer is now a clean card-row with rounded corners.',
