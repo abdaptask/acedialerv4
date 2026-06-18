@@ -24,6 +24,14 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.190',
+    date: 'June 18, 2026',
+    highlight: 'Ctrl+Enter now inserts a newline in the message composer.',
+    changes: [
+      { type: 'improved', text: 'In the Messages thread composer, Ctrl+Enter (or Cmd+Enter on Mac) now inserts a newline. Enter still sends and Shift+Enter still works for newlines, so existing muscle memory is unchanged — this just adds Ctrl+Enter as an extra newline shortcut.' },
+    ],
+  },
+  {
     version: '0.10.189',
     date: 'June 18, 2026',
     highlight: 'Composer: removed the legacy white background between input/clock/send.',

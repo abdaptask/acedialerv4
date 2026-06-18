@@ -1253,19 +1253,38 @@ function ThreadDetail({ number, onBack }: ThreadDetailProps) {
           visual change. */}
       <div className="compose-area">
         <div className="compose-row compose-row-input">
-          {/* v0.10.29 — Textarea (not input) for multi-line drafts.
-              Enter sends; Shift+Enter inserts a newline. */}
+          {/* v0.10.190 — Textarea (not input) for multi-line drafts.
+              Enter sends; Shift+Enter OR Ctrl+Enter (Cmd+Enter on Mac)
+              inserts a newline. */}
           <textarea
             ref={composeInputRef}
             className="compose-input"
             placeholder="Text message"
-            title="Shift+Enter for new line, Enter to send"
+            title="Shift+Enter or Ctrl+Enter for new line, Enter to send"
             value={draft}
             rows={1}
             onChange={(e) => setDraft(e.target.value)}
             onPaste={(e) => void handlePaste(e)}
             onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
+              if (e.key === 'Enter') {
+                // Ctrl+Enter (Win/Linux) or Cmd+Enter (Mac) — insert a
+                // newline at the cursor. Browsers don't do this for us
+                // when Ctrl is held, so we do it explicitly.
+                if (e.ctrlKey || e.metaKey) {
+                  e.preventDefault();
+                  const ta = e.currentTarget;
+                  const start = ta.selectionStart ?? draft.length;
+                  const end = ta.selectionEnd ?? draft.length;
+                  const next = draft.slice(0, start) + '\n' + draft.slice(end);
+                  setDraft(next);
+                  requestAnimationFrame(() => {
+                    try { ta.setSelectionRange(start + 1, start + 1); } catch { /* noop */ }
+                  });
+                  return;
+                }
+                // Shift+Enter — let the textarea's native newline happen.
+                if (e.shiftKey) return;
+                // Plain Enter — send.
                 e.preventDefault();
                 void handleSend();
               }
