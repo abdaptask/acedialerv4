@@ -1518,7 +1518,7 @@ function texmlPublicBaseUrl(request: { headers?: Record<string, unknown> }): str
   if (envBase) return envBase.replace(/\/+$/, '');
   const headers = request.headers ?? {};
   const proto = (headers['x-forwarded-proto'] as string) ?? 'https';
-  const host = (headers['host'] as string) ?? 'ace-dialer-webhooks.onrender.com';
+  const host = (headers['host'] as string) ?? 'dialer.aptask.com';
   return `${proto}://${host}`.replace(/\/+$/, '');
 }
 
