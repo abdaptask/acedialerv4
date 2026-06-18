@@ -24,6 +24,14 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.192',
+    date: 'June 18, 2026',
+    highlight: 'Internal: TypeScript fixup for v0.10.191.',
+    changes: [
+      { type: 'fixed', text: 'Internal: v0.10.191 had a TypeScript type mismatch on the failed-message expand state (Set<string> vs Set<number>). Functional behavior was unaffected; this release just gets the strict typecheck clean.' },
+    ],
+  },
+  {
     version: '0.10.191',
     date: 'June 18, 2026',
     highlight: 'Delivery status ticks on every outbound message.',

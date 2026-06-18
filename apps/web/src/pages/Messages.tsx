@@ -510,7 +510,8 @@ function ThreadDetail({ number, onBack }: ThreadDetailProps) {
 
   // v0.10.191 — Which failed bubbles currently have their error details
   // expanded. Default: collapsed (just a "Failed" pill). Click toggles.
-  const [expandedErrorIds, setExpandedErrorIds] = useState<Set<string>>(new Set());
+  // v0.10.192 — Set<number> not Set<string>: MessageRecord.id is number.
+  const [expandedErrorIds, setExpandedErrorIds] = useState<Set<number>>(new Set());
 
   // Mark this thread as visited so the unread dot disappears from the
   // threads list. Fires on mount and on every poll (so if a new inbound
