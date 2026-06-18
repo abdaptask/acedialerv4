@@ -24,6 +24,14 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.185',
+    date: 'June 18, 2026',
+    highlight: 'Composer: no white anywhere — one coherent gray treatment.',
+    changes: [
+      { type: 'improved', text: 'Message composer no longer has any white surfaces. The outer panel is transparent (inherits the dialer\'s page background); the text input, action pills (MMS / Quick reply / Emoji / Templates), and Schedule-send clock all share a single clear gray surface. The indigo Send pill is the only accent color.' },
+    ],
+  },
+  {
     version: '0.10.184',
     date: 'June 18, 2026',
     highlight: 'Composer: cleaner themed surface; clock matches the pill style.',

@@ -4195,12 +4195,13 @@ body {
   cursor: not-allowed;
 }
 [data-theme="light"] .compose-row .compose-icon-btn {
-  background: #ffffff;
-  border-color: rgba(0, 0, 0, 0.05);
+  /* v0.10.185 — same gray as input + pills. No white square button. */
+  background: #eaecf2;
+  border-color: transparent;
   color: #374151;
 }
 [data-theme="light"] .compose-row .compose-icon-btn:hover:not(:disabled) {
-  background: #f7f8fb;
+  background: #dfe2ea;
 }
 
 /* v0.10.182 — Two-row composer container.
@@ -4213,11 +4214,15 @@ body {
   flex-direction: column;
   gap: 8px;
   padding: 12px 14px;
-  background: rgba(255, 255, 255, 0.03);
+  /* v0.10.185 — transparent in BOTH modes. The composer is no longer
+     a separate panel; it inherits the dialer's page bg, so there's
+     no white card sitting on the page in light mode. The input + pills
+     below are the only colored surfaces. */
+  background: transparent;
   border-top: 1px solid rgba(255, 255, 255, 0.06);
 }
 [data-theme="light"] .compose-area {
-  background: #f5f6fa;
+  background: transparent;
   border-top-color: rgba(0, 0, 0, 0.06);
 }
 /* The .compose-row inherits its existing styles for the top row, but we
@@ -4264,19 +4269,18 @@ body {
   color: #4f46e5;
 }
 [data-theme="light"] .compose-action-pill {
-  /* v0.10.184 — pure white pills on the slight-gray composer-area
-     (#f5f6fa). Reads as cards on a panel, not the same shade. */
-  background: #ffffff;
+  /* v0.10.185 — clear light gray, same as the input and clock so all
+     composer surfaces share one shade. No white. No borders. */
+  background: #eaecf2;
   color: #374151;
-  border: 1px solid rgba(0, 0, 0, 0.05);
+  border: none;
 }
 [data-theme="light"] .compose-action-pill:hover {
-  background: #f7f8fb;
+  background: #dfe2ea;
 }
 [data-theme="light"] .compose-action-pill.is-active {
-  background: rgba(99, 102, 241, 0.12);
+  background: rgba(99, 102, 241, 0.14);
   color: #4f46e5;
-  border-color: rgba(99, 102, 241, 0.20);
 }
 .compose-action-pill svg {
   flex-shrink: 0;
@@ -6408,10 +6412,10 @@ body {
   background: rgba(255, 255, 255, 0.10);
 }
 [data-theme="light"] .compose-input {
-  /* v0.10.184 — slightly lighter than the .compose-area (#f5f6fa) so
-     the input reads as a card on the panel, not the same shade. */
-  border-color: rgba(0, 0, 0, 0.06);
-  background: #ffffff;
+  /* v0.10.185 — clear light gray (NOT white). All composer controls
+     share this shade so there are no jarring white surfaces. */
+  border-color: rgba(0, 0, 0, 0.04);
+  background: #eaecf2;
   color: #111827;
 }
 [data-theme="light"] .compose-input::placeholder {
@@ -6419,8 +6423,8 @@ body {
   opacity: 1;
 }
 [data-theme="light"] .compose-input:focus {
-  border-color: rgba(99, 102, 241, 0.5);
-  background: #ffffff;
+  border-color: rgba(99, 102, 241, 0.4);
+  background: #eaecf2;
 }
 
 /* v0.10.29 — Emoji picker popover. Floats above the compose row.
