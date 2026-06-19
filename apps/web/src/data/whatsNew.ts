@@ -24,6 +24,15 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.197',
+    date: 'June 19, 2026',
+    highlight: 'Reactions: fixed inbound bubbles + 24 emojis instead of 6.',
+    changes: [
+      { type: 'fixed', text: 'On inbound message bubbles, the hover-reveal reaction button was rendering off-screen due to a missing position-relative anchor. Now appears correctly at the bubble corner.' },
+      { type: 'improved', text: 'Reaction picker now shows all 24 emojis in a 4×6 grid (same set as the composer picker), not just 6.' },
+    ],
+  },
+  {
     version: '0.10.196',
     date: 'June 19, 2026',
     highlight: 'Reactions now show only on messages you received.',

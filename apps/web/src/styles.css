@@ -4189,6 +4189,11 @@ body {
   border-radius: 18px;
   word-break: break-word;
   line-height: 1.35;
+  /* v0.10.197 — Required so v0.10.195 reaction children (add-button
+     and picker popover, both position:absolute) anchor to the bubble
+     box instead of the viewport. v0.10.191 set this on .bubble.out
+     for the delivery tick; this base rule now covers .bubble.in too. */
+  position: relative;
 }
 .msg-stream .bubble.in {
   background: rgba(255, 255, 255, 0.06);
@@ -4424,9 +4429,13 @@ body {
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18);
 }
 .bubble-reaction-picker-row {
-  display: flex;
+  /* v0.10.197 — 4 rows × 6 columns to accommodate the 24-emoji set
+     (was a single row of 6 in v0.10.195). gap stays at 4px; fixed
+     6-column track keeps each emoji button at a predictable size. */
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
   gap: 4px;
-  justify-content: space-between;
+  justify-items: stretch;
 }
 .bubble-reaction-quickpick {
   flex: 1 0 0;
