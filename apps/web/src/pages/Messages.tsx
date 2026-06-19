@@ -524,8 +524,18 @@ function ThreadDetail({ number, onBack }: ThreadDetailProps) {
   // is the "also send as SMS" toggle inside the picker. `reactionsBumpKey`
   // is a no-op state value we increment after addReaction/removeReaction
   // so the render re-reads from localStorage.
+  // v0.10.199 — `reactSendAsText` initializes from localStorage so the
+  // user's choice persists across picker opens and page reloads. Without
+  // this, a user who checked the box once would silently revert to
+  // "local-only" on every subsequent reaction.
   const [reactPickerMsgId, setReactPickerMsgId] = useState<number | null>(null);
-  const [reactSendAsText, setReactSendAsText] = useState<boolean>(false);
+  const [reactSendAsText, setReactSendAsText] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('ace_react_send_as_text') === 'true';
+    } catch {
+      return false;
+    }
+  });
   const [reactionsBumpKey, setReactionsBumpKey] = useState<number>(0);
 
   // Mark this thread as visited so the unread dot disappears from the
@@ -798,6 +808,15 @@ function ThreadDetail({ number, onBack }: ThreadDetailProps) {
       const saved = await sendMessage(token, { to: number, body: text });
       setMessages((prev) => [...prev, saved]);
     } catch (e) {
+      // v0.10.199 — Surface failures so the user knows the reaction-as-
+      // SMS didn't reach the recipient. Mirrors handleSend's error path:
+      // SendMessageError → friendly telnyx blurb; plain Error → message.
+      if (e instanceof SendMessageError) {
+        const blurb = telnyxErrorBlurb(e.details ?? e.code);
+        setError(`Reaction send failed: ${blurb.short}. ${blurb.detail}`);
+      } else {
+        setError(`Reaction send failed: ${(e as Error).message}`);
+      }
       console.warn('[reactions] send-as-text failed', e);
     }
   };
@@ -1348,7 +1367,9 @@ function ThreadDetail({ number, onBack }: ThreadDetailProps) {
                           onClick={(e) => {
                             e.stopPropagation();
                             setReactPickerMsgId((prev) => (prev === m.id ? null : m.id));
-                            setReactSendAsText(false);
+                            // v0.10.199 — do NOT reset reactSendAsText here.
+                            // The user's persisted preference (from localStorage)
+                            // should carry forward across picker opens.
                           }}
                           aria-label="Add reaction"
                           aria-expanded={reactPickerMsgId === m.id}
@@ -1384,7 +1405,17 @@ function ThreadDetail({ number, onBack }: ThreadDetailProps) {
                               <input
                                 type="checkbox"
                                 checked={reactSendAsText}
-                                onChange={(e) => setReactSendAsText(e.target.checked)}
+                                onChange={(e) => {
+                                  // v0.10.199 — persist so the choice
+                                  // survives picker close + page reload.
+                                  const next = e.target.checked;
+                                  setReactSendAsText(next);
+                                  try {
+                                    localStorage.setItem('ace_react_send_as_text', String(next));
+                                  } catch {
+                                    /* localStorage unavailable; in-memory only */
+                                  }
+                                }}
                               />
                               <span>Send to recipient as text</span>
                             </label>

@@ -24,6 +24,16 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.199',
+    date: 'June 19, 2026',
+    highlight: 'Reactions picker: fits on screen, remembers your "send to recipient" choice.',
+    changes: [
+      { type: 'fixed', text: 'The reaction picker was extending off the left edge of the viewport on small inbound bubbles, clipping most of the 5×5 grid AND the "Send to recipient as text" toggle. Picker now opens RIGHTWARD from the bubble so the full grid + toggle are always visible.' },
+      { type: 'fixed', text: 'The "Send to recipient as text" checkbox used to reset to off every time the picker opened — so a user who checked it for one reaction would silently revert to local-only for the next. Your choice now persists across picker opens and page reloads.' },
+      { type: 'fixed', text: 'If the recipient-text SMS fails to send (carrier rejection, invalid number, etc.), the error now surfaces in the thread banner instead of failing silently in the console.' },
+    ],
+  },
+  {
     version: '0.10.198',
     date: 'June 19, 2026',
     highlight: 'Reactions: ❤️ added (the most-used reaction).',
