@@ -1,6 +1,6 @@
 # ACE Dialer — Features
 
-What ACE Dialer can do as of v0.10.23 (May 30, 2026).
+What ACE Dialer can do as of v0.10.192 (June 18, 2026).
 
 ## Calling
 
@@ -68,6 +68,38 @@ What ACE Dialer can do as of v0.10.23 (May 30, 2026).
   manual number entry
 - SMS notifications via Microsoft Teams (see Teams Notifications below)
 
+### Composer
+- **Card-row composer (v0.10.187+)** — text input + action pills (MMS,
+  Quick reply, Emoji, Templates) + Send pill, presented as a rounded gray
+  card sitting above the thread.
+- **Keyboard shortcuts** — Enter sends. Shift+Enter inserts a newline.
+  Ctrl+Enter (Cmd+Enter on Mac) also inserts a newline (v0.10.190).
+- **Quick replies (v0.10.52)** — per-user saved short text snippets,
+  accessible from a popover above the composer.
+- **SMS templates (v0.10.52+)** — tenant-level templates picker. The
+  `{recruiter}` placeholder auto-fills with the user's first name (v0.10.54).
+- **Emoji picker** — categorized picker, recent emojis remembered locally.
+- **Schedule send (v0.10.59)** — pick a future date/time; the message is
+  queued and fired by a worker. Pending schedules are listed in a sidebar
+  with edit and cancel actions.
+- **Mutual-exclusion popovers** — opening any one of Quick Reply / Emoji /
+  Templates auto-closes the others.
+
+### Thread view
+- **Bubble runs grouped by direction** — same-sender consecutive bubbles
+  stack with a single timestamp + avatar shown at the run boundary.
+- **Day separators** — pills like "Today", "Yesterday", "Mon, Jun 16"
+  break up older content.
+- **Delivery status ticks (v0.10.191)** — every outbound bubble shows a
+  small status icon in its bottom-right: clock while queued, single check
+  once sent, brighter double-check on carrier-confirmed delivery.
+- **Failed pill (v0.10.191)** — failed messages show a compact red
+  "Failed" chip. Click to expand the Telnyx error code + description
+  from `payload.errors[]`.
+- **MMS per-image download** — each inbound media item has a download
+  button to save directly to disk; clicking the image still opens it
+  full-size in a new tab.
+
 ## Voicemail
 
 - Telnyx Hosted Voicemail captures recordings on no-answer
@@ -83,6 +115,23 @@ What ACE Dialer can do as of v0.10.23 (May 30, 2026).
 - Voicemail dedup — Telnyx firing both `calls.voicemail.completed` AND
   `call.recording.saved` no longer produces two rows for the same message
 - Voicemail notifications via Microsoft Teams (see below)
+- **Fresh-URL endpoint** — stored Telnyx S3 audio URLs expire after 10
+  minutes. When Play is clicked on an older voicemail, the server
+  re-queries Telnyx's `/v2/recordings` and returns a fresh signed URL so
+  playback Just Works regardless of voicemail age.
+- **Single-click playback** — clicking Play on a voicemail row both
+  expands the row and starts audio in one click (no need to press Play
+  twice while the fresh URL resolves).
+- **Custom greeting upload** — record or upload a greeting in browser.
+  The pipeline transcodes from Chrome's default webm output to mp3
+  (Telnyx Hosted Voicemail's Play action accepts mp3 only).
+- **Call Control voicemail flow** — admin can per-user migrate DIDs from
+  the legacy SIP / Hosted Voicemail routing to the new Call Control flow.
+  Rollback snapshot is saved so any user can be reverted in one click.
+- **Recents + Voicemail unification** — voicemails for users on the Call
+  Control flow now also create Call rows (status missed / no_answer /
+  busy / caller_canceled). Recents is the single source of truth for
+  inbound-call history; the Voicemail tab is just the recordings view.
 
 ## Multi-DID (Multiple lines per user)
 
@@ -258,6 +307,23 @@ three event types: **missed call**, **inbound SMS**, **voicemail**.
 - Reset SIP credentials
 - Deactivate / reactivate a user
 - View per-user audit log
+- **Compact row layout (v0.10.166+)** — single User cell per row with
+  status dot (green/red/orange) before the name, role pill next to name,
+  Microsoft SSO badge below, email under the badge. No separate Email /
+  Role / Status columns. No horizontal scroll at any reasonable width.
+- **Sort by date added** — users can be sorted oldest- or newest-first
+  to find recent additions quickly.
+- **Two-letter avatars** — first letter of first + last name on a colored
+  chip, used in the user row.
+- **Voicemail migration (per-user)** — kebab menu → "Voicemail migration"
+  opens a modal showing per-DID status, runs the Telnyx PATCH calls to
+  switch a user's DIDs from legacy SIP / Hosted Voicemail to the new
+  Call Control flow, and stores a rollback snapshot.
+
+### Usage reporting
+- **Personal Usage report (v0.10.181)** — every user gets a self-view of
+  their own call + SMS + voicemail activity over a selectable date range.
+  Admins continue to see everyone's activity in the admin Usage tab.
 
 ### Pending users tab
 - See pre-invited users who haven't yet completed first sign-in
@@ -292,8 +358,21 @@ three event types: **missed call**, **inbound SMS**, **voicemail**.
   - Downloads new installer in background
   - UpdateBanner shows "Restart to install" when ready
   - Manual "Check for updates" available in the user menu
+  - **Downgrade guard (v0.10.153+)** — `allowDowngrade=false` plus per-
+    event version-comparison helpers prevent the auto-update flow (and
+    the UpdateBanner) from ever installing a version ≤ current.
+  - **Code-signing bypass** — `verifyUpdateCodeSignature` overridden to
+    a no-op until an EV/OV signing cert is procured. Without this the
+    Windows installer would refuse to install unsigned releases because
+    `package.json` declares `publisherName: "ApTask"`.
+- **Multi-monitor floater (v0.10.167+)** — ringer popup sized 440×240 at
+  1× DPI, 560×300 at >1.5× DPI, and positioned on the SAME display the
+  main window is on (so multi-monitor users don't lose it).
 - backgroundThrottling disabled — the renderer stays responsive when
   hidden so SIP register-refresh timers don't get clamped
+- **Resize flexibility** — minWidth/minHeight constraints removed on
+  Electron; sticky bottom nav adapts to narrow snaps. Layouts verified at
+  1366×768 half-screen (683×768) without horizontal scroll.
 
 ## UI / UX standards (locked rules)
 
@@ -319,6 +398,16 @@ Documented in `CLAUDE.md` at repo root. Summary:
   TURN injection via `/turn-credentials` API endpoint
 - Voicemail transcription Bearer auth + retry — fetches Telnyx recording
   with our API key, retries once after 3s if Deepgram fails
+- **Telnyx outage banner** — polls `status.telnyx.com` every 60 seconds.
+  Amber strip across the top of the dialer for degraded service, red for
+  major outages. Click "Details" to open status.telnyx.com directly.
+  Auto-hides on recovery. Admin-only — regular users don't see ops noise.
+- **Teams admin alert** — admins receive a Microsoft Teams card the moment
+  Telnyx flips into outage status, and another card when service recovers.
+- **Bandwidth optimization** — gzip/brotli compression enabled on the API
+  via `@fastify/compress`. Voicemail audio is served direct-from-S3 via
+  the fresh-URL endpoint (bytes do not transit the API host's bandwidth
+  budget). Render's 25 GB included tier stays comfortably under cap.
 
 ## Settings (user-facing)
 
@@ -345,5 +434,17 @@ Documented in `CLAUDE.md` at repo root. Summary:
 - **Call recording playback** — recordings are captured but no built-in
   player exists for record-while-talking calls (voicemail has playback;
   generic recordings do not)
+- **Per-role usage reports (deferred companion to v0.10.181)** — Quality,
+  Recruiter, and Alerts mirrors of the personal Usage tab. The Usage
+  self-view shipped in v0.10.181; the three role-specific mirrors are on
+  the deferred list.
+- **EV/OV code-signing cert** — Windows installer is not signed today;
+  `verifyUpdateCodeSignature` is bypassed to allow auto-update. Cert
+  procurement is on the todo list.
 - **Staging environment** — main is production for web/API/webhooks
 - **Feature flags** — every change ships to all users
+- **Pulse auto-backfill via MySQL** — broken since June 5, 2026 due to
+  caching_sha2_password auth on `pulse_admin@localhost` over ngrok.
+  Workaround: manual HeidiSQL → Supabase SQL generation per migrated
+  user. Permanent fix requires `ALTER USER ... IDENTIFIED WITH
+  mysql_native_password` on the Pulse box (Pulse team coordination).

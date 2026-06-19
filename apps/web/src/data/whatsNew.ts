@@ -24,6 +24,14 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.193',
+    date: 'June 19, 2026',
+    highlight: 'Fixed: first inbound call sometimes had no audio.',
+    changes: [
+      { type: 'fixed', text: 'On the first inbound call after the dialer has been idle, some users heard no audio from the caller (calling back worked). Cause was Chromium\'s autoplay policy blocking audio playback before the user clicked Accept. The Accept button now re-issues the play() inside the click handler so the user gesture unblocks audio reliably. Also extended internal retry budget from 1 to 4 attempts with backoff for late track arrivals.' },
+    ],
+  },
+  {
     version: '0.10.192',
     date: 'June 18, 2026',
     highlight: 'Internal: TypeScript fixup for v0.10.191.',

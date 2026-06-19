@@ -29,7 +29,7 @@ function formatNumber(n: string | undefined): string {
 }
 
 export default function IncomingCall() {
-  const { incoming, acceptCall, declineCall, holdAndAcceptCall, callState, hasSecondCall } = useSip();
+  const { incoming, acceptCall, declineCall, holdAndAcceptCall, kickAudioPlay, callState, hasSecondCall } = useSip();
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -38,11 +38,20 @@ export default function IncomingCall() {
 
   const handleAccept = () => {
     acceptCall();
+    // v0.10.193 — Re-issue play() on the audio elements while we're
+    // still synchronously inside the user-gesture click. This is what
+    // unblocks Chromium's autoplay policy on first-call scenarios
+    // where the earlier play() (fired during the track event before
+    // the user clicked anything) was rejected.
+    kickAudioPlay();
     navigate('/in-call');
   };
 
   const handleHoldAndAccept = () => {
     holdAndAcceptCall();
+    // v0.10.193 — Same audio-kick as handleAccept; the second leg
+    // needs the user-gesture-context play() too.
+    kickAudioPlay();
     navigate('/in-call');
   };
 

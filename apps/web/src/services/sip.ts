@@ -132,18 +132,33 @@ function applySpeakerSelection(audioEl: HTMLAudioElement): void {
 // v0.10.31 — Robust play() wrapper. Chromium's autoplay policy can
 // block audio.play() in backgrounded windows or after long idle. The
 // audio element has the stream attached but emits no sound until
-// play() succeeds. Retry once after a short delay; the user's Accept-
-// button click counts as a user gesture that should unblock subsequent
-// plays.
+// play() succeeds.
+// v0.10.193 — Bumped to 4 attempts with backoff (250ms, 500ms, 1s, 2s).
+// Pair with SipService.kickAudioPlay() called from the Accept-button
+// click handler — the fresh user gesture unblocks play() even when
+// earlier attempts (during the pre-accept track event) were blocked.
 function safePlay(audioEl: HTMLAudioElement, label: string): void {
-  void audioEl.play().catch((e) => {
-    console.warn(`[sip] ${label}.play failed — retrying in 250ms`, e);
-    setTimeout(() => {
-      void audioEl.play().catch((e2) =>
-        console.error(`[sip] ${label}.play retry ALSO failed — user will hear no inbound audio`, e2),
-      );
-    }, 250);
-  });
+  const DELAYS = [250, 500, 1000, 2000];
+  let attempt = 0;
+  const tryPlay = (): void => {
+    audioEl.play()
+      .then(() => {
+        if (attempt > 0) {
+          console.log(`[sip] ${label}.play succeeded on attempt ${attempt + 1}`);
+        }
+      })
+      .catch((e: Error) => {
+        if (attempt >= DELAYS.length) {
+          console.error(`[sip] ${label}.play failed after ${attempt + 1} attempts — user will hear no inbound audio`, e);
+          return;
+        }
+        const delay = DELAYS[attempt];
+        console.warn(`[sip] ${label}.play attempt ${attempt + 1} failed — retrying in ${delay}ms`, e);
+        attempt += 1;
+        setTimeout(tryPlay, delay);
+      });
+  };
+  tryPlay();
 }
 
 /**
@@ -1884,6 +1899,24 @@ export class SipService {
       if (c.id !== this.activeCallId) return c.id;
     }
     return null;
+  }
+
+  /**
+   * v0.10.193 — Re-trigger play() on every audio element from a
+   * synchronous user-gesture context. Designed to be called from
+   * IncomingCall.handleAccept right after acceptCall() so the click's
+   * user activation unblocks play() that was previously blocked by
+   * Chromium's autoplay policy (typical first-inbound-call symptom:
+   * stream is attached, no sound; calling back works).
+   */
+  kickAudioPlay(): void {
+    console.log('[sip] kickAudioPlay — user gesture, re-issuing play() on all audio elements');
+    safePlay(this.primaryAudioEl, 'primaryAudioEl-kick');
+    for (const entry of this.calls.values()) {
+      if (entry.audioEl) {
+        safePlay(entry.audioEl, `call-${entry.id}-audioEl-kick`);
+      }
+    }
   }
 
   acceptCall(): void {

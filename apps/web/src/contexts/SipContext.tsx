@@ -36,6 +36,12 @@ interface SipContextValue {
    *  No-op if there's no incoming. Falls back to plain accept if there's
    *  no active call to hold. */
   holdAndAcceptCall: () => void;
+  /** v0.10.193 — Re-trigger play() on every audio element. Call this
+   *  from a synchronous user-gesture context (e.g. an Accept button
+   *  click handler) to unblock Chromium's autoplay policy when the
+   *  earlier play() during the track event was blocked. Fixes the
+   *  "first inbound call has no audio" recurring complaint. */
+  kickAudioPlay: () => void;
   declineCall: () => void;
   toggleMute: () => boolean;
   toggleHold: () => Promise<boolean>;
@@ -455,6 +461,7 @@ export function SipProvider({ children }: { children: React.ReactNode }) {
     hangup: () => sipService.hangup(),
     hangupCall: (callId: string) => sipService.hangupCall(callId),
     acceptCall: () => sipService.acceptCall(),
+    kickAudioPlay: () => sipService.kickAudioPlay(),
     holdAndAcceptCall: () => {
       // Capture the current active call's display info BEFORE the swap so
       // we can show it in the held-strip after the incoming becomes active.
