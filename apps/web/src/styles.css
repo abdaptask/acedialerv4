@@ -4429,11 +4429,11 @@ body {
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18);
 }
 .bubble-reaction-picker-row {
-  /* v0.10.197 — 4 rows × 6 columns to accommodate the 24-emoji set
-     (was a single row of 6 in v0.10.195). gap stays at 4px; fixed
-     6-column track keeps each emoji button at a predictable size. */
+  /* v0.10.197 → v0.10.198 — 5 rows × 5 columns for 25 emojis
+     (24 from the composer catalog + ❤️). 5-wide gives slightly larger
+     emoji buttons than 6-wide, which is nicer to tap. */
   display: grid;
-  grid-template-columns: repeat(6, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   gap: 4px;
   justify-items: stretch;
 }

@@ -86,10 +86,14 @@ export function hasMessageReaction(messageId: number | string, emoji: string): b
 /** v0.10.195 — Fixed set of "quick" reactions surfaced by the
  *  hover-reveal popover.
  *  v0.10.197 — Expanded from the original 6 iMessage Tapback to the
- *  full 24 the composer's emoji picker uses (apps/web/src/pages/
- *  Messages.tsx:104 EMOJI_OPTIONS). Keep this list in sync if the
- *  composer set ever changes. */
+ *  composer's 24-emoji catalog.
+ *  v0.10.198 — Reactions diverge from the composer set: ❤️ added as the
+ *  first item (highest-frequency reaction in any messaging app; the
+ *  composer set was missing it). Total: 25, rendered as a 5×5 grid. */
 export const QUICK_REACTIONS: readonly string[] = [
-  '😀', '😂', '🙂', '😉', '😎', '🥲', '😊', '🤔', '😴', '🙄', '😅', '😭',
-  '👍', '👎', '👌', '🙏', '👏', '🙌', '✌️', '🤝', '🔥', '🎉', '✅', '❌',
+  '❤️', '😀', '😂', '🙂', '😉',
+  '😎', '🥲', '😊', '🤔', '😴',
+  '🙄', '😅', '😭', '👍', '👎',
+  '👌', '🙏', '👏', '🙌', '✌️',
+  '🤝', '🔥', '🎉', '✅', '❌',
 ];

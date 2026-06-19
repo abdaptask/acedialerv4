@@ -24,6 +24,14 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.198',
+    date: 'June 19, 2026',
+    highlight: 'Reactions: ❤️ added (the most-used reaction).',
+    changes: [
+      { type: 'improved', text: 'The reaction picker now includes ❤️ as the first emoji — the most-used reaction in any messaging app. Total reactions: 25, rendered as a balanced 5×5 grid.' },
+    ],
+  },
+  {
     version: '0.10.197',
     date: 'June 19, 2026',
     highlight: 'Reactions: fixed inbound bubbles + 24 emojis instead of 6.',
