@@ -42,6 +42,12 @@ import {
   SendMessageError,
 } from '../api';
 import { telnyxErrorBlurb } from '../lib/telnyxErrorBlurb';
+import {
+  getMessageReactions,
+  addMessageReaction,
+  removeMessageReaction,
+  QUICK_REACTIONS,
+} from '../lib/messageReactions';
 import { useJobDivaContact, getCachedJobDivaName } from '../hooks/useJobDivaContact';
 import { useSip } from '../contexts/SipContext';
 import {
@@ -513,6 +519,15 @@ function ThreadDetail({ number, onBack }: ThreadDetailProps) {
   // v0.10.192 — Set<number> not Set<string>: MessageRecord.id is number.
   const [expandedErrorIds, setExpandedErrorIds] = useState<Set<number>>(new Set());
 
+  // v0.10.195 — Reactions state. `reactPickerMsgId` is the message id
+  // whose reaction picker is currently open (null = none). `reactSendAsText`
+  // is the "also send as SMS" toggle inside the picker. `reactionsBumpKey`
+  // is a no-op state value we increment after addReaction/removeReaction
+  // so the render re-reads from localStorage.
+  const [reactPickerMsgId, setReactPickerMsgId] = useState<number | null>(null);
+  const [reactSendAsText, setReactSendAsText] = useState<boolean>(false);
+  const [reactionsBumpKey, setReactionsBumpKey] = useState<number>(0);
+
   // Mark this thread as visited so the unread dot disappears from the
   // threads list. Fires on mount and on every poll (so if a new inbound
   // arrives while the thread is open, it's instantly "read").
@@ -757,6 +772,35 @@ function ThreadDetail({ number, onBack }: ThreadDetailProps) {
       ro.disconnect();
     };
   }, [messages.length]);
+
+  // v0.10.195 — Add an emoji reaction to a message, optionally also
+  // sending it to the remote party as a follow-up SMS (iMessage Tapback-
+  // style). Closes the picker on success.
+  const handleReact = (m: MessageRecord, emoji: string): void => {
+    addMessageReaction(m.id, emoji);
+    setReactionsBumpKey((n) => n + 1);
+    setReactPickerMsgId(null);
+    if (reactSendAsText) {
+      const body = (m.body ?? '').replace(/\s+/g, ' ').trim();
+      const preview = body.slice(0, 30);
+      const tail = body.length > 30 ? '…' : '';
+      const text = preview
+        ? `${emoji} to: "${preview}${tail}"`
+        : `${emoji}`;
+      void sendReactionAsText(text);
+    }
+  };
+
+  const sendReactionAsText = async (text: string): Promise<void> => {
+    const token = sessionStorage.getItem('ace_token');
+    if (!token) return;
+    try {
+      const saved = await sendMessage(token, { to: number, body: text });
+      setMessages((prev) => [...prev, saved]);
+    } catch (e) {
+      console.warn('[reactions] send-as-text failed', e);
+    }
+  };
 
   const handleSend = async () => {
     if (!draft.trim() && attached.length === 0) return;
@@ -1261,6 +1305,85 @@ function ThreadDetail({ number, onBack }: ThreadDetailProps) {
                           >
                             {renderStatusIcon(m.status)}
                           </span>
+                        )}
+                        {/* v0.10.195 — Reaction chips (rendered below
+                            text + media + fail-pill, above the tick).
+                            Read from localStorage; `reactionsBumpKey`
+                            forces re-read after add/remove. */}
+                        {(() => {
+                          // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+                          reactionsBumpKey;
+                          const rxs = getMessageReactions(m.id);
+                          if (rxs.length === 0) return null;
+                          return (
+                            <div className="bubble-reactions-row">
+                              {rxs.map((emoji, i) => (
+                                <button
+                                  key={`${emoji}-${i}`}
+                                  type="button"
+                                  className="bubble-reaction-chip"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    removeMessageReaction(m.id, emoji);
+                                    setReactionsBumpKey((n) => n + 1);
+                                  }}
+                                  title="Click to remove your reaction"
+                                  aria-label={`Remove reaction ${emoji}`}
+                                >
+                                  {emoji}
+                                </button>
+                              ))}
+                            </div>
+                          );
+                        })()}
+                        {/* v0.10.195 — Hover-reveal "add reaction" button.
+                            CSS handles opacity (0 by default, 1 on
+                            bubble:hover) so the bubble stays clean. */}
+                        <button
+                          type="button"
+                          className="bubble-add-reaction-btn"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setReactPickerMsgId((prev) => (prev === m.id ? null : m.id));
+                            setReactSendAsText(false);
+                          }}
+                          aria-label="Add reaction"
+                          aria-expanded={reactPickerMsgId === m.id}
+                          title="Add reaction"
+                        >
+                          <Smile size={13} />
+                        </button>
+                        {/* v0.10.195 — Reaction picker popover. Anchored
+                            above the bubble via CSS. Six quick reactions
+                            (iMessage Tapback set) + optional "Send to
+                            recipient as text" checkbox. */}
+                        {reactPickerMsgId === m.id && (
+                          <div className="bubble-reaction-picker" role="dialog" aria-label="Add reaction">
+                            <div className="bubble-reaction-picker-row">
+                              {QUICK_REACTIONS.map((emoji) => (
+                                <button
+                                  key={emoji}
+                                  type="button"
+                                  className="bubble-reaction-quickpick"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleReact(m, emoji);
+                                  }}
+                                  aria-label={`React with ${emoji}`}
+                                >
+                                  {emoji}
+                                </button>
+                              ))}
+                            </div>
+                            <label className="bubble-reaction-send-toggle">
+                              <input
+                                type="checkbox"
+                                checked={reactSendAsText}
+                                onChange={(e) => setReactSendAsText(e.target.checked)}
+                              />
+                              <span>Send to recipient as text</span>
+                            </label>
+                          </div>
                         )}
                       </div>
                     );

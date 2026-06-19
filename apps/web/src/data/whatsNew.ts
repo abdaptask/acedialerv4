@@ -24,6 +24,15 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.195',
+    date: 'June 19, 2026',
+    highlight: 'React to messages with one tap.',
+    changes: [
+      { type: 'new', text: 'Hover any message bubble to reveal a smile-face icon. Click it for a quick set of reactions (heart, thumbs-up, thumbs-down, laugh, exclamation, question). Reactions appear as small chips below the bubble — click your own chip to remove it.' },
+      { type: 'new', text: 'Optional "Send to recipient as text" toggle inside the picker sends an iPhone-tapback-style SMS like ❤️ to: "<message preview>" so the other party knows you reacted. Off by default — reactions are local to your dialer unless you opt in.' },
+    ],
+  },
+  {
     version: '0.10.194',
     date: 'June 19, 2026',
     highlight: 'Call duration timer no longer ticks during ringback.',
