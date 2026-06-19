@@ -1309,8 +1309,9 @@ function ThreadDetail({ number, onBack }: ThreadDetailProps) {
                         {/* v0.10.195 — Reaction chips (rendered below
                             text + media + fail-pill, above the tick).
                             Read from localStorage; `reactionsBumpKey`
-                            forces re-read after add/remove. */}
-                        {(() => {
+                            forces re-read after add/remove.
+                            v0.10.196 — inbound bubbles only. */}
+                        {m.direction === 'inbound' && (() => {
                           // eslint-disable-next-line @typescript-eslint/no-unused-expressions
                           reactionsBumpKey;
                           const rxs = getMessageReactions(m.id);
@@ -1338,7 +1339,9 @@ function ThreadDetail({ number, onBack }: ThreadDetailProps) {
                         })()}
                         {/* v0.10.195 — Hover-reveal "add reaction" button.
                             CSS handles opacity (0 by default, 1 on
-                            bubble:hover) so the bubble stays clean. */}
+                            bubble:hover) so the bubble stays clean.
+                            v0.10.196 — inbound bubbles only. */}
+                        {m.direction === 'inbound' && (
                         <button
                           type="button"
                           className="bubble-add-reaction-btn"
@@ -1353,11 +1356,13 @@ function ThreadDetail({ number, onBack }: ThreadDetailProps) {
                         >
                           <Smile size={13} />
                         </button>
+                        )}
                         {/* v0.10.195 — Reaction picker popover. Anchored
                             above the bubble via CSS. Six quick reactions
                             (iMessage Tapback set) + optional "Send to
-                            recipient as text" checkbox. */}
-                        {reactPickerMsgId === m.id && (
+                            recipient as text" checkbox.
+                            v0.10.196 — inbound bubbles only. */}
+                        {m.direction === 'inbound' && reactPickerMsgId === m.id && (
                           <div className="bubble-reaction-picker" role="dialog" aria-label="Add reaction">
                             <div className="bubble-reaction-picker-row">
                               {QUICK_REACTIONS.map((emoji) => (

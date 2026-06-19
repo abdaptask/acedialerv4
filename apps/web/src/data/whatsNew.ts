@@ -24,6 +24,14 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.196',
+    date: 'June 19, 2026',
+    highlight: 'Reactions now show only on messages you received.',
+    changes: [
+      { type: 'improved', text: 'The hover-reveal reaction button now appears only on inbound message bubbles (ones you received). Your own outbound messages render as before, without the reaction affordance.' },
+    ],
+  },
+  {
     version: '0.10.195',
     date: 'June 19, 2026',
     highlight: 'React to messages with one tap.',
