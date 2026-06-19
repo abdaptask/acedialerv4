@@ -167,6 +167,11 @@ export default function InCall() {
   const subtitle =
     callState.state === 'calling' ? 'Calling…' :
     callState.state === 'ringing' ? 'Ringing…' :
+    // v0.10.194 — 'early-media' = remote sending audio but no answer
+    // yet (typically carrier ringback or the first few seconds of
+    // voicemail). Show "Ringing…" so the user knows nothing's
+    // committed; no duration counter until truly 'connected'.
+    callState.state === 'early-media' ? 'Ringing…' :
     callState.state === 'connected' ? formatDuration(duration) :
     callState.state === 'ended' ? (callState.hangupCause ? `Ended (${callState.hangupCause})` : 'Ended') :
     '';

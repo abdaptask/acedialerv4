@@ -716,6 +716,11 @@ function stateToStatus(state: CallEvent['state'], hangupCause?: string): string 
       return 'initiated';
     case 'ringing':
       return 'ringing';
+    // v0.10.194 — early-media is still part of the "ringing" phase
+    // from the user's perspective. Carrier ringback / very-brief
+    // voicemail-greeting handover — no duration counter yet.
+    case 'early-media':
+      return 'ringing';
     case 'incoming':
       return 'ringing';
     case 'connected':

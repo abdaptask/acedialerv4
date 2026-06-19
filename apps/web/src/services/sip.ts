@@ -47,6 +47,12 @@ export type CallState =
   | 'idle'
   | 'calling'
   | 'ringing'
+  // v0.10.194 — Interposed between 'ringing' and 'connected' to model
+  // SIP 183 Session Progress (early media). The duration timer in
+  // InCall.tsx ignores this state, so the clock doesn't tick during
+  // carrier ringback. Promotes to 'connected' either on 200 OK
+  // (real answer) or after 5 seconds of sustained 183 (voicemail).
+  | 'early-media'
   | 'connected'
   | 'ended'
   | 'incoming';
@@ -232,6 +238,12 @@ interface CallEntry {
   // greetings, busy tones, custom carrier messages). Used to suppress
   // local ringback so the user can hear the remote audio.
   hadEarlyMedia?: boolean;
+  // v0.10.194 — handle to the 5-second timeout set when 183 arrives.
+  // If 200 OK arrives first, the 'accepted' handler clears this and
+  // emits 'connected' directly. If the timeout fires, we promote
+  // 'early-media' to 'connected' (voicemail case). cleanupCall clears
+  // it on call end so we don't promote a dead session.
+  earlyMediaTimer?: ReturnType<typeof setTimeout>;
 }
 
 export class SipService {
@@ -1410,7 +1422,26 @@ export class SipService {
         if (status === 183) {
           // Track this so 'accepted' later doesn't re-emit (idempotent).
           entry.hadEarlyMedia = true;
-          this.emit<CallEvent>('call', this.buildEvent(entry, 'connected'));
+          // v0.10.194 — Don't go straight to 'connected' here. Emit a
+          // new 'early-media' state which the duration timer ignores,
+          // and set a 5-second timer. If 200 OK arrives in that window
+          // (human pickup after ringback), the 'accepted' handler
+          // clears this and emits 'connected' fresh. If 5s elapse with
+          // no answer (voicemail greeting playing — carrier ringback
+          // would have transitioned by then), promote to 'connected'
+          // so the user still gets a duration counter while
+          // interacting with voicemail.
+          this.emit<CallEvent>('call', this.buildEvent(entry, 'early-media'));
+          if (!entry.earlyMediaTimer) {
+            entry.earlyMediaTimer = setTimeout(() => {
+              const current = this.calls.get(entry.id);
+              if (current === entry) {
+                console.log('[sip] early-media held 5s — promoting to connected (voicemail case)', entry.id);
+                entry.earlyMediaTimer = undefined;
+                this.emit<CallEvent>('call', this.buildEvent(entry, 'connected'));
+              }
+            }, 5000);
+          }
         } else {
           this.emit<CallEvent>('call', this.buildEvent(entry, 'ringing'));
         }
@@ -1419,6 +1450,13 @@ export class SipService {
 
     session.on('accepted', () => {
       console.log('[sip] accepted', callId);
+      // v0.10.194 — Cancel any pending early-media promote. 200 OK
+      // means we have a real human pickup; the timer should start from
+      // here, not from whenever the 5s would have elapsed.
+      if (entry.earlyMediaTimer) {
+        clearTimeout(entry.earlyMediaTimer);
+        entry.earlyMediaTimer = undefined;
+      }
       if (this.incomingCallId === callId) this.incomingCallId = null;
       this.activeCallId = callId;
       this.emit<CallEvent>('call', this.buildEvent(entry, 'connected'));
@@ -1618,6 +1656,13 @@ export class SipService {
   private cleanupCall(callId: string, cause: string): void {
     const entry = this.calls.get(callId);
     if (!entry) return;
+    // v0.10.194 — Cancel the early-media promote timer if it was
+    // scheduled. The call is ending; we don't want a stale setTimeout
+    // to fire and emit 'connected' for a session that's already gone.
+    if (entry.earlyMediaTimer) {
+      clearTimeout(entry.earlyMediaTimer);
+      entry.earlyMediaTimer = undefined;
+    }
     // Snapshot the 'ended' event BEFORE we mutate state so the receiver can
     // compare e.callId against the post-cleanup activeCallId to decide
     // whether to swap callState to a promoted call.

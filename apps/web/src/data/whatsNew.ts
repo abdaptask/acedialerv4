@@ -24,6 +24,14 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.194',
+    date: 'June 19, 2026',
+    highlight: 'Call duration timer no longer ticks during ringback.',
+    changes: [
+      { type: 'fixed', text: 'The outbound call duration timer used to start the moment the other carrier sent any audio (often ringback while still ringing), inflating Recents durations. Timer now waits for the call to actually be answered (human pickup), or for the audio to have been flowing for 5+ seconds (voicemail greeting). Brief carrier ringback before answer no longer counts.' },
+    ],
+  },
+  {
     version: '0.10.193',
     date: 'June 19, 2026',
     highlight: 'Fixed: first inbound call sometimes had no audio.',
