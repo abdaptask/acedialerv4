@@ -520,22 +520,14 @@ function ThreadDetail({ number, onBack }: ThreadDetailProps) {
   const [expandedErrorIds, setExpandedErrorIds] = useState<Set<number>>(new Set());
 
   // v0.10.195 — Reactions state. `reactPickerMsgId` is the message id
-  // whose reaction picker is currently open (null = none). `reactSendAsText`
-  // is the "also send as SMS" toggle inside the picker. `reactionsBumpKey`
-  // is a no-op state value we increment after addReaction/removeReaction
-  // so the render re-reads from localStorage.
-  // v0.10.199 — `reactSendAsText` initializes from localStorage so the
-  // user's choice persists across picker opens and page reloads. Without
-  // this, a user who checked the box once would silently revert to
-  // "local-only" on every subsequent reaction.
+  // whose reaction picker is currently open (null = none).
+  // `reactionsBumpKey` is a no-op state value we increment after
+  // addReaction/removeReaction so the render re-reads from localStorage.
+  // v0.10.201 — `reactSendAsText` and its localStorage persistence
+  // have been removed. Reactions now ALWAYS send as text to the
+  // recipient (no opt-out, no UI toggle). The local chip on our side
+  // and the outbound SMS both happen on every reaction.
   const [reactPickerMsgId, setReactPickerMsgId] = useState<number | null>(null);
-  const [reactSendAsText, setReactSendAsText] = useState<boolean>(() => {
-    try {
-      return localStorage.getItem('ace_react_send_as_text') === 'true';
-    } catch {
-      return false;
-    }
-  });
   const [reactionsBumpKey, setReactionsBumpKey] = useState<number>(0);
 
   // Mark this thread as visited so the unread dot disappears from the
@@ -786,19 +778,19 @@ function ThreadDetail({ number, onBack }: ThreadDetailProps) {
   // v0.10.195 — Add an emoji reaction to a message, optionally also
   // sending it to the remote party as a follow-up SMS (iMessage Tapback-
   // style). Closes the picker on success.
+  // v0.10.201 — Send-as-text is now ALWAYS on (no toggle, no
+  // condition). Every reaction creates a local chip AND fires the SMS.
   const handleReact = (m: MessageRecord, emoji: string): void => {
     addMessageReaction(m.id, emoji);
     setReactionsBumpKey((n) => n + 1);
     setReactPickerMsgId(null);
-    if (reactSendAsText) {
-      const body = (m.body ?? '').replace(/\s+/g, ' ').trim();
-      const preview = body.slice(0, 30);
-      const tail = body.length > 30 ? '…' : '';
-      const text = preview
-        ? `${emoji} to: "${preview}${tail}"`
-        : `${emoji}`;
-      void sendReactionAsText(text);
-    }
+    const body = (m.body ?? '').replace(/\s+/g, ' ').trim();
+    const preview = body.slice(0, 30);
+    const tail = body.length > 30 ? '…' : '';
+    const text = preview
+      ? `${emoji} to: "${preview}${tail}"`
+      : `${emoji}`;
+    void sendReactionAsText(text);
   };
 
   const sendReactionAsText = async (text: string): Promise<void> => {
@@ -1401,24 +1393,9 @@ function ThreadDetail({ number, onBack }: ThreadDetailProps) {
                                 </button>
                               ))}
                             </div>
-                            <label className="bubble-reaction-send-toggle">
-                              <input
-                                type="checkbox"
-                                checked={reactSendAsText}
-                                onChange={(e) => {
-                                  // v0.10.199 — persist so the choice
-                                  // survives picker close + page reload.
-                                  const next = e.target.checked;
-                                  setReactSendAsText(next);
-                                  try {
-                                    localStorage.setItem('ace_react_send_as_text', String(next));
-                                  } catch {
-                                    /* localStorage unavailable; in-memory only */
-                                  }
-                                }}
-                              />
-                              <span>Send to recipient as text</span>
-                            </label>
+                            {/* v0.10.201 — the "Send to recipient as
+                                text" toggle was removed. Reactions
+                                always send as SMS. */}
                           </div>
                         )}
                       </div>

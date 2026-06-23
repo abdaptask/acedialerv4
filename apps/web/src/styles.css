@@ -4405,16 +4405,17 @@ body {
   background: #ffffff;
 }
 
-/* Picker popover — anchored above the bubble.
-   v0.10.199 — was `right: 0` (extends leftward from bubble's right
-   edge). For inbound (left-aligned, often narrow) bubbles that pushed
-   the 5×5 grid off the left edge of the viewport and clipped the
-   "Send to recipient as text" toggle. v0.10.196 made reactions
-   inbound-only, so anchor LEFT — picker now extends rightward from
-   the bubble's left edge, where there's plenty of room. */
+/* Picker popover — anchored BELOW the bubble.
+   v0.10.199 — horizontal anchor flipped right -> left (was clipping
+   off the viewport on narrow inbound bubbles).
+   v0.10.201 — vertical anchor flipped top -> bottom (originally
+   v0.10.200 but that release was broken). Opening BELOW guarantees
+   the full 5x5 grid is visible regardless of scroll position; the
+   previous top-anchored layout was clipping the top row (with the
+   heart) behind the thread header on small short threads. */
 .bubble-reaction-picker {
   position: absolute;
-  bottom: calc(100% + 6px);
+  top: calc(100% + 6px);
   left: 0;
   z-index: 1000;
   background: rgba(17, 24, 39, 0.96);

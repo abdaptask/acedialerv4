@@ -24,6 +24,16 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.201',
+    date: 'June 19, 2026',
+    highlight: 'Reactions: always sent to recipient and picker opens below the bubble.',
+    changes: [
+      { type: 'fixed', text: 'The reaction picker now opens BELOW the bubble instead of above. The previous behavior was clipping the top row (including the heart) behind the thread header when reacting to messages near the top of the scroll area.' },
+      { type: 'improved', text: 'The Send-to-recipient-as-text toggle has been removed. Every reaction now sends to the recipient automatically. No checkbox, no extra step.' },
+      { type: 'fixed', text: 'Internal: v0.10.200 was published with the v0.10.201 logic missing due to an apply-script syntax error. The v0.10.200 installer therefore showed v0.10.199 in Diagnostics. v0.10.201 is the corrected release.' },
+    ],
+  },
+  {
     version: '0.10.199',
     date: 'June 19, 2026',
     highlight: 'Reactions picker: fits on screen, remembers your "send to recipient" choice.',
