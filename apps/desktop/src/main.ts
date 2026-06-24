@@ -197,6 +197,15 @@ function createWindow() {
       // voicemail. Off = the renderer stays as responsive when hidden
       // as when visible.
       backgroundThrottling: false,
+      // v0.10.203 — Disable Chromium's autoplay gesture requirement.
+      // ACE Dialer is a dedicated softphone, not a web browser; we
+      // need <audio>.play() to work whenever the renderer calls it,
+      // regardless of which window had the most recent click. Without
+      // this, the floater Accept path produced silent inbound calls
+      // (gesture was in the floater window, audio element lives in
+      // the main window — Chromium treated them as separate gesture
+      // contexts and blocked play()).
+      autoplayPolicy: 'no-user-gesture-required',
     },
     // v0.10.82 — macOS click-through fix. By default macOS treats the
     // first click on an inactive window as a focus-only event (doesn't
@@ -444,6 +453,11 @@ function createRingerWindow(callerNumber?: string, hasActiveCall: boolean = fals
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false,
+      // v0.10.203 — same autoplay-policy override as the main window.
+      // The ringer plays the incoming-call ringtone audio; under
+      // Chromium's default policy, that ringtone wouldn't always
+      // start if the user hadn't gestured in this window recently.
+      autoplayPolicy: 'no-user-gesture-required',
     },
     // v0.10.82 — macOS click-through fix. CRITICAL for the floating ringer:
     // this window pops up unfocused (the user is in another app when the

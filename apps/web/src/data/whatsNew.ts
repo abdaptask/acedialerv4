@@ -24,6 +24,14 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.203',
+    date: 'June 24, 2026',
+    highlight: 'Fixed: silent inbound calls — root-cause level fix.',
+    changes: [
+      { type: 'fixed', text: 'Some incoming calls would connect but produce no audio, especially when accepted from the floating ringer window or after the phone had been ringing for several seconds. The dialer was inheriting a web-browser autoplay restriction that blocks audio playback without a recent click in the same window. That restriction has been disabled for the desktop app — audio now plays reliably the moment the call is accepted, regardless of which window had focus.' },
+    ],
+  },
+  {
     version: '0.10.202',
     date: 'June 24, 2026',
     highlight: 'Fixed: occasional silent inbound calls (no audio after Accept).',
