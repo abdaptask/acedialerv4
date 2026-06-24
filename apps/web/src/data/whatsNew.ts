@@ -24,6 +24,14 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.202',
+    date: 'June 24, 2026',
+    highlight: 'Fixed: occasional silent inbound calls (no audio after Accept).',
+    changes: [
+      { type: 'fixed', text: 'On rare inbound calls, the internal WebRTC peer-connection setup did not complete in time, causing the call to ring through but produce no audio after Accept. The wiring path now has three independent safety nets and an extended setup window, so the track is reliably attached before the call goes live.' },
+    ],
+  },
+  {
     version: '0.10.201',
     date: 'June 19, 2026',
     highlight: 'Reactions: always sent to recipient and picker opens below the bubble.',

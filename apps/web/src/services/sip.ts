@@ -1299,13 +1299,27 @@ export class SipService {
     };
     this.calls.set(callId, entry);
 
-    // JsSIP's 'peerconnection' event timing is unreliable across versions.
-    // Instead, poll for session.connection (the underlying RTCPeerConnection)
-    // and wire listeners as soon as it appears. Run a few times in case JsSIP
-    // creates the PC lazily.
-    const wirePcWhenReady = () => {
+    // v0.10.202 — Defense-in-depth wiring. Three layers:
+    //   (a) JsSIP's 'peerconnection' event (set up below the function
+    //       body). The original v0.10.32 author flagged this event as
+    //       "unreliable across versions" — that's still true, but it's
+    //       additive: if it fires we save time, if not we fall back.
+    //   (b) Polling for the PC under any of several property names
+    //       JsSIP versions/patches use to expose it.
+    //   (c) Extended polling window (15s, was 5s — see below).
+    // The optional pcOverride lets the event handler pass the PC
+    // directly without going through the property probes.
+    const wirePcWhenReady = (pcOverride?: RTCPeerConnection): boolean => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const pc: RTCPeerConnection | null = (session as any).connection ?? (session as any)._connection ?? null;
+      const s = session as any;
+      const pc: RTCPeerConnection | null =
+        pcOverride
+        ?? s.connection
+        ?? s._connection
+        ?? s.rtcSession?.connection
+        ?? s.peerConnection
+        ?? s.pc
+        ?? null;
       if (!pc) return false;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       if ((pc as any).__aceWired) return true;
@@ -1380,12 +1394,35 @@ export class SipService {
       return true;
     };
 
-    // Try immediately, then poll for up to 5 seconds.
+    // v0.10.202 — Layer (a): subscribe to JsSIP's 'peerconnection'
+    // event. If the event fires reliably in this JsSIP version, we
+    // wire the PC the moment JsSIP creates it — no polling required.
+    // If the event is silent (the original v0.10.32 reason for moving
+    // off it), the polling below still catches it.
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (session as any).on('peerconnection', (data: { peerconnection?: RTCPeerConnection }) => {
+        const evtPc = data?.peerconnection;
+        if (evtPc) {
+          console.log('[sip] peerconnection event fired — wiring listeners now');
+          wirePcWhenReady(evtPc);
+        }
+      });
+    } catch (e) {
+      console.warn('[sip] could not subscribe to peerconnection event', e);
+    }
+
+    // v0.10.202 — Layer (c): polling window 5s -> 15s. Was 50 × 100ms.
+    // Roshni's 2026-06-24 v0.10.201 log showed an inbound call where
+    // the 5s window ended without finding the PC — the track-event
+    // listener was never wired, and the user heard nothing. 150
+    // attempts × 100ms = 15s gives JsSIP plenty of time on a slow
+    // network or after a periodic-reconnect cycle.
     if (!wirePcWhenReady()) {
       let tries = 0;
       const id = setInterval(() => {
         tries += 1;
-        if (wirePcWhenReady() || tries >= 50) clearInterval(id);
+        if (wirePcWhenReady() || tries >= 150) clearInterval(id);
       }, 100);
     }
 
