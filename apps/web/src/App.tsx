@@ -143,17 +143,31 @@ export default function App() {
   useEffect(() => {
     if (!window.ace?.onDeepLink) return;
     const unsub = window.ace.onDeepLink((data) => {
+      // v0.10.208 - Telemetry. The deep-link path is reported as flaky
+      // by some users (clicked card, dialer opens, but stays on the
+      // wrong tab). Logging here pinpoints whether the IPC reached the
+      // renderer and what navigate target we computed.
+      console.info('[deep-link] received:', data);
       // v0.10.156 - voicemail variant carries id, not to.
       if (data.action === 'voicemail') {
-        if (!data.id) return;
-        navigate(`/voicemail/${encodeURIComponent(data.id)}/play`);
+        if (!data.id) {
+          console.warn('[deep-link] voicemail missing id, ignoring');
+          return;
+        }
+        const route = `/voicemail/${encodeURIComponent(data.id)}/play`;
+        console.info('[deep-link] navigating:', route);
+        navigate(route);
         return;
       }
-      if (!data.to) return;
+      if (!data.to) {
+        console.warn('[deep-link] missing to, ignoring');
+        return;
+      }
       const route =
         data.action === 'call'
           ? `/keypad?to=${encodeURIComponent(data.to)}`
           : `/messages?to=${encodeURIComponent(data.to)}`;
+      console.info('[deep-link] navigating:', route);
       navigate(route);
     });
     // Tell main to flush any cold-start deep link buffered before mount.
