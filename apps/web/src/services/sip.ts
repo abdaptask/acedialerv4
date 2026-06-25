@@ -1068,6 +1068,15 @@ export class SipService {
    * reconnect() (reconnect re-installs it after the new UA is ready).
    */
   private installPeriodicReconnectTimer(): void {
+    // v0.10.207 — Wire the v0.10.135 flag that was previously defined
+    // but never actually checked. With the flag false, the every-minute
+    // UA-teardown is suppressed; the non-destructive 15s force-register
+    // continues to keep registration fresh via normal SIP REGISTER
+    // refreshes. See header comment on ENABLE_60S_PERIODIC_RECONNECT.
+    if (!ENABLE_60S_PERIODIC_RECONNECT) {
+      console.log('[sip] 60s periodic reconnect disabled (v0.10.207 — flag is false)');
+      return;
+    }
     if (this.periodicReconnectTimer) return;
     this.periodicReconnectTimer = setInterval(() => {
       if (!this.ua) return;

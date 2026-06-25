@@ -24,6 +24,14 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.207',
+    date: 'June 25, 2026',
+    highlight: 'Fixed: inbound calls occasionally rolling to voicemail without the dialer ringing.',
+    changes: [
+      { type: 'fixed', text: 'Once a minute the SIP connection was being fully torn down and rebuilt as a safety measure against a Telnyx routing bug. That created a brief window (0.5–7 seconds) where the dialer was offline — and if a call landed in that window, it went straight to voicemail without ringing. The teardown was originally a temporary workaround; the underlying Telnyx bug has been quiet for months. Disabling the teardown should noticeably reduce missed inbound calls, especially for users on higher-latency networks.' },
+    ],
+  },
+  {
     version: '0.10.206',
     date: 'June 25, 2026',
     highlight: 'Backend infrastructure fix for the new self-hosted environment.',
