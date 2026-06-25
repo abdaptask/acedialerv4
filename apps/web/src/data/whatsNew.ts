@@ -24,6 +24,14 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.206',
+    date: 'June 25, 2026',
+    highlight: 'Backend infrastructure fix for the new self-hosted environment.',
+    changes: [
+      { type: 'fixed', text: 'Inbound voicemail flow on the new self-hosted webhooks endpoint (dialer.aptask.com/webhooks) was returning 404 because the reverse proxy did not strip the /webhooks path prefix. Server now strips it internally based on the public URL configured for the environment. Users would have seen "an application error has occurred" when calling certain numbers.' },
+    ],
+  },
+  {
     version: '0.10.205',
     date: 'June 25, 2026',
     highlight: 'Admin "Force update" — push the latest dialer version to every user (or any chosen subset) with one click.',

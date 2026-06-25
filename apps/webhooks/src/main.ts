@@ -447,9 +447,45 @@ const PILOT_NUMBER = process.env.PILOT_TELNYX_NUMBER ?? '+17322001305';
 // case-handler in the call event switch below. No Call Control gymnastics
 // required (we tried; it caused looped events and wrong caller ID).
 
+// v0.10.206 - Route-prefix support so the service answers at e.g.
+// /webhooks/texml/voicemail when fronted by a reverse proxy that
+// doesn't strip /webhooks before forwarding. Reads WEBHOOKS_ROUTE_PREFIX
+// (explicit) OR auto-derives the path portion of WEBHOOKS_PUBLIC_URL.
+// Empty => no rewrite, identical to pre-v206 behavior.
+function deriveRoutePrefix() {
+  const explicit = (process.env.WEBHOOKS_ROUTE_PREFIX ?? '').trim();
+  if (explicit) return explicit.replace(/\/+$/, '');
+  const publicUrl = (process.env.WEBHOOKS_PUBLIC_URL ?? '').trim();
+  if (!publicUrl) return '';
+  try {
+    const u = new URL(publicUrl);
+    return u.pathname.replace(/\/+$/, '');
+  } catch {
+    return '';
+  }
+}
+const ROUTE_PREFIX = deriveRoutePrefix();
+console.log(`[webhooks] route prefix = "${ROUTE_PREFIX}" (empty = no rewrite)`);
+
 const app = Fastify({
   logger: { level: process.env.LOG_LEVEL ?? 'info' },
   ignoreTrailingSlash: true,
+  // v0.10.206 - Strip ROUTE_PREFIX from incoming URLs BEFORE router
+  // matching. Examples (with ROUTE_PREFIX = "/webhooks"):
+  //   /webhooks/texml/voicemail        -> /texml/voicemail
+  //   /webhooks/texml/voicemail?To=... -> /texml/voicemail?To=...
+  //   /webhooks                        -> /
+  //   /webhooks?foo=bar                -> /?foo=bar
+  //   /other/path                      -> /other/path (no-op)
+  rewriteUrl: ROUTE_PREFIX
+    ? (rawReq) => {
+        const url = rawReq.url ?? '/';
+        if (url === ROUTE_PREFIX) return '/';
+        if (url.startsWith(ROUTE_PREFIX + '/')) return url.slice(ROUTE_PREFIX.length);
+        if (url.startsWith(ROUTE_PREFIX + '?')) return '/' + url.slice(ROUTE_PREFIX.length);
+        return url;
+      }
+    : undefined,
 });
 
 await app.register(cors, { origin: false });
