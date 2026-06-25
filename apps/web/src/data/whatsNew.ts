@@ -24,6 +24,14 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.208',
+    date: 'June 25, 2026',
+    highlight: 'Diagnostic logging for Teams notification deep-links.',
+    changes: [
+      { type: 'improved', text: 'Added diagnostic logging to the Teams-card click flow (Reply, Call back, Listen). If you have ever clicked one of these and the dialer opens on the wrong tab, the next diagnostic log download will pinpoint exactly where the navigation died so we can fix it.' },
+    ],
+  },
+  {
     version: '0.10.207',
     date: 'June 25, 2026',
     highlight: 'Fixed: inbound calls occasionally rolling to voicemail without the dialer ringing.',

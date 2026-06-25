@@ -87,10 +87,14 @@ export default function AutoRoute({ action }: AutoRouteProps) {
     const url = action === 'voicemail'
       ? `ace-dialer://voicemail?id=${encodeURIComponent(to)}`
       : `ace-dialer://${action}?to=${encodeURIComponent(to)}`;
+    // v0.10.208 - Telemetry. Lets us confirm in diagnostic logs that the
+    // browser tab actually fired the protocol launch when a user reports
+    // "I clicked the Teams Reply button and nothing happened."
+    console.info('[autoroute] firing protocol url:', url);
     try {
       window.location.href = url;
-    } catch {
-      /* harmless — we'll just rely on the fallback */
+    } catch (e) {
+      console.warn('[autoroute] window.location.href threw', e);
     }
     setProtocolTried(true);
 
