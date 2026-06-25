@@ -15,7 +15,7 @@ function isCurrentUserAdmin(): boolean {
 
 const WEBHOOKS_URL =
   (import.meta as unknown as { env?: Record<string, string> }).env?.VITE_WEBHOOKS_URL
-  || 'https://ace-dialer-webhooks.onrender.com';
+  || 'https://dialer.aptask.com/webhooks';
 
 interface TelnyxStatus {
   indicator: string;

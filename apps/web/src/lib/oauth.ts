@@ -87,6 +87,12 @@ export function buildMicrosoftAuthUrl(args: {
     state: args.state,
     code_challenge: args.codeChallenge,
     code_challenge_method: 'S256',
+    // Force the account picker. This is a shared softphone often used on
+    // machines where another ApTask employee is already signed into Microsoft;
+    // without this, Microsoft silently reuses the cached session and the wrong
+    // user gets logged in (with no way to switch). select_account always shows
+    // the chooser so the operator picks their own identity.
+    prompt: 'select_account',
   });
   return `https://login.microsoftonline.com/${args.tenantId}/oauth2/v2.0/authorize?${params.toString()}`;
 }

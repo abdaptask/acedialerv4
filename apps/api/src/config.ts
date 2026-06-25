@@ -40,7 +40,7 @@ export const config = {
   // Connection in Telnyx. Override in Render env vars for staging.
   telnyxWebhookUrl: optional(
     'TELNYX_WEBHOOK_URL',
-    'https://ace-dialer-webhooks.onrender.com/webhooks/telnyx/calls',
+    'https://dialer.aptask.com/webhooks/telnyx/calls',
   ),
 
   // v0.9.7 — Template Credential Connection used to clone settings (outbound
