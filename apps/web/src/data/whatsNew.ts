@@ -24,6 +24,14 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.204',
+    date: 'June 25, 2026',
+    highlight: 'Maintenance build — same code as v0.10.203, fresh installer.',
+    changes: [
+      { type: 'improved', text: 'Re-packaged installer for v0.10.203. No feature or behavior changes — install only if you were having trouble with the previous installer.' },
+    ],
+  },
+  {
     version: '0.10.203',
     date: 'June 24, 2026',
     highlight: 'Fixed: silent inbound calls — root-cause level fix.',
