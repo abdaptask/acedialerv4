@@ -525,7 +525,7 @@ app.get('/health', async () => ({
 // disabled + a fallback-on-no-answer pointing at that Call Control app
 // will route their voicemail-bound calls here. See voicemailCallControl.ts
 // for the full call lifecycle.
-app.post('/webhooks/telnyx/voicemail-cc', async (request) => {
+app.post('/telnyx/voicemail-cc', async (request) => {
   try {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const body = request.body as any;
@@ -548,7 +548,7 @@ app.post('/webhooks/telnyx/voicemail-cc', async (request) => {
 // { data: { event_type: 'call.initiated' | 'call.answered' | 'call.hangup' | ...,
 //           payload: { call_session_id, call_control_id, direction, from, to,
 //                      start_time, end_time, hangup_cause, hangup_source, ... } } }
-app.post('/webhooks/telnyx/calls', async (request) => {
+app.post('/telnyx/calls', async (request) => {
   try {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const body = request.body as any;
@@ -1076,7 +1076,7 @@ app.post('/webhooks/telnyx/calls', async (request) => {
 //   - message.delivered      outbound delivered to handset
 //   - message.failed         outbound failed
 //   - message.finalized      Telnyx's "we're done with this message"
-app.post('/webhooks/telnyx/sms', async (request) => {
+app.post('/telnyx/sms', async (request) => {
   try {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const body = request.body as any;
@@ -1251,7 +1251,7 @@ app.post('/webhooks/telnyx/sms', async (request) => {
   }
 });
 
-app.post('/webhooks/telnyx/failover', async (request) => {
+app.post('/telnyx/failover', async (request) => {
   app.log.info({ payload: request.body }, '[telnyx] failover event');
   return { received: true };
 });
@@ -1471,7 +1471,7 @@ const dialStatusHandler = (request: any): string => {
   const proto = (request?.headers?.['x-forwarded-proto'] as string) ?? 'https';
   const host = (request?.headers?.host as string) ?? 'ace-dialer-webhooks.onrender.com';
   const baseUrl = (process.env.WEBHOOKS_PUBLIC_URL ?? `${proto}://${host}`).replace(/\/+$/, '');
-  const recordAction = `${baseUrl}/webhooks/telnyx/voicemail`;
+  const recordAction = `${baseUrl}/telnyx/voicemail`;
   const greeting =
     process.env.PILOT_VOICEMAIL_GREETING ??
     "You've reached ACE Dialer. Please leave a message after the tone, then press pound or hang up.";
@@ -1994,7 +1994,7 @@ async function processVoicemail(
 //   - top-level { from, to, recording_url, duration_seconds, transcription, telnyx_call_id }
 // v0.10.119 - body parsing remains inline (two variants), then we hand
 // the normalized payload to processVoicemail() above for the shared work.
-app.post('/webhooks/telnyx/voicemail', async (request) => {
+app.post('/telnyx/voicemail', async (request) => {
   try {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const body = request.body as any;
