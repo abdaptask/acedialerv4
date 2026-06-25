@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import HeartbeatReporter from '../components/HeartbeatReporter';
+import ForceUpdateModal from '../components/ForceUpdateModal';
 import TelnyxStatusBanner from '../components/TelnyxStatusBanner';
 import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom';
 import {
@@ -273,6 +274,11 @@ export default function Layout({ user, onLogout }: Props) {
   return (
     <div className="app-shell">
       <HeartbeatReporter />
+      {/* v0.10.205 - Blocking force-update modal. Listens for the
+          ace:force-update-required event HeartbeatReporter dispatches,
+          shows a full-viewport block while downloading + installing,
+          defers install during active calls. */}
+      <ForceUpdateModal />
       <TelnyxStatusBanner />
       <IncomingCall />
       {/* Mounted OUTSIDE IncomingCall so the quick-reply sheet survives the

@@ -7269,6 +7269,105 @@ export async function adminRoutes(app: FastifyInstance) {
     },
   );
 
+  // v0.10.205 - "Force Update" admin section. Three endpoints:
+  //   GET  /admin/devices/overview        - table data for the new admin pane
+  //   POST /admin/force-update/all        - stamp every UserDevice
+  //   POST /admin/force-update/users      - body { userIds:number[] }
+  //
+  // Per-device endpoint above remains for the legacy per-device button.
+  // All three write AuditLog entries so the audit trail covers batch ops too.
+  app.get(
+    '/admin/devices/overview',
+    { onRequest: [app.authenticate, requireAdmin] },
+    async () => {
+      const users = await prisma.user.findMany({
+        where: {
+          isActive: true,
+          email: { not: { endsWith: '@deleted.ace.local' } },
+        },
+        select: {
+          id: true,
+          email: true,
+          firstName: true,
+          lastName: true,
+          devices: {
+            orderBy: { lastSeenAt: 'desc' },
+            select: {
+              deviceId: true,
+              platform: true,
+              appVersion: true,
+              lastSeenAt: true,
+              forceUpdateRequestedAt: true,
+              forceUpdateAckedAt: true,
+            },
+          },
+        },
+        orderBy: [{ firstName: 'asc' }, { lastName: 'asc' }],
+      });
+      return {
+        users: users.map((u) => ({
+          userId: u.id,
+          email: u.email,
+          firstName: u.firstName,
+          lastName: u.lastName,
+          deviceCount: u.devices.length,
+          latestDevice: u.devices[0]
+            ? {
+                deviceId: u.devices[0].deviceId,
+                platform: u.devices[0].platform,
+                appVersion: u.devices[0].appVersion,
+                lastSeenAt: u.devices[0].lastSeenAt.toISOString(),
+                forceUpdateRequestedAt: u.devices[0].forceUpdateRequestedAt?.toISOString() ?? null,
+                forceUpdateAckedAt: u.devices[0].forceUpdateAckedAt?.toISOString() ?? null,
+              }
+            : null,
+        })),
+      };
+    },
+  );
+
+  app.post(
+    '/admin/force-update/all',
+    { onRequest: [app.authenticate, requireAdmin] },
+    async (request) => {
+      const actor = request.user as JwtPayload;
+      const result = await prisma.userDevice.updateMany({
+        data: { forceUpdateRequestedAt: new Date() },
+      });
+      await recordAudit(actor.sub, 'admin.force_update_all', null, {
+        devicesUpdated: result.count,
+      });
+      return { ok: true, devicesUpdated: result.count };
+    },
+  );
+
+  app.post<{ Body: { userIds?: unknown } }>(
+    '/admin/force-update/users',
+    { onRequest: [app.authenticate, requireAdmin] },
+    async (request, reply) => {
+      const actor = request.user as JwtPayload;
+      const raw = request.body?.userIds;
+      if (!Array.isArray(raw)) {
+        return reply.code(400).send({ error: 'userIds must be an array of user ids' });
+      }
+      const userIds = raw
+        .map((v) => Number(v))
+        .filter((n) => Number.isFinite(n) && n > 0);
+      if (userIds.length === 0) {
+        return reply.code(400).send({ error: 'userIds is empty' });
+      }
+      const result = await prisma.userDevice.updateMany({
+        where: { userId: { in: userIds } },
+        data: { forceUpdateRequestedAt: new Date() },
+      });
+      await recordAudit(actor.sub, 'admin.force_update_users', null, {
+        userIds,
+        devicesUpdated: result.count,
+      });
+      return { ok: true, devicesUpdated: result.count };
+    },
+  );
+
   // v0.10.108 CRITICAL backfill - repair existing Call/Voicemail/Message rows
   // that were mis-attributed to user 1 because of the FALLBACK_USER_ID bug.
   //

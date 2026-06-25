@@ -4,7 +4,7 @@
 // forceUpdate, triggers Electron's autoUpdater.checkForUpdatesAndNotify().
 
 import { useEffect, useRef } from 'react';
-import { sendHeartbeat, ackForceUpdate } from '../api';
+import { sendHeartbeat } from '../api';
 
 const DEVICE_ID_KEY = 'ace_device_id';
 
@@ -90,20 +90,22 @@ export default function HeartbeatReporter() {
         });
         if (r.forceUpdate && r.forceUpdateRequestedAt && r.forceUpdateRequestedAt !== lastForceTriggerRef.current) {
           lastForceTriggerRef.current = r.forceUpdateRequestedAt;
+          // v0.10.205 - Dispatch a window event that ForceUpdateModal listens
+          // for. The modal owns the entire install lifecycle (download UI,
+          // active-call deferral, install, ack). We no longer ack here -
+          // acking before the install completed dismissed the prompt while
+          // the install was still in flight.
+          console.info('[heartbeat] admin requested force-update - dispatching ace:force-update-required');
           try {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const w = window as any;
-            if (w.ace?.checkForUpdates) {
-              console.info('[heartbeat] admin requested force-update - triggering autoUpdater');
-              await w.ace.checkForUpdates();
-            } else {
-              console.info('[heartbeat] admin requested force-update - reloading web app');
-              setTimeout(() => window.location.reload(), 500);
-            }
+            window.dispatchEvent(new CustomEvent('ace:force-update-required', {
+              detail: {
+                deviceId: deviceIdRef.current,
+                requestedAt: r.forceUpdateRequestedAt,
+              },
+            }));
           } catch (e) {
-            console.warn('[heartbeat] force-update trigger failed', e);
+            console.warn('[heartbeat] dispatch failed', e);
           }
-          await ackForceUpdate(token, deviceIdRef.current).catch(() => undefined);
         }
       } catch (e) {
         console.debug('[heartbeat] failed', e);

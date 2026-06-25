@@ -1,6 +1,6 @@
 # ACE Dialer — Project State
 
-**Last updated:** June 12, 2026 (LATE end of day — second session, 23 releases shipped)
+**Last updated:** June 25, 2026 (Admin Force Update feature, v0.10.205 staged)
 **Maintained by:** Claude (update at end of every working session)
 
 This file is a living snapshot of where the project stands. New Claude
@@ -26,10 +26,19 @@ If you're a fresh Claude session opening this project:
 
 | Stream | Version | Status | Where |
 |---|---|---|---|
-| Latest committed | v0.10.149 | Pushed to origin/main, builds queued | GitHub Actions |
+| In progress (uncommitted) | v0.10.205 | Apply script run, tsc clean — NOT yet committed/tagged | scripts/apply-v205-force-update.mjs |
+| Latest committed | v0.10.204 | Pushed to origin/main, .exe built | GitHub release `v0.10.204` |
 | Stable published (auto-update) | v0.10.132 | **Published** to all 40+ ApTask users | GitHub release `v0.10.132` |
-| Backend (api/webhooks/socket) | up through v0.10.149 deployed | Live on Render | Render dashboard |
+| Backend (api/webhooks/socket) | up through v0.10.204 deployed | Live on Render | Render dashboard |
 | Auto-update status | LOCKED (EV cert procurement window) | v0.10.143 enforces signing | docs/ev-cert-procurement.md |
+
+**June 25, 2026 — v0.10.205 staged: Admin "Force Update" feature**
+
+- New Settings → Force update admin pane (admin-only, Zap icon, sits above Users in the Admin category). Lists every active user with their latest device/version/lastSeen.
+- "Force update ALL users" red button + "Force update selected" + per-row checkboxes. Confirmation modal before any push.
+- Blocking ForceUpdateModal mounted at app root. When the server signals a pending force-update for this device on the next heartbeat, HeartbeatReporter dispatches `ace:force-update-required`; the modal takes over: kicks off ace.checkForUpdates(), shows full-viewport block with download progress, defers install while sipService.calls.size > 0, auto-installs ~10s after download completes (or sooner on click).
+- Re-uses the existing v0.10.101 UserDevice schema; no migration required. Three new admin endpoints (`GET /admin/devices/overview`, `POST /admin/force-update/all`, `POST /admin/force-update/users`). All write AuditLog entries (`admin.force_update_all`, `admin.force_update_users`).
+- Behavior preserved: the existing per-device Users → Devices "Force update" button (v0.10.101) still works for one-off pushes.
 
 **June 12, 2026 shipping summary — 22 releases in one day:**
 - v0.10.128 (baseline) → v0.10.149 (webm transcode)

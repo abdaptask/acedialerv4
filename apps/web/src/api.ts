@@ -3378,3 +3378,60 @@ export async function requestDeviceForceUpdate(
     throw new Error(err.error || `HTTP ${res.status}`);
   }
 }
+
+// v0.10.205 - "Force Update" admin section. Batch endpoints to push the
+// latest dialer version to every active user (or any chosen subset).
+export interface DevicesOverviewLatestDevice {
+  deviceId: string;
+  platform: string;
+  appVersion: string;
+  lastSeenAt: string;
+  forceUpdateRequestedAt: string | null;
+  forceUpdateAckedAt: string | null;
+}
+
+export interface DevicesOverviewRow {
+  userId: number;
+  email: string;
+  firstName: string | null;
+  lastName: string | null;
+  deviceCount: number;
+  latestDevice: DevicesOverviewLatestDevice | null;
+}
+
+export async function getDevicesOverview(token: string): Promise<DevicesOverviewRow[]> {
+  const res = await fetch(`${API_URL}/admin/devices/overview`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const j = (await res.json()) as { users: DevicesOverviewRow[] };
+  return j.users;
+}
+
+export async function forceUpdateAllDevices(token: string): Promise<{ ok: boolean; devicesUpdated: number }> {
+  const res = await fetch(`${API_URL}/admin/force-update/all`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) {
+    const err = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(err.error || `HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function forceUpdateUserDevices(
+  token: string,
+  userIds: number[],
+): Promise<{ ok: boolean; devicesUpdated: number }> {
+  const res = await fetch(`${API_URL}/admin/force-update/users`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ userIds }),
+  });
+  if (!res.ok) {
+    const err = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(err.error || `HTTP ${res.status}`);
+  }
+  return res.json();
+}

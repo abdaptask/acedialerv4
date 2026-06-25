@@ -24,6 +24,16 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.205',
+    date: 'June 25, 2026',
+    highlight: 'Admin "Force update" — push the latest dialer version to every user (or any chosen subset) with one click.',
+    changes: [
+      { type: 'new', text: 'Admin > Settings > Force update lists every active user with their latest version and device, and lets an admin push the latest dialer version to ALL users at once or to a selected subset.' },
+      { type: 'new', text: 'Targeted clients show a full-screen blocking dialog that downloads and installs the update. Users on an active call see a slim banner instead and install runs automatically after the call ends — no calls are interrupted.' },
+      { type: 'improved', text: 'The existing per-device "Force update" button under each user remains for the one-off case.' },
+    ],
+  },
+  {
     version: '0.10.204',
     date: 'June 25, 2026',
     highlight: 'Maintenance build — same code as v0.10.203, fresh installer.',

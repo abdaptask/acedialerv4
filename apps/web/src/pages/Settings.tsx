@@ -59,6 +59,9 @@ import {
   // v0.10.80 — Diagnostics section icon
   Stethoscope,
 } from 'lucide-react';
+// v0.10.205 - Force Update admin section lives in its own file to keep
+// Settings.tsx anchor-stable for future apply-script edits.
+import ForceUpdateAdminSection from './settings/ForceUpdateAdminSection';
 import { WHATS_NEW, type ChangeType } from '../data/whatsNew';
 import {
   getMe,
@@ -137,6 +140,9 @@ import {
   getUserDevices,
   requestDeviceForceUpdate,
   type UserDeviceRow,
+  // v0.10.205 - Force Update admin section uses these via the
+  // ForceUpdateAdminSection component (imported below from a sibling file).
+  type DevicesOverviewRow as _DevicesOverviewRow,
   type VoicemailGreeting,
   type VoicemailGreetingMode,
   type VoicemailMigrationStatus,
@@ -316,6 +322,9 @@ const SECTIONS: SectionDef[] = [
   { key: 'cost', category: 'Reports', label: 'Cost', icon: DollarSign, blurb: 'Telnyx spend per user + projection (admin only)', Component: CostSection, adminOnly: true },
   { key: 'recruiter', category: 'Reports', label: 'Recruiter', icon: Target, blurb: 'Reach + conversation rate (admin only)', Component: RecruiterSection, adminOnly: true },
   { key: 'alerts', category: 'Reports', label: 'Alerts', icon: Siren, blurb: 'Health & anomaly alerts (admin only)', Component: AlertsSection, adminOnly: true },
+  // v0.10.205 - Push the latest dialer version to all (or selected) users.
+  // Each targeted client shows a blocking modal that downloads + installs.
+  { key: 'force-update', category: 'Admin', label: 'Force update', icon: Zap, blurb: 'Push the latest dialer version to every user (or a chosen subset) immediately', Component: ForceUpdateAdminSection, adminOnly: true },
   { key: 'users', category: 'Admin', label: 'Users', icon: Users, blurb: 'Invite, promote, deactivate (admin only)', Component: UsersAdminSection, adminOnly: true },
   // v0.10.52 — Tenant SMS templates (admin only).
   { key: 'sms-templates', category: 'Admin', label: 'SMS templates', icon: MessageSquare, blurb: 'Curate the recruiter SMS playbook for all users', Component: SmsTemplatesAdminSection, adminOnly: true },
