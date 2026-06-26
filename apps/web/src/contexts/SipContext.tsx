@@ -123,19 +123,21 @@ export function SipProvider({ children }: { children: React.ReactNode }) {
     // SSO callback flows and password updates from Settings → Account.
     let connected = false;
     function readAndConnect(): boolean {
-      const sessionSipUsername = sessionStorage.getItem('ace_sip_username');
-      const sessionSipPassword = sessionStorage.getItem('ace_sip_password');
-      const sessionDid = sessionStorage.getItem('ace_did');
-
-      const username =
-        sessionSipUsername ||
-        (import.meta.env.VITE_SIP_USERNAME as string | undefined);
-      const password =
-        sessionSipPassword ||
-        (import.meta.env.VITE_SIP_PASSWORD as string | undefined);
-      const callerNumber =
-        sessionDid ||
-        (import.meta.env.VITE_SIP_FROM_NUMBER as string | undefined);
+      // ISOLATION-CRITICAL: register ONLY with this user's own per-user SIP
+      // creds from sessionStorage (written by App.tsx persistSipCreds after
+      // getMe()). We intentionally do NOT fall back to any build-time
+      // VITE_SIP_USERNAME/PASSWORD/FROM_NUMBER. A baked-in shared credential
+      // meant that during the unavoidable mount-race on every login — when
+      // sessionStorage is briefly empty before persistSipCreds runs — the
+      // client would register as that one shared account. Telnyx then forks
+      // that account's inbound INVITEs to every client registered under it,
+      // so one user's incoming-call popup surfaced on another user's dialer
+      // (a real cross-user leak). If our own creds aren't present yet, return
+      // false and let the ace:sip-creds-updated handshake below retry —
+      // never substitute a shared identity.
+      const username = sessionStorage.getItem('ace_sip_username');
+      const password = sessionStorage.getItem('ace_sip_password');
+      const callerNumber = sessionStorage.getItem('ace_did') ?? undefined;
 
       if (!username || !password) {
         return false;
