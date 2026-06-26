@@ -62,7 +62,13 @@ npm run build -w apps/socket
 log "building apps/webhooks"
 npm run build -w apps/webhooks
 log "building apps/web (production bundle)"
-npm run build:web | tail -2
+# Self-hosted web (pm2 static SPA on :3010, behind dialer.aptask.com) is served
+# over https at nested URLs like /auth/microsoft/callback. Vite's default base
+# here is './' (relative) — correct for Electron's file:// load, but on a nested
+# route the browser resolves ./assets/*.js against /auth/microsoft/, 404s, and
+# the SPA fallback hands back index.html (text/html) → "Failed to load module
+# script" + blank page. Force absolute '/assets/...' paths for the web deploy.
+VITE_FORCE_ABSOLUTE_BASE=1 npm run build:web | tail -2
 
 # --- 5. Reload services under pm2 ----------------------------------
 log "reloading pm2 services"
