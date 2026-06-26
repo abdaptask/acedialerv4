@@ -42,3 +42,6 @@ pulse_users.csv
 pulse_users*.csv
 *.users.csv
 
+# Local Claude Code settings — per-developer, not shared
+.claude/settings.local.json
+
