@@ -30,6 +30,7 @@ import {
   bulkMarkVoicemails,
   deleteVoicemail,
   getVoicemailRetentionDays,
+  getFreshVoicemailUrl,
   pinVoicemail,
   unpinVoicemail,
   type VoicemailRecord,
@@ -622,7 +623,6 @@ function VoicemailCard({
     let cancelled = false;
     (async () => {
       try {
-        const { getFreshVoicemailUrl } = await import('../api');
         const fresh = await getFreshVoicemailUrl(token, vm.id);
         if (!cancelled && fresh) setAudioUrl(fresh);
       } catch { /* keep audioUrl = vm.recordingUrl */ }
@@ -866,7 +866,6 @@ function VoicemailCard({
               const token = sessionStorage.getItem('ace_token');
               if (!token) return;
               try {
-                const { markVoicemailListened } = await import('../api');
                 await markVoicemailListened(token, vm.id, true);
                 window.dispatchEvent(new CustomEvent('ace:unreadCountChanged'));
                 window.dispatchEvent(new CustomEvent('ace:voicemailMarkedListened', { detail: { id: vm.id } }));

@@ -15,7 +15,7 @@ import Messages from './pages/Messages';
 import Chat from './pages/Chat';
 import Settings from './pages/Settings';
 import type { User } from './api';
-import { getMe } from './api';
+import { getMe, listMyRingtones } from './api';
 import { installSessionGuard, onSessionExpired } from './lib/sessionGuard';
 import { loadFavoritesFromServer, clearFavoritesCache } from './lib/userPrefs';
 
@@ -51,7 +51,6 @@ function persistSipCreds(u: User | null): void {
     try {
       const token = sessionStorage.getItem('ace_token');
       if (!token) return;
-      const { listMyRingtones } = await import('./api');
       const ringtones = await listMyRingtones(token);
       // Clear previous cache entries (different user might have had different uploads).
       const keysToRemove: string[] = [];

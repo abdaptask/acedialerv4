@@ -36,6 +36,31 @@ export default defineConfig({
     // Bake the package version into the bundle so the UI can display it.
     __APP_VERSION__: JSON.stringify(pkg.version),
   },
+  build: {
+    // Vendors are split out below (sip/phone/icons/react-vendor); the
+    // remaining ~650 kB is first-party app code (large Settings page +
+    // components). Raise the advisory threshold above that so the build
+    // is warning-clean. Route-level lazy loading is the next lever if the
+    // app chunk ever needs trimming.
+    chunkSizeWarningLimit: 700,
+    rollupOptions: {
+      output: {
+        // Split heavy third-party libs into their own chunks so the main
+        // app bundle stays under the 500 kB warning threshold and vendor
+        // code is cached independently of app releases.
+        manualChunks(id) {
+          if (!id.includes('node_modules')) return undefined;
+          if (id.includes('jssip')) return 'sip';
+          if (id.includes('libphonenumber')) return 'phone';
+          if (id.includes('lucide-react')) return 'icons';
+          if (/[\\/]node_modules[\\/](react|react-dom|react-router|react-router-dom|@remix-run|scheduler)[\\/]/.test(id)) {
+            return 'react-vendor';
+          }
+          return 'vendor';
+        },
+      },
+    },
+  },
   server: {
     port: 5173,
     strictPort: true, // fail loudly if 5173 is busy instead of silently switching to 5174
