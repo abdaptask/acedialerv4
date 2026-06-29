@@ -1,16 +1,13 @@
 // v0.10.0 Pillar 2 Task 8 — Teams notification service.
 //
 // One function per event type. Each:
-//   1. Loads the user's Teams config (webhook URL + opt-ins).
+//   1. Loads the user's Teams config (email + opt-ins).
 //   2. Checks the user has opted into this event.
 //   3. Pulls the source row from DB to populate the card.
 //   4. Decides if the line label should be included (multi-DID only).
 //   5. Builds the Adaptive Card via the Task-7 builders.
-//   6. POSTs to the user's webhook URL via `postToTeams`.
-//
-// `postToTeams` does ONE retry after 2s on 5xx / network error.
-// 4xx responses (400 bad payload, 404/410 expired webhook) DO NOT
-// retry — the URL is permanently broken and we just log.
+//   6. DMs the user as the ACE Bot via Microsoft Graph
+//      (`sendAdaptiveCardToEmail` in ./graphClient).
 //
 // Failures never throw. Every entry point is fire-and-forget from
 // the perspective of the webhook handler (which has already returned
@@ -35,45 +32,28 @@ import {
 } from './teamsCards/index.js';
 
 // ─────────────────────────────────────────────────────────────────
-// Internal: HTTP POST with 1 retry.
+// Delivery transport.
 // ─────────────────────────────────────────────────────────────────
 //
-// v0.10.1 — switched from per-user webhook URLs to a SINGLE tenant-wide
-// Power Automate flow. The env var TEAMS_TENANT_WEBHOOK_URL points at a
-// flow that accepts JSON of shape:
+// v0.10.209 — switched delivery from the (now-dead) tenant-wide Power
+// Automate flow to direct Microsoft Graph sends. The Power Automate
+// flow kept getting auto-Suspended ("WorkflowTriggerIsNotEnabled"),
+// silently dropping every card. We now DM the user as the ACE Bot
+// service account (acebot@aptask.com) via Graph — see ./graphClient.
 //
-//   { recipientEmail: string,
-//     eventType:      'missed_call' | 'sms' | 'voicemail',
-//     card:           <AdaptiveCard JSON, NOT the Teams "message"
-//                       envelope — Power Automate's "Post adaptive
-//                       card" action wants the bare card body> }
-//
-// The flow's "Post adaptive card in a chat or channel" action reads
-// recipientEmail (dynamic) and DMs that user via Flow bot with the
-// supplied card. No per-user setup; users just start seeing cards in
-// Teams chat with "Flow bot". They can still mute event types via the
-// per-event opt-in checkboxes in their Dialer Settings (we honor
-// teamsNotifyOn on a per-user basis at notify time).
+// The bot is connected ONCE by an admin (Settings → Teams connection,
+// served by the `api` service). This service shares the stored token
+// row (`ms_service_tokens`) through Prisma and refreshes it as needed.
+// Per-user opt-outs still apply: we honor `teamsNotifyOn` at notify
+// time before sending.
+
+import { sendAdaptiveCardToEmail } from './graphClient.js';
 
 type LogFn = (obj: Record<string, unknown>, msg: string) => void;
 const consoleLog: LogFn = (obj, msg) => console.info(msg, obj);
 const consoleWarn: LogFn = (obj, msg) => console.warn(msg, obj);
 
-interface PostResult {
-  ok: boolean;
-  status?: number;
-  error?: string;
-}
-
 type EventType = 'missed_call' | 'sms' | 'voicemail';
-
-interface TenantPostBody {
-  recipientEmail: string;
-  eventType: EventType;
-  /** The bare AdaptiveCard (NOT the Teams `{type:'message', attachments:...}`
-   *  envelope). Power Automate's "Post adaptive card" action expects this. */
-  card: Record<string, unknown>;
-}
 
 /** Pull the AdaptiveCard content out of the Teams envelope our card
  *  builders return. The envelope is `{type:'message', attachments:[
@@ -81,42 +61,8 @@ interface TenantPostBody {
 function extractAdaptiveCard(envelope: TeamsMessage): Record<string, unknown> {
   const card = envelope?.attachments?.[0]?.content;
   // Cast: builders always produce an AdaptiveCard shape here, but we
-  // surface it as Record<string, unknown> for JSON-stringification
-  // purposes (the flow doesn't care about TS typing).
+  // surface it as Record<string, unknown> for JSON-stringification.
   return (card as unknown as Record<string, unknown>) ?? {};
-}
-
-async function postOnce(url: string, payload: TenantPostBody): Promise<PostResult> {
-  try {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-    if (res.ok) return { ok: true, status: res.status };
-    // Power Automate returns 202 Accepted with a Location header on
-    // async runs — fetch treats 2xx as ok so we're fine. 200/202 both
-    // mean "queued; flow will execute".
-    const text = await res.text().catch(() => '');
-    return {
-      ok: false,
-      status: res.status,
-      error: `HTTP ${res.status}: ${text.slice(0, 200)}`,
-    };
-  } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : String(e) };
-  }
-}
-
-/** POST with one 2s-delayed retry on 5xx / network. 4xx bails immediately. */
-async function postToTeams(url: string, payload: TenantPostBody): Promise<PostResult> {
-  const first = await postOnce(url, payload);
-  if (first.ok) return first;
-  // Don't retry on 4xx — permanent failures (bad payload, expired URL).
-  if (first.status && first.status >= 400 && first.status < 500) return first;
-  // 5xx or network error → wait 2s and try once more.
-  await new Promise((r) => setTimeout(r, 2000));
-  return postOnce(url, payload);
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -124,29 +70,17 @@ async function postToTeams(url: string, payload: TenantPostBody): Promise<PostRe
 // ─────────────────────────────────────────────────────────────────
 
 interface TeamsConfig {
-  /** The tenant-wide Power Automate flow URL. Same for every user. */
-  tenantUrl: string;
-  /** Where to deliver this user's card (their work email — the flow
-   *  uses it to find the Teams account to DM). */
+  /** Where to deliver this user's card — their work email, which the
+   *  Graph client resolves to a Teams account to DM. */
   email: string;
   /** Which event types this user opted into. */
   events: Set<EventType>;
 }
 
-/** Load the tenant URL from env + the per-user email + per-user opt-ins.
- *  Returns null when there's nothing to send (missing tenant URL,
- *  user has no email, or all events opted out). */
+/** Load the per-user email + per-user opt-ins. Returns null when there's
+ *  nothing to send (user has no email, or all events opted out). The bot
+ *  connection itself is checked at send time by the Graph client. */
 async function loadTeamsConfig(userId: number): Promise<TeamsConfig | null> {
-  const tenantUrl = process.env.TEAMS_TENANT_WEBHOOK_URL?.trim() || '';
-  if (!tenantUrl) {
-    // Configuration not deployed yet — log once per call, don't spam.
-    consoleLog(
-      { userId },
-      '[teams] TEAMS_TENANT_WEBHOOK_URL not set; skipping notification',
-    );
-    return null;
-  }
-
   const user = await prisma.user.findUnique({
     where: { id: userId },
     select: { email: true, teamsNotifyOn: true, isActive: true },
@@ -174,7 +108,7 @@ async function loadTeamsConfig(userId: number): Promise<TeamsConfig | null> {
       ),
   );
   if (events.size === 0) return null;
-  return { tenantUrl, email: user.email, events };
+  return { email: user.email, events };
 }
 
 /**
@@ -325,11 +259,7 @@ async function notifyMissedCall(opts: {
     occurredAt: call.startedAt ?? new Date(),
   });
 
-  const result = await postToTeams(cfg.tenantUrl, {
-    recipientEmail: cfg.email,
-    eventType: 'missed_call',
-    card: extractAdaptiveCard(envelope),
-  });
+  const result = await sendAdaptiveCardToEmail(cfg.email, extractAdaptiveCard(envelope));
   if (result.ok) {
     consoleLog(
       {
@@ -340,6 +270,11 @@ async function notifyMissedCall(opts: {
       },
       '[teams] missed-call sent',
     );
+  } else if (result.skippedReason) {
+    consoleLog(
+      { userId: opts.userId, callDbId: opts.callDbId, reason: result.skippedReason },
+      '[teams] missed-call skipped',
+    );
   } else {
     consoleWarn(
       {
@@ -349,7 +284,7 @@ async function notifyMissedCall(opts: {
         status: result.status,
         error: result.error,
       },
-      '[teams] missed-call POST failed',
+      '[teams] missed-call send failed',
     );
   }
 }
@@ -390,11 +325,7 @@ export async function notifyInboundSms(opts: {
     occurredAt: msg.sentAt ?? new Date(),
   });
 
-  const result = await postToTeams(cfg.tenantUrl, {
-    recipientEmail: cfg.email,
-    eventType: 'sms',
-    card: extractAdaptiveCard(envelope),
-  });
+  const result = await sendAdaptiveCardToEmail(cfg.email, extractAdaptiveCard(envelope));
   if (result.ok) {
     consoleLog(
       {
@@ -405,6 +336,11 @@ export async function notifyInboundSms(opts: {
       },
       '[teams] sms sent',
     );
+  } else if (result.skippedReason) {
+    consoleLog(
+      { userId: opts.userId, messageDbId: opts.messageDbId, reason: result.skippedReason },
+      '[teams] sms skipped',
+    );
   } else {
     consoleWarn(
       {
@@ -414,7 +350,7 @@ export async function notifyInboundSms(opts: {
         status: result.status,
         error: result.error,
       },
-      '[teams] sms POST failed',
+      '[teams] sms send failed',
     );
   }
 }
@@ -492,11 +428,7 @@ export async function notifyVoicemail(opts: {
       transcript: vm.transcription,
     });
 
-    const result = await postToTeams(cfg.tenantUrl, {
-      recipientEmail: cfg.email,
-      eventType: 'voicemail',
-      card: extractAdaptiveCard(envelope),
-    });
+    const result = await sendAdaptiveCardToEmail(cfg.email, extractAdaptiveCard(envelope));
     if (result.ok) {
       consoleLog(
         {
@@ -508,6 +440,13 @@ export async function notifyVoicemail(opts: {
           status: result.status,
         },
         '[teams] voicemail sent',
+      );
+    } else if (result.skippedReason) {
+      // Not a delivery failure (bot not connected) — keep the reservation
+      // so we don't spam attempts; the other fire path is a no-op anyway.
+      consoleLog(
+        { userId: opts.userId, voicemailId: opts.voicemailId, reason: result.skippedReason },
+        '[teams] voicemail skipped',
       );
     } else {
       // Release the reservation on hard failure so a retry path could
@@ -523,7 +462,7 @@ export async function notifyVoicemail(opts: {
           status: result.status,
           error: result.error,
         },
-        '[teams] voicemail POST failed',
+        '[teams] voicemail send failed',
       );
     }
   } catch (e) {

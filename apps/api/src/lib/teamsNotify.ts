@@ -64,12 +64,26 @@ async function lookupUserId(accessToken: string, email: string): Promise<string 
  * Graph's POST /chats with chatType=oneOnOne + the two members will RETURN
  * the existing chat if one already exists (Microsoft handles dedup).
  */
+async function getBotUserId(accessToken: string): Promise<string> {
+  const res = await fetch(`${GRAPH}/me?$select=id`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`Graph /me lookup failed: HTTP ${res.status} ${body.slice(0, 200)}`);
+  }
+  const json = (await res.json()) as { id?: string };
+  if (!json.id) throw new Error('Graph /me returned no id');
+  return json.id;
+}
+
 async function getOrCreateOneOnOneChat(
   accessToken: string,
   recipientUserId: string,
 ): Promise<string> {
-  // The "from" side of the chat is whoever the token belongs to (the
-  // acebot service account). Microsoft figures that out from the bearer.
+  // Graph rejects the `users('me')` alias in the POST /chats members body
+  // ("caller must be one of the members"), so we pass the bot's real id.
+  const botUserId = await getBotUserId(accessToken);
   const url = `${GRAPH}/chats`;
   const body = {
     chatType: 'oneOnOne',
@@ -77,7 +91,7 @@ async function getOrCreateOneOnOneChat(
       {
         '@odata.type': '#microsoft.graph.aadUserConversationMember',
         roles: ['owner'],
-        'user@odata.bind': `https://graph.microsoft.com/v1.0/users('me')`,
+        'user@odata.bind': `https://graph.microsoft.com/v1.0/users('${botUserId}')`,
       },
       {
         '@odata.type': '#microsoft.graph.aadUserConversationMember',
@@ -181,6 +195,34 @@ function buildLineAssignedCard(args: {
       { type: 'TextBlock', text: body, wrap: true, spacing: 'Medium' },
     ],
   };
+}
+
+/**
+ * Send an arbitrary bare AdaptiveCard as a Teams DM (from the ACE Bot) to
+ * the given email. Used by the Settings "Send test card" action. Never
+ * throws — returns a result the route maps to an HTTP response.
+ */
+export async function sendAdaptiveCardToEmail(
+  email: string,
+  card: Record<string, unknown>,
+): Promise<SendResult> {
+  let accessToken: string;
+  try {
+    accessToken = await getValidAccessToken();
+  } catch (e) {
+    return { ok: false, skippedReason: e instanceof Error ? e.message : 'no MS Graph token' };
+  }
+  try {
+    const recipientId = await lookupUserId(accessToken, email);
+    if (!recipientId) {
+      return { ok: false, error: `Recipient ${email} not found in Microsoft tenant` };
+    }
+    const chatId = await getOrCreateOneOnOneChat(accessToken, recipientId);
+    await postCardToChat(accessToken, chatId, card);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
 }
 
 export async function sendLineAssignedCard(

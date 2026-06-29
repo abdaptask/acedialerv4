@@ -68,9 +68,15 @@ export function buildAuthorizeUrl(state: string): string {
     response_mode: 'query',
     scope: GRAPH_SCOPES,
     state,
-    // Force fresh consent (admin sees the scopes again) — safer for ops.
-    prompt: 'consent',
-    // Pre-fill the username field so admin is nudged to sign in as acebot.
+    // Do NOT use prompt=consent. acebot is a non-admin and this tenant has
+    // user consent disabled, so prompt=consent forces a fresh per-session
+    // consent that acebot can never satisfy → it loops back to "needs admin
+    // approval" forever, even after admin consent has been granted
+    // tenant-wide. select_account just forces the account picker (so we don't
+    // silently reuse a cached/admin session) and lets Azure honor the
+    // existing admin-consent grant.
+    prompt: 'select_account',
+    // Pre-fill the username field so the operator signs in as acebot.
     login_hint: SERVICE_ACCOUNT_UPN,
   });
   return `${authBaseUrl()}/authorize?${params.toString()}`;

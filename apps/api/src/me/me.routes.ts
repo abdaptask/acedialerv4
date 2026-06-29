@@ -27,6 +27,8 @@ import { z } from 'zod';
 import { prisma } from '@ace/db';
 import * as telnyx from '../telnyx/numbers.js';
 import { recordAudit } from '../lib/audit.js';
+import { sendAdaptiveCardToEmail } from '../lib/teamsNotify.js';
+import { getConnectionStatus } from '../auth/microsoft.js';
 // v0.10.79 — for /me/email-notifications/test, fires a sample notification
 // email through SendGrid using the same template style as the real
 // missed-call / SMS / voicemail emails (so users can confirm deliverability
@@ -270,12 +272,13 @@ export async function meRoutes(app: FastifyInstance) {
         .filter((s): s is TeamsEventType =>
           (TEAMS_EVENT_TYPES as readonly string[]).includes(s),
         );
-      // v0.10.1 — tenantConfigured tells the UI whether to show the
-      // event toggles at all. When the env var isn't set, Teams notifs
-      // are effectively disabled tenant-wide and the UI shows an
-      // "ask your admin to enable Teams notifications" empty state.
+      // tenantConfigured tells the UI whether to show the event toggles.
+      // Teams now delivers via the ACE Bot over Graph, so "configured"
+      // means the bot is connected (a service token is stored). When it
+      // isn't, the UI shows the "ask your admin to connect" empty state.
+      const graph = await getConnectionStatus();
       return {
-        tenantConfigured: Boolean((process.env.TEAMS_TENANT_WEBHOOK_URL ?? '').trim()),
+        tenantConfigured: graph.connected,
         events,
         availableEvents: TEAMS_EVENT_TYPES,
       };
@@ -309,25 +312,16 @@ export async function meRoutes(app: FastifyInstance) {
     },
   );
 
-  // v0.10.1 — Sends a sample Adaptive Card via the TENANT-WIDE Power
-  // Automate flow (TEAMS_TENANT_WEBHOOK_URL env var). The flow reads
-  // recipientEmail from the body and DMs the calling user via Flow bot.
-  // Useful for the user to confirm they can receive cards in Teams
-  // before relying on it for production missed-call / SMS / voicemail
-  // events. Returns HTTP status from Teams so the UI can show
-  // success/failure.
+  // Sends a sample Adaptive Card to the calling user as a Teams DM from
+  // the ACE Bot via Microsoft Graph (same path as production missed-call
+  // / SMS / voicemail cards). Lets the user confirm they can receive
+  // cards in Teams. 503 if the bot isn't connected; 502 on a Graph error
+  // (e.g. recipient has no Teams license).
   app.post(
     '/me/teams-config/test',
     { onRequest: [app.authenticate] },
     async (request: FastifyRequest, reply) => {
       const me = (request.user as JwtPayload).sub;
-      const tenantUrl = (process.env.TEAMS_TENANT_WEBHOOK_URL ?? '').trim();
-      if (!tenantUrl) {
-        return reply.code(503).send({
-          error:
-            'Teams notifications are not configured at the org level. Ask your admin to set TEAMS_TENANT_WEBHOOK_URL.',
-        });
-      }
       const user = await prisma.user.findUnique({
         where: { id: me },
         select: {
@@ -340,9 +334,8 @@ export async function meRoutes(app: FastifyInstance) {
           error: 'Your account has no email on file; cannot route a Teams card.',
         });
       }
-      // Bare AdaptiveCard — the Power Automate flow's "Post adaptive
-      // card" action wants the card body directly, not a Teams "message"
-      // envelope. Matches the shape the notifier sends for real events.
+      // Bare AdaptiveCard sent via Microsoft Graph (the ACE Bot DMs the
+      // user). Matches the shape the notifier sends for real events.
       const card = {
         $schema: 'http://adaptivecards.io/schemas/adaptive-card.json',
         type: 'AdaptiveCard',
@@ -369,39 +362,30 @@ export async function meRoutes(app: FastifyInstance) {
           },
         ],
       };
-      try {
-        const res = await fetch(tenantUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            recipientEmail: user.email,
-            eventType: 'test',
-            card,
-          }),
-        });
-        const text = await res.text().catch(() => '');
-        if (!res.ok) {
-          request.log.warn(
-            { status: res.status, body: text.slice(0, 300) },
-            '[me/teams-config/test] tenant webhook rejected card',
-          );
-          return reply.code(502).send({
-            ok: false,
-            status: res.status,
-            error:
-              res.status === 410
-                ? 'Tenant webhook URL expired or deleted. Admin should re-create the Power Automate flow.'
-                : `Teams returned HTTP ${res.status}: ${text.slice(0, 200)}`,
-          });
-        }
-        return { ok: true, status: res.status };
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        return reply.code(502).send({
+      const result = await sendAdaptiveCardToEmail(user.email, card);
+      if (result.ok) {
+        return { ok: true };
+      }
+      if (result.skippedReason) {
+        // Bot not connected (no stored token) — admin must connect in
+        // Settings → Teams connection.
+        return reply.code(503).send({
           ok: false,
-          error: `Failed to reach Teams webhook: ${msg}`,
+          error:
+            'Teams notifications aren\'t connected yet. Ask your admin to connect the ACE Bot in Settings → Teams connection.',
         });
       }
+      request.log.warn(
+        { recipient: user.email, error: result.error },
+        '[me/teams-config/test] Graph send failed',
+      );
+      return reply.code(502).send({
+        ok: false,
+        error:
+          result.error?.includes('not found in Microsoft tenant')
+            ? 'Your account could not be found in Microsoft Teams. Make sure you have a Teams license.'
+            : `Teams send failed: ${result.error ?? 'unknown error'}`,
+      });
     },
   );
 
