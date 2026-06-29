@@ -14,20 +14,26 @@
     "build:webhooks": "npm run db:generate && npm run build -w packages/db && npm run build -w apps/webhooks",
     "build:web": "npm run build -w apps/web",
     "build:desktop": "npm run build -w apps/desktop",
+    "dev:api": "PORT=3001 npm run dev -w apps/api",
+    "dev:socket": "PORT=3003 npm run dev -w apps/socket",
+    "dev:webhooks": "PORT=3002 npm run dev -w apps/webhooks",
     "dev:web": "npm run dev -w apps/web",
     "dev:desktop": "npm run dev -w apps/desktop",
+    "dev:desktop:wait": "wait-on tcp:5173 && npm run dev:desktop",
+    "dev:all": "concurrently -k -p \"[{name}]\" -n api,socket,webhooks,web,desktop -c blue,magenta,yellow,cyan,green \"npm:dev:api\" \"npm:dev:socket\" \"npm:dev:webhooks\" \"npm:dev:web\" \"npm:dev:desktop:wait\"",
     "dist:desktop:win": "npm run build:web && npm run build:desktop && cd apps/desktop && electron-builder --win",
     "dist:desktop:mac": "npm run build:web && npm run build:desktop && cd apps/desktop && electron-builder --mac",
     "db:generate": "npm run generate -w packages/db",
     "db:push": "npm run db:push -w packages/db",
-    "db:seed": "npm run seed -w packages/db",
     "strip-null-bytes": "node scripts/strip-null-bytes.mjs",
     "prebuild": "node scripts/strip-null-bytes.mjs"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",
+    "concurrently": "^10.0.3",
     "tsx": "^4.7.0",
-    "typescript": "^5.4.5"
+    "typescript": "^5.4.5",
+    "wait-on": "^9.0.10"
   },
   "engines": {
     "node": ">=20"

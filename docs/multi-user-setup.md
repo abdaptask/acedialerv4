@@ -15,9 +15,9 @@ Two fields on every User row:
   WebRTC SDK with. Used for outbound routing: when an SDK call fires
   webhook events, the SIP user identifies the originator.
 
-If neither field matches, the webhook falls back to user ID 1 (configurable
-via `PILOT_USER_ID` env var on the webhooks service) so legacy data still
-works.
+If neither field matches, the webhook can't determine the owner: the
+resolver returns null and the event is skipped (no row is created) rather
+than mis-attributed to the wrong user.
 
 ## Adding a new user
 
@@ -67,14 +67,13 @@ Recents (and ring their dialer if they're online).
 
 | Service | Var | Notes |
 |---|---|---|
-| `ace-dialer-webhooks` | `PILOT_USER_ID` | Fallback userId when no DID/SIP match. Default `1`. |
 | `ace-dialer-webhooks` | `TELNYX_API_KEY` | Same key as the API service. |
 
 ## Limits / open items
 
 - No admin UI yet — adding a user requires direct DB access. Admin panel
   is a future task.
-- Voicemail TexML still uses a single `PILOT_SIP_USERNAME` env var; for
-  multi-user voicemail, this needs to be templated per user (TexML
-  application per DID).
+- Each user has their own DID and SIP connection; voicemail TexML is
+  configured per DID (TexML application per number) rather than via a single
+  shared SIP credential.
 - Outbound 10DLC campaign registration is shared across users today.

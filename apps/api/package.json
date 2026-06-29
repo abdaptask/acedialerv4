@@ -7,7 +7,7 @@
   "scripts": {
     "build": "tsc",
     "start": "node dist/main.js",
-    "dev": "tsx watch src/main.ts"
+    "dev": "tsx watch --env-file=../../.env src/main.ts"
   },
   "dependencies": {
     "@ace/db": "*",

@@ -47,9 +47,12 @@ JsSIP connects to Telnyx via SIP-over-WebSocket. Defaults in `sip.ts`:
 ```ts
 wssUri: 'wss://sip.telnyx.com:443'
 realm:  'sip.telnyx.com'
-uri:    `sip:${VITE_SIP_USERNAME}@sip.telnyx.com`
-password: VITE_SIP_PASSWORD
+uri:    `sip:${sipUsername}@sip.telnyx.com`
+password: sipPassword
 ```
+
+The `sipUsername` / `sipPassword` are the per-user SIP credentials returned
+by login and stashed in `sessionStorage`, not build-time env vars.
 
 If your SIP Credential lives under a different region or hostname, override
 via env var (we currently don't expose this; add `VITE_SIP_WSS_URI` if
@@ -57,7 +60,7 @@ needed).
 
 **Telnyx Portal checklist** (you should already have these):
 - SIP Connection type: Credential Connection
-- Username / Password: same as your existing `VITE_SIP_USERNAME` / `VITE_SIP_PASSWORD`
+- Username / Password: the per-user SIP credential the user logs in with
 - Codec preferences: at least PCMU (G.711μ) enabled — JsSIP negotiates this by default
 - WebRTC enabled on the connection
 

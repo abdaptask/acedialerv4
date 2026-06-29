@@ -125,8 +125,8 @@ export function SipProvider({ children }: { children: React.ReactNode }) {
     function readAndConnect(): boolean {
       // ISOLATION-CRITICAL: register ONLY with this user's own per-user SIP
       // creds from sessionStorage (written by App.tsx persistSipCreds after
-      // getMe()). We intentionally do NOT fall back to any build-time
-      // VITE_SIP_USERNAME/PASSWORD/FROM_NUMBER. A baked-in shared credential
+      // getMe()). We intentionally do NOT fall back to any shared build-time
+      // SIP credentials. A baked-in shared credential
       // meant that during the unavoidable mount-race on every login — when
       // sessionStorage is briefly empty before persistSipCreds runs — the
       // client would register as that one shared account. Telnyx then forks

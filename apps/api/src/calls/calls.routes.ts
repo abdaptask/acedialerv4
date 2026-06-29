@@ -29,6 +29,37 @@ interface UpdateCallBody {
   hangupCause?: string | null;
 }
 
+/**
+ * Resolve a user's outbound caller-ID (E.164) from their own DIDs:
+ * activeUserDidId → first default → legacy User.didNumber. Mirrors the
+ * resolution chain in messages/sendMessage.ts.
+ *
+ * Returns null when the user has NO DID. There is no shared/pilot fallback
+ * number anymore (every user has their own DID), so callers MUST fail closed
+ * — dialing from someone else's number would be the wrong thing to do
+ * (cross-cutting guardrail: fail closed on outbound action).
+ */
+async function resolveUserFromNumber(userId: number): Promise<string | null> {
+  const u = await prisma.user.findUnique({
+    where: { id: userId },
+    select: {
+      didNumber: true,
+      activeUserDidId: true,
+      userDids: {
+        orderBy: [{ isDefault: 'desc' }, { createdAt: 'asc' }],
+        select: { id: true, didNumber: true },
+      },
+    },
+  });
+  if (!u) return null;
+  if (u.activeUserDidId) {
+    const active = u.userDids.find((d) => d.id === u.activeUserDidId);
+    if (active?.didNumber) return active.didNumber;
+  }
+  if (u.userDids.length && u.userDids[0]?.didNumber) return u.userDids[0].didNumber;
+  return u.didNumber ?? null;
+}
+
 // Phase 6.13 - Dedupe call legs in Recents.
 //
 // Telnyx fires multiple webhooks for the same inbound call: one for the PSTN
@@ -603,9 +634,9 @@ export async function callsRoutes(app: FastifyInstance) {
       return reply.code(501).send({ error: 'TELNYX_API_KEY not set' });
     }
 
-    // Best-effort lookup of the originating "from" number. If we don't have
-    // a row (shouldn't happen — webhook creates one — but be safe), fall
-    // back to the pilot DID.
+    // Look up the originating "from" number. If we don't have a row
+    // (shouldn't happen — webhook creates one — but be safe), fall back to
+    // the user's own DID. No shared/pilot fallback exists.
     const callRow = await prisma.call.findFirst({
       where: { callControlId, userId: user.sub },
       select: { fromNumber: true },
@@ -613,7 +644,14 @@ export async function callsRoutes(app: FastifyInstance) {
 
     // Normalize 'to' to E.164 — Telnyx error code 10016 rejects anything else.
     const toE164 = normalizeToE164(body.to);
-    const from = callRow?.fromNumber || config.pilotFromNumber;
+    const from = callRow?.fromNumber || (await resolveUserFromNumber(user.sub));
+    if (!from) {
+      // Fail closed — better to refuse than transfer from the wrong number.
+      return reply.code(409).send({
+        error: 'no_caller_id',
+        message: 'No DID is assigned to your account to transfer from.',
+      });
+    }
     app.log.info({ callControlId, to: toE164, from, rawTo: body.to }, '[transfer] dispatching');
     const result = await transfer(callControlId, { to: toE164, from });
     if (!result.ok) {
@@ -797,9 +835,18 @@ export async function callsRoutes(app: FastifyInstance) {
         originatorUserId: user.sub,
       });
     }
+    // Dial the new leg from the user's own DID. No shared/pilot fallback —
+    // fail closed if the user has no DID assigned.
+    const fromNumber = await resolveUserFromNumber(user.sub);
+    if (!fromNumber) {
+      return reply.code(409).send({
+        error: 'no_caller_id',
+        message: 'No DID is assigned to your account to dial from.',
+      });
+    }
     const dialResult = await dial({
       to: toE164,
-      from: config.pilotFromNumber,
+      from: fromNumber,
       connectionId: config.telnyxCcConnectionId,
       clientState,
     });
@@ -828,7 +875,7 @@ export async function callsRoutes(app: FastifyInstance) {
         sessionId: legBSessionId ?? null,
         callControlId: legBControlId,
         direction: 'outbound',
-        fromNumber: config.pilotFromNumber,
+        fromNumber,
         toNumber: toE164,
         status: 'initiated',
         startedAt: new Date(),

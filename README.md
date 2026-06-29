@@ -90,8 +90,6 @@ the canonical list of supported vars. Critical ones:
 | api, webhooks | `TEAMS_TENANT_WEBHOOK_URL` | Tenant-wide Power Automate flow URL |
 | api, webhooks | `WEB_BASE_URL` | Vercel URL (used in Teams card deep-links) |
 | webhooks | `DEEPGRAM_API_KEY` | Voicemail transcription |
-| webhooks | `PILOT_TELNYX_NUMBER` | Fallback DID when webhook event can't be routed |
-| webhooks | `PILOT_USER_ID` | Fallback userId for unroutable events |
 
 ## Project Status
 

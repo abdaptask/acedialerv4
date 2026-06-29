@@ -212,12 +212,12 @@ function NotificationsHubSection() {
       style={{
         padding: '8px 18px',
         border: 'none',
-        background: tab === id ? 'var(--bg-soft, #f1f5f9)' : 'transparent',
+        background: 'transparent',
         borderBottom: tab === id ? '2px solid #0a84ff' : '2px solid transparent',
         fontWeight: tab === id ? 600 : 500,
         fontSize: 14,
         cursor: 'pointer',
-        color: tab === id ? 'var(--text, #0f172a)' : 'var(--text-muted, #64748b)',
+        color: tab === id ? '#0a84ff' : 'var(--text-muted, #64748b)',
       }}
     >
       {label}

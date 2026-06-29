@@ -31,7 +31,6 @@ export const config = {
   // POST /v2/calls. Look this up in the Telnyx portal under Voice → Programmable
   // Voice → Call Control Apps → <your app> → API ID.
   telnyxCcConnectionId: optional('TELNYX_CC_CONNECTION_ID'),
-  pilotFromNumber: optional('PILOT_TELNYX_NUMBER', '+17322001305'),
   // ACE's call-event webhook endpoint. Used by:
   //   • createCredentialConnection (new connections route events here)
   //   • patchConnectionWebhook (the "repoint webhook" toggle in the invite

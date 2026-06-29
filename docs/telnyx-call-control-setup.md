@@ -52,7 +52,6 @@ Set these on both services and redeploy:
 |---|---|---|
 | `TELNYX_API_KEY` | Portal → API Keys → V2 | api, webhooks |
 | `TELNYX_CC_CONNECTION_ID` | The App ID from step 1 | api (for `/calls/add-leg`) |
-| `PILOT_TELNYX_NUMBER` | `+17322001305` (already set) | api, webhooks |
 
 ### 4. Verify
 

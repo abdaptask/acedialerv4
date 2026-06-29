@@ -11,7 +11,6 @@
     "db:push": "dotenv -e ../../.env -- prisma db push --accept-data-loss",
     "db:push:ci": "prisma db push --accept-data-loss",
     "db:studio": "dotenv -e ../../.env -- prisma studio",
-    "seed": "tsx --env-file=../../.env prisma/seed.ts",
     "create-user": "tsx --env-file=../../.env prisma/create-user.ts",
     "apply-sql": "tsx --env-file=../../.env scripts/apply-sql-migration.ts",
     "lookup-did": "tsx --env-file=../../.env scripts/lookup-did.ts",

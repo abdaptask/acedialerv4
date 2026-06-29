@@ -107,7 +107,7 @@ If you're a fresh Claude session opening this project:
 
 **Attribution chain (resolveUserAndDid in webhooks/main.ts):**
 
-1. **Pass 0** — connection_id from webhook payload matches `UserDid.connectionId` or `UserDid.preMigrationConnectionId`. Sets userId AND userDidId. Skipped if connection_id is in the SHARED list (`TELNYX_VOICEMAIL_CC_APP_ID`, `PILOT_SIP_CONNECTION_ID`) because that ID is shared across all TeXML trial users.
+1. **Pass 0** — connection_id from webhook payload matches `UserDid.connectionId` or `UserDid.preMigrationConnectionId`. Sets userId AND userDidId. Skipped if connection_id is the shared `TELNYX_VOICEMAIL_CC_APP_ID` because that ID is shared across all TeXML trial users.
 2. **Pass 1** — `payload.sip_username` field matches `User.sipUsername`. Sets userId only.
 3. **Pass 2** — `payload.toNumber` (when it looks like a sipUsername — no `+`, no digits, no `@`) matches `User.sipUsername`. Sets userId only.
 4. **Pass 3** — last 10 digits of toNumber match `UserDid.didNumber`. For inbound, this is authoritative.
@@ -242,7 +242,6 @@ node scripts/strip-null-bytes.mjs && npx tsc --noEmit -p apps/web/tsconfig.json 
 - `TELNYX_VOICEMAIL_CC_APP_ID` — shared TeXML voicemail App ID (treated as "shared" by Pass 0)
 - `TEXML_TRIAL_DIDS` — comma-separated list of phone numbers on the TeXML trial
 - `DEEPGRAM_API_KEY` — voicemail transcription
-- `PILOT_USER_ID` — legacy fallback userId (deprecated post-v0.10.108)
 
 **Telnyx connection:**
 

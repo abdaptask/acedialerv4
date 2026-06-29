@@ -38,12 +38,6 @@ const SERVICE_NAME = 'ace-dialer-webhooks';
 const START_TIME = new Date().toISOString();
 const TELNYX_API_KEY = process.env.TELNYX_API_KEY ?? '';
 
-// Phase 5.7 — multi-user routing.
-// PILOT_USER_ID is the fallback when we can't match a webhook event to a
-// specific user (e.g. SMS to a number not assigned to anyone yet). Existing
-// data shouldn't break.
-const FALLBACK_USER_ID = Number(process.env.PILOT_USER_ID ?? 1);
-
 // Normalize a phone for matching across stored formats. Compare on last-10.
 function last10(p: string | undefined | null): string {
   return (p ?? '').replace(/[^\d]/g, '').slice(-10);
@@ -57,7 +51,8 @@ function last10(p: string | undefined | null): string {
  *     against the UserDid table. Whichever side matches a known DID gives
  *     us BOTH the owning user_id and the specific user_did_id that was
  *     touched (used by Task 5 to tag inbound rows with the line badge).
- *   - Fall back to FALLBACK_USER_ID if nothing matches.
+ *   - Return null if nothing matches (caller skips row creation rather
+ *     than mis-attributing to a fallback user).
  */
 async function resolveUserId(opts: {
   sipUsername?: string | null;
@@ -76,7 +71,7 @@ async function resolveUserId(opts: {
  * can render a colored line badge per row.
  *
  * Returns:
- *   - userId:    the owning user (or FALLBACK_USER_ID if no match)
+ *   - userId:    the owning user (or null if no match)
  *   - userDidId: the specific UserDid row matched by to_number or
  *                from_number, or null if we fell back via SIP username
  *                (no DID context) or no DID matched at all.
@@ -188,10 +183,10 @@ async function resolveUserAndDid(opts: {
 }): Promise<{ userId: number | null; userDidId: number | null }> {
   // v0.10.108 CRITICAL FIX - Cross-user call attribution bug.
   //
-  // PREVIOUS BEHAVIOR (broken): when nothing matched, fell back to
-  // FALLBACK_USER_ID (= PILOT_USER_ID env or 1 as default). For ApTask's
+  // PREVIOUS BEHAVIOR (broken): when nothing matched, fell back to a
+  // single hardcoded fallback user (user #1, the admin). For ApTask's
   // production setup that meant EVERY unattributable call got stamped on
-  // user #1 (the admin). Other users had ZERO visible call history.
+  // user #1. Other users had ZERO visible call history.
   //
   // NEW BEHAVIOR: returns userId=null when ownership can't be determined.
   // Callers MUST handle that (skip row creation rather than silently
@@ -224,11 +219,10 @@ async function resolveUserAndDid(opts: {
   //   webhook fires with connection_id = TELNYX_VOICEMAIL_CC_APP_ID
   //   (the same Voice API App ID for ALL migrated users). Looking
   //   that up in UserDid would match the first migrated user we
-  //   happened to write the row for - completely wrong. Same risk
-  //   with PILOT_SIP_CONNECTION_ID if it was ever shared across
-  //   pilot users. When the inbound connection_id matches one of
-  //   these known shared IDs, skip Pass 0 and let later passes
-  //   (sip_username, then DID number lookup) attribute correctly.
+  //   happened to write the row for - completely wrong. When the
+  //   inbound connection_id matches this known shared ID, skip Pass 0
+  //   and let later passes (sip_username, then DID number lookup)
+  //   attribute correctly.
   //
   // Edge case B — preMigrationConnectionId (also check this column):
   //   When a user is migrated, UserDid.connectionId is overwritten
@@ -240,7 +234,6 @@ async function resolveUserAndDid(opts: {
   if (opts.connectionId) {
     const sharedIds = [
       (process.env.TELNYX_VOICEMAIL_CC_APP_ID ?? '').trim(),
-      (process.env.PILOT_SIP_CONNECTION_ID ?? '').trim(),
     ].filter((s) => s.length > 0);
     const isSharedConnId = sharedIds.includes(opts.connectionId);
     if (!isSharedConnId) {
@@ -434,11 +427,6 @@ async function joinConference(
   const body = await res.json().catch(() => ({}));
   return { ok: res.ok, status: res.status, ...(res.ok ? {} : { error: body }) };
 }
-
-// Phase 5.7 — multi-user. PILOT_NUMBER is the fallback DID used for inbound
-// voicemails when we can't resolve a user. New users get their own DID via
-// users.did_number → the resolveUserId() helper above routes events.
-const PILOT_NUMBER = process.env.PILOT_TELNYX_NUMBER ?? '+17322001305';
 
 // Voicemail capture is handled by Telnyx's built-in hosted voicemail
 // (enabled per-DID via POST /v2/phone_numbers/{id}/voicemail). Telnyx
@@ -1268,10 +1256,8 @@ app.post('/telnyx/failover', async (request) => {
 //   Webhook URL: https://<this-host>/texml/inbound  Method: POST or GET
 //   Then on your DID → Voice settings → assign this TexML application.
 //
-// Env vars consumed:
-//   PILOT_SIP_USERNAME   the WebRTC user's SIP credential username
-//                        (URI becomes sip:<username>@sip.telnyx.com)
-//   PILOT_VOICEMAIL_GREETING (optional) override the default Polly greeting
+// The SIP connection is resolved per-call from the called DID's owner
+// (resolveCalledConnection); the voicemail greeting is a fixed string.
 // Escape XML special chars (mostly for the user-supplied greeting).
 function xmlEscape(s: string): string {
   return s
@@ -1283,16 +1269,16 @@ function xmlEscape(s: string): string {
 }
 
 // v0.10.14 — Look up the called DID's owner so we can dial THEIR
-// Credential Connection. Without this, every user except whoever owns
-// PILOT_SIP_CONNECTION_ID gets inbound calls misrouted (Telnyx
-// rejects in <500ms because the wrong connection has no matching SIP
-// user registered → 366ms call.hangup → caller hears nothing).
+// Credential Connection. Each user has their own DID + connection;
+// dialing the wrong connection misroutes the call (Telnyx rejects in
+// <500ms because the wrong connection has no matching SIP user
+// registered → 366ms call.hangup → caller hears nothing).
 //
 // Telnyx posts the called DID as `To` in the TexML callback body
 // (or query string for GET). Last-10-digit match tolerates
-// formatting drift. If we can't find an owner, we fall through to
-// the env-var pilot connection (legacy behaviour, used for any
-// orphan DID not yet bound to a user).
+// formatting drift. If we can't find an owner, we fail closed (the
+// caller gets a "service not configured" hangup) rather than
+// misrouting to a shared connection.
 //
 // v0.10.14 + self-heal — UserDid.connectionId can be NULL for two
 // reasons:
@@ -1342,7 +1328,7 @@ async function resolveCalledConnection(
     if (!TELNYX_API_KEY) {
       app.log.warn(
         { didNumber: match.didNumber, userId: match.userId },
-        '[texml] UserDid.connectionId is NULL and TELNYX_API_KEY not set — falling back to pilot',
+        '[texml] UserDid.connectionId is NULL and TELNYX_API_KEY not set — cannot resolve connection; inbound caller gets service-unavailable',
       );
       return { connectionId: null, userId: match.userId };
     }
@@ -1365,7 +1351,7 @@ async function resolveCalledConnection(
       if (!fetchedConnectionId) {
         app.log.warn(
           { didNumber: match.didNumber },
-          '[texml] Telnyx returned no connection_id for DID — falling back to pilot',
+          '[texml] Telnyx returned no connection_id for DID — cannot resolve connection',
         );
         return { connectionId: null, userId: match.userId };
       }
@@ -1387,7 +1373,7 @@ async function resolveCalledConnection(
     } catch (e) {
       app.log.warn(
         { err: e instanceof Error ? e.message : String(e), didNumber: match.didNumber },
-        '[texml] Telnyx lookup threw — falling back to pilot',
+        '[texml] Telnyx lookup threw — cannot resolve connection',
       );
       return { connectionId: null, userId: match.userId };
     }
@@ -1402,20 +1388,21 @@ async function resolveCalledConnection(
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const texmlHandler = async (request: any): Promise<string> => {
-  // v0.10.14 — try to resolve the called DID's owner first. Fall back
-  // to the env-var pilot connection if we can't (legacy behaviour for
-  // orphan / unassigned DIDs).
+  // Resolve the called DID's owner → their SIP connection. Every user has
+  // their own DID + connection, so there is NO shared fallback: if we can't
+  // resolve it, sipConnectionId stays null and the handler below returns a
+  // "service not configured" hangup rather than misrouting the call to
+  // someone else's endpoint. (See v0.10.119 changelog — a hardcoded fallback
+  // connection routed every unresolved inbound call to the same SIP
+  // credential and 404'd for non-pilot users.)
   const resolved = await resolveCalledConnection(request);
-  const sipConnectionId =
-    resolved.connectionId ||
-    process.env.PILOT_SIP_CONNECTION_ID ||
-    '2960617014202206103';
+  const sipConnectionId = resolved.connectionId;
   app.log.info(
     {
       resolvedConnectionId: resolved.connectionId,
       resolvedUserId: resolved.userId,
       chose: sipConnectionId,
-      fellBackToPilot: !resolved.connectionId,
+      resolved: Boolean(resolved.connectionId),
     },
     '[texml] routing decision',
   );
@@ -1473,7 +1460,6 @@ const dialStatusHandler = (request: any): string => {
   const baseUrl = (process.env.WEBHOOKS_PUBLIC_URL ?? `${proto}://${host}`).replace(/\/+$/, '');
   const recordAction = `${baseUrl}/telnyx/voicemail`;
   const greeting =
-    process.env.PILOT_VOICEMAIL_GREETING ??
     "You've reached ACE Dialer. Please leave a message after the tone, then press pound or hang up.";
 
   app.log.info({ status }, '[texml] dial-status received');
@@ -1919,7 +1905,7 @@ async function processVoicemail(
       userId: ownerUserId,
       telnyxCallId: payload.telnyxCallId ?? null,
       fromNumber: payload.fromNumber,
-      toNumber: payload.toNumber ?? PILOT_NUMBER,
+      toNumber: payload.toNumber ?? '',
       recordingUrl: payload.recordingUrl,
       durationSeconds: payload.durationSeconds,
       transcription: payload.transcription ?? null,
@@ -1963,7 +1949,7 @@ async function processVoicemail(
           telnyxCallId: payload.telnyxCallId,
           direction: 'inbound',
           fromNumber: payload.fromNumber,
-          toNumber: payload.toNumber ?? PILOT_NUMBER,
+          toNumber: payload.toNumber ?? '',
           status: 'missed',
           startedAt: payload.receivedAt,
           endedAt: new Date(),

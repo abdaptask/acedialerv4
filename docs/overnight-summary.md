@@ -15,7 +15,7 @@ Replaced the bland strip with a real product header:
 ## Multi-user support (#99)
 - Added `User.sipUsername` + `User.didNumber` to schema (unique per user)
 - Migration SQL: `packages/db/migrations/2026-05-multi-user.sql` — run in Supabase SQL editor + update pilot user's row
-- Webhook handler uses a new `resolveUserId({ sipUsername, fromNumber, toNumber })` helper that looks up by SIP username first, then by DID match (last-10 digits). Falls back to `PILOT_USER_ID` env var (default 1) if nothing matches.
+- Webhook handler uses a new `resolveUserId({ sipUsername, fromNumber, toNumber })` helper that looks up by SIP username first, then by DID match (last-10 digits). If nothing matches it returns null and the event is skipped (no row created).
 - New `PATCH /auth/me` endpoint so users self-serve their `didNumber` + `sipUsername`
 - New Settings → Account section for editing name/DID/SIP
 - Full doc: `docs/multi-user-setup.md`
@@ -93,13 +93,13 @@ cd apps/web && npm install  # picks up libphonenumber-js
 ## What you need to do on your end
 
 1. **Supabase SQL editor**: paste + run `packages/db/migrations/2026-05-multi-user.sql`. Edit the bottom `UPDATE` to set your actual SIP username and DID.
-2. **Render**: no new env vars are required, but if you want the `PILOT_USER_ID` fallback to be a non-default user, set `PILOT_USER_ID` on `ace-dialer-webhooks`.
+2. **Render**: no new env vars are required.
 3. **GitHub Actions** will start running on the next push — go to Actions tab to download Mac/Windows installers.
 
 ## What's still pending (carry-over)
 
 - JobDiva API credentials (blocked on JobDiva)
-- Voicemail TexML setup in Telnyx portal + `PILOT_SIP_USERNAME` env var
+- Voicemail TexML setup in Telnyx portal (per-DID TexML application)
 - Conference + Transfer live testing (you couldn't test on VPN)
 - 10DLC SMS registration
 - Custom voicemail greeting upload

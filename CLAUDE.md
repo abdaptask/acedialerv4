@@ -581,7 +581,7 @@ scripts/      One-off ops helpers (dedupe call legs, fix favorite names, etc.)
 
 ### 16.1 Capabilities & Scope
 - Receives every Telnyx event (`call.initiated`, `call.answered`, `call.hangup`, `message.received`, `message.sent`, `calls.voicemail.completed`, etc.) and persists/routes per user.
-- Multi-user routing matches events to the right `User` via `sip_username`, then `did_number` (last-10 digits), then a `PILOT_USER_ID` fallback.
+- Multi-user routing matches events to the right `User` via `sip_username`, then `did_number` (last-10 digits). When ownership can't be determined, the resolver returns null and the event is skipped (no row created) rather than mis-attributed.
 - Inbound number blocking: rejects blocked callers with `USER_BUSY` (skips Hosted Voicemail fallthrough) and silently drops blocked-sender SMS.
 
 ### 16.2 Current State & Truth
