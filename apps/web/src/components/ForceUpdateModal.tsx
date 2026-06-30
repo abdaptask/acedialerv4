@@ -127,12 +127,23 @@ export default function ForceUpdateModal() {
     const unsubErr = ace.onUpdateError?.((info: { message?: string }) => {
       setState({ phase: 'error', message: info.message ?? 'Update failed' });
     });
+    // v0.10.209 — when checkForUpdates() finds nothing newer to install
+    // (the client is already on the latest published build), no progress/
+    // downloaded/error event ever follows — so the modal would hang on
+    // "Preparing the update…" forever, blocking the whole app. Treat
+    // "already current" as satisfied: ack the request so the server clears
+    // the pending flag, then dismiss.
+    const unsubNotAvail = ace.onUpdateNotAvailable?.(() => {
+      void ackAndDismiss();
+    });
 
     return () => {
       unsubProg?.();
       unsubDone?.();
       unsubErr?.();
+      unsubNotAvail?.();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active]);
 
   // Watch active-call state — both via the sipService 'state' event
@@ -183,6 +194,22 @@ export default function ForceUpdateModal() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.phase, onCall]);
+
+  // Ack the force-update request (so the server stops re-triggering it on
+  // the next heartbeat) and tear the modal down. Used when there's nothing
+  // newer to install — the client already satisfies the requested version.
+  async function ackAndDismiss() {
+    if (!installAckedRef.current) {
+      installAckedRef.current = true;
+      const token = sessionStorage.getItem('ace_token');
+      const deviceId = deviceIdRef.current;
+      if (token && deviceId) {
+        try { await ackForceUpdate(token, deviceId); } catch { /* noop */ }
+      }
+    }
+    setState({ phase: 'idle' });
+    setActive(false);
+  }
 
   async function handleInstall() {
     if (state.phase === 'installing') return;

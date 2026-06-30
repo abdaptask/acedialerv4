@@ -24,6 +24,15 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.209',
+    date: 'June 30, 2026',
+    highlight: 'Fixed: a forced update could get stuck on “Preparing the update…” and lock you out of the dialer.',
+    changes: [
+      { type: 'fixed', text: 'When an admin pushed a “Force update” to a dialer that was already on the latest version, the update screen could hang forever on “Preparing the update…”, blocking all use of the app. The dialer now recognises when there is nothing newer to install and dismisses the screen instead of getting stuck.' },
+      { type: 'improved', text: 'Admins are now prevented from force-updating a device that is already on the latest version (which is what caused the stuck screen), unless they explicitly override it.' },
+    ],
+  },
+  {
     version: '0.10.208',
     date: 'June 25, 2026',
     highlight: 'Diagnostic logging for Teams notification deep-links.',
