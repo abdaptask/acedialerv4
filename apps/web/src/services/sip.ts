@@ -1341,15 +1341,24 @@ export class SipService {
         if (ev.streams && ev.streams[0]) {
           const stream = ev.streams[0];
           audioEl.srcObject = stream;
-          this.primaryAudioEl.srcObject = stream;
           // v0.10.31 — Use safePlay which retries once on autoplay failures
           // (Chromium can block .play() on backgrounded windows; the user's
           // Accept-button click is a valid gesture for subsequent plays).
           safePlay(audioEl, 'per-call audioEl');
-          safePlay(this.primaryAudioEl, 'primaryAudioEl');
           applySpeakerSelection(audioEl);
-          applySpeakerSelection(this.primaryAudioEl);
-          console.log('[sip] remote stream attached to both audio elements');
+          // v0.10.209 — Only the active call may claim the shared primary
+          // element. Without this guard a second call (e.g. an outbound still
+          // ringing while the user answers an inbound) overwrites primaryAudioEl
+          // with its own remote stream → cross-connection. The held call's own
+          // element is muted by holdCallWithMusicIfConfigured.
+          if (this.ownsPrimaryAudio(callId)) {
+            this.primaryAudioEl.srcObject = stream;
+            safePlay(this.primaryAudioEl, 'primaryAudioEl');
+            applySpeakerSelection(this.primaryAudioEl);
+            console.log('[sip] remote stream attached (active → primary + own element)');
+          } else {
+            console.log('[sip] remote stream attached to own element only (non-active call)');
+          }
         } else {
           console.warn('[sip] track event but no streams!', ev);
         }
@@ -1390,11 +1399,15 @@ export class SipService {
           const stream = new MediaStream();
           for (const t of existingTracks) stream.addTrack(t);
           audioEl.srcObject = stream;
-          this.primaryAudioEl.srcObject = stream;
           safePlay(audioEl, 'existing-receiver audioEl');
-          safePlay(this.primaryAudioEl, 'existing-receiver primaryAudioEl');
           applySpeakerSelection(audioEl);
-          applySpeakerSelection(this.primaryAudioEl);
+          // v0.10.209 — same active-only primary ownership guard as the live
+          // 'track' handler above (see ownsPrimaryAudio).
+          if (this.ownsPrimaryAudio(callId)) {
+            this.primaryAudioEl.srcObject = stream;
+            safePlay(this.primaryAudioEl, 'existing-receiver primaryAudioEl');
+            applySpeakerSelection(this.primaryAudioEl);
+          }
           console.log('[sip] attached existing receiver tracks (missed track event due to wiring race)');
         }
       } catch (e) {
@@ -1504,15 +1517,15 @@ export class SipService {
         entry.earlyMediaTimer = undefined;
       }
       if (this.incomingCallId === callId) this.incomingCallId = null;
-      this.activeCallId = callId;
-      this.emit<CallEvent>('call', this.buildEvent(entry, 'connected'));
+      // v0.10.209 — promote to active OR keep held if this is a background
+      // call that just finished connecting (cross-connection guard).
+      this.promoteOrKeepHeld(entry);
       this.startQualityPolling();
     });
 
     session.on('confirmed', () => {
       console.log('[sip] confirmed (ACK sent/received)', callId);
-      this.activeCallId = callId;
-      this.emit<CallEvent>('call', this.buildEvent(entry, 'connected'));
+      this.promoteOrKeepHeld(entry);
     });
 
     session.on('ended', (data: { cause?: string; originator?: string; message?: { status_code?: number; reason_phrase?: string } }) => {
@@ -1940,6 +1953,69 @@ export class SipService {
     entry.heldLocal = false;
   }
 
+  /**
+   * v0.10.209 — Whether `callId` may drive the shared primary audio element.
+   * Only the active call (or a lone call before any is active) owns the
+   * speaker; a held/background call must stay confined to its own muted
+   * per-call element, otherwise its remote stream overwrites primaryAudioEl
+   * and the user hears the wrong party / both parties (cross-connection).
+   */
+  private ownsPrimaryAudio(callId: string): boolean {
+    if (this.conferenceCtx) return false; // conference manages its own mix
+    return this.activeCallId === null || this.activeCallId === callId;
+  }
+
+  /**
+   * v0.10.209 — Make `entry` the sole owner of the speaker: route its stream
+   * onto primaryAudioEl and mute every other leg's element so a held/parallel
+   * call can't bleed in. Called when a call is promoted to active.
+   */
+  private routeActiveAudioToPrimary(entry: CallEntry): void {
+    if (this.conferenceCtx) return; // conference owns its own audio graph
+    if (entry.audioEl) {
+      entry.audioEl.muted = false;
+      this.primaryAudioEl.srcObject = entry.audioEl.srcObject;
+    }
+    this.primaryAudioEl.muted = false;
+    safePlay(this.primaryAudioEl, 'primaryAudioEl-active');
+    for (const other of this.calls.values()) {
+      if (other.id !== entry.id && other.audioEl) other.audioEl.muted = true;
+    }
+  }
+
+  /**
+   * v0.10.209 — Re-issue a SIP hold once a held call's dialog is finally
+   * established. holdCallWithMusicIfConfigured calls session.hold() eagerly,
+   * but JsSIP throws on a not-yet-confirmed session (e.g. an outbound that was
+   * still ringing when we held it), so the RTP never went inactive and the far
+   * end could still hear the user. Re-assert here on accepted/confirmed. The
+   * music-hold path already swapped the outgoing track, so it needs nothing.
+   */
+  private reassertHold(entry: CallEntry): void {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    if ((entry as any).__holdMusic) return;
+    try { entry.session.hold(); } catch (e) { console.warn('[sip] reassert hold failed', e); }
+  }
+
+  /**
+   * v0.10.209 — Called from the accepted/confirmed handlers. A call we
+   * deliberately hold (e.g. an outbound that was still ringing when the user
+   * answered an incoming, then connected) must NOT seize the active slot or
+   * the speaker — that is the cross-connection bug. Keep it held (re-asserting
+   * the hold now the dialog is established) and leave the active call alone.
+   * Otherwise promote this call to active and route its audio to the speaker.
+   */
+  private promoteOrKeepHeld(entry: CallEntry): void {
+    if (entry.heldLocal && this.activeCallId && this.activeCallId !== entry.id) {
+      if (entry.audioEl) entry.audioEl.muted = true;
+      this.reassertHold(entry);
+      return;
+    }
+    this.activeCallId = entry.id;
+    this.routeActiveAudioToPrimary(entry);
+    this.emit<CallEvent>('call', this.buildEvent(entry, 'connected'));
+  }
+
   /** Start a second concurrent call — used by Add Call. */
   addCall(rawNumber: string): void {
     if (!this.ua) throw new Error('SIP not connected');
@@ -2043,6 +2119,29 @@ export class SipService {
         hangupCause: 'state_desync',
       });
       return;
+    }
+    // v0.10.209 — Cross-connection guard. If another call is live when we
+    // answer (classically an outbound that was still ringing, so the UI
+    // offered a plain Accept instead of Hold & Accept), hold + mute it first
+    // and claim the active slot for the call we're answering. Without this
+    // both calls stay live: the user's mic feeds both parties and the two
+    // remote streams fight over the shared primary audio element. Skipped
+    // during a conference (which manages its own multi-leg mix).
+    if (!this.conferenceCtx) {
+      let heldAny = false;
+      for (const other of this.calls.values()) {
+        if (other.id !== id && !other.heldLocal) {
+          void this.holdCallWithMusicIfConfigured(other);
+          heldAny = true;
+        }
+      }
+      if (heldAny) {
+        this.primaryAudioEl.srcObject = null;
+        this.primaryAudioEl.muted = false;
+        // Claim active now so the answered call (not the held one) owns the
+        // speaker as soon as its remote track arrives — see ownsPrimaryAudio.
+        this.activeCallId = id;
+      }
     }
     // v0.8.9 -- fire-and-forget the async answer path so click handlers
     // stay synchronous. Inside _answerIncoming we preflight gUM (with a

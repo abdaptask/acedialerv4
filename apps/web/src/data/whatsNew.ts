@@ -24,6 +24,14 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.210',
+    date: 'June 30, 2026',
+    highlight: 'Fixed: audio from two calls could cross-connect when an inbound call arrived while you were dialing out.',
+    changes: [
+      { type: 'fixed', text: 'If a call came in at the same moment you were placing an outgoing call, answering it could leave both calls live at once — your microphone went to both parties and you heard a mix of both. The dialer now automatically puts the other call on hold the instant you answer, so only one call is ever connected to your mic and speaker.' },
+    ],
+  },
+  {
     version: '0.10.209',
     date: 'June 30, 2026',
     highlight: 'Fixed: a forced update could get stuck on “Preparing the update…” and lock you out of the dialer.',
