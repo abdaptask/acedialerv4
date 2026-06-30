@@ -51,6 +51,10 @@ interface AceElectronBridge {
   // installer rejected, GitHub 403, etc.). Optional so older preloads
   // (without the bridge) still type-check.
   onUpdateError?: (cb: (info: { message: string }) => void) => () => void;
+  // v0.10.209 — fired when a checkForUpdates() finds nothing newer to
+  // install. Lets ForceUpdateModal ack + dismiss instead of hanging on
+  // "Preparing the update…" when the client is already current.
+  onUpdateNotAvailable?: (cb: (info: { version: string | null }) => void) => () => void;
   installUpdate?: () => Promise<boolean>;
   checkForUpdates?: () => Promise<{ state: string; version?: string | null; message?: string }>;
   // v0.8.8 — state-mirror query for the auto-update banner to rehydrate
