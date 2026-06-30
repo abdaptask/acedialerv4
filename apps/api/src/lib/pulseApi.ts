@@ -1,6 +1,6 @@
 // v0.10.36 — Pulse REST API client for migration backfill.
 //
-// Talks to Pulse's public REST API at https://pulse.aptask.com/api/2.0/...
+// Talks to Pulse's public REST API at https://pulse-old.aptask.com/api/2.0/...
 // using the same JWT auth the existing Pulse front-end uses.
 //
 // Auth model:
@@ -17,7 +17,7 @@
 //     So SMS continues to come from the MySQL path in pulseBackfill.ts.
 //
 // Env vars:
-//   PULSE_API_BASE_URL  — e.g. "https://pulse.aptask.com/api/2.0"
+//   PULSE_API_BASE_URL  — e.g. "https://pulse-old.aptask.com/api/2.0"
 //                         (no trailing slash). When unset, all functions
 //                         no-op silently — safe to ship dormant.
 //
