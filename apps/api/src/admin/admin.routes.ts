@@ -3846,7 +3846,12 @@ export async function adminRoutes(app: FastifyInstance) {
       const pulseJwt = await loginToPulse(normEmail, pulsePassword);
       if (!pulseJwt) {
         step('login to Pulse', false, 'Pulse rejected the credentials (wrong password or no account)');
-        return reply.code(401).send({ ok: false, error: 'Pulse login failed', steps });
+        // 422, NOT 401: this is a failure of the DOWNSTREAM Pulse login, not
+        // the admin's own ACE session. The web client's session guard
+        // (sessionGuard.ts) logs the user out and bounces to /login on ANY
+        // 401 from our API — so returning 401 here ejected the admin
+        // mid-migration. Any non-401 status preserves their session.
+        return reply.code(422).send({ ok: false, error: 'Pulse login failed', steps });
       }
       step('login to Pulse', true);
 
