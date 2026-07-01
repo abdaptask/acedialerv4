@@ -105,4 +105,25 @@ export const config = {
   // falls back to Telnyx-TURN-only (which handles ~95% of NAT cases anyway).
   cloudflareTurnKeyId: optional('CLOUDFLARE_TURN_KEY_ID'),
   cloudflareTurnApiToken: optional('CLOUDFLARE_TURN_API_TOKEN'),
+
+  // Protected super-admins. These emails can NEVER lose admin access:
+  //   - On every login (SSO or local password) their is_admin + is_active are
+  //     force-set true, so any accidental demotion / direct-DB drift / stale
+  //     flag self-heals on their next sign-in.
+  //   - The admin panel refuses to demote or deactivate them.
+  // Comma-separated, case-insensitive. Defaults to the four founding admins so
+  // the guarantee holds even if the env var is never set.
+  protectedAdminEmails: optional(
+    'PROTECTED_ADMIN_EMAILS',
+    'abdulla@aptask.com,nileshd@aptask.com,ravindra@aptask.com,brijeshb@aptask.com',
+  )
+    .split(',')
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean),
 };
+
+/** True if `email` is a protected super-admin (see config.protectedAdminEmails). */
+export function isProtectedAdmin(email: string | null | undefined): boolean {
+  if (!email) return false;
+  return config.protectedAdminEmails.includes(email.trim().toLowerCase());
+}

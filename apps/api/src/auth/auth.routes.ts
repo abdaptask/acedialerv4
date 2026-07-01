@@ -3,6 +3,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 import { prisma } from '@ace/db';
+import { isProtectedAdmin } from '../config.js';
 
 const LoginSchema = z.object({
   email: z.string().email(),
@@ -39,6 +40,17 @@ export async function authRoutes(app: FastifyInstance) {
       return reply.code(401).send({ error: 'Invalid credentials' });
     }
 
+    // Protected super-admins can never lose admin — self-heal on login.
+    // Can only grant, never removes anyone's access.
+    let effectiveIsAdmin = user.isAdmin;
+    if (isProtectedAdmin(user.email) && !user.isAdmin) {
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { isAdmin: true, isActive: true },
+      });
+      effectiveIsAdmin = true;
+    }
+
     await prisma.user.update({
       where: { id: user.id },
       data: { lastLoginAt: new Date() },
@@ -47,7 +59,7 @@ export async function authRoutes(app: FastifyInstance) {
     const payload: JwtPayload = {
       sub: user.id,
       email: user.email,
-      isAdmin: user.isAdmin,
+      isAdmin: effectiveIsAdmin,
     };
     const token = await reply.jwtSign(payload);
 
@@ -58,7 +70,7 @@ export async function authRoutes(app: FastifyInstance) {
         email: user.email,
         firstName: user.firstName,
         lastName: user.lastName,
-        isAdmin: user.isAdmin,
+        isAdmin: effectiveIsAdmin,
         // Per-user SIP creds so the dialer can register as THIS user with
         // Telnyx instead of using the build-time VITE_SIP_* env vars.
         // sipPassword is sensitive — only flow it over HTTPS and never log it.
