@@ -31,7 +31,7 @@ than mis-attributed to the wrong user.
 
 ### 2. Create the user in the DB
 
-Direct SQL in Supabase:
+Direct SQL against the PostgreSQL DB (`psql "$DATABASE_URL"` on the host):
 
 ```sql
 INSERT INTO users (
@@ -58,8 +58,8 @@ localStorage, used by the WebRTC SDK on connect).
 
 ## Test the routing
 
-Have someone call the new user's DID. In **Render → ace-dialer-webhooks →
-Logs** you should see the `[telnyx] call event` followed by a Prisma write
+Have someone call the new user's DID. In **`pm2 logs ace-webhooks`**
+you should see the `[telnyx] call event` followed by a Prisma write
 that uses the new user's ID. The call should appear in the new user's
 Recents (and ring their dialer if they're online).
 

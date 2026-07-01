@@ -558,7 +558,7 @@ model InternalMessage {
 //                                Connection for this user
 //                          no  = use pulseVoipExt + pulseExtPassword as-is
 //   3) Repoint webhook?    yes = PATCH the Credential Connection's
-//                                webhook_event_url from pulse.aptask.com
+//                                webhook_event_url from pulse-old.aptask.com
 //                                to ACE's webhook (call logs flow to ACE)
 //                          no  = leave webhook on Pulse
 //

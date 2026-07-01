@@ -39,7 +39,7 @@ These are non-negotiable across modules. Repeat them in module-specific guardrai
 |---|--------|--------|
 | 1 | Repository Topology | Shipped |
 | 2 | Identity & Session | In-Progress (SSO) |
-| 3 | Data Layer (Prisma + Supabase Postgres) | Shipped |
+| 3 | Data Layer (Prisma + self-hosted PostgreSQL) | Shipped |
 | 4 | Desktop Shell (Electron + Tray + Floating Ringer) | Shipped |
 | 5 | App Shell (Routing, Layout, Tab Badges, Theme) | Shipped |
 | 6 | SIP Engine (JsSIP UA, Registration, Resilience) | Shipped |
@@ -75,7 +75,7 @@ These are non-negotiable across modules. Repeat them in module-specific guardrai
 
 ### 1.1 Capabilities & Scope
 - Monorepo orchestrated by npm workspaces. Four runtime apps + one shared package.
-- Each app deploys independently (Render web services for `api`, `webhooks`, `socket`; Electron installer for `desktop`; Vercel/static host for `web`).
+- All server apps run **self-hosted** on the `dialer.aptask.com` host under **pm2** (`api`, `webhooks`, `socket`, and the `web` static bundle); `desktop` ships as an Electron installer via GitHub Releases. **No Render, no Vercel** — those are decommissioned.
 
 ### 1.2 Current State & Truth
 **Status:** Shipped.
@@ -94,13 +94,14 @@ scripts/      One-off ops helpers (dedupe call legs, fix favorite names, etc.)
 
 ### 1.3 Execution Context
 - **Workspaces:** `npm run <script> -w <workspace>`. Root scripts (`build:api`, `build:web`, `dist:desktop:win`) chain the right order.
-- **Deployment surface:**
-  - `api` → Render (single web service, port 3000)
-  - `webhooks` → Render (separate service so a webhook storm can't starve the user-facing API)
-  - `socket` → Render (separate, port 3001)
-  - `web` → static host with `VITE_API_URL` baked at build time
+- **Deployment surface (self-hosted, pm2 via `ecosystem.config.cjs` at repo root):**
+  - `api` → pm2 `ace-api`, port 3000
+  - `webhooks` → pm2 `ace-webhooks`, port 3002 (separate process so a webhook storm can't starve the user-facing API)
+  - `socket` → pm2 `ace-socket`, port 3001
+  - `web` → pm2 `ace-web` (static SPA on port 3010 via `serve`), built with `VITE_FORCE_ABSOLUTE_BASE=1` + `VITE_API_URL` baked at build time
   - `desktop` → `electron-builder` produces NSIS (Win) + DMG (Mac), auto-updated from GitHub Releases
-- **Database:** single Supabase Postgres pooled via Supavisor (`aws-1-us-east-1.pooler.supabase.com`). Both `api` and `webhooks` share the same `@ace/db` client.
+  - **Host:** `dialer.aptask.com` (app host 172.16.46.50) behind an nginx reverse proxy (192.168.1.95): `/api/*` → :3000, `/webhooks/*` → :3002, everything else → the SPA. Env comes from the repo-root `.env` via Node `--env-file`. Deploy with `./deploy.sh` (pull → install → prisma generate → build → `pm2 startOrReload`).
+- **Database:** single **self-hosted PostgreSQL** on the app host (`DATABASE_URL=postgresql://…@127.0.0.1:5432/acedialer`; `DIRECT_DATABASE_URL` same). Both `api` and `webhooks` share the same `@ace/db` client. (Formerly Supabase Postgres — migrated off.)
 
 ### 1.4 Architectural Guardrails
 - **Webhooks service is isolated from `api` on purpose.** Don't merge them — a webhook 500 storm must not 401 the active user's call.
@@ -146,14 +147,14 @@ scripts/      One-off ops helpers (dedupe call legs, fix favorite names, etc.)
 
 ---
 
-## 3. Data Layer (Prisma + Supabase Postgres)
+## 3. Data Layer (Prisma + self-hosted PostgreSQL)
 
 ### 3.1 Capabilities & Scope
 - Single source of truth for all persistent state: users, calls, SMS, voicemails, blocked numbers, favorites, internal chat, audit logs.
 - Shared Prisma client (`@ace/db`) consumed by `api` and `webhooks`. The web client never touches Prisma directly — it goes through the API.
 
 ### 3.2 Current State & Truth
-**Status:** Shipped. Schema migrations applied via `prisma db push` against the Supabase Postgres. Models:
+**Status:** Shipped. Runs on a **self-hosted PostgreSQL** instance on the app host. Schema applied via `prisma db push`. Models:
 
 | Model | Owner | Notes |
 |---|---|---|
@@ -168,7 +169,7 @@ scripts/      One-off ops helpers (dedupe call legs, fix favorite names, etc.)
 
 ### 3.3 Execution Context
 - **Schema:** `packages/db/prisma/schema.prisma`. Generate client with `npm run db:generate`, push schema with `npm run db:push` (calls `prisma db push --accept-data-loss`).
-- **Connection:** `DATABASE_URL` is the pooled connection (Supavisor, port 6543 with `pgbouncer=true`); `DIRECT_DATABASE_URL` is the direct connection (port 5432) Prisma uses for migrations.
+- **Connection:** `DATABASE_URL` points at the local PostgreSQL on the app host (`postgresql://…@127.0.0.1:5432/acedialer`); `DIRECT_DATABASE_URL` is the same direct connection Prisma uses for migrations. (No pooler/Supavisor — that was the old Supabase setup.)
 - **Indexes that matter for hot paths:**
   - `Call (userId, startedAt)` — Recents query
   - `Message (userId, threadKey, createdAt)` — Thread view
@@ -179,8 +180,9 @@ scripts/      One-off ops helpers (dedupe call legs, fix favorite names, etc.)
 ### 3.4 Architectural Guardrails
 - **Never use `prisma.X.findUnique` with just a guessable id where multi-tenancy matters.** Always scope by `userId` (e.g., `deleteMany({ where: { id, userId } })`) so a user can't act on another user's row by guessing.
 - **Phone numbers stored E.164.** Matching tolerates carrier formatting by comparing the last 10 digits — but storage is always normalized.
-- **Migrations are reviewed before push.** `prisma db push` against the shared Supabase is destructive when you remove columns; additive changes only, or coordinate downtime.
+- **Migrations are reviewed before push.** `prisma db push` against the shared database is destructive when you remove columns; additive changes only, or coordinate downtime.
 - **No raw SQL** without an explicit comment about why Prisma can't express it.
+- **Object storage (transitional).** User-uploaded media (MMS attachments, voicemail greetings, hold music) currently lives in Supabase Storage (`ace-media` bucket) — this is the ONE Supabase dependency still active and is being migrated off (early July 2026); confirm the current backend before assuming a media URL is Supabase. Note: call/voicemail **recording** audio (`Call.recordingUrl`, `Voicemail.recordingUrl`) are **Telnyx-hosted** URLs, not Supabase.
 
 ---
 
@@ -541,7 +543,7 @@ scripts/      One-off ops helpers (dedupe call legs, fix favorite names, etc.)
 
 ### 14.3 Execution Context
 - The leg's `call_control_id` is populated by the `call.initiated`/`call.answered` webhook — `SipContext` polls `/calls/by-telnyx/:id` every 1s for up to 15s post-connect to resolve it.
-- `transferCallApi(token, callControlId, destination)` returns `{ ok, error?, hint? }`. On `no_call_control_id`, the UI hint reads: "Telnyx hasn't registered this call leg yet. Check Render webhook logs."
+- `transferCallApi(token, callControlId, destination)` returns `{ ok, error?, hint? }`. On `no_call_control_id`, the UI hint reads: "Telnyx hasn't registered this call leg yet. Check the webhooks service logs."
 
 ### 14.4 Architectural Guardrails
 - **Never enable Transfer in the UI until `activeCallControlId` is non-null.** Otherwise the user taps and waits — bad UX.
@@ -589,7 +591,7 @@ scripts/      One-off ops helpers (dedupe call legs, fix favorite names, etc.)
 
 | Concern | Implementation |
 |---|---|
-| Service | `apps/webhooks/src/main.ts` (separate Render service from `api`) |
+| Service | `apps/webhooks/src/main.ts` (separate pm2 service from `api`) |
 | DB client | Same shared `@ace/db` (Prisma) |
 | Telnyx API key | `TELNYX_API_KEY` (separate env from the `api` service) |
 | Routing helper | `resolveUserId({ sipUsername, fromNumber, toNumber })` |
@@ -978,7 +980,7 @@ scripts/      One-off ops helpers (dedupe call legs, fix favorite names, etc.)
 | Planned events | "31 chatSocket events from Pulse" per the source comment — not yet imported |
 
 ### 29.3 Execution Context
-- Separate Render service so socket load can scale independently of `api`.
+- Separate pm2 service so socket load can scale independently of `api`.
 
 ### 29.4 Architectural Guardrails
 - **Don't wire UI to socket events until the auth handshake is implemented.** Currently anyone can connect — `socket.handshake.auth.token` validation is not in place.

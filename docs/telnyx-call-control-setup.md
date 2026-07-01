@@ -17,7 +17,7 @@ Control. For that to work, every leg the user originates needs to fire
 Telnyx Portal → **Voice → Programmable Voice → Call Control Apps → +**
 
 - **Name**: `ACE Dialer` (anything)
-- **Webhook URL**: `https://ace-dialer-webhooks.onrender.com/webhooks/telnyx/calls`
+- **Webhook URL**: `https://dialer.aptask.com/webhooks/telnyx/calls`
 - **HTTP method**: POST
 - **Failover URL**: blank is fine
 - **Webhook API version**: **API v2** (default)
@@ -44,9 +44,9 @@ Telnyx Portal → **Voice → SIP Trunking → My SIP Connections →
 Save. From now on, every call this connection originates or receives — SDK
 or otherwise — will fire `call.initiated` and `call.answered` webhooks.
 
-### 3. Render env vars (apps/api + apps/webhooks)
+### 3. Env vars (apps/api + apps/webhooks)
 
-Set these on both services and redeploy:
+Set these in the repo-root `.env` on the host, then `pm2 restart ace-api ace-webhooks`:
 
 | Var | Where to find it | Used by |
 |---|---|---|
@@ -57,7 +57,7 @@ Set these on both services and redeploy:
 
 After the next call:
 
-1. Render `ace-dialer-webhooks` logs should show
+1. `pm2 logs ace-webhooks` should show
    `[telnyx] call event { eventType: 'call.initiated', ... }` followed by
    `call.answered`.
 2. In the browser DevTools console: `[sip] resolved callControlId <...>` —
@@ -109,7 +109,7 @@ Browser  ───WebRTC───►  Telnyx SIP Conn  ◄── Call Control AP
 toggle.
 
 **`/calls/add-leg` returns `TELNYX_CC_CONNECTION_ID not set`**
-→ Set the env var on `ace-dialer-api` (Render → ace-dialer-api → Environment).
+→ Set the env var in the repo-root `.env` on the host, then `pm2 restart ace-api`.
 
 **Transfer succeeds but the user stays on the call**
 → This is expected for `blind transfer` — Telnyx drops the WebRTC leg and

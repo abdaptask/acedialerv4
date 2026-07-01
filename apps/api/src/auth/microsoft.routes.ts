@@ -23,7 +23,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { ConfidentialClientApplication, PublicClientApplication } from '@azure/msal-node';
 import { prisma } from '@ace/db';
-import { config } from '../config.js';
+import { config, isProtectedAdmin } from '../config.js';
 
 const ExchangeSchema = z.object({
   code: z.string().min(1),
@@ -146,6 +146,21 @@ export async function microsoftAuthRoutes(app: FastifyInstance) {
       return reply.code(403).send({
         error: 'not_invited',
         message: 'Your account has not been provisioned. Ask your admin to invite you.',
+      });
+    }
+
+    // Protected super-admins can never lose admin or be locked out. Force-heal
+    // their flags BEFORE the isActive gate below, so a stray demotion/deactivation
+    // (or direct-DB drift) is self-corrected on their next sign-in rather than
+    // locking them out. Can only grant — never removes anyone's access.
+    if (isProtectedAdmin(user.email) && (!user.isAdmin || !user.isActive)) {
+      app.log.warn(
+        { email: user.email, wasAdmin: user.isAdmin, wasActive: user.isActive },
+        '[ms-sso] restoring protected super-admin flags',
+      );
+      user = await prisma.user.update({
+        where: { id: user.id },
+        data: { isAdmin: true, isActive: true },
       });
     }
 

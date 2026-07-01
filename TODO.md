@@ -22,7 +22,7 @@ See git log + ACE_DIALER_PROJECT.md changelog for what's already shipped.
   *Right-click ACE Dialer in system tray → Quit → relaunch from desktop
   shortcut → new version installs during launch.*
 
-- [ ] **Verify Render env vars on the API service**:
+- [ ] **Verify env vars in the repo-root `.env` on the host** (loaded via `--env-file`):
   - `SENDGRID_API_KEY`, `SENDGRID_FROM_EMAIL` (verified sender)
   - `TELNYX_MESSAGING_PROFILE_ID` (otherwise SMS won't route to ACE for invited users)
 
@@ -48,8 +48,9 @@ See git log + ACE_DIALER_PROJECT.md changelog for what's already shipped.
       with the same SIP credentials and both ring. Have a remediation
       script ready: tell them to uninstall the old dialer, then quit + relaunch ACE.
 
-- [ ] **Update DATABASE_URL on Render webhooks service** — probably stale,
-      double-check it points to the same Supabase pooler URL the API uses.
+- [x] ~~**Update DATABASE_URL on webhooks**~~ — moot: single repo-root `.env` on
+      the host now feeds all pm2 services, so api + webhooks always share one
+      `DATABASE_URL` (self-hosted PostgreSQL).
 
 ---
 
@@ -64,23 +65,24 @@ See git log + ACE_DIALER_PROJECT.md changelog for what's already shipped.
       $0.0043/min, ~$200 free credit). Webhook fires transcription async,
       UI auto-polls for updates.
 - [ ] **Internal user-to-user chat** (socket.io) — frontend done, backend done,
-      needs Redis adapter for multi-instance Render (see Infra).
+      would need a Redis adapter only if the socket service is scaled to multiple
+      instances (single self-hosted process today; see Infra).
 
 ---
 
 ## 🟢 Infrastructure / Scaling (when user count + traffic justify)
 
-- [ ] **Upgrade Render to Pro workspace** — Starter → Standard tier. Removes
-      spin-down on idle.
-- [ ] **Provision Render Key Value (Redis) + Socket.IO Redis adapter** —
-      required before scaling chat to multiple API instances.
+- [x] ~~**Upgrade Render to Pro workspace**~~ — obsolete: migrated off Render to
+      self-hosted pm2 on dialer.aptask.com (no idle spin-down).
+- [ ] **Provision Redis + Socket.IO Redis adapter** — only required before
+      scaling the socket service to multiple instances (single process today).
 - [ ] **Telnyx webhook hardening**:
   - HMAC signature verification on every event
   - BullMQ queue between webhook receipt and DB write
   - Idempotency keys to dedupe re-delivered events
 - [ ] **Replace 15-second polling with real-time push** — Postgres `LISTEN/NOTIFY`
       for unread counts. Reduces DB load + snappier UI.
-- [ ] **Upgrade Vercel to Pro** ($20/mo).
+- [x] ~~**Upgrade Vercel to Pro**~~ — obsolete: web is now self-hosted (pm2 `ace-web`), off Vercel.
 - [ ] **Verify Telnyx WebRTC pricing model** — does WebRTC stack on top of
       SIP trunking per-minute? Important to know before scaling user count.
 

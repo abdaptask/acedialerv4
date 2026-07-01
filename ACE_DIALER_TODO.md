@@ -41,7 +41,7 @@
 - [x] **Admin panel surface** — visible on web AND desktop
 - [x] **Bulk-import policy** — manual promotion only; no email notifications on invite (v1)
 - [x] **Password migration strategy** — staged rollout, manual copy from Telnyx Portal as each user migrates (no mass password reset)
-- [ ] **Postgres provider** — Supabase Postgres in use today; user evaluating cheaper alternatives
+- [x] **Postgres provider** — migrated off Supabase to self-hosted PostgreSQL on the dialer.aptask.com host
 
 ---
 
@@ -49,7 +49,7 @@
 
 | Phase | Scope |
 |---|---|
-| 1 — Entra ID setup | App registered, redirect URIs, secrets on Render |
+| 1 — Entra ID setup | App registered, redirect URIs, secrets in host `.env` |
 | 2 — SSO backend | `@azure/msal-node`, AuditLog table, nullable passwordHash |
 | 3 — Web Login UI | "Sign in with Microsoft" + PKCE for Electron |
 | 4 — Polish + Electron + Installers | Signed Mac .dmg + Windows .exe in CI |
@@ -143,11 +143,11 @@
 
 ## Pre-scale infrastructure (when we cross ~30 concurrent or hit a compliance ask)
 
-- [ ] **#181** Render Hobby → Pro workspace + Standard compute
-- [ ] **#183** Render Key Value (Redis) + Socket.IO Redis adapter
+- [x] ~~**#181** Render Hobby → Pro~~ — obsolete: self-hosted on dialer.aptask.com (pm2)
+- [ ] **#183** Redis + Socket.IO Redis adapter (only if the socket service is scaled to multiple instances)
 - [ ] **#184** Telnyx webhook hardening (HMAC verify + BullMQ + idempotency)
 - [ ] **#185** Replace 15s polling with real-time push
-- [ ] **#186** Vercel Hobby → Pro
+- [x] ~~**#186** Vercel Hobby → Pro~~ — obsolete: web self-hosted (pm2 `ace-web`), off Vercel
 - [ ] **#187** Verify Telnyx WebRTC vs SIP pricing model
 - [ ] **#140** socket.io for instant chat push
 - [ ] **#194** Windows code-signing (EV cert ~$300/yr) — deferred to GA
@@ -157,12 +157,12 @@
 ## Open follow-ups (no specific timeline)
 
 - [ ] **#158** Custom busy greeting (blocked on Telnyx engineering)
-- [ ] **#151** DATABASE_URL on Render webhooks service (after Postgres provider switch)
+- [x] ~~**#151** DATABASE_URL on webhooks~~ — moot: single host `.env` feeds all pm2 services
 - [ ] **#202** Local presence — pick "calling from" DID per call (multi-DID picker)
 - [ ] **#172** Full pilot smoke test with a real 2nd user (after Pulse CSV import)
 - [ ] **#209** Reporting: Export + scheduled digests (CSV/Excel export, weekly admin email, Slack webhook)
-- [ ] **Postgres migration** — evaluate moving off Supabase to dedicated Postgres (analysis done, awaiting decision on target provider)
-- [ ] Migrate voicemail/MMS storage from Supabase Storage to Cloudflare R2
+- [x] ~~**Postgres migration** — move off Supabase to dedicated Postgres~~ — DONE: self-hosted PostgreSQL on the app host
+- [ ] Migrate voicemail/MMS storage off Supabase Storage (in progress, early July 2026) — target TBD (e.g. Cloudflare R2 or host-local)
 - [ ] Settings → Profile picture upload
 - [ ] Per-user call recording opt-in (consent)
 - [ ] Floating ringer window (Electron): add Reply button too — currently only Accept/Decline

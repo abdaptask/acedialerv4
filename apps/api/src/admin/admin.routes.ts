@@ -21,7 +21,7 @@ import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { prisma } from '@ace/db';
 import bcrypt from 'bcryptjs';
-import { config } from '../config.js';
+import { config, isProtectedAdmin } from '../config.js';
 import * as telnyx from '../telnyx/numbers.js';
 // v0.10.64 â€” Per-user Telnyx defaults (anchor site, HD voice, CNAM,
 // voicemail PIN). Applied after every new Credential Connection / DID
@@ -1109,6 +1109,21 @@ export async function adminRoutes(app: FastifyInstance) {
       const target = await prisma.user.findUnique({ where: { id } });
       if (!target) return reply.code(404).send({ error: 'User not found' });
 
+      // Protected super-admins can never be demoted or deactivated (they'd be
+      // force-restored on next login regardless — see config.protectedAdminEmails).
+      if (isProtectedAdmin(target.email)) {
+        if (parsed.data.isAdmin === false) {
+          return reply.code(400).send({
+            error: `${target.email} is a protected super-admin and cannot be demoted.`,
+          });
+        }
+        if (parsed.data.isActive === false) {
+          return reply.code(400).send({
+            error: `${target.email} is a protected super-admin and cannot be deactivated.`,
+          });
+        }
+      }
+
       const data: Record<string, unknown> = {};
       const auditMeta: Record<string, unknown> = {};
 
@@ -1237,6 +1252,13 @@ export async function adminRoutes(app: FastifyInstance) {
         },
       });
       if (!target) return reply.code(404).send({ error: 'User not found' });
+
+      // Protected super-admins can never be deleted (see config.protectedAdminEmails).
+      if (isProtectedAdmin(target.email)) {
+        return reply.code(403).send({
+          error: `${target.email} is a protected super-admin and cannot be deleted.`,
+        });
+      }
 
       // Self-protection.
       if (id === actor.sub) {
@@ -3846,7 +3868,12 @@ export async function adminRoutes(app: FastifyInstance) {
       const pulseJwt = await loginToPulse(normEmail, pulsePassword);
       if (!pulseJwt) {
         step('login to Pulse', false, 'Pulse rejected the credentials (wrong password or no account)');
-        return reply.code(401).send({ ok: false, error: 'Pulse login failed', steps });
+        // 422, NOT 401: this is a failure of the DOWNSTREAM Pulse login, not
+        // the admin's own ACE session. The web client's session guard
+        // (sessionGuard.ts) logs the user out and bounces to /login on ANY
+        // 401 from our API — so returning 401 here ejected the admin
+        // mid-migration. Any non-401 status preserves their session.
+        return reply.code(422).send({ ok: false, error: 'Pulse login failed', steps });
       }
       step('login to Pulse', true);
 
