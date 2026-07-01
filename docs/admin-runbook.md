@@ -29,7 +29,7 @@ with the desktop installer link.
    - Send welcome email via SendGrid
 4. Confirm all steps ✓. If any failed, expand the row to see the error.
 
-The user receives an email with a link to acedialerv4-web.vercel.app. On first
+The user receives an email with a link to dialer.aptask.com. On first
 sign-in they hit MS SSO, get auto-provisioned in the DB (since their email is
 in PendingUser), and land in the dialer.
 
@@ -106,15 +106,17 @@ immediately.
 
 ## Watching logs
 
-For ANY troubleshooting, the three Render service log tabs are your first stop:
+For ANY troubleshooting, the pm2 process logs on the `dialer.aptask.com` host
+are your first stop (`pm2 logs <name>`, or `pm2 logs` for all):
 
-| Service | When to watch |
+| pm2 process | When to watch |
 | --- | --- |
-| ace-dialer-api | Login issues, admin endpoint errors, /me endpoints, voicemail audio proxy 502s |
-| ace-dialer-webhooks | Inbound call / SMS / voicemail event routing, Teams card delivery (`[teams] missed-call sent`, `[teams] sms sent`, `[teams] voicemail sent`) |
-| ace-dialer-socket | Real-time chat issues, presence state |
+| ace-api | Login issues, admin endpoint errors, /me endpoints, voicemail audio proxy 502s |
+| ace-webhooks | Inbound call / SMS / voicemail event routing, Teams card delivery (`[teams] missed-call sent`, `[teams] sms sent`, `[teams] voicemail sent`) |
+| ace-socket | Real-time chat issues, presence state |
 
 Filter logs by user by searching for `userId: <N>` or the user's email.
+(pm2 also writes to `~/.pm2/logs/<name>-out.log` and `-error.log`.)
 
 For desktop crashes:
 - Windows: `%APPDATA%\ACE Dialer\logs\main.log`
@@ -128,7 +130,7 @@ quality meter (RTT + jitter shown in the call header).
 ### Power Automate flow
 - Owner: abdulla@aptask.com
 - Flow name: "ACE Dialer Tenant Webhook"
-- URL: stored in `TEAMS_TENANT_WEBHOOK_URL` env var on Render (api + webhooks services)
+- URL: stored in `TEAMS_TENANT_WEBHOOK_URL` in the repo-root `.env` on the host (used by api + webhooks)
 - View at: https://make.powerautomate.com → My flows → ACE Dialer Tenant Webhook
 - Run history: 28-day rolling window. Click into any run to see the per-step
   inputs/outputs.
@@ -137,7 +139,7 @@ quality meter (RTT + jitter shown in the call header).
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
-| No card arrives | TEAMS_TENANT_WEBHOOK_URL not set on webhooks service | Check Render Environment tab |
+| No card arrives | TEAMS_TENANT_WEBHOOK_URL not set | Check the repo-root `.env` on the host, then `pm2 restart ace-webhooks` |
 | No card arrives, but webhook logs say `[teams] missed-call sent` | Flow failed at the action step | Open Power Automate run history → red step → fix |
 | `GraphUserDetailNotFound` in run history | Recipient email doesn't match a Teams user in your tenant | Verify user has a Teams account; check user.email in DB |
 | `InvalidBotRequestMessageBody` | Adaptive Card payload malformed | Check that card has `type: "AdaptiveCard"`, valid `body`, version `1.4` |
@@ -156,20 +158,20 @@ quality meter (RTT + jitter shown in the call header).
 ### Entra ID app registration
 - Owner: ApTask Microsoft 365 admin
 - App name: ACE Dialer
-- Redirect URI: `https://acedialerv4-web.vercel.app/auth/microsoft/callback`
+- Redirect URI: `https://dialer.aptask.com/auth/microsoft/callback`
 - Supported account types: Single tenant (ApTask only)
 - API permissions: `User.Read` (delegated) — that's it
-- Client secret: stored as `MICROSOFT_CLIENT_SECRET` on the api service
+- Client secret: stored as `MICROSOFT_CLIENT_SECRET` in the repo-root `.env` on the host
 
 ### Common SSO issues
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
-| "SSO not configured on the server" on login screen | MICROSOFT_TENANT_ID or MICROSOFT_CLIENT_ID env vars missing on api service | Check Render Environment |
-| Microsoft redirect goes to wrong URL → 404 | Redirect URI in Entra doesn't match Vercel URL | Update redirect URI in Entra app registration |
+| "SSO not configured on the server" on login screen | MICROSOFT_TENANT_ID or MICROSOFT_CLIENT_ID missing | Check the repo-root `.env` on the host, then `pm2 restart ace-api` |
+| Microsoft redirect goes to wrong URL → 404 | Redirect URI in Entra doesn't match the app URL | Update redirect URI in Entra app registration to `https://dialer.aptask.com/auth/microsoft/callback` |
 | "Your ApTask account hasn't been invited" | User's email is not in PendingUser table | Admin needs to add them via Invite new user OR CSV import |
 | Microsoft hangs at "Stay signed in?" prompt | Conditional Access policy or MFA — normal | User completes the prompts |
-| SSO callback page shows blank | Vercel SPA rewrite eating JS chunks OR vite base path wrong | Already fixed in v0.10.6 — if recurs, check vercel.json + vite.config.ts |
+| SSO callback page shows blank | nginx SPA rewrite eating JS chunks OR vite base path wrong | Web is built with `VITE_FORCE_ABSOLUTE_BASE=1` for absolute `/assets/*` paths — if it recurs, check the nginx SPA fallback + vite.config.ts base |
 
 ## Desktop releases
 
@@ -212,29 +214,27 @@ Things worth eyeballing once a week:
   active. Telnyx portal → Reports → Usage.
 - **Deepgram quota** — Nova-3 transcription is ~$0.0043/min. Voicemail volume is
   low so cost is minimal but worth knowing.
-- **Render free tier** — webhooks service is currently on free tier (hibernates
-  after 15 min idle). Voicemail transcription's retry logic + future ring-group
-  ring-timeouts use setTimeout — these can be killed by hibernation. Consider
-  upgrading to Starter ($7/mo) if you start seeing missed transcriptions or
-  late notifications.
-- **Vercel bandwidth** — free tier is generous; should be fine for the team size.
+- **Host resources** — all services run under pm2 on the single dialer.aptask.com
+  host; no idle hibernation. Watch CPU/RAM with `pm2 monit` and disk with `df -h`.
 - **Power Automate run count** — see above.
-- **Supabase row count** — Calls and Messages tables grow continuously. The
-  free tier caps at 500MB which is plenty for now. Monitor in Supabase dashboard.
+- **PostgreSQL disk** — Calls and Messages tables grow continuously; monitor
+  the local Postgres data directory (`df -h`) and plan retention/pruning as it grows.
+- **Object storage** — uploaded media (MMS/greetings/hold music) is in Supabase
+  `ace-media` today, being migrated off; watch that migration's target for capacity.
 
 ## Disaster recovery
 
-### Render service down
-- Check status.render.com
-- The dialer's web app works (read-only) even when API is down — users see
+### A service (pm2 process) down
+- `pm2 list` on the host — look for a process not `online`
+- The dialer's web app works (read-only) even when the API is down — users see
   cached data but new calls/SMS don't go through
-- API typically restarts on its own within a minute; if not, manually deploy
-  the latest commit from Render dashboard
+- pm2 auto-restarts a crashed process; if it's stuck, `pm2 restart <name>`
+  (or `./deploy.sh --no-pull` to rebuild + reload). Check `pm2 logs <name>` for the crash cause.
 
 ### Database down
-- Check status.supabase.com
-- All three Render services error out (database connection failure)
-- Wait for Supabase to recover; nothing to do
+- Check the local PostgreSQL service on the host (`systemctl status postgresql`)
+- All API/webhooks/socket processes error out (DB connection failure)
+- Restart Postgres if needed; the pm2 services reconnect once it's back
 
 ### Telnyx connection broken (user can't place/receive calls)
 - Verify the user's SIP credential is still active in Telnyx portal
@@ -245,14 +245,14 @@ Things worth eyeballing once a week:
 ### Mass user inability to log in
 - Most likely cause: MS SSO config issue (client secret expired, Entra app
   disabled, redirect URI changed)
-- Check Render API logs for `[auth/microsoft/exchange]` errors
+- Check `pm2 logs ace-api` for `[auth/microsoft/exchange]` errors
 - Fallback: tell users to use the "Sign in with password (admin only)" link
   if they have a local password — but most don't, so this isn't a real
   recovery option for the whole team
 
 ### Lost main admin (abdulla@aptask.com locked out)
 - A secondary admin user with isAdmin=true should exist as backup
-- If no backup: direct SQL in Supabase to flip another user to isAdmin=true:
+- If no backup: direct SQL on the host (`psql "$DATABASE_URL"`) to flip another user to isAdmin=true:
 
 ```sql
 UPDATE users SET is_admin = true WHERE email = 'someone-else@aptask.com';
@@ -264,5 +264,4 @@ UPDATE users SET is_admin = true WHERE email = 'someone-else@aptask.com';
 
 - Telnyx support: (insert ticket portal URL)
 - Microsoft 365 admin: (ApTask IT)
-- Render: support@render.com
-- Supabase: support@supabase.io
+- Host / infra: ApTask IT (self-hosted on dialer.aptask.com)

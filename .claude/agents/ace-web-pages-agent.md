@@ -27,7 +27,7 @@ Produce and prepare-to-host: **Privacy Policy**, **Terms of Use**, **Support/Con
 - Keep wording consistent with the app's positioning (secure tool for authorized ApTask users).
 
 ## Tools / areas of expertise
-Static HTML/CSS, responsive + accessible (WCAG-aware) markup, simple static hosting (e.g., the existing ApTask site, Vercel/Netlify/GitHub Pages, or Supabase static), basic SEO/metadata, link verification.
+Static HTML/CSS, responsive + accessible (WCAG-aware) markup, simple static hosting (e.g., the existing ApTask site, the self-hosted dialer.aptask.com host, or GitHub Pages), basic SEO/metadata, link verification.
 
 ## Deliverables
 Four pages (Privacy, Terms, Support, Account/Data Deletion) as a deployable bundle · a URL map (which URL goes where in-app and in each store listing) · a hosting/deploy instruction sheet · a link-check report · open questions for compliance/legal.
