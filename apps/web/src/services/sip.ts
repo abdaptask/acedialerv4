@@ -264,6 +264,12 @@ export class SipService {
   private qualityTimer: ReturnType<typeof setInterval> | null = null;
   private lastPacketsLost = 0;
   private lastPacketsReceived = 0;
+  // v0.10.212 — RTP flow diagnostics. Track sent packets + a poll counter so
+  // we can log actual media flow (in/out) + the selected ICE path per call.
+  // This is what tells a "no audio" report apart: packetsReceived==0 means we
+  // never got the caller's audio; packetsSent==0 means our mic never left.
+  private lastPacketsSent = 0;
+  private qualityPollCount = 0;
 
   constructor() {
     this.primaryAudioEl = document.createElement('audio');
@@ -2861,6 +2867,8 @@ export class SipService {
     this.stopQualityPolling();
     this.lastPacketsLost = 0;
     this.lastPacketsReceived = 0;
+    this.lastPacketsSent = 0;
+    this.qualityPollCount = 0;
     this.qualityTimer = setInterval(() => {
       void this.pollQualityOnce();
     }, 2000);
@@ -2891,23 +2899,59 @@ export class SipService {
     let packetsLost = 0;
     let packetsReceived = 0;
     let rtt: number | null = null;
+    // v0.10.212 — RTP flow diagnostics (see fields above).
+    let packetsSent = 0;
+    let bytesReceived = 0;
+    let bytesSent = 0;
+    let selectedLocalId = '';
+    let selectedRemoteId = '';
+    const candTypeById = new Map<string, string>();
     report.forEach((s) => {
       if (s.type === 'inbound-rtp' && (s.kind === 'audio' || (s as { mediaType?: string }).mediaType === 'audio')) {
-        const r = s as { jitter?: number; packetsLost?: number; packetsReceived?: number };
+        const r = s as { jitter?: number; packetsLost?: number; packetsReceived?: number; bytesReceived?: number };
         if (typeof r.jitter === 'number') jitter = Math.max(jitter, r.jitter);
         if (typeof r.packetsLost === 'number') packetsLost = Math.max(packetsLost, r.packetsLost);
         if (typeof r.packetsReceived === 'number') packetsReceived = Math.max(packetsReceived, r.packetsReceived);
+        if (typeof r.bytesReceived === 'number') bytesReceived = Math.max(bytesReceived, r.bytesReceived);
+      }
+      if (s.type === 'outbound-rtp' && (s.kind === 'audio' || (s as { mediaType?: string }).mediaType === 'audio')) {
+        const r = s as { packetsSent?: number; bytesSent?: number };
+        if (typeof r.packetsSent === 'number') packetsSent = Math.max(packetsSent, r.packetsSent);
+        if (typeof r.bytesSent === 'number') bytesSent = Math.max(bytesSent, r.bytesSent);
       }
       if (s.type === 'candidate-pair' && (s as { state?: string }).state === 'succeeded') {
-        const r = s as { currentRoundTripTime?: number };
+        const r = s as { currentRoundTripTime?: number; localCandidateId?: string; remoteCandidateId?: string };
         if (typeof r.currentRoundTripTime === 'number') rtt = r.currentRoundTripTime;
+        if (r.localCandidateId) selectedLocalId = r.localCandidateId;
+        if (r.remoteCandidateId) selectedRemoteId = r.remoteCandidateId;
+      }
+      if (s.type === 'local-candidate' || s.type === 'remote-candidate') {
+        const r = s as { id?: string; candidateType?: string };
+        if (r.id && r.candidateType) candTypeById.set(r.id, r.candidateType);
       }
     });
     const dLost = Math.max(0, packetsLost - this.lastPacketsLost);
     const dRecv = Math.max(0, packetsReceived - this.lastPacketsReceived);
+    const dSent = Math.max(0, packetsSent - this.lastPacketsSent);
     const loss = dRecv + dLost > 0 ? dLost / (dRecv + dLost) : 0;
+    // v0.10.212 — Log actual media flow. Concise per-poll line for the first
+    // few polls (where no-audio manifests) then every ~10s, so a diagnostic
+    // export shows whether RTP flowed and over which ICE path. INFO the case
+    // where we're connected but receiving nothing — that's the smoking gun.
+    this.qualityPollCount += 1;
+    const pathLocal = candTypeById.get(selectedLocalId) ?? '?';
+    const pathRemote = candTypeById.get(selectedRemoteId) ?? '?';
+    const noInbound = packetsReceived === 0;
+    if (this.qualityPollCount <= 5 || this.qualityPollCount % 5 === 0 || (noInbound && this.qualityPollCount > 2)) {
+      console.log(
+        `[sip] rtp callId=${active.id} dir=${active.direction} in=${packetsReceived}pkt(+${dRecv}) ${bytesReceived}B ` +
+        `out=${packetsSent}pkt(+${dSent}) ${bytesSent}B lost=${packetsLost} path=${pathLocal}->${pathRemote}` +
+        (noInbound && this.qualityPollCount > 2 ? '  <-- NO INBOUND AUDIO (0 pkts received while connected)' : ''),
+      );
+    }
     this.lastPacketsLost = packetsLost;
     this.lastPacketsReceived = packetsReceived;
+    this.lastPacketsSent = packetsSent;
     const jms = jitter * 1000;
     const lossPct = loss * 100;
     const rttMs = rtt !== null ? rtt * 1000 : 0;
