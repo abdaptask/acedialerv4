@@ -37,7 +37,7 @@ export const config = {
   //   • patchConnectionWebhook (the "repoint webhook" toggle in the invite
   //     modal flips Pulse user connections from pulse-old.aptask.com → here)
   // Default matches the URL on the existing `ace-dialer` Credential
-  // Connection in Telnyx. Override in Render env vars for staging.
+  // Connection in Telnyx. Override in the repo-root `.env` on the host.
   telnyxWebhookUrl: optional(
     'TELNYX_WEBHOOK_URL',
     'https://dialer.aptask.com/webhooks/telnyx/calls',
@@ -100,7 +100,7 @@ export const config = {
   // can't reach a behind-NAT user. To enable:
   //   1. Sign in at dash.cloudflare.com → Calls → TURN
   //   2. Create a TURN application; copy the Key ID + API Token
-  //   3. Set both env vars on Render's api service
+  //   3. Set both env vars in the repo-root `.env` on the host, then `pm2 restart ace-api`
   // When unset, GET /turn-credentials returns an empty list and the client
   // falls back to Telnyx-TURN-only (which handles ~95% of NAT cases anyway).
   cloudflareTurnKeyId: optional('CLOUDFLARE_TURN_KEY_ID'),
