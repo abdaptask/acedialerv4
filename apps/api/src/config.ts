@@ -35,7 +35,7 @@ export const config = {
   // ACE's call-event webhook endpoint. Used by:
   //   • createCredentialConnection (new connections route events here)
   //   • patchConnectionWebhook (the "repoint webhook" toggle in the invite
-  //     modal flips Pulse user connections from pulse.aptask.com → here)
+  //     modal flips Pulse user connections from pulse-old.aptask.com → here)
   // Default matches the URL on the existing `ace-dialer` Credential
   // Connection in Telnyx. Override in Render env vars for staging.
   telnyxWebhookUrl: optional(

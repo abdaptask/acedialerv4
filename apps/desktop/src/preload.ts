@@ -129,6 +129,11 @@ contextBridge.exposeInMainWorld('ace', {
     ipcRenderer.on('ace:update-error', handler);
     return () => ipcRenderer.removeListener('ace:update-error', handler);
   },
+  onUpdateNotAvailable: (cb: (info: { version: string | null }) => void) => {
+    const handler = (_e: unknown, info: { version: string | null }) => cb(info);
+    ipcRenderer.on('ace:update-not-available', handler);
+    return () => ipcRenderer.removeListener('ace:update-not-available', handler);
+  },
   getUpdateState: (): Promise<{
     phase: 'idle' | 'checking' | 'available' | 'downloading' | 'downloaded' | 'error';
     version?: string | null;

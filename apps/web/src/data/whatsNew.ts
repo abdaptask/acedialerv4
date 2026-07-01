@@ -24,6 +24,23 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.210',
+    date: 'June 30, 2026',
+    highlight: 'Fixed: audio from two calls could cross-connect when an inbound call arrived while you were dialing out.',
+    changes: [
+      { type: 'fixed', text: 'If a call came in at the same moment you were placing an outgoing call, answering it could leave both calls live at once — your microphone went to both parties and you heard a mix of both. The dialer now automatically puts the other call on hold the instant you answer, so only one call is ever connected to your mic and speaker.' },
+    ],
+  },
+  {
+    version: '0.10.209',
+    date: 'June 30, 2026',
+    highlight: 'Fixed: a forced update could get stuck on “Preparing the update…” and lock you out of the dialer.',
+    changes: [
+      { type: 'fixed', text: 'When an admin pushed a “Force update” to a dialer that was already on the latest version, the update screen could hang forever on “Preparing the update…”, blocking all use of the app. The dialer now recognises when there is nothing newer to install and dismisses the screen instead of getting stuck.' },
+      { type: 'improved', text: 'Admins are now prevented from force-updating a device that is already on the latest version (which is what caused the stuck screen), unless they explicitly override it.' },
+    ],
+  },
+  {
     version: '0.10.208',
     date: 'June 25, 2026',
     highlight: 'Diagnostic logging for Teams notification deep-links.',

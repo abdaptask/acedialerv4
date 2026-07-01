@@ -51,6 +51,48 @@ interface JwtPayload {
   isAdmin: boolean;
 }
 
+// v0.10.209 — force-update dead-end guard.
+//
+// "Force update" only stamps forceUpdateRequestedAt; it never checks
+// whether a newer build actually exists. If the target device is already
+// on (or above) the latest available version, the client's checkForUpdates()
+// finds nothing to download and the blocking modal can strand the user.
+// These helpers let the endpoints refuse the no-op (overridable with
+// `force: true`) and report which devices were skipped.
+function parseSemver(v: string | null | undefined): [number, number, number] | null {
+  if (!v) return null;
+  const m = /^(\d+)\.(\d+)\.(\d+)/.exec(v.trim());
+  if (!m) return null;
+  return [Number(m[1]), Number(m[2]), Number(m[3])];
+}
+
+function compareSemver(a: string | null | undefined, b: string | null | undefined): number {
+  const pa = parseSemver(a);
+  const pb = parseSemver(b);
+  if (!pa || !pb) return 0; // unparseable → treat as equal, never block
+  for (let i = 0; i < 3; i++) {
+    if (pa[i] !== pb[i]) return pa[i] < pb[i] ? -1 : 1;
+  }
+  return 0;
+}
+
+// The newest version we believe exists. LATEST_RELEASE_VERSION (set to the
+// just-published desktop release) is authoritative when present; otherwise
+// we fall back to the highest version observed across the fleet — a device
+// already at that ceiling has nothing newer to pull.
+async function resolveLatestKnownVersion(): Promise<string | null> {
+  const envV = parseSemver(process.env.LATEST_RELEASE_VERSION) ? process.env.LATEST_RELEASE_VERSION!.trim() : null;
+  if (envV) return envV;
+  const rows = await prisma.userDevice.findMany({ select: { appVersion: true } });
+  let max: string | null = null;
+  for (const r of rows) {
+    if (parseSemver(r.appVersion) && (max === null || compareSemver(r.appVersion, max) > 0)) {
+      max = r.appVersion;
+    }
+  }
+  return max;
+}
+
 async function requireAdmin(request: FastifyRequest, reply: FastifyReply) {
   const u = request.user as JwtPayload | undefined;
   if (!u?.isAdmin) {
@@ -3826,7 +3868,12 @@ export async function adminRoutes(app: FastifyInstance) {
       const pulseJwt = await loginToPulse(normEmail, pulsePassword);
       if (!pulseJwt) {
         step('login to Pulse', false, 'Pulse rejected the credentials (wrong password or no account)');
-        return reply.code(401).send({ ok: false, error: 'Pulse login failed', steps });
+        // 422, NOT 401: this is a failure of the DOWNSTREAM Pulse login, not
+        // the admin's own ACE session. The web client's session guard
+        // (sessionGuard.ts) logs the user out and bounces to /login on ANY
+        // 401 from our API — so returning 401 here ejected the admin
+        // mid-migration. Any non-401 status preserves their session.
+        return reply.code(422).send({ ok: false, error: 'Pulse login failed', steps });
       }
       step('login to Pulse', true);
 
@@ -7266,7 +7313,7 @@ export async function adminRoutes(app: FastifyInstance) {
     },
   );
 
-  app.post<{ Params: { id: string; deviceId: string } }>(
+  app.post<{ Params: { id: string; deviceId: string }; Body: { force?: boolean } }>(
     '/admin/users/:id/devices/:deviceId/force-update',
     { onRequest: [app.authenticate, requireAdmin] },
     async (request, reply) => {
@@ -7279,14 +7326,35 @@ export async function adminRoutes(app: FastifyInstance) {
       if (!deviceId || deviceId.length < 4) {
         return reply.code(400).send({ error: 'Invalid deviceId' });
       }
-      const result = await prisma.userDevice.updateMany({
+      const device = await prisma.userDevice.findFirst({
+        where: { userId, deviceId },
+        select: { appVersion: true },
+      });
+      if (!device) {
+        return reply.code(404).send({ error: 'Device not found for this user' });
+      }
+      // Refuse the no-op unless explicitly overridden: a device already at
+      // the latest known version has nothing to download and would strand
+      // on the blocking update modal (older clients) — see ForceUpdateModal.
+      if (!request.body?.force) {
+        const latest = await resolveLatestKnownVersion();
+        if (latest && compareSemver(device.appVersion, latest) >= 0) {
+          return reply.code(409).send({
+            error: 'already_current',
+            hint: `Device is already on ${device.appVersion}; no newer build is available (latest known: ${latest}). Publish a newer release first, or pass force:true to stamp anyway.`,
+            deviceVersion: device.appVersion,
+            latestVersion: latest,
+          });
+        }
+      }
+      await prisma.userDevice.updateMany({
         where: { userId, deviceId },
         data: { forceUpdateRequestedAt: new Date() },
       });
-      if (result.count === 0) {
-        return reply.code(404).send({ error: 'Device not found for this user' });
-      }
-      await recordAudit(actor.sub, 'user.device_force_update', userId, { deviceId });
+      await recordAudit(actor.sub, 'user.device_force_update', userId, {
+        deviceId,
+        forced: !!request.body?.force,
+      });
       return { ok: true };
     },
   );
@@ -7348,27 +7416,49 @@ export async function adminRoutes(app: FastifyInstance) {
     },
   );
 
-  app.post(
+  app.post<{ Body: { force?: boolean } }>(
     '/admin/force-update/all',
     { onRequest: [app.authenticate, requireAdmin] },
     async (request) => {
       const actor = request.user as JwtPayload;
-      const result = await prisma.userDevice.updateMany({
-        data: { forceUpdateRequestedAt: new Date() },
-      });
+      const force = !!request.body?.force;
+      // Without force, skip devices already on the latest known build so we
+      // don't strand them on the blocking update modal — see ForceUpdateModal.
+      const latest = force ? null : await resolveLatestKnownVersion();
+      let devicesUpdated: number;
+      let devicesSkipped = 0;
+      if (latest) {
+        const all = await prisma.userDevice.findMany({ select: { id: true, appVersion: true } });
+        const staleIds = all.filter((d) => compareSemver(d.appVersion, latest) < 0).map((d) => d.id);
+        devicesSkipped = all.length - staleIds.length;
+        const result = await prisma.userDevice.updateMany({
+          where: { id: { in: staleIds } },
+          data: { forceUpdateRequestedAt: new Date() },
+        });
+        devicesUpdated = result.count;
+      } else {
+        const result = await prisma.userDevice.updateMany({
+          data: { forceUpdateRequestedAt: new Date() },
+        });
+        devicesUpdated = result.count;
+      }
       await recordAudit(actor.sub, 'admin.force_update_all', null, {
-        devicesUpdated: result.count,
+        devicesUpdated,
+        devicesSkipped,
+        forced: force,
+        latestVersion: latest,
       });
-      return { ok: true, devicesUpdated: result.count };
+      return { ok: true, devicesUpdated, devicesSkipped, latestVersion: latest };
     },
   );
 
-  app.post<{ Body: { userIds?: unknown } }>(
+  app.post<{ Body: { userIds?: unknown; force?: boolean } }>(
     '/admin/force-update/users',
     { onRequest: [app.authenticate, requireAdmin] },
     async (request, reply) => {
       const actor = request.user as JwtPayload;
       const raw = request.body?.userIds;
+      const force = !!request.body?.force;
       if (!Array.isArray(raw)) {
         return reply.code(400).send({ error: 'userIds must be an array of user ids' });
       }
@@ -7378,15 +7468,36 @@ export async function adminRoutes(app: FastifyInstance) {
       if (userIds.length === 0) {
         return reply.code(400).send({ error: 'userIds is empty' });
       }
-      const result = await prisma.userDevice.updateMany({
-        where: { userId: { in: userIds } },
-        data: { forceUpdateRequestedAt: new Date() },
-      });
+      const latest = force ? null : await resolveLatestKnownVersion();
+      let devicesUpdated: number;
+      let devicesSkipped = 0;
+      if (latest) {
+        const devices = await prisma.userDevice.findMany({
+          where: { userId: { in: userIds } },
+          select: { id: true, appVersion: true },
+        });
+        const staleIds = devices.filter((d) => compareSemver(d.appVersion, latest) < 0).map((d) => d.id);
+        devicesSkipped = devices.length - staleIds.length;
+        const result = await prisma.userDevice.updateMany({
+          where: { id: { in: staleIds } },
+          data: { forceUpdateRequestedAt: new Date() },
+        });
+        devicesUpdated = result.count;
+      } else {
+        const result = await prisma.userDevice.updateMany({
+          where: { userId: { in: userIds } },
+          data: { forceUpdateRequestedAt: new Date() },
+        });
+        devicesUpdated = result.count;
+      }
       await recordAudit(actor.sub, 'admin.force_update_users', null, {
         userIds,
-        devicesUpdated: result.count,
+        devicesUpdated,
+        devicesSkipped,
+        forced: force,
+        latestVersion: latest,
       });
-      return { ok: true, devicesUpdated: result.count };
+      return { ok: true, devicesUpdated, devicesSkipped, latestVersion: latest };
     },
   );
 

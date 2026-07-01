@@ -1040,6 +1040,13 @@ function initAutoUpdater() {
     if (offered && compareSemverParts(offered, current) <= 0) {
       console.log('[auto-update] ignoring update-available for non-newer version', offered, '<=', current);
       lastUpdateState = { phase: 'idle' };
+      // v0.10.209 — tell the renderer there is nothing newer to install.
+      // Without this, a force-update modal that called checkForUpdates()
+      // hangs forever on "Preparing the update…" because no progress/
+      // downloaded/error event ever follows. See ForceUpdateModal.
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('ace:update-not-available', { version: current });
+      }
       return;
     }
     console.log('[auto-update] update available', offered);
@@ -1051,6 +1058,12 @@ function initAutoUpdater() {
   autoUpdater.on('update-not-available', () => {
     console.log('[auto-update] up to date');
     lastUpdateState = { phase: 'idle' };
+    // v0.10.209 — surface "already current" to the renderer so a pending
+    // force-update modal can ack + dismiss instead of hanging on
+    // "Preparing the update…". See ForceUpdateModal.
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('ace:update-not-available', { version: app.getVersion() });
+    }
   });
   autoUpdater.on('download-progress', (progress) => {
     const pct = Math.round(progress?.percent ?? 0);

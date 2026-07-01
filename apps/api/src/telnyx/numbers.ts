@@ -847,7 +847,7 @@ export function setConnectionCallerIdOverride(
 /**
  * PATCH a Credential Connection's webhook URL. Used by the invite endpoint
  * for the "repoint webhook to ACE" toggle — flips a Pulse user's connection
- * from pulse.aptask.com → ace-dialer-webhooks.onrender.com so call events
+ * from pulse-old.aptask.com → ace-dialer-webhooks.onrender.com so call events
  * start flowing into ACE's database instead of Pulse.
  *
  * This is the "instant cutover" lever: once we PATCH this, Pulse stops
