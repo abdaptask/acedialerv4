@@ -24,6 +24,14 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.212',
+    date: 'July 1, 2026',
+    highlight: 'Better call diagnostics for tracking down audio issues.',
+    changes: [
+      { type: 'improved', text: 'Calls now record detailed audio-flow diagnostics (how much audio is sent and received, and the network path used). If you ever report a call with no sound, the diagnostic log now pinpoints exactly where the audio stopped — no change to how your calls work.' },
+    ],
+  },
+  {
     version: '0.10.211',
     date: 'July 1, 2026',
     highlight: 'Call-audio fixes: no more cross-connected calls, and forced updates no longer get stuck.',

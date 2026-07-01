@@ -1,0 +1,333 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ACE Dialer — User Guide</title>
+<meta name="description" content="How to use ACE Dialer: calling, texting, voicemail, and settings — the ApTask softphone.">
+<style>
+  :root{
+    --ground:#f5f5f7; --sheet:#ffffff; --ink:#1d1d1f; --dim:#6e6e73;
+    --hair:#d2d2d7; --hair-soft:#e8e8ed; --accent:#0071e3;
+    --green:#248a3d; --red:#d70015; --tip:#eef4fd;
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{background:var(--ground);color:var(--ink);font-family:var(--sans);
+    line-height:1.65;-webkit-font-smoothing:antialiased;margin:0;
+    font-size:17px;padding:32px 20px 80px}
+  .sheet{max-width:800px;margin:0 auto;background:var(--sheet);
+    border:1px solid var(--hair-soft);border-radius:16px;
+    padding:clamp(28px,5vw,64px);box-shadow:0 1px 3px rgba(0,0,0,.04),0 12px 40px -18px rgba(0,0,0,.12)}
+
+  /* ---- header ---- */
+  header{border-bottom:1px solid var(--hair);padding-bottom:28px;margin-bottom:8px}
+  .eyebrow{font-size:.72rem;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--accent);font-weight:600;margin:0 0 14px}
+  h1{font-size:clamp(2rem,5vw,2.6rem);line-height:1.08;letter-spacing:-.022em;
+    font-weight:700;margin:0;text-wrap:balance}
+  .lede{font-size:1.12rem;color:var(--dim);margin:14px 0 0;max-width:60ch}
+  .stamp{margin-top:20px;font-family:var(--mono);font-size:.8rem;color:var(--dim);
+    display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .stamp b{color:var(--ink);font-weight:600}
+  .dot{width:5px;height:5px;border-radius:50%;background:var(--hair)}
+
+  /* ---- contents ---- */
+  nav.toc{margin:34px 0 8px}
+  nav.toc h2{font-size:.72rem;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--dim);font-weight:600;margin:0 0 14px}
+  .toc-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:2px 28px}
+  @media(max-width:560px){.toc-grid{grid-template-columns:1fr}}
+  .toc-grid a{display:flex;justify-content:space-between;gap:12px;
+    text-decoration:none;color:var(--ink);padding:9px 0;
+    border-bottom:1px solid var(--hair-soft);font-size:.98rem;transition:color .15s}
+  .toc-grid a:hover{color:var(--accent)}
+  .toc-grid a span{color:var(--dim);font-family:var(--mono);font-size:.82rem}
+
+  /* ---- sections ---- */
+  section{padding:38px 0;border-bottom:1px solid var(--hair-soft)}
+  section:last-of-type{border-bottom:0}
+  section>.eyebrow{margin-bottom:8px}
+  h2.sec{font-size:1.5rem;letter-spacing:-.015em;font-weight:650;margin:0 0 4px;
+    scroll-margin-top:20px;text-wrap:balance}
+  h3{font-size:1.06rem;font-weight:650;margin:26px 0 6px;letter-spacing:-.01em}
+  p{margin:12px 0}
+  a{color:var(--accent);text-underline-offset:2px}
+  strong{font-weight:600}
+
+  ol,ul{margin:12px 0;padding-left:1.3em}
+  li{margin:7px 0}
+  ol{counter-reset:step;list-style:none;padding-left:0}
+  ol>li{counter-increment:step;position:relative;padding-left:38px;min-height:26px}
+  ol>li::before{content:counter(step);position:absolute;left:0;top:1px;
+    width:24px;height:24px;border-radius:50%;background:var(--ground);
+    border:1px solid var(--hair);color:var(--ink);font-size:.78rem;font-weight:600;
+    display:flex;align-items:center;justify-content:center;font-family:var(--mono)}
+  ul{list-style:none;padding-left:0}
+  ul>li{position:relative;padding-left:22px}
+  ul>li::before{content:"";position:absolute;left:4px;top:11px;width:5px;height:5px;
+    border-radius:50%;background:var(--accent);opacity:.55}
+
+  kbd{font-family:var(--mono);font-size:.82em;background:var(--ground);
+    border:1px solid var(--hair);border-bottom-width:2px;border-radius:6px;
+    padding:1px 6px;color:var(--ink);white-space:nowrap}
+  code{font-family:var(--mono);font-size:.86em;background:var(--ground);
+    padding:2px 6px;border-radius:6px;border:1px solid var(--hair-soft)}
+
+  /* ---- tables ---- */
+  .tw{overflow-x:auto;margin:18px 0;border:1px solid var(--hair-soft);border-radius:12px}
+  table{width:100%;border-collapse:collapse;font-size:.96rem;min-width:420px}
+  th,td{text-align:left;padding:12px 16px;vertical-align:top;border-bottom:1px solid var(--hair-soft)}
+  tr:last-child td{border-bottom:0}
+  th{font-size:.72rem;letter-spacing:.08em;text-transform:uppercase;color:var(--dim);
+    font-weight:600;background:#fafafc}
+  td:first-child{font-weight:600;white-space:nowrap}
+  .pill{display:inline-block;font-size:.82rem;font-weight:600;padding:2px 9px;border-radius:99px;line-height:1.5}
+  .pill.g{color:var(--green);background:#e7f5eb}
+  .pill.r{color:var(--red);background:#fceceb}
+  .pill.b{color:var(--accent);background:var(--tip)}
+
+  /* ---- tip callout ---- */
+  .tip{background:var(--tip);border:1px solid #d8e6fb;border-radius:12px;
+    padding:16px 18px;margin:20px 0;font-size:.96rem}
+  .tip .lbl{font-size:.7rem;letter-spacing:.12em;text-transform:uppercase;
+    color:var(--accent);font-weight:700;display:block;margin-bottom:5px}
+  .tip p{margin:0}
+
+  footer{margin-top:38px;padding-top:24px;border-top:1px solid var(--hair);
+    color:var(--dim);font-size:.9rem}
+  footer .stamp{margin-top:10px}
+
+  a:focus-visible,.toc-grid a:focus-visible{outline:2px solid var(--accent);outline-offset:3px;border-radius:4px}
+  @media(max-width:480px){body{padding:14px 10px 60px}}
+  @media print{body{background:#fff;padding:0;font-size:12pt}
+    .sheet{box-shadow:none;border:0;max-width:none} nav.toc{display:none}}
+</style>
+</head>
+<body>
+<div class="sheet">
+  <header>
+    <p class="eyebrow">ApTask · Softphone</p>
+    <h1>ACE Dialer — User Guide</h1>
+    <p class="lede">Your ApTask phone for calls, texts, voicemail, and team chat — on your desktop or in the browser. Here's everything it does and how to use it.</p>
+    <div class="stamp"><b>Version 0.10.211</b><span class="dot"></span>Works on Windows, Mac &amp; web<span class="dot"></span>Sign in with Microsoft</div>
+  </header>
+
+  <nav class="toc" aria-label="Contents">
+    <h2>Contents</h2>
+    <div class="toc-grid">
+      <a href="#start">Getting started <span>01</span></a>
+      <a href="#calls">Making calls <span>02</span></a>
+      <a href="#receiving">Receiving calls <span>03</span></a>
+      <a href="#incall">During a call <span>04</span></a>
+      <a href="#messaging">Texting (SMS &amp; MMS) <span>05</span></a>
+      <a href="#voicemail">Voicemail <span>06</span></a>
+      <a href="#contacts">Favorites &amp; Recents <span>07</span></a>
+      <a href="#chat">Internal team chat <span>08</span></a>
+      <a href="#teams">Microsoft Teams alerts <span>09</span></a>
+      <a href="#lines">Multiple numbers <span>10</span></a>
+      <a href="#settings">Settings <span>11</span></a>
+      <a href="#updates">Updates &amp; tray <span>12</span></a>
+      <a href="#help">Troubleshooting &amp; help <span>13</span></a>
+    </div>
+  </nav>
+
+  <section id="start">
+    <p class="eyebrow">01 · Getting started</p>
+    <h2 class="sec">Install &amp; sign in</h2>
+    <p>IT will email you a download link. You can also use ACE Dialer in any browser at the address IT provides — no install needed.</p>
+    <ul>
+      <li><strong>Windows:</strong> run <code>ACE Dialer Setup.exe</code> and follow the prompts.</li>
+      <li><strong>Mac:</strong> open the <code>.dmg</code>, drag ACE Dialer into Applications, and launch it.</li>
+    </ul>
+    <h3>Signing in</h3>
+    <p>ACE Dialer uses your ApTask Microsoft account — the same login as Outlook.</p>
+    <ol>
+      <li>Open ACE Dialer and click <strong>Sign in with Microsoft</strong>.</li>
+      <li>Choose your <code>@aptask.com</code> account and approve access on first sign-in.</li>
+      <li>You stay signed in until you explicitly sign out.</li>
+    </ol>
+    <div class="tip"><span class="lbl">Before you start</span><p>If you used Pulse or another softphone, let IT remove it first. Running two softphones on the same line causes double-ringing and dropped calls.</p></div>
+    <p>The dot at the top of the window shows your connection: a green <strong>Online</strong> means you're ready to make and take calls.</p>
+  </section>
+
+  <section id="calls">
+    <p class="eyebrow">02 · Making calls</p>
+    <h2 class="sec">Placing a call</h2>
+    <p>You can dial from anywhere in the app:</p>
+    <ul>
+      <li><strong>Keypad:</strong> type or paste a number and press the green call button (or <kbd>Enter</kbd>). Formatting like <code>(973) 555-1234</code> is cleaned up automatically.</li>
+      <li><strong>Recents:</strong> tap any past call to redial. Search by name or number at the top.</li>
+      <li><strong>Favorites:</strong> tap a saved contact to dial.</li>
+      <li><strong>A text thread:</strong> tap the phone icon at the top of any conversation.</li>
+    </ul>
+    <h3>International &amp; IVR menus</h3>
+    <p>Type <code>+</code> and the country code (or paste an international number — the country flag appears automatically). To navigate a "press 1 for sales" menu, add commas for pauses:</p>
+    <p><code>+18005551234,,1,3</code> — waits, presses 1, waits, presses 3.</p>
+  </section>
+
+  <section id="receiving">
+    <p class="eyebrow">03 · Receiving calls</p>
+    <h2 class="sec">When someone calls you</h2>
+    <p>A full-screen call window pops up — even if ACE is minimized — your computer rings, and you get a desktop notification. You'll see the caller's name (from your Favorites or from JobDiva) or their number if unknown.</p>
+    <div class="tw"><table>
+      <thead><tr><th>Option</th><th>What it does</th></tr></thead>
+      <tbody>
+        <tr><td><span class="pill g">Accept</span></td><td>Pick up the call.</td></tr>
+        <tr><td><span class="pill r">Decline</span></td><td>Stop the ringing and send the caller to voicemail.</td></tr>
+        <tr><td><span class="pill b">Hold&nbsp;&amp;&nbsp;Accept</span></td><td>Appears when you're already on a call — puts the current call on hold and answers the new one.</td></tr>
+        <tr><td><span class="pill b">Reply</span></td><td>Decline and send a quick text instead (e.g. "Can't talk, will call back"). Templates are editable in Settings.</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <section id="incall">
+    <p class="eyebrow">04 · During a call</p>
+    <h2 class="sec">In-call controls</h2>
+    <div class="tw"><table>
+      <thead><tr><th>Control</th><th>What it does</th></tr></thead>
+      <tbody>
+        <tr><td>Mute</td><td>Silences your microphone; the caller can't hear you.</td></tr>
+        <tr><td>Hold</td><td>Puts the call on hold (with hold music if you've set one). Tap again to resume.</td></tr>
+        <tr><td>Keypad</td><td>Opens a number pad for entering menu options or extensions mid-call.</td></tr>
+        <tr><td>Audio</td><td>Switches your microphone and speaker (headset, USB phone, etc.).</td></tr>
+        <tr><td>Record</td><td>Records the call; the recording is saved to your account.</td></tr>
+        <tr><td>Transfer</td><td>Sends the call to another number.</td></tr>
+        <tr><td>Add Call</td><td>Dials a second person to start a 3-way conference.</td></tr>
+        <tr><td>Message</td><td>Opens the text thread with this caller.</td></tr>
+        <tr><td><span class="pill r">Hang up</span></td><td>Ends the call.</td></tr>
+      </tbody>
+    </table></div>
+    <h3>3-way conference</h3>
+    <ol>
+      <li>On a call, tap <strong>Add Call</strong> and dial the second person — the first call goes on hold.</li>
+      <li>When they answer, tap <strong>Merge</strong> to bring everyone together.</li>
+      <li>You can mute individual participants, or hang up one leg without ending the whole call.</li>
+    </ol>
+    <h3>Transferring</h3>
+    <p>Tap <strong>Transfer</strong> and enter the number. The call is handed off and your leg drops once the transfer connects.</p>
+    <div class="tip"><span class="lbl">If two calls overlap</span><p>Answer a second call while dialing out and ACE automatically puts the other call on hold, so only one call is ever connected to your mic and speaker.</p></div>
+  </section>
+
+  <section id="messaging">
+    <p class="eyebrow">05 · Texting</p>
+    <h2 class="sec">SMS &amp; MMS</h2>
+    <p>Send and receive texts and picture messages from your business number.</p>
+    <ol>
+      <li>Open <strong>Messages</strong> and tap <strong>New message</strong> (or an existing thread).</li>
+      <li>Enter the number or pick a contact, type your message, and send with <kbd>Enter</kbd>.</li>
+      <li>To attach a photo or file (MMS), tap the attachment icon in the compose row.</li>
+    </ol>
+    <ul>
+      <li><strong>Quick replies:</strong> set up common phrases in <em>Settings → Quick replies</em> and insert them with one tap while composing.</li>
+      <li><strong>Search</strong> across all threads by name, number, or message text.</li>
+      <li><strong>Call from a thread:</strong> tap the phone icon at the top right.</li>
+    </ul>
+  </section>
+
+  <section id="voicemail">
+    <p class="eyebrow">06 · Voicemail</p>
+    <h2 class="sec">Listening &amp; greetings</h2>
+    <ul>
+      <li><strong>Listen:</strong> open <strong>Voicemail</strong>, tap a message to expand, and press play. Speed controls (1×, 1.5×, 2×) let you listen faster.</li>
+      <li><strong>Transcripts:</strong> every voicemail is transcribed automatically — the text appears a few seconds after the message is left.</li>
+      <li><strong>Search</strong> covers the caller's name, number, <em>and</em> the transcript — so you can find "the one about the proposal" even without remembering who called.</li>
+      <li><strong>Call back</strong> with the phone icon on any row; mark read/unread with the dot icon, or select several and update them in bulk.</li>
+    </ul>
+    <h3>Your greeting</h3>
+    <p>In <em>Settings → Voicemail</em> you can set what callers hear — either <strong>record/upload an audio greeting</strong> or <strong>type a message</strong> and have it read aloud. You can set a separate greeting for when you're <strong>busy</strong> versus when a call <strong>rings out</strong>.</p>
+    <div class="tip"><span class="lbl">Retention</span><p>Voicemails are kept for 30 days, then deleted automatically. Each row shows how many days are left. To keep one, download the audio from the player.</p></div>
+  </section>
+
+  <section id="contacts">
+    <p class="eyebrow">07 · Favorites &amp; Recents</p>
+    <h2 class="sec">Contacts and call history</h2>
+    <h3>Favorites</h3>
+    <p>Star a caller from Recents, or add one directly in the <strong>Favorites</strong> tab. Once saved, the friendly name shows everywhere — Recents, Voicemail, the incoming-call popup, during the call, and in message threads. Favorites sync across your devices.</p>
+    <h3>Recents</h3>
+    <ul>
+      <li>Every incoming, outgoing, and missed call, newest first — with name, direction, duration, time, and status (answered, missed, voicemail, declined, blocked).</li>
+      <li><strong>Missed calls</strong> show in red, with an unread count on the Recents tab.</li>
+      <li>Tap a name to see everything with that contact in one place — calls, voicemails, and texts.</li>
+    </ul>
+  </section>
+
+  <section id="chat">
+    <p class="eyebrow">08 · Internal chat</p>
+    <h2 class="sec">Message your colleagues</h2>
+    <p>The <strong>Chat</strong> tab is 1-to-1 messaging with other ACE Dialer users at ApTask, with presence (online / away / offline) and unread badges.</p>
+    <div class="tip"><span class="lbl">Note</span><p>Internal chat stays inside the app — it does not send an SMS to a phone. Use the <strong>Messages</strong> tab to text external numbers.</p></div>
+  </section>
+
+  <section id="teams">
+    <p class="eyebrow">09 · Microsoft Teams alerts</p>
+    <h2 class="sec">Notifications in Teams</h2>
+    <p>Even when ACE Dialer is closed, you get a Microsoft Teams message when something reaches your line:</p>
+    <ul>
+      <li><strong>Missed calls</strong> — with the caller's number and a call-back button.</li>
+      <li><strong>New texts</strong> — with a preview and a reply button.</li>
+      <li><strong>New voicemails</strong> — with the transcript, plus listen and call-back buttons.</li>
+    </ul>
+    <p>No setup needed. You can turn any of the three types off under <em>Settings → Notifications</em>.</p>
+  </section>
+
+  <section id="lines">
+    <p class="eyebrow">10 · Multiple numbers</p>
+    <h2 class="sec">If you have more than one line</h2>
+    <p>Some roles have more than one business number (for example a "Sales" and a "Support" line). If that's you:</p>
+    <ul>
+      <li>The dropdown in the header picks which number you're calling <strong>from</strong>.</li>
+      <li>Calls, texts, and voicemails to <strong>any</strong> of your numbers come to you.</li>
+      <li>Each line has its own color and label so you can tell at a glance which one was used.</li>
+    </ul>
+  </section>
+
+  <section id="settings">
+    <p class="eyebrow">11 · Settings</p>
+    <h2 class="sec">Make it yours</h2>
+    <p>Open Settings from the avatar menu (top right).</p>
+    <div class="tw"><table>
+      <thead><tr><th>Setting</th><th>What it does</th></tr></thead>
+      <tbody>
+        <tr><td>Theme</td><td>Light, Dark, or match your computer.</td></tr>
+        <tr><td>Audio devices</td><td>Choose which microphone and speaker ACE uses.</td></tr>
+        <tr><td>Notifications</td><td>Turn desktop and Teams alerts on or off, per type.</td></tr>
+        <tr><td>Quick replies</td><td>Manage the canned text replies used by "Reply" and messaging.</td></tr>
+        <tr><td>Call forwarding</td><td>Send your calls to another number — always, or only when you don't answer.</td></tr>
+        <tr><td>Blocked numbers</td><td>Block a number so it can't ring you or text you.</td></tr>
+        <tr><td>Voicemail greeting</td><td>Record, upload, or type your greeting (see Voicemail).</td></tr>
+      </tbody>
+    </table></div>
+    <p style="color:var(--dim);font-size:.94rem">Admins have additional tools (user management, reports, audit log) under <em>Settings → Admin</em>.</p>
+  </section>
+
+  <section id="updates">
+    <p class="eyebrow">12 · Updates &amp; tray</p>
+    <h2 class="sec">Staying current</h2>
+    <ul>
+      <li>The desktop app updates itself — when a new version is ready, a banner appears; click <strong>Restart to install</strong> (about 30 seconds).</li>
+      <li>Check manually any time from the avatar menu → <strong>Check for updates</strong>.</li>
+      <li>Closing the window (red&nbsp;<kbd>✕</kbd>) minimizes ACE to the <strong>system tray / menu bar</strong> so calls keep coming. Right-click the tray icon → <strong>Open</strong> to bring it back, or <strong>Quit</strong> to fully exit (calls won't ring when quit).</li>
+    </ul>
+  </section>
+
+  <section id="help">
+    <p class="eyebrow">13 · Troubleshooting &amp; help</p>
+    <h2 class="sec">If something's off</h2>
+    <h3>No audio</h3>
+    <p>Open <em>Settings → Audio devices</em> and pick the right mic and speaker, then test with a quick call.</p>
+    <h3>Calls aren't ringing</h3>
+    <p>Check the status dot at the top — it should be green <strong>Online</strong>. If it's red, sign out and back in, or quit from the tray and relaunch. Still stuck? Contact IT.</p>
+    <h3>Sign-in fails</h3>
+    <p>Usually a Microsoft configuration issue on IT's side — reach out to IT with the exact message you saw.</p>
+    <div class="tip"><span class="lbl">Need a hand?</span><p>Ask in the ACE Dialer Teams channel, or email <a href="mailto:support@aptask.com">support@aptask.com</a>. For bug reports, include what you were doing, what happened, and your version number (shown under the ACE Dialer logo, top left).</p></div>
+  </section>
+
+  <footer>
+    <p>ACE Dialer is ApTask's internal softphone, built on Telnyx and Microsoft Entra ID.</p>
+    <div class="stamp"><b>Guide for v0.10.211</b><span class="dot"></span>Updated July 2026</div>
+  </footer>
+</div>
+</body>
+</html>
