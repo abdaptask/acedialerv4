@@ -29,7 +29,7 @@ If you're a fresh Claude session opening this project:
 | In progress (uncommitted) | v0.10.205 | Apply script run, tsc clean — NOT yet committed/tagged | scripts/apply-v205-force-update.mjs |
 | Latest committed | v0.10.204 | Pushed to origin/main, .exe built | GitHub release `v0.10.204` |
 | Stable published (auto-update) | v0.10.132 | **Published** to all 40+ ApTask users | GitHub release `v0.10.132` |
-| Backend (api/webhooks/socket) | up through v0.10.204 deployed | Live on Render | Render dashboard |
+| Backend (api/webhooks/socket) | up through v0.10.204 deployed | Self-hosted on dialer.aptask.com (pm2) | `pm2 list` / `./deploy.sh` |
 | Auto-update status | LOCKED (EV cert procurement window) | v0.10.143 enforces signing | docs/ev-cert-procurement.md |
 
 **June 25, 2026 — v0.10.205 staged: Admin "Force Update" feature**
@@ -80,7 +80,6 @@ If you're a fresh Claude session opening this project:
 | **#18** | medium (in-flight) | **v0.10.135 canary validation 24h** — install on abdulla's machine, monitor, decide promote vs revert | GitHub Releases Draft v0.10.135 |
 | **#19** | low | First-launch UX polish — dialer shows blank → black → SSO sequence at launch. BrowserWindow `show: false` until `did-finish-load`, set `backgroundColor: '#0f1116'` to avoid white flash | `apps/desktop/src/main.ts` |
 | **#1 (orig)** | n/a | Voicemail duplicate notification — superseded by v0.11.0 retention design (#1) | n/a |
-| Render auto-deploy | low | Set 3 GitHub repository secrets (`RENDER_HOOK_API`, `RENDER_HOOK_SOCKET`, `RENDER_HOOK_WEBHOOKS`) so the `.github/workflows/render-deploy.yml` actually fires on every push. Right now it skips because secrets aren't configured | Render dashboard → each service → Settings → Deploy Hook |
 | TeXML trial monitoring | ongoing | 5-7 day observation window on the 8 testers (himank, Rahul S, Stefan, mansi, eela, rajat, Ravindra, nilesh). Watch their voicemail/Recents behavior, gather feedback | server logs + ask testers directly |
 
 ---
@@ -89,14 +88,16 @@ If you're a fresh Claude session opening this project:
 
 **Monorepo layout (npm workspaces):**
 
-- `apps/api` — Fastify API server (port 3000). Deploys to Render service `ace-dialer-api`.
-- `apps/socket` — Socket.IO server for real-time events. Deploys to Render service `ace-dialer-socket`.
-- `apps/webhooks` — Telnyx webhook receiver. Deploys to Render service `ace-dialer-webhooks`.
-- `apps/web` — Vite + React dialer UI. Packaged into Electron via `apps/desktop`.
+- `apps/api` — Fastify API server (port 3000). Self-hosted under pm2 as `ace-api`.
+- `apps/socket` — Socket.IO server for real-time events. pm2 `ace-socket` (:3001).
+- `apps/webhooks` — Telnyx webhook receiver. pm2 `ace-webhooks` (:3002).
+- `apps/web` — Vite + React dialer UI. Served static by pm2 `ace-web` (:3010) AND packaged into Electron via `apps/desktop`.
 - `apps/desktop` — Electron main process. Builds the .exe via `electron-builder`.
 - `packages/db` — Prisma schema + scripts (diagnose, backfill, seed, etc.).
 
-**Database:** Supabase Postgres (Pro plan, $25/mo). DATABASE_URL is the Transaction Pooler on port 6543. Schema in `packages/db/prisma/schema.prisma`.
+**Hosting:** fully self-hosted on the `dialer.aptask.com` host (pm2 via `ecosystem.config.cjs`, behind an nginx reverse proxy; `/api/*`→:3000, `/webhooks/*`→:3002). Deploy with `./deploy.sh`. Env from repo-root `.env`. No Render/Vercel.
+
+**Database:** self-hosted PostgreSQL on the app host. `DATABASE_URL=postgresql://…@127.0.0.1:5432/acedialer`. Schema in `packages/db/prisma/schema.prisma`.
 
 **SIP backend:** Telnyx. Each user has a SIP credential (`sipUsername` like `userabdulla74993`) registered against `sip.telnyx.com:7443` over WSS. JsSIP library handles the WebRTC + SIP plumbing.
 
@@ -165,12 +166,8 @@ console.log('Next steps: strip-null-bytes, tsc, diff, commit, push');
 
 ### CI/CD setup
 
-Two GitHub Actions workflows fire on every push to main:
-
-1. `build-desktop.yml` — builds the Electron .exe via electron-builder, auto-publishes a Draft GitHub release.
-2. `render-deploy.yml` — POSTs to Render service deploy hooks. **Currently skips** because the 3 secrets aren't set up. Set them when you want auto-deploys.
-
-Render also has its own auto-deploy enabled, but it's unreliable for monorepo path filtering. The render-deploy.yml workflow is the belt-and-suspenders. Use `[skip-render]` in commit message to opt out.
+- **Backend + web:** no CI. Self-hosted — deploy by running `./deploy.sh` on the `dialer.aptask.com` host (git pull + install + prisma generate + build + `pm2 startOrReload ecosystem.config.cjs`).
+- **Desktop:** `build-desktop.yml` — builds the Electron installer via electron-builder and publishes a Draft GitHub release (clients auto-update). This is the only GitHub Actions workflow. (The old `render-deploy.yml` was removed when we left Render.)
 
 ### User constraints (don't violate these)
 
@@ -235,9 +232,9 @@ npx tsc --noEmit -p apps/webhooks/tsconfig.json
 node scripts/strip-null-bytes.mjs && npx tsc --noEmit -p apps/web/tsconfig.json && git diff --stat
 ```
 
-**Env vars (production, on Render):**
+**Env vars (production, in repo-root `.env` on the host):**
 
-- `DATABASE_URL` — Supabase Pooler URL, port 6543
+- `DATABASE_URL` — self-hosted PostgreSQL, `postgresql://…@127.0.0.1:5432/acedialer`
 - `TELNYX_API_KEY` — Telnyx API key
 - `TELNYX_VOICEMAIL_CC_APP_ID` — shared TeXML voicemail App ID (treated as "shared" by Pass 0)
 - `TEXML_TRIAL_DIDS` — comma-separated list of phone numbers on the TeXML trial

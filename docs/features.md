@@ -241,8 +241,8 @@ three event types: **missed call**, **inbound SMS**, **voicemail**.
   retries (Telnyx fires call.hangup multiple times per call).
 - SMS dedup via explicit findUnique→create-or-update pattern (previous
   upsert + notify pattern was re-firing on Telnyx retries).
-- Missed-call card fires IMMEDIATELY on call.hangup (no setTimeout — Render
-  hibernation killed in-process timers). Voicemail card, if also sent for
+- Missed-call card fires IMMEDIATELY on call.hangup (no setTimeout — deferred
+  in-process timers were unreliable across process restarts). Voicemail card, if also sent for
   the same call a few seconds later, is delivered as a separate card.
 
 ### Card buttons → desktop hand-off
@@ -405,9 +405,9 @@ Documented in `CLAUDE.md` at repo root. Summary:
 - **Teams admin alert** — admins receive a Microsoft Teams card the moment
   Telnyx flips into outage status, and another card when service recovers.
 - **Bandwidth optimization** — gzip/brotli compression enabled on the API
-  via `@fastify/compress`. Voicemail audio is served direct-from-S3 via
-  the fresh-URL endpoint (bytes do not transit the API host's bandwidth
-  budget). Render's 25 GB included tier stays comfortably under cap.
+  via `@fastify/compress`. Voicemail audio is served direct from object
+  storage via the fresh-URL endpoint (bytes do not transit the API host's
+  bandwidth budget).
 
 ## Settings (user-facing)
 
@@ -445,6 +445,6 @@ Documented in `CLAUDE.md` at repo root. Summary:
 - **Feature flags** — every change ships to all users
 - **Pulse auto-backfill via MySQL** — broken since June 5, 2026 due to
   caching_sha2_password auth on `pulse_admin@localhost` over ngrok.
-  Workaround: manual HeidiSQL → Supabase SQL generation per migrated
+  Workaround: manual HeidiSQL → PostgreSQL SQL generation per migrated
   user. Permanent fix requires `ALTER USER ... IDENTIFIED WITH
   mysql_native_password` on the Pulse box (Pulse team coordination).

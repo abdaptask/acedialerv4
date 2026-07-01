@@ -137,5 +137,5 @@ users in one shot, with per-row success/failure feedback.
 ---
 
 **Built by:** ApTask | **Current version:** v0.10.8 (May 2026) |
-**Powered by:** Telnyx · Microsoft Entra ID · Power Automate · Supabase ·
-Deepgram · Cloudflare · Render · Vercel
+**Powered by:** Telnyx · Microsoft Entra ID · Power Automate ·
+Deepgram · Cloudflare · self-hosted PostgreSQL + pm2 (dialer.aptask.com)
