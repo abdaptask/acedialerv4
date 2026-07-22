@@ -15,6 +15,7 @@ import {
   ArrowLeftRight,
   Merge,
   Check,
+  Delete,
   SignalHigh,
   SignalMedium,
   SignalLow,
@@ -70,6 +71,10 @@ export default function InCall() {
   const [muted, setMuted] = useState(false);
   const [onHold, setOnHold] = useState(false);
   const [showKeypad, setShowKeypad] = useState(false);
+  // v0.10.213 — Visual echo of the DTMF digits the user has sent this call
+  // (IVR menus, extensions). Fed by BOTH the on-screen keypad and the
+  // physical-keyboard listener below so the user can confirm what they typed.
+  const [dtmfLog, setDtmfLog] = useState('');
   const [showTransfer, setShowTransfer] = useState(false);
   const [transferTarget, setTransferTarget] = useState('');
   const [toast, setToast] = useState<string | null>(null);
@@ -129,9 +134,45 @@ export default function InCall() {
     const heldNow = await toggleHold();
     setOnHold(heldNow);
   };
-  const handleDTMF = (digit: string) => {
+  // v0.10.213 — Single entry point for a DTMF digit regardless of source
+  // (on-screen keypad or physical keyboard). Sends the tone via the EXISTING
+  // sendDTMF plumbing and echoes it into the visual display bar. Cap the
+  // display at 32 chars so a long IVR session can't overflow the bar.
+  const handleDTMF = useCallback((digit: string) => {
     sendDTMF(digit);
-  };
+    setDtmfLog((prev) => (prev + digit).slice(-32));
+  }, [sendDTMF]);
+  const handleDtmfBackspace = () => setDtmfLog((prev) => prev.slice(0, -1));
+  const handleDtmfClear = () => setDtmfLog('');
+
+  // v0.10.213 — Physical-keyboard DTMF. While the call is connected, typing
+  // 0-9, * or # on either the Numpad or the top number row sends the tone
+  // and reveals the keypad so the display bar is visible. We ignore the
+  // keystroke when the user is typing into a field (e.g. the Transfer number
+  // input) or holding a modifier (so app/OS shortcuts still work). Bound on
+  // connect and torn down on hangup/unmount via the effect cleanup.
+  useEffect(() => {
+    if (callState.state !== 'connected') return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
+      if (/^[0-9*#]$/.test(e.key)) {
+        e.preventDefault();
+        setShowKeypad(true);
+        handleDTMF(e.key);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [callState.state, handleDTMF]);
   const handleOpenAudio = async () => {
     setShowAudio(true);
     const list = await listAudioOutputs();
@@ -459,6 +500,26 @@ export default function InCall() {
 
       {showKeypad && (
         <div className="in-call-keypad">
+          {/* v0.10.213 — Visual input/echo bar. Shows the digits sent this
+              call (from the on-screen keypad or a physical keyboard) so the
+              user can confirm IVR / extension input. Backspace removes the
+              last digit; long-press-free single tap. */}
+          <div className="ick-display">
+            <span className="ick-display-text" aria-live="polite">
+              {dtmfLog || <span className="ick-display-placeholder">Enter digits…</span>}
+            </span>
+            <button
+              type="button"
+              className="ick-display-back"
+              onClick={handleDtmfBackspace}
+              onDoubleClick={handleDtmfClear}
+              disabled={!dtmfLog}
+              aria-label="Backspace (double-tap to clear)"
+              title="Backspace · double-click to clear"
+            >
+              <Delete size={18} />
+            </button>
+          </div>
           <div className="ick-grid">
             {DTMF_KEYS.map((k) => (
               <button
