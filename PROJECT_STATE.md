@@ -1,6 +1,6 @@
 # ACE Dialer — Project State
 
-**Last updated:** June 25, 2026 (Admin Force Update feature, v0.10.205 staged)
+**Last updated:** July 22, 2026 (In-call DTMF display bar + physical keyboard + non-blocking Electron inbound, v0.10.213)
 **Maintained by:** Claude (update at end of every working session)
 
 This file is a living snapshot of where the project stands. New Claude
@@ -31,6 +31,14 @@ If you're a fresh Claude session opening this project:
 | Stable published (auto-update) | v0.10.132 | **Published** to all 40+ ApTask users | GitHub release `v0.10.132` |
 | Backend (api/webhooks/socket) | up through v0.10.204 deployed | Self-hosted on dialer.aptask.com (pm2) | `pm2 list` / `./deploy.sh` |
 | Auto-update status | LOCKED (EV cert procurement window) | v0.10.143 enforces signing | docs/ev-cert-procurement.md |
+
+**July 22, 2026 — v0.10.213 staged: In-call DTMF UX + non-blocking Electron inbound**
+
+- **Non-blocking inbound (Electron):** `IncomingCall.tsx` no longer forces the full-window green ringer on the desktop shell. Electron now always renders the compact top banner so the nav rail + bottom tabs (Favorites/Messages/Recents/Keypad/Voicemail) stay visible and usable while a call rings; the native floating ringer popup (main process) still surfaces the call. Web build keeps the full-screen ringer on idle surfaces (`/keypad`, `/`, `/login`) + when there's an active call to hold. Change: `fullScreen` gated on `!isElectron`.
+- **In-call DTMF visual input bar:** new `.ick-display` bar above the keypad grid (`InCall.tsx`) echoes every digit sent this call (monospace, most-recent-visible, 32-char cap) with a backspace button (double-click = clear all, disabled when empty). Light/dark themed.
+- **Physical-keyboard DTMF:** while `callState === 'connected'`, a `keydown` listener sends `0-9 * #` (Numpad + top row) through the EXISTING `sendDTMF`, appends to the display bar, and auto-opens the keypad. Ignores keystrokes while an input/textarea is focused (Transfer field) or a modifier is held. Bound on connect, torn down on hangup/unmount.
+- **Status:** production build + full `tsc -b` typecheck clean. NOT yet committed/tagged. On-device pass pending (live-call DTMF into an IVR + Electron banner behavior can't be driven headlessly). Open question for the reviewer: physical-key digits auto-open the keypad panel — drop `setShowKeypad(true)` if silent send is preferred.
+- Files: `apps/web/src/components/IncomingCall.tsx`, `apps/web/src/pages/InCall.tsx`, `apps/web/src/styles.css`. Version bumped 0.10.212 → 0.10.213 across root + web + desktop `package.json`.
 
 **June 25, 2026 — v0.10.205 staged: Admin "Force Update" feature**
 

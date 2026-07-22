@@ -143,12 +143,22 @@ export default function IncomingCall() {
 
   const isElectron =
     typeof navigator !== 'undefined' && /electron/i.test(navigator.userAgent);
+  // v0.10.213 — Non-blocking inbound layout. In Electron we NEVER take over
+  // the whole window with the full-screen ringer: the native floating ringer
+  // popup (main process, see [[25-notifications]]) already surfaces the call
+  // even when the window is buried, and the in-window ringer must keep the
+  // nav rail + bottom tabs fully usable so the user can still reach Favorites,
+  // Messages, Recents, Keypad and Voicemail while a call rings. So on the
+  // desktop shell we always render the compact top banner. The web build has
+  // no floating popup, so it keeps the full-screen ringer on the "idle"
+  // surfaces where nothing else is going on (keypad / root / login) and when
+  // there's an active call to hold.
   const fullScreen =
-    isElectron ||
-    canHoldAndAccept ||
-    location.pathname === '/keypad' ||
-    location.pathname === '/' ||
-    location.pathname === '/login';
+    !isElectron &&
+    (canHoldAndAccept ||
+      location.pathname === '/keypad' ||
+      location.pathname === '/' ||
+      location.pathname === '/login');
 
   const callerLabel = getFavoriteName(callerNumber) ?? jd?.name ?? formatNumber(callerNumber);
 

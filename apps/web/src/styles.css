@@ -6240,6 +6240,70 @@ body {
   flex-direction: column;
   align-items: center;
 }
+/* v0.10.213 — In-call DTMF visual input bar. Sits above the keypad grid
+   and echoes every digit the user sends (on-screen taps + physical
+   keyboard) so IVR / extension entry is confirmable. */
+.ick-display {
+  width: 100%;
+  min-height: 44px;
+  margin-bottom: 16px;
+  padding: 6px 6px 6px 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+}
+.ick-display-text {
+  flex: 1;
+  min-width: 0;
+  font-family: "SF Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 20px;
+  letter-spacing: 0.14em;
+  color: var(--text, #fff);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl; /* keep the most-recent digits visible when it overflows */
+  text-align: left;
+  unicode-bidi: plaintext;
+}
+.ick-display-placeholder {
+  opacity: 0.35;
+  letter-spacing: normal;
+  font-size: 14px;
+}
+.ick-display-back {
+  flex-shrink: 0;
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  border: none;
+  background: transparent;
+  color: var(--text, #fff);
+  opacity: 0.7;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 120ms ease-out, opacity 120ms ease-out;
+}
+.ick-display-back:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.08);
+  opacity: 1;
+}
+.ick-display-back:disabled {
+  opacity: 0.25;
+  cursor: default;
+}
+[data-theme="light"] .ick-display {
+  background: rgba(0, 0, 0, 0.04);
+  border-color: rgba(0, 0, 0, 0.1);
+}
+[data-theme="light"] .ick-display-back:hover:not(:disabled) {
+  background: rgba(0, 0, 0, 0.06);
+}
 .ick-grid {
   display: grid;
   grid-template-columns: repeat(3, 64px);
