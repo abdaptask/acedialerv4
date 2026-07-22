@@ -24,6 +24,16 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.213',
+    date: 'July 22, 2026',
+    highlight: 'Type IVR menus on your keyboard during a call, and incoming calls no longer take over the whole window.',
+    changes: [
+      { type: 'new', text: 'While on a call you can now type digits (0-9, * and #) on your physical keyboard — including the numpad — to navigate phone menus and enter extensions. Each key sends the tone just like tapping the on-screen keypad.' },
+      { type: 'new', text: 'A new display bar above the in-call keypad shows the digits you have entered so you can confirm your input at a glance. It has a backspace button (double-click it to clear everything).' },
+      { type: 'improved', text: 'On the desktop app, an incoming call no longer takes over the entire window with a full-screen ringer. You now get a compact banner at the top instead, so you can keep using Favorites, Messages, Recents, Keypad and Voicemail while the phone rings. The floating ringer popup still appears as before so you never miss a call.' },
+    ],
+  },
+  {
     version: '0.10.212',
     date: 'July 1, 2026',
     highlight: 'Better call diagnostics for tracking down audio issues.',
