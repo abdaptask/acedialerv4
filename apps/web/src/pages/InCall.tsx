@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   PhoneOff,
@@ -142,7 +142,22 @@ export default function InCall() {
     sendDTMF(digit);
     setDtmfLog((prev) => (prev + digit).slice(-32));
   }, [sendDTMF]);
-  const handleDtmfBackspace = () => setDtmfLog((prev) => prev.slice(0, -1));
+  // v0.10.214 — The DTMF echo is now a real editable <input> (blinking caret,
+  // physical Backspace, arrow keys). DTMF is append-only — you can't unsend a
+  // tone — so after any programmatic append we snap the caret back to the end
+  // so it trails the newest digit. Native edits (Backspace/arrows) are left
+  // alone so mid-string editing still works.
+  const dtmfInputRef = useRef<HTMLInputElement | null>(null);
+  const moveDtmfCaretToEnd = useCallback(() => {
+    const el = dtmfInputRef.current;
+    if (!el) return;
+    const end = el.value.length;
+    try { el.setSelectionRange(end, end); } catch { /* noop */ }
+  }, []);
+  const handleDtmfBackspace = () => {
+    setDtmfLog((prev) => prev.slice(0, -1));
+    requestAnimationFrame(moveDtmfCaretToEnd);
+  };
   const handleDtmfClear = () => setDtmfLog('');
 
   // v0.10.213 — Physical-keyboard DTMF. While the call is connected, typing
@@ -500,17 +515,55 @@ export default function InCall() {
 
       {showKeypad && (
         <div className="in-call-keypad">
-          {/* v0.10.213 — Visual input/echo bar. Shows the digits sent this
-              call (from the on-screen keypad or a physical keyboard) so the
-              user can confirm IVR / extension input. Backspace removes the
-              last digit; long-press-free single tap. */}
+          {/* v0.10.214 — Editable extension field. A real <input> (not a
+              passive echo span) so the caret blinks, physical Backspace /
+              Delete / arrows edit inline, and Cmd/Ctrl+A selects. Typing a
+              digit does NOT insert natively — it's intercepted and routed
+              through handleDTMF so the tone is actually sent, then echoed.
+              Backspace/Delete only edit the display (you can't unsend a tone). */}
           <div className="ick-display">
-            <span className="ick-display-text" aria-live="polite">
-              {dtmfLog || <span className="ick-display-placeholder">Enter digits…</span>}
-            </span>
+            <input
+              ref={dtmfInputRef}
+              type="tel"
+              inputMode="tel"
+              className="ick-display-input"
+              value={dtmfLog}
+              placeholder="Enter digits…"
+              aria-label="Extension / DTMF digits"
+              autoFocus
+              spellCheck={false}
+              autoComplete="off"
+              onChange={(e) =>
+                // Fires for native deletions (Backspace/Delete/cut). Digit
+                // inserts are preventDefaulted in onKeyDown, so they never
+                // reach here — this only ever shrinks the value.
+                setDtmfLog(e.target.value.replace(/[^0-9*#]/g, '').slice(-32))
+              }
+              onKeyDown={(e) => {
+                if (e.metaKey || e.ctrlKey || e.altKey) return; // allow select-all/copy
+                if (/^[0-9*#]$/.test(e.key)) {
+                  e.preventDefault(); // block native insert…
+                  handleDTMF(e.key); // …send the tone + echo instead
+                  requestAnimationFrame(moveDtmfCaretToEnd);
+                } else if (e.key === 'Enter') {
+                  e.preventDefault(); // nothing to submit; keep focus in the field
+                }
+                // Backspace / Delete / arrows / Home / End fall through to native editing
+              }}
+              onPaste={(e) => {
+                const digits = (e.clipboardData?.getData('text') ?? '').replace(/[^0-9*#]/g, '');
+                if (!digits) return;
+                e.preventDefault();
+                for (const d of digits) handleDTMF(d); // send each pasted digit as a real tone
+                requestAnimationFrame(moveDtmfCaretToEnd);
+              }}
+            />
             <button
               type="button"
               className="ick-display-back"
+              // Don't let the button steal focus — keep the caret in the field
+              // so the next physical keystroke still routes through the input.
+              onMouseDown={(e) => e.preventDefault()}
               onClick={handleDtmfBackspace}
               onDoubleClick={handleDtmfClear}
               disabled={!dtmfLog}
@@ -524,8 +577,14 @@ export default function InCall() {
             {DTMF_KEYS.map((k) => (
               <button
                 key={k}
+                type="button"
                 className="ick-btn"
-                onClick={() => handleDTMF(k)}
+                // Keep the caret in the field on tap (see above).
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => {
+                  handleDTMF(k);
+                  requestAnimationFrame(moveDtmfCaretToEnd);
+                }}
               >{k}</button>
             ))}
           </div>
