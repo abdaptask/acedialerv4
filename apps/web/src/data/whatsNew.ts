@@ -24,6 +24,15 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.214',
+    date: 'July 23, 2026',
+    highlight: 'The in-call extension keypad is now a proper typing field with a blinking cursor.',
+    changes: [
+      { type: 'improved', text: 'The digit bar above the in-call keypad is now a real text field: it shows a blinking cursor while you type, and your keyboard’s Backspace, Delete and arrow keys all work for editing extension / menu digits.' },
+      { type: 'fixed', text: 'Backspace on your physical keyboard now removes digits from the in-call keypad (previously only the on-screen button worked).' },
+    ],
+  },
+  {
     version: '0.10.213',
     date: 'July 22, 2026',
     highlight: 'Type IVR menus on your keyboard during a call, and incoming calls no longer take over the whole window.',

@@ -6255,24 +6255,32 @@ body {
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 12px;
 }
-.ick-display-text {
+/* v0.10.214 — Editable extension field. Native <input> so the caret blinks
+   and inline editing works; the input auto-scrolls to keep the (end) caret
+   visible when the digits overflow, which replaces the old rtl-overflow hack. */
+.ick-display-input {
   flex: 1;
   min-width: 0;
+  width: 100%;
+  background: transparent;
+  border: none;
+  outline: none;
+  padding: 0;
   font-family: "SF Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 20px;
   letter-spacing: 0.14em;
   color: var(--text, #fff);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  direction: rtl; /* keep the most-recent digits visible when it overflows */
-  text-align: left;
-  unicode-bidi: plaintext;
+  caret-color: #0a84ff; /* iOS-blue blinking caret */
 }
-.ick-display-placeholder {
+.ick-display-input::placeholder {
   opacity: 0.35;
   letter-spacing: normal;
   font-size: 14px;
+  color: var(--text, #fff);
+}
+/* Subtle iOS-style focus ring so the field reads as active while typing. */
+.ick-display:focus-within {
+  border-color: rgba(10, 132, 255, 0.6);
 }
 .ick-display-back {
   flex-shrink: 0;
