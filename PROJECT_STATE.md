@@ -1,6 +1,6 @@
 # ACE Dialer — Project State
 
-**Last updated:** July 22, 2026 (In-call DTMF display bar + physical keyboard + non-blocking Electron inbound, v0.10.213)
+**Last updated:** July 29, 2026 (Short-code SMS thread fix — empty/mismatched conversations — v0.10.215)
 **Maintained by:** Claude (update at end of every working session)
 
 This file is a living snapshot of where the project stands. New Claude
@@ -26,11 +26,20 @@ If you're a fresh Claude session opening this project:
 
 | Stream | Version | Status | Where |
 |---|---|---|---|
-| In progress (uncommitted) | v0.10.205 | Apply script run, tsc clean — NOT yet committed/tagged | scripts/apply-v205-force-update.mjs |
-| Latest committed | v0.10.204 | Pushed to origin/main, .exe built | GitHub release `v0.10.204` |
+| Latest committed | v0.10.215 | Pushed to `origin/release/0.10.215` — PR to main + `./deploy.sh` + desktop publish PENDING | branch `release/0.10.215` |
+| Latest committed (prior) | v0.10.204 | Pushed to origin/main, .exe built | GitHub release `v0.10.204` |
 | Stable published (auto-update) | v0.10.132 | **Published** to all 40+ ApTask users | GitHub release `v0.10.132` |
 | Backend (api/webhooks/socket) | up through v0.10.204 deployed | Self-hosted on dialer.aptask.com (pm2) | `pm2 list` / `./deploy.sh` |
 | Auto-update status | LOCKED (EV cert procurement window) | v0.10.143 enforces signing | docs/ev-cert-procurement.md |
+
+**July 29, 2026 — v0.10.215 released: short-code SMS threads open empty / show wrong messages**
+
+- **Root cause:** `GET /messages/threads/:number` ran the conversation key through `toE164()` before matching. The threads-list groups by the EXACT stored `thread_key`, so normalizing prepended `+` to short-code / alphanumeric sender IDs and hit the wrong bucket. Confirmed against live DB: `thread_key` `72524` (3 msgs) was queried as `+72524` → 0 rows → **empty thread** (Bug 1); `83356` (1 msg, the preview) was queried as `+83356` → loaded a *different* 6-msg June bucket → **preview ≠ thread** (Bug 2). Short codes split into drifted buckets (`83356` vs `+83356`) still exist in data — each now opens faithfully; auto-merging them was deliberately left out of scope (destructive data call).
+- **Fix:** new `apps/api/src/messages/threadKey.ts` — `threadKeyCandidates()` matches the stored key VERBATIM (guaranteeing preview == thread latest), adding an E.164 alias ONLY for real ≥10-digit numbers (deep links). Detail + `/read` + `/unread` now match `threadKey IN (candidates)`; this also lets short-code threads be marked read (old `length===10` gate 400'd them, so their unread dot never cleared).
+- **UI:** `Messages.tsx` gained an explicit empty-state ("No messages yet") + a distinct load-error state with Retry, so a failed load can't masquerade as a valid empty thread.
+- **Tests:** first tests in the repo — `apps/api/src/messages/threadKey.test.ts` via `node:test` + `tsx` (`npm run test -w apps/api`, 8/8). Covers both bugs as regressions + a list/thread preview-consistency model. Test files excluded from the api `tsc` build.
+- **Ships with:** the previously-staged 0.10.212–0.10.214 work (in-call keypad + diag logging), consolidated into this release. Version 0.10.214 → 0.10.215 across all 7 `package.json` + `APP_VERSION`; What's New entry added. `tsc` (api + web) clean.
+- **Note:** the reported bugs are fixed by the backend deploy alone (server-side matching); the desktop publish only carries the empty/error-state UI.
 
 **July 22, 2026 — v0.10.213 staged: In-call DTMF UX + non-blocking Electron inbound**
 
