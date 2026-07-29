@@ -2413,6 +2413,21 @@ export class SipService {
     const musicWanted = getHoldMusicEnabled() && Boolean(getHoldMusicDataUrl());
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const wasMusicHold = !!(active as any).__holdMusic;
+    // v0.10.213 hold-diag — records WHICH hold path we take. The #1 cause of
+    // "hold music not working" is musicWanted=false (enabled flag off or no
+    // data URL saved), which silently falls back to SIP hold = the caller
+    // hears pure silence, not music. This line makes that visible in a
+    // Diagnostics log download without needing to repro live.
+    console.log('[sip][hold-diag] toggleHold decision', {
+      currentlyHeld: active.heldLocal,
+      musicEnabled: getHoldMusicEnabled(),
+      hasMusicDataUrl: Boolean(getHoldMusicDataUrl()),
+      musicWanted,
+      wasMusicHold,
+      pathTaken: active.heldLocal
+        ? (wasMusicHold ? 'unhold:stopMusic' : 'unhold:sipUnhold')
+        : (musicWanted ? 'hold:startMusic' : 'hold:sipHold(silence)'),
+    });
     try {
       if (active.heldLocal) {
         // ---- Unhold ----
@@ -2716,6 +2731,13 @@ export class SipService {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const ctor = (window.AudioContext || (window as any).webkitAudioContext) as typeof AudioContext;
       const ctx = new ctor();
+      // v0.10.213 hold-diag — a suspended AudioContext produces a LIVE but
+      // SILENT track: replaceTrack succeeds, the UI shows "on hold", but the
+      // caller hears nothing. This happens when resume()/play() land outside
+      // the synchronous click gesture (Chromium autoplay policy). Log the
+      // state on both sides of resume() so we can tell a suspended-context
+      // failure apart from a config/codec issue.
+      const ctxStateBeforeResume = ctx.state;
       if (ctx.state === 'suspended') await ctx.resume();
       const source = ctx.createMediaElementSource(audioEl);
       const dest = ctx.createMediaStreamDestination();
@@ -2731,11 +2753,28 @@ export class SipService {
         return;
       }
       await sender.replaceTrack(musicTrack);
-      await audioEl.play();
+      let playError: string | null = null;
+      try {
+        await audioEl.play();
+      } catch (playErr) {
+        // A rejected play() is the smoking gun for the autoplay-policy path:
+        // the track is swapped in but the element never advances, so RTP
+        // carries digital silence.
+        playError = (playErr as Error)?.name ?? String(playErr);
+      }
       // Stash refs on the entry so we can clean up on unhold.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (entry as any).__holdMusic = { audioEl, ctx };
-      console.log('[sip] hold music started for', entry.id);
+      console.log('[sip][hold-diag] hold music started for', entry.id, {
+        ctxStateBeforeResume,
+        ctxStateAfterResume: ctx.state,
+        audioElPaused: audioEl.paused,
+        audioElReadyState: audioEl.readyState,
+        musicTrackReadyState: musicTrack.readyState,
+        musicTrackEnabled: musicTrack.enabled,
+        musicTrackMuted: musicTrack.muted,
+        playError,
+      });
     } catch (e) {
       console.warn('[sip] startHoldMusic failed', e);
     }

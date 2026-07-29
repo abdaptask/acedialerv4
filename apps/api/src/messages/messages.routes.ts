@@ -7,6 +7,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { prisma } from '@ace/db';
 import { config } from '../config.js';
 import { sendMessageImmediate } from './sendMessage.js';
+import { toE164, threadKeyCandidates } from './threadKey.js';
 
 interface JwtPayload {
   sub: number;
@@ -18,14 +19,6 @@ interface SendMessageBody {
   to: string;
   body?: string;
   mediaUrls?: string[];
-}
-
-function toE164(raw: string): string {
-  const cleaned = (raw ?? '').replace(/[^\d+]/g, '');
-  if (cleaned.startsWith('+')) return cleaned;
-  if (cleaned.length === 11 && cleaned.startsWith('1')) return `+${cleaned}`;
-  if (cleaned.length === 10) return `+1${cleaned}`;
-  return `+${cleaned}`;
 }
 
 export async function messagesRoutes(app: FastifyInstance) {
@@ -152,9 +145,14 @@ export async function messagesRoutes(app: FastifyInstance) {
     async (request: FastifyRequest) => {
       const user = request.user as JwtPayload;
       const { number } = request.params as { number: string };
-      const threadKey = toE164(decodeURIComponent(number));
+      // Match the stored thread_key VERBATIM (plus an E.164 alias for real
+      // phone numbers). Short codes / alphanumeric sender IDs (e.g. "72524",
+      // "83356") are matched as-is — the old `toE164()` call corrupted them
+      // by prepending "+", which either loaded zero messages or the wrong
+      // bucket. See threadKey.ts for the full rationale.
+      const candidates = threadKeyCandidates(decodeURIComponent(number));
       const msgs = await prisma.message.findMany({
-        where: { userId: user.sub, threadKey },
+        where: { userId: user.sub, threadKey: { in: candidates } },
         orderBy: { createdAt: 'asc' },
         // v0.10.0 Task 5 — UserDid for the line-badge tag.
         include: {
@@ -295,11 +293,6 @@ export async function messagesRoutes(app: FastifyInstance) {
   //                                            { read: true | false }
   // ═══════════════════════════════════════════════════════════════════════
 
-  /** Helper: normalize a phone number param to last-10-digit comparison form. */
-  function last10(s: string): string {
-    return (s ?? '').replace(/\D/g, '').slice(-10);
-  }
-
   // POST /messages/threads/:number/read
   // Marks ALL inbound, unread messages in the thread as read. Called by
   // the client on thread open. Idempotent.
@@ -308,17 +301,21 @@ export async function messagesRoutes(app: FastifyInstance) {
     { onRequest: [app.authenticate] },
     async (request, reply) => {
       const user = request.user as JwtPayload;
-      const other = last10(request.params.number);
-      if (other.length !== 10) {
+      // Resolve the same thread_key candidates the detail view loads from, so
+      // "mark read" targets exactly the conversation the user is viewing.
+      // Using verbatim keys (not last-10) also lets short-code threads like
+      // "72524" be marked read — the old length===10 gate 400'd them, so the
+      // unread dot never cleared for short-code senders.
+      const candidates = threadKeyCandidates(decodeURIComponent(request.params.number));
+      if (candidates.length === 0) {
         return reply.code(400).send({ error: 'Invalid thread number' });
       }
-      // Match by threadKey last-10 to tolerate +1 / no-+1 storage drift.
       const result = await prisma.message.updateMany({
         where: {
           userId: user.sub,
           direction: 'inbound',
           readAt: null,
-          threadKey: { contains: other },
+          threadKey: { in: candidates },
         },
         data: { readAt: new Date() },
       });
@@ -335,15 +332,15 @@ export async function messagesRoutes(app: FastifyInstance) {
     { onRequest: [app.authenticate] },
     async (request, reply) => {
       const user = request.user as JwtPayload;
-      const other = last10(request.params.number);
-      if (other.length !== 10) {
+      const candidates = threadKeyCandidates(decodeURIComponent(request.params.number));
+      if (candidates.length === 0) {
         return reply.code(400).send({ error: 'Invalid thread number' });
       }
       const latest = await prisma.message.findFirst({
         where: {
           userId: user.sub,
           direction: 'inbound',
-          threadKey: { contains: other },
+          threadKey: { in: candidates },
         },
         orderBy: { createdAt: 'desc' },
         select: { id: true },
