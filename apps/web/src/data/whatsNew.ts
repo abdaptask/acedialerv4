@@ -24,6 +24,16 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.215',
+    date: 'July 29, 2026',
+    highlight: 'Fixed text conversations that opened empty or showed the wrong messages.',
+    changes: [
+      { type: 'fixed', text: 'Some conversations — especially ones from short-code senders (5- and 6-digit numbers like delivery and verification-code texts) — opened completely blank even though the list showed a recent message. They now open correctly and show every message.' },
+      { type: 'fixed', text: 'For a few of those conversations, the preview line and time in the list didn’t match the messages inside the thread. The preview and the thread now always reflect the same, most-recent message.' },
+      { type: 'improved', text: 'A conversation that genuinely has no messages now shows a clear “No messages yet” prompt, and if a thread fails to load you’ll see an error with a Retry button instead of a blank screen.' },
+    ],
+  },
+  {
     version: '0.10.214',
     date: 'July 23, 2026',
     highlight: 'The in-call extension keypad is now a proper typing field with a blinking cursor.',

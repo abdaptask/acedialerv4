@@ -1118,7 +1118,12 @@ function ThreadDetail({ number, onBack }: ThreadDetailProps) {
           (setShowHistory) is still defined but no longer has a trigger
           on this page; removable in a follow-up cleanup. */}
 
-      {error && <div className="error" style={{ margin: '0 1rem' }}>{error}</div>}
+      {/* Top banner is reserved for errors on an already-populated thread
+          (e.g. a send/reaction failure). A failed INITIAL load — where the
+          stream would otherwise be blank — is surfaced by the richer
+          in-stream error state below (with a Retry button), so we don't
+          double up. */}
+      {error && messages.length > 0 && <div className="error" style={{ margin: '0 1rem' }}>{error}</div>}
 
       {/* v0.10.59 — Pending scheduled-message strip. Sits above the conversation
           stream so the user always sees what's queued to fire for this contact.
@@ -1178,6 +1183,28 @@ function ThreadDetail({ number, onBack }: ThreadDetailProps) {
           existing CSS for body / media / fail-blurb still applies. */}
       <div className="msg-stream" ref={scrollRef}>
         {loading && messages.length === 0 && <div className="muted">Loading…</div>}
+        {/* Explicit load-failure state. Without this, a failed fetch left the
+            stream blank and looked identical to a real empty conversation —
+            the user couldn't tell "nothing here" from "it broke". */}
+        {!loading && error && messages.length === 0 && (
+          <div className="empty-state">
+            <AlertCircle size={40} className="empty-state-icon" />
+            <h2>Couldn’t load this conversation</h2>
+            <p>{error}</p>
+            <button type="button" className="device-action primary" onClick={load}>
+              Retry
+            </button>
+          </div>
+        )}
+        {/* Genuinely-empty conversation. Distinct from the error state above
+            so a load failure never masquerades as a valid empty thread. */}
+        {!loading && !error && messages.length === 0 && (
+          <div className="empty-state">
+            <MessageSquare size={40} className="empty-state-icon" />
+            <h2>No messages yet</h2>
+            <p>Send a message to {displayName} to start the conversation.</p>
+          </div>
+        )}
         {(() => {
           type Group =
             | { kind: 'day'; key: string; label: string }
