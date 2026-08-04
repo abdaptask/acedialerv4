@@ -16,6 +16,9 @@ import { favoritesRoutes } from './favorites/favorites.routes.js';
 import { internalChatRoutes } from './internalChat/internalChat.routes.js';
 import { messagesRoutes } from './messages/messages.routes.js';
 import { scheduledMessagesRoutes } from './messages/scheduledMessages.routes.js';
+import { smsTemplatesRoutes } from './messages/smsTemplates.routes.js';
+import { smsAssistRoutes } from './messages/smsAssist.routes.js';
+import { prewarmLlm } from './lib/llm.js';
 import { startScheduledMessageWorker } from './messages/scheduledMessageWorker.js';
 import { praisesRoutes } from './praises/praises.routes.js';
 import { ringtonesRoutes } from './ringtones/ringtones.routes.js';
@@ -117,6 +120,8 @@ await app.register(favoritesRoutes);
 await app.register(internalChatRoutes);
 await app.register(messagesRoutes);
 await app.register(scheduledMessagesRoutes);
+await app.register(smsTemplatesRoutes);
+await app.register(smsAssistRoutes);
 await app.register(praisesRoutes);
 await app.register(ringtonesRoutes);
 await app.register(tipsRoutes);
@@ -140,6 +145,11 @@ try {
   // is listening, so a slow boot doesn't queue up duplicate ticks before
   // the API is ready to serve health checks.
   startScheduledMessageWorker(app.log);
+  // v0.10.216 — nudge the DGX to load the rewrite model into VRAM. A cold
+  // load was measured at ~47s, which the first user of the day would
+  // otherwise absorb. Fire-and-forget and after listen(), so a slow or
+  // unreachable DGX can never delay or fail the API's boot.
+  void prewarmLlm();
 } catch (err) {
   app.log.error(err);
   process.exit(1);

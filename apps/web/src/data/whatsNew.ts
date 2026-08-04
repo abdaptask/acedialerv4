@@ -24,6 +24,19 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.216',
+    date: 'August 4, 2026',
+    highlight: 'Save your own text templates, dictate a message with your voice, and clean up wording with AI.',
+    changes: [
+      { type: 'new', text: 'You can now create your own text templates. Open Templates in the message box and tap New — your templates appear at the top, above the company ones, and only you can see or edit them.' },
+      { type: 'new', text: 'Templates can pull in details automatically. Insert a field like {firstName}, {lastName}, {jobTitle}, or {companyName} and it fills in from the contact when you use the template; {recruiterName} fills in your own name. Use the "Insert field" button so you never have to remember the exact spelling.' },
+      { type: 'new', text: 'Record a message instead of typing it. Tap Record, say what you want to send, and the text appears in the message box for you to check and edit. The recording is only used to create the text — it is never sent as an audio message and never saved.' },
+      { type: 'new', text: 'Rewrite with AI fixes spelling, grammar, and awkward wording in your draft. You always see the suggestion first and choose whether to use it, edit it, keep your original, or try again — nothing is ever sent automatically.' },
+      { type: 'new', text: 'The message box now shows a live character count and how many texts your message will be sent as, so a long message or a single emoji no longer turns into three texts without warning.' },
+      { type: 'improved', text: 'Company templates created by your admin still work exactly as before and stay read-only, so nobody can change the shared playbook by accident.' },
+    ],
+  },
+  {
     version: '0.10.215',
     date: 'July 29, 2026',
     highlight: 'Fixed text conversations that opened empty or showed the wrong messages.',

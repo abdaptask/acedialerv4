@@ -243,6 +243,9 @@ function NotificationsHubSection() {
   );
 }
 import { formatPhone } from '../lib/phone';
+// v0.10.216 — shared with the SMS composer's voice-to-text, so both surfaces
+// get identical codec selection, duration capping, and mic teardown.
+import { useMicRecorder } from '../lib/useMicRecorder';
 
 interface AudioDevice {
   deviceId: string;
@@ -1381,9 +1384,14 @@ function HoldMusicSection() {
 // the appropriate variant on every inbound voicemail hit and branches
 // on Telnyx's hangup_cause to pick busy vs no-answer.
 // v0.10.100 — Microphone recorder used by the Audio tab of each variant.
-// Uses the browser's MediaRecorder API. 30-second cap with live countdown.
-// Produces a Blob (audio/webm in Chrome / Electron) that the parent uploads
-// straight to /voicemail-greeting/:type via uploadVoicemailGreeting().
+// 30-second cap with live countdown, then preview-before-save.
+//
+// v0.10.216 — the MediaRecorder plumbing moved to the shared useMicRecorder
+// hook (lib/useMicRecorder.ts) so the SMS composer's voice-to-text uses the
+// same codec selection, duration cap, permission-error handling, and — most
+// importantly — the same guaranteed track teardown. This component is now
+// just the greeting-specific UI on top of it: preview the audio, then save or
+// discard. Behaviour is unchanged.
 function MicrophoneRecorder({
   onRecordingReady,
   disabled,
@@ -1393,103 +1401,14 @@ function MicrophoneRecorder({
   disabled?: boolean;
   maxSeconds?: number;
 }) {
-  const [recording, setRecording] = useState(false);
-  const [secondsLeft, setSecondsLeft] = useState(maxSeconds);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const [previewBlob, setPreviewBlob] = useState<Blob | null>(null);
-  const [micError, setMicError] = useState<string | null>(null);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const chunksRef = useRef<Blob[]>([]);
-  const streamRef = useRef<MediaStream | null>(null);
-  const countdownRef = useRef<number | null>(null);
-
-  function stopStream() {
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((t) => t.stop());
-      streamRef.current = null;
-    }
-  }
-  function clearCountdown() {
-    if (countdownRef.current !== null) {
-      window.clearInterval(countdownRef.current);
-      countdownRef.current = null;
-    }
-  }
-  // Cleanup on unmount — make sure we don't keep the mic open if the
-  // user navigates away mid-recording.
-  useEffect(() => () => { stopStream(); clearCountdown(); }, []);
-
-  async function startRecording() {
-    setMicError(null);
-    setPreviewUrl(null);
-    setPreviewBlob(null);
-    chunksRef.current = [];
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      streamRef.current = stream;
-      // Pick a mime type the browser actually supports. Chrome / Electron:
-      // webm/opus; Safari: mp4. MediaRecorder.isTypeSupported() handles it.
-      const mimeCandidates = [
-        'audio/webm;codecs=opus',
-        'audio/webm',
-        'audio/mp4',
-        '', // browser default
-      ];
-      const mimeType = mimeCandidates.find((m) => !m || MediaRecorder.isTypeSupported(m)) ?? '';
-      const mr = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
-      mediaRecorderRef.current = mr;
-      mr.ondataavailable = (e) => {
-        if (e.data && e.data.size > 0) chunksRef.current.push(e.data);
-      };
-      mr.onstop = () => {
-        const blob = new Blob(chunksRef.current, { type: mr.mimeType || 'audio/webm' });
-        setPreviewBlob(blob);
-        setPreviewUrl(URL.createObjectURL(blob));
-        stopStream();
-        clearCountdown();
-      };
-      mr.start();
-      setRecording(true);
-      setSecondsLeft(maxSeconds);
-      countdownRef.current = window.setInterval(() => {
-        setSecondsLeft((s) => {
-          if (s <= 1) {
-            // Hit the cap — stop recording.
-            mr.state === 'recording' && mr.stop();
-            setRecording(false);
-            return 0;
-          }
-          return s - 1;
-        });
-      }, 1000);
-    } catch (e) {
-      setMicError(
-        (e as Error).message?.includes('Permission')
-          ? 'Microphone permission was denied. Check your browser settings.'
-          : `Couldn't access microphone: ${(e as Error).message}`,
-      );
-      stopStream();
-      clearCountdown();
-      setRecording(false);
-    }
-  }
-
-  function stopRecording() {
-    const mr = mediaRecorderRef.current;
-    if (mr && mr.state === 'recording') mr.stop();
-    setRecording(false);
-  }
-
-  function discardPreview() {
-    if (previewUrl) URL.revokeObjectURL(previewUrl);
-    setPreviewUrl(null);
-    setPreviewBlob(null);
-  }
+  const mic = useMicRecorder(maxSeconds);
+  const recording = mic.state === 'recording';
+  const previewUrl = mic.state === 'recorded' ? mic.previewUrl : null;
 
   function savePreview() {
-    if (!previewBlob) return;
-    onRecordingReady(previewBlob);
-    discardPreview();
+    if (!mic.recording) return;
+    onRecordingReady(mic.recording.blob);
+    mic.reset();
   }
 
   return (
@@ -1499,7 +1418,7 @@ function MicrophoneRecorder({
           <button
             type="button"
             className="device-action"
-            onClick={startRecording}
+            onClick={() => void mic.start()}
             disabled={disabled}
             style={{ background: '#ef4444', color: '#fff', borderColor: '#ef4444' }}
           >
@@ -1512,13 +1431,13 @@ function MicrophoneRecorder({
             <button
               type="button"
               className="device-action"
-              onClick={stopRecording}
+              onClick={mic.stop}
               style={{ background: '#1f2937', color: '#fff', borderColor: '#1f2937' }}
             >
               ⏹ Stop recording
             </button>
             <span className="muted small" style={{ color: '#ef4444', fontWeight: 600 }}>
-              ● Recording — {secondsLeft}s left
+              ● Recording — {mic.secondsLeft}s left
             </span>
           </>
         )}
@@ -1536,7 +1455,7 @@ function MicrophoneRecorder({
             <button
               type="button"
               className="device-action"
-              onClick={discardPreview}
+              onClick={mic.reset}
               disabled={disabled}
             >
               Discard
@@ -1544,15 +1463,15 @@ function MicrophoneRecorder({
           </>
         )}
       </div>
-      {micError && (
+      {mic.error && (
         <div
           className="error small"
           style={{ marginTop: 8, color: '#dc2626' }}
         >
-          {micError}
+          {mic.error}
         </div>
       )}
-      {!recording && !previewUrl && !micError && (
+      {!recording && !previewUrl && !mic.error && (
         <p className="muted small" style={{ marginTop: 8, marginBottom: 0 }}>
           Records up to {maxSeconds} seconds. You&apos;ll be able to preview before saving.
         </p>

@@ -589,14 +589,26 @@ export async function meRoutes(app: FastifyInstance) {
 
   // ── GET /me/sms-templates ───────────────────────────────────────────────
   //
-  // v0.10.52 — Returns the tenant's active SMS templates for the picker
-  // in the SMS compose UI. Read-only for users — admin manages the list.
+  // v0.10.52 — Returns active SMS templates for the picker in the SMS
+  // compose UI.
+  //
+  // v0.10.216 — Two scopes now live in this table (see the SmsTemplate model
+  // comment). The owner filter below is the security boundary for the whole
+  // personal-template feature: without it, every user's private templates
+  // would be served to the entire tenant. Company templates
+  // (ownerUserId NULL) stay read-only here — writes go to
+  // /admin/sms-templates; personal writes go to the POST/PATCH/DELETE
+  // handlers in messages/smsTemplates.routes.ts.
   app.get(
     '/me/sms-templates',
     { onRequest: [app.authenticate] },
-    async () => {
+    async (request: FastifyRequest) => {
+      const me = (request.user as JwtPayload).sub;
       const templates = await prisma.smsTemplate.findMany({
-        where: { isActive: true },
+        where: {
+          isActive: true,
+          OR: [{ ownerUserId: null }, { ownerUserId: me }],
+        },
         orderBy: [
           { category: 'asc' },
           { sortOrder: 'asc' },
@@ -608,9 +620,20 @@ export async function meRoutes(app: FastifyInstance) {
           name: true,
           body: true,
           sortOrder: true,
+          ownerUserId: true,
         },
       });
-      return { ok: true, templates };
+      return {
+        ok: true,
+        // `scope` / `canEdit` are derived so the picker doesn't reimplement
+        // the ownership rule. Rendering hints only — every write re-checks
+        // ownership server-side regardless of what the client believes.
+        templates: templates.map((t) => ({
+          ...t,
+          scope: t.ownerUserId === null ? 'company' : 'personal',
+          canEdit: t.ownerUserId !== null,
+        })),
+      };
     },
   );
 

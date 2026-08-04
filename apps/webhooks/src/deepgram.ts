@@ -1,5 +1,12 @@
 // Deepgram transcription helper.
 //
+// SIBLING (v0.10.216): apps/api/src/lib/deepgram.ts transcribes recordings
+// the browser captures for voice-composed SMS. It's a deliberate copy of
+// the request-building code below, because CLAUDE.md §1.4 forbids sharing TS
+// modules across apps outside packages/db. Keep the model + query params in
+// sync with that file — matching settings are what make a dictated SMS and
+// a voicemail transcript sound like the same product.
+//
 // Used by the calls.voicemail.completed webhook handler: after we save a
 // Voicemail row with transcription=null, we fire-and-forget this helper.
 // When the transcript comes back (~2-5 sec for short voicemails), we

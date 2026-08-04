@@ -670,9 +670,20 @@ model MsServiceToken {
 /// variables ({role}, {client}, {time}, etc.) stay as `{varName}` and
 /// the user fills them in before sending.
 ///
-/// Tenant-wide by default — all active users see all active templates.
-/// Admin curates the list (create, edit, archive). No per-user templates
-/// in this iteration; the same playbook covers the whole recruiter team.
+/// Two scopes, discriminated by `ownerUserId` (v0.10.216):
+///   - ownerUserId = NULL  → company-wide. Admin-curated (create, edit,
+///     archive via /admin/sms-templates); every active user sees them and
+///     nobody but an admin can change them.
+///   - ownerUserId = <id>  → personal. Created by that user in the SMS
+///     composer; only the owner can see, edit, or archive it. Admins do
+///     NOT see other users' personal templates — deliberate privacy call,
+///     since drafts routinely carry candidate comp details.
+///
+/// The owner filter on the read path is the security boundary: any query
+/// serving templates to a user MUST be scoped
+/// `OR: [{ ownerUserId: null }, { ownerUserId: <caller> }]`, and every
+/// write MUST use a compound where on (id, ownerUserId) so a guessed id
+/// can't reach another user's row.
 model SmsTemplate {
   id          Int      @id @default(autoincrement())
   /// Bucket the template falls under: "outreach" | "docs" | "submission"
@@ -693,10 +704,21 @@ model SmsTemplate {
   /// User ID of the admin who last touched this row. Nullable for the
   /// initial seed (created by the system "seed defaults" endpoint).
   updatedBy   Int?     @map("updated_by")
+  /// NULL = company-wide (admin-managed). Non-null = personal template
+  /// owned by this user id. See the scope note on the model above.
+  ///
+  /// Deliberately a plain Int rather than a User relation, matching
+  /// `updatedBy` — no FK, so deactivating a user never cascades into
+  /// their templates and an orphaned row is inert rather than a
+  /// constraint violation.
+  ownerUserId Int?     @map("owner_user_id")
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt      @map("updated_at")
 
   @@index([isActive, category, sortOrder])
+  /// Serves the composer's picker query, which always filters on owner +
+  /// isActive before grouping by category.
+  @@index([ownerUserId, isActive, category, sortOrder])
   @@map("sms_templates")
 }
 

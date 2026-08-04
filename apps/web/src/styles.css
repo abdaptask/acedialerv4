@@ -10512,3 +10512,322 @@ body::-webkit-scrollbar { display: none; }
 .diag-msg { color: #e2e8f0; flex: 1; min-width: 0; word-break: break-word; }
 .diag-line-warn  .diag-msg { color: #fde68a; }
 .diag-line-error .diag-msg { color: #fecaca; }
+
+/* ─────────────────────────────────────────────────────────────────────────
+   v0.10.216 — SMS composer assists: personal templates, field inserter,
+   voice-to-text, AI rewrite review, and the character/segment counter.
+
+   Follows the existing composer language: neutral surfaces, restrained
+   colour, red reserved for the recording indicator (destructive/live), and
+   44px-ish touch targets on the action rows. No gradients, no badges.
+   ───────────────────────────────────────────────────────────────────────── */
+
+/* ── Template picker: personal vs company sections ────────────────────── */
+
+.template-picker-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 14px 6px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  opacity: 0.55;
+}
+/* The company section sits below the user's own, so it gets a divider to
+   make the read-only boundary obvious without resorting to a badge. */
+.template-picker-section-head.is-company {
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  margin-top: 6px;
+  padding-top: 12px;
+}
+[data-theme="light"] .template-picker-section-head.is-company {
+  border-top-color: rgba(0, 0, 0, 0.08);
+}
+
+.template-picker-new {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: 0;
+  cursor: pointer;
+  opacity: 1;
+}
+.template-picker-new:hover { background: rgba(255, 255, 255, 0.08); }
+[data-theme="light"] .template-picker-new { border-color: rgba(0, 0, 0, 0.14); }
+[data-theme="light"] .template-picker-new:hover { background: rgba(0, 0, 0, 0.05); }
+
+/* A personal template row: the template button plus its edit/delete
+   affordances. Actions stay hidden until hover/focus-within so the list reads
+   as calmly as the company one. */
+.template-picker-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding-right: 8px;
+}
+.template-picker-row .template-picker-item { flex: 1; min-width: 0; }
+.template-picker-row:hover { background: rgba(255, 255, 255, 0.06); }
+[data-theme="light"] .template-picker-row:hover { background: rgba(0, 0, 0, 0.04); }
+.template-picker-row:hover .template-picker-item { background: transparent; }
+
+.template-picker-row-actions {
+  display: flex;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 120ms ease-out;
+}
+.template-picker-row:hover .template-picker-row-actions,
+.template-picker-row:focus-within .template-picker-row-actions { opacity: 1; }
+/* Keyboard users must never lose the actions — always show them on focus. */
+.template-picker-row-actions .icon-btn:focus-visible { opacity: 1; }
+
+.template-picker-empty {
+  padding: 10px 14px 12px;
+  line-height: 1.45;
+}
+
+/* ── Field inserter (template editor) ─────────────────────────────────── */
+
+.sms-field-inserter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.sms-field-menu {
+  margin-top: 8px;
+  max-height: 240px;
+  overflow-y: auto;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  padding: 4px 0;
+}
+[data-theme="light"] .sms-field-menu { border-color: rgba(0, 0, 0, 0.1); }
+
+.sms-field-menu-item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 12px;
+  background: transparent;
+  border: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.sms-field-menu-item:hover { background: rgba(255, 255, 255, 0.06); }
+[data-theme="light"] .sms-field-menu-item:hover { background: rgba(0, 0, 0, 0.04); }
+.sms-field-menu-item code {
+  font-family: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+  font-size: 12px;
+  flex-shrink: 0;
+}
+.sms-field-menu-label { font-size: 12px; opacity: 0.7; flex: 1; min-width: 0; }
+.sms-field-menu-auto {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  opacity: 0.5;
+  flex-shrink: 0;
+}
+
+/* ── Template editor preview ──────────────────────────────────────────── */
+
+.sms-template-preview {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+}
+[data-theme="light"] .sms-template-preview { background: rgba(0, 0, 0, 0.03); }
+.sms-template-preview-label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  opacity: 0.5;
+  margin-bottom: 4px;
+}
+.sms-template-preview-body {
+  font-size: 13px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* ── Character / segment counter ──────────────────────────────────────── */
+
+.compose-counter {
+  padding: 2px 4px 0;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.5;
+  text-align: right;
+}
+/* Amber once the message will be billed as more than one SMS — the one piece
+   of information a user genuinely wants flagged rather than merely available. */
+.compose-counter.is-multi { color: #f59e0b; opacity: 0.9; }
+
+/* ── Voice-to-text panel ──────────────────────────────────────────────── */
+
+.sms-voice-panel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: 8px 0 4px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+[data-theme="light"] .sms-voice-panel {
+  background: rgba(0, 0, 0, 0.03);
+  border-color: rgba(0, 0, 0, 0.08);
+}
+
+.sms-voice-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.sms-voice-status.is-recording { font-weight: 600; }
+.sms-voice-error { font-size: 13px; color: #f87171; flex: 1; min-width: 0; }
+[data-theme="light"] .sms-voice-error { color: #dc2626; }
+
+.sms-voice-actions { display: flex; align-items: center; gap: 6px; }
+
+/* Live-recording indicator. Red is reserved for exactly this kind of
+   "something is happening right now" state elsewhere in the app. */
+.sms-voice-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #ef4444;
+  animation: sms-voice-pulse 1.4s ease-in-out infinite;
+}
+@keyframes sms-voice-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+.sms-spin { animation: sms-spin 900ms linear infinite; }
+@keyframes sms-spin { to { transform: rotate(360deg); } }
+
+/* Respect a user's reduced-motion preference — both of these are decorative. */
+@media (prefers-reduced-motion: reduce) {
+  .sms-voice-dot,
+  .sms-spin { animation: none; }
+}
+
+/* ── AI rewrite review sheet ──────────────────────────────────────────── */
+
+.sms-rewrite-block { margin-top: 12px; }
+.sms-rewrite-label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  opacity: 0.5;
+  margin-bottom: 4px;
+}
+.sms-rewrite-text {
+  padding: 10px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.sms-rewrite-text.is-original {
+  background: rgba(255, 255, 255, 0.04);
+  opacity: 0.75;
+}
+[data-theme="light"] .sms-rewrite-text.is-original { background: rgba(0, 0, 0, 0.03); }
+/* The suggestion is the thing being decided on, so it gets the stronger
+   surface and a left rule to draw the eye. */
+.sms-rewrite-text.is-suggested {
+  background: rgba(255, 255, 255, 0.07);
+  border-left: 2px solid rgba(255, 255, 255, 0.3);
+}
+[data-theme="light"] .sms-rewrite-text.is-suggested {
+  background: rgba(0, 0, 0, 0.04);
+  border-left-color: rgba(0, 0, 0, 0.25);
+}
+.sms-rewrite-text.is-loading { opacity: 0.5; font-style: italic; }
+
+.sms-rewrite-note { margin-top: 10px; }
+
+.sms-rewrite-warnings { margin-top: 12px; display: grid; gap: 6px; }
+.sms-rewrite-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: #f59e0b;
+}
+.sms-rewrite-warning svg { flex-shrink: 0; margin-top: 1px; }
+
+.sms-rewrite-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 18px;
+}
+.sms-rewrite-footnote { margin: 10px 0 0; text-align: right; }
+
+/* Narrow screens: stack the review actions full-width so the primary choice
+   isn't a 60px-wide tap target. */
+@media (max-width: 520px) {
+  .sms-rewrite-actions { flex-direction: column-reverse; }
+  .sms-rewrite-actions .device-action { width: 100%; justify-content: center; }
+  .sms-rewrite-footnote { text-align: center; }
+}
+
+/* v0.10.216 — directed review: the specific facts to check before sending. */
+.sms-rewrite-verify {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 12px;
+}
+.sms-rewrite-verify-label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  opacity: 0.5;
+  margin-right: 2px;
+}
+.sms-rewrite-verify-item {
+  font-family: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+  font-size: 11px;
+  padding: 2px 7px;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.08);
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+[data-theme="light"] .sms-rewrite-verify-item { background: rgba(0, 0, 0, 0.06); }

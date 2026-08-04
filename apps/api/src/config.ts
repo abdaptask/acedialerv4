@@ -105,6 +105,51 @@ export const config = {
   cloudflareTurnKeyId: optional('CLOUDFLARE_TURN_KEY_ID'),
   cloudflareTurnApiToken: optional('CLOUDFLARE_TURN_API_TOKEN'),
 
+  // v0.10.216 — Deepgram, for voice-to-text SMS composition.
+  //
+  // Same key and same account the webhooks service already uses for
+  // voicemail transcription (apps/webhooks/src/deepgram.ts) — this feature
+  // adds no new vendor. When unset, POST /me/sms/transcribe returns 501 and
+  // the composer hides its microphone button, so an unconfigured
+  // environment degrades to "type it yourself" rather than erroring.
+  deepgramApiKey: optional('DEEPGRAM_API_KEY'),
+
+  // v0.10.216 — LLM for "Rewrite with AI" in the SMS composer.
+  //
+  // Runs on our OWN hardware by default: Qwen via Ollama on the DGX
+  // (172.16.219.222:11434), reachable from this host in ~13ms with no VPN or
+  // tunnel. No per-token cost, and no draft text ever leaves ApTask's network.
+  //
+  //   LLM_PROVIDER  'ollama' (default) | 'anthropic' | 'off'
+  //   LLM_BASE_URL  Ollama root URL — NOT the /v1 path (see lib/llm.ts for
+  //                 why the OpenAI-compatible endpoint is unusable here)
+  //   LLM_MODEL     qwen3.5:9b is the measured best quality/latency trade
+  //                 (~1.1s warm). qwen3:8b-nothink is faster but edits more
+  //                 timidly. NB the internal migration guide's `qwen3:32b`
+  //                 DOES NOT EXIST on the box — verify with
+  //                 `curl http://172.16.219.222:11434/api/tags`.
+  //   LLM_KEEP_ALIVE  How long Ollama holds the model in VRAM. A cold load
+  //                 was measured at ~47s, so keeping it resident matters.
+  //
+  // Kill switch: set LLM_PROVIDER=off + `pm2 restart ace-api` and
+  // POST /me/sms/rewrite returns 501 within seconds, with the composer hiding
+  // its Rewrite button. No deploy needed.
+  //
+  // Privacy contract enforced in lib/smsRewrite.ts: the request carries the
+  // draft text ONLY — no thread history, no contact name or number, no user
+  // id, no account metadata — and neither the input nor the output is
+  // logged or persisted anywhere.
+  llmProvider: optional('LLM_PROVIDER', 'ollama'),
+  llmBaseUrl: optional('LLM_BASE_URL', 'http://172.16.219.222:11434'),
+  llmModel: optional('LLM_MODEL', 'qwen3.5:9b'),
+  llmKeepAlive: optional('LLM_KEEP_ALIVE', '30m'),
+
+  // Dormant fallback. ONLY used when LLM_PROVIDER=anthropic is set
+  // explicitly, so a stray key in the environment can never start billing on
+  // its own. Exists so a DGX outage is a one-env-var switch, not a deploy.
+  anthropicApiKey: optional('ANTHROPIC_API_KEY'),
+  anthropicModel: optional('ANTHROPIC_MODEL', 'claude-haiku-4-5'),
+
   // Protected super-admins. These emails can NEVER lose admin access:
   //   - On every login (SSO or local password) their is_admin + is_active are
   //     force-set true, so any accidental demotion / direct-DB drift / stale
