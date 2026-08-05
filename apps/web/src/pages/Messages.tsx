@@ -2,7 +2,7 @@
 // thread list on the left (or full screen on narrow), thread detail on the right.
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Send, ArrowLeft, RefreshCcw, MessageSquarePlus, Image as ImageIcon, Search, X, Zap, Phone, History, Star, Ban, Smile, FileText, Clock, Trash2, Pencil, MessageSquare, Voicemail as VoicemailIcon, Download, Check, CheckCheck, AlertCircle } from 'lucide-react';
+import { Send, ArrowLeft, RefreshCcw, MessageSquarePlus, Image as ImageIcon, Search, X, Zap, Phone, History, Star, Ban, Smile, FileText, Clock, Trash2, Pencil, MessageSquare, Voicemail as VoicemailIcon, Download, Check, CheckCheck, AlertCircle, Plus, Mic, Sparkles } from 'lucide-react';
 // v0.10.176 - DidSwitcher reused as the "Your line" pill below the
 // thread header. Same component as the global header switcher; talks
 // to POST /me/active-did, so switching here switches the user's active
@@ -29,6 +29,11 @@ import {
   // v0.10.52 — Tenant SMS templates picker.
   listMySmsTemplates,
   type SmsTemplate,
+  // v0.10.216 — personal templates + the placeholder registry.
+  deleteMySmsTemplate,
+  getSmsPlaceholders,
+  type SmsPlaceholder,
+  type SmsTemplateCategory,
   // v0.10.54 — Used to resolve {recruiter} placeholder to the user's
   // first name when picking a template.
   getMe,
@@ -50,6 +55,13 @@ import {
 } from '../lib/messageReactions';
 import { useJobDivaContact, getCachedJobDivaName } from '../hooks/useJobDivaContact';
 import { useSip } from '../contexts/SipContext';
+// v0.10.216 — composer assists: personal templates, voice-to-text, AI rewrite,
+// and the character/segment counter.
+import SmsTemplateEditor from '../components/SmsTemplateEditor';
+import SmsVoiceRecorder from '../components/SmsVoiceRecorder';
+import SmsRewriteSheet from '../components/SmsRewriteSheet';
+import { formatSmsLength, measureSms } from '../lib/smsSegments';
+import { fillTemplateBody, type FillContext } from '../lib/smsPlaceholderFill';
 import {
   getQuickReplies,
   isFavorite,
@@ -504,7 +516,9 @@ interface ThreadDetailProps {
 function ThreadDetail({ number, onBack }: ThreadDetailProps) {
   const jd = useJobDivaContact(number);
   const navigate = useNavigate();
-  const { sipState, call } = useSip();
+  // v0.10.216 — callState is read so voice recording can be refused while a
+  // call is up; two consumers competing for the mic risks the call's audio.
+  const { sipState, call, callState } = useSip();
   const [messages, setMessages] = useState<MessageRecord[]>([]);
   // Resolve the display name with the favorites lookup taking precedence
   // over JobDiva, so a user-chosen friendly name always wins. (#161)
@@ -575,6 +589,20 @@ function ThreadDetail({ number, onBack }: ThreadDetailProps) {
   // {firstName} pre-filled from the contact (if known).
   const [showTemplatePicker, setShowTemplatePicker] = useState(false);
   const [templates, setTemplates] = useState<SmsTemplate[]>([]);
+  // v0.10.216 — the placeholder registry + category labels, served by
+  // GET /me/sms-placeholders so this file no longer hardcodes either. (The
+  // category label map used to be duplicated here, in Settings.tsx, and in
+  // the seed file; it had already drifted.)
+  const [placeholders, setPlaceholders] = useState<SmsPlaceholder[]>([]);
+  const [categories, setCategories] = useState<SmsTemplateCategory[]>([]);
+  // Personal-template editor: absent = closed, else create or edit.
+  const [templateEditor, setTemplateEditor] = useState<
+    null | { mode: 'create' } | { mode: 'edit'; template: SmsTemplate }
+  >(null);
+  // Voice-to-text panel + AI rewrite sheet. Only one composer assist is open
+  // at a time; opening either closes the popovers.
+  const [showVoice, setShowVoice] = useState(false);
+  const [rewriteOpen, setRewriteOpen] = useState(false);
   // v0.10.54 — Logged-in user's first name. Resolves {recruiter} in
   // templates so it shows up as "Hi Jean, this is Abdulla from..." rather
   // than literal "{recruiter}". Falls back to empty string until the
@@ -606,6 +634,12 @@ function ThreadDetail({ number, onBack }: ThreadDetailProps) {
     listMySmsTemplates(token)
       .then((items) => setTemplates(items))
       .catch(() => undefined);
+    getSmsPlaceholders(token)
+      .then((r) => {
+        setPlaceholders(r.placeholders);
+        setCategories(r.categories);
+      })
+      .catch(() => undefined);
     getMe(token)
       .then((u) => {
         const first = (u.firstName ?? '').trim();
@@ -613,6 +647,112 @@ function ThreadDetail({ number, onBack }: ThreadDetailProps) {
       })
       .catch(() => undefined);
   }, []);
+
+  // v0.10.216 — refetch templates after a create/edit/delete so the picker
+  // reflects the change without a page reload.
+  const reloadTemplates = useCallback(() => {
+    const token = sessionStorage.getItem('ace_token');
+    if (!token) return;
+    listMySmsTemplates(token)
+      .then((items) => setTemplates(items))
+      .catch(() => undefined);
+  }, []);
+
+  // ── v0.10.216 composer-assist derived state ───────────────────────────
+
+  // What the auto-filling placeholders resolve against. JobDiva supplies real
+  // structured first/last/title/company; displayName is the fallback.
+  const fillContext: FillContext = useMemo(
+    () => ({ displayName, jobDiva: jd, recruiterFirstName }),
+    [displayName, jd, recruiterFirstName],
+  );
+
+  // Live character + segment count. Derived from `draft`, so it's correct
+  // after every path that mutates it — typing, paste, template insert, emoji,
+  // quick reply, voice transcript, AI rewrite — with no per-feature wiring.
+  const draftMeasure = useMemo(() => measureSms(draft), [draft]);
+
+  // A call being up is the one hard block on recording. 'idle'/'ended' mean
+  // no live media; anything else (calling, ringing, incoming, connected) means
+  // the SIP session owns the microphone.
+  const callActive = callState.state !== 'idle' && callState.state !== 'ended';
+
+  const myTemplates = useMemo(
+    () => templates.filter((t) => t.scope === 'personal'),
+    [templates],
+  );
+  const companyTemplates = useMemo(
+    () => templates.filter((t) => t.scope !== 'personal'),
+    [templates],
+  );
+
+  /**
+   * Insert text at the caret, or append on a new line if the caret position
+   * isn't available. Used by the voice transcript: appending is deliberate —
+   * overwriting a draft the user already typed would lose their work, unlike a
+   * template insert (which the user chose as a whole-message replacement).
+   */
+  const insertAtCaret = useCallback((text: string) => {
+    const el = composeInputRef.current;
+    setDraft((prev) => {
+      if (!el) return prev.trim() ? `${prev} ${text}` : text;
+      const start = el.selectionStart ?? prev.length;
+      const end = el.selectionEnd ?? prev.length;
+      const before = prev.slice(0, start);
+      const after = prev.slice(end);
+      // Space-separate so a transcript doesn't fuse onto the previous word.
+      const sep = before && !/\s$/.test(before) ? ' ' : '';
+      const next = before + sep + text + after;
+      requestAnimationFrame(() => {
+        el.focus();
+        const caret = (before + sep + text).length;
+        try {
+          el.setSelectionRange(caret, caret);
+        } catch {
+          /* older browsers */
+        }
+      });
+      return next;
+    });
+  }, []);
+
+  /** Close every composer popover — used when opening an assist. */
+  const closePopovers = useCallback(() => {
+    setShowQuickReplies(false);
+    setShowEmojiPicker(false);
+    setShowTemplatePicker(false);
+  }, []);
+
+  /**
+   * Insert a template into the compose box.
+   *
+   * Replaces the whole draft: templates are complete messages, not snippets,
+   * and this matches the pre-v0.10.216 behaviour users already expect.
+   *
+   * Placeholder resolution moved from two hardcoded regexes here
+   * ({firstName} and {recruiter}) to the server-served registry, so
+   * {lastName}, {jobTitle}, and {companyName} now auto-fill from JobDiva too.
+   * Anything without a known value stays literal — a visible {role} is a
+   * prompt to type, whereas an empty gap is a bug the user won't spot until
+   * after they've sent it.
+   */
+  function applyTemplate(t: SmsTemplate) {
+    setDraft(fillTemplateBody(t.body, fillContext, placeholders));
+    setShowTemplatePicker(false);
+    requestAnimationFrame(() => composeInputRef.current?.focus());
+  }
+
+  async function handleDeleteTemplate(t: SmsTemplate) {
+    if (!window.confirm(`Delete your template "${t.name}"?`)) return;
+    const token = sessionStorage.getItem('ace_token');
+    if (!token) return;
+    const res = await deleteMySmsTemplate(token, t.id);
+    if (res.ok) {
+      reloadTemplates();
+    } else {
+      alert(res.error ?? 'Could not delete that template.');
+    }
+  }
 
   // v0.10.59 — Load pending scheduled messages for THIS thread on mount and
   // whenever a new one is created/edited/canceled. Cheap query (server caps
@@ -1559,6 +1699,31 @@ function ThreadDetail({ number, onBack }: ThreadDetailProps) {
             <Send size={16} />
           </button>
         </div>
+
+        {/* v0.10.216 — voice-to-text panel. Replaces the action row while
+            recording so the two can't be operated at cross purposes. */}
+        {showVoice && (
+          <SmsVoiceRecorder
+            onTranscript={insertAtCaret}
+            onClose={() => setShowVoice(false)}
+          />
+        )}
+
+        {/* v0.10.216 — character + segment count. There was no length
+            feedback in the composer at all before this, so a user had no way
+            to see that one emoji had just turned a 90-character message into
+            two billable segments. Derived from `draft`, so it's correct after
+            a template insert, a transcript, or an AI rewrite without any
+            per-feature wiring. */}
+        {draftMeasure.segments > 0 && (
+          <div
+            className={`compose-counter${draftMeasure.segments > 1 ? ' is-multi' : ''}`}
+            aria-live="polite"
+          >
+            {formatSmsLength(draftMeasure)}
+          </div>
+        )}
+
         <div className="compose-row-actions">
           <button
             type="button"
@@ -1583,6 +1748,9 @@ function ThreadDetail({ number, onBack }: ThreadDetailProps) {
                 if (next) {
                   setShowEmojiPicker(false);
                   setShowTemplatePicker(false);
+                  // v0.10.216 — also close the voice panel, which releases the
+                  // microphone rather than holding it open behind a popover.
+                  setShowVoice(false);
                 }
               }}
               aria-label="Quick replies"
@@ -1603,6 +1771,7 @@ function ThreadDetail({ number, onBack }: ThreadDetailProps) {
               if (next) {
                 setShowQuickReplies(false);
                 setShowTemplatePicker(false);
+                setShowVoice(false);
               }
             }}
             aria-label="Insert emoji"
@@ -1610,28 +1779,76 @@ function ThreadDetail({ number, onBack }: ThreadDetailProps) {
           >
             <Smile size={16} />
           </button>
-          {/* v0.10.52 Templates. Hidden when admin hasn't seeded any. */}
-          {templates.length > 0 && (
-            <button
-              type="button"
-              className={`compose-action-pill${showTemplatePicker ? ' is-active' : ''}`}
-              onClick={() => {
-                // v0.10.183 — mutual exclusion (was previously only
-                // closing emoji; now also closes quick replies).
-                const next = !showTemplatePicker;
-                setShowTemplatePicker(next);
-                if (next) {
-                  setShowQuickReplies(false);
-                  setShowEmojiPicker(false);
-                }
-              }}
-              aria-label="Templates"
-              title="Insert template"
-            >
-              <FileText size={16} />
-              <span>Templates</span>
-            </button>
-          )}
+          {/* v0.10.52 Templates.
+              v0.10.216 — always shown. It used to hide when the table was
+              empty, which now would hide the only route to "New template" and
+              make personal templates undiscoverable on a tenant whose admin
+              never seeded the playbook. */}
+          <button
+            type="button"
+            className={`compose-action-pill${showTemplatePicker ? ' is-active' : ''}`}
+            onClick={() => {
+              // v0.10.183 — mutual exclusion (was previously only
+              // closing emoji; now also closes quick replies).
+              const next = !showTemplatePicker;
+              setShowTemplatePicker(next);
+              if (next) {
+                setShowQuickReplies(false);
+                setShowEmojiPicker(false);
+                setShowVoice(false);
+              }
+            }}
+            aria-label="Templates"
+            title="Insert or manage templates"
+          >
+            <FileText size={16} />
+            <span>Templates</span>
+          </button>
+
+          {/* v0.10.216 — Record a message, transcribe it, insert the text.
+              Disabled during a call: the SIP session owns the microphone, and
+              a second consumer risks the live call's audio. */}
+          <button
+            type="button"
+            className={`compose-action-pill${showVoice ? ' is-active' : ''}`}
+            onClick={() => {
+              closePopovers();
+              setShowVoice((v) => !v);
+            }}
+            disabled={callActive}
+            aria-label="Record message"
+            title={
+              callActive
+                ? "Can't record while a call is in progress"
+                : 'Record a message and turn it into text'
+            }
+          >
+            <Mic size={16} />
+            <span>Record</span>
+          </button>
+
+          {/* v0.10.216 — AI rewrite. Needs enough text to be worth rewriting;
+              the review sheet is where the suggestion is accepted or rejected,
+              and nothing is ever sent from there. */}
+          <button
+            type="button"
+            className="compose-action-pill"
+            onClick={() => {
+              closePopovers();
+              setShowVoice(false);
+              setRewriteOpen(true);
+            }}
+            disabled={draft.trim().length < 15 || sending}
+            aria-label="Rewrite with AI"
+            title={
+              draft.trim().length < 15
+                ? 'Write a little more first'
+                : 'Fix grammar and wording — you review before sending'
+            }
+          >
+            <Sparkles size={16} />
+            <span>Rewrite</span>
+          </button>
         </div>
       </div>
 
@@ -1672,86 +1889,159 @@ function ThreadDetail({ number, onBack }: ThreadDetailProps) {
         </div>
       )}
 
-      {/* v0.10.52 — SMS templates picker popover. Templates are grouped
-          by category. Clicking one replaces the entire draft (since
-          templates are usually full SMS, not insertion snippets). The
-          {firstName} variable is resolved from the contact's display
-          name if known; the rest stay as `{var}` so the user can fill
-          inline before sending. */}
-      {showTemplatePicker && templates.length > 0 && (
+      {/* v0.10.52 — SMS templates picker popover.
+          v0.10.216 — split into two sections: the user's own templates first
+          (they're the ones reached for most, and the only ones they can edit),
+          then the admin-curated company playbook, which is read-only here.
+          Clicking a template replaces the whole draft — templates are complete
+          messages, not snippets. Auto-filling placeholders resolve from the
+          conversation; the rest stay literal so the user can see what still
+          needs typing. */}
+      {showTemplatePicker && (
         <div className="template-picker-popover" role="dialog" aria-label="SMS templates">
-          {(() => {
-            const grouped: Record<string, SmsTemplate[]> = {};
-            for (const t of templates) {
-              if (!grouped[t.category]) grouped[t.category] = [];
-              grouped[t.category].push(t);
-            }
-            const categoryOrder = ['outreach', 'docs', 'submission', 'interview', 'followup', 'outcome', 'bgv', 'relationship', 'custom'];
-            const categoryLabel: Record<string, string> = {
-              outreach: 'Initial outreach',
-              docs: 'Documents & profile',
-              submission: 'Submission',
-              interview: 'Interview',
-              followup: 'Follow-ups & status',
-              outcome: 'Outcomes',
-              bgv: 'Onboarding & BGV',
-              relationship: 'Relationship maintenance',
-              custom: 'Custom',
-            };
-            // Extract the first word of the contact's display name as
-            // a best-effort firstName. Falls back to '{firstName}' if
-            // we can't resolve (e.g. unknown phone number).
-            const resolveFirstName = (): string => {
-              if (!displayName) return '{firstName}';
-              // If displayName looks like a formatted phone (no letters),
-              // leave the placeholder so the user knows to type it.
-              if (!/[a-zA-Z]/.test(displayName)) return '{firstName}';
-              return displayName.trim().split(/\s+/)[0];
-            };
-            const first = resolveFirstName();
-            return (
-              <div className="template-picker-content">
-                {categoryOrder
-                  .filter((cat) => grouped[cat] && grouped[cat].length > 0)
-                  .map((cat) => (
+          <div className="template-picker-content">
+            <div className="template-picker-section-head">
+              <span>My templates</span>
+              <button
+                type="button"
+                className="template-picker-new"
+                onClick={() => {
+                  setShowTemplatePicker(false);
+                  setTemplateEditor({ mode: 'create' });
+                }}
+              >
+                <Plus size={13} />
+                New
+              </button>
+            </div>
+
+            {myTemplates.length === 0 ? (
+              <div className="template-picker-empty muted small">
+                You haven&apos;t saved any templates yet. Create one to reuse a
+                message you send often.
+              </div>
+            ) : (
+              myTemplates.map((t) => (
+                <div key={t.id} className="template-picker-row">
+                  <button
+                    type="button"
+                    className="template-picker-item"
+                    onClick={() => applyTemplate(t)}
+                    title="Click to insert"
+                  >
+                    <div className="template-picker-item-name">{t.name}</div>
+                    <div className="template-picker-item-body">
+                      {t.body.length > 80 ? `${t.body.slice(0, 80)}…` : t.body}
+                    </div>
+                  </button>
+                  <div className="template-picker-row-actions">
+                    <button
+                      type="button"
+                      className="icon-btn"
+                      aria-label={`Edit ${t.name}`}
+                      title="Edit"
+                      onClick={() => {
+                        setShowTemplatePicker(false);
+                        setTemplateEditor({ mode: 'edit', template: t });
+                      }}
+                    >
+                      <Pencil size={13} />
+                    </button>
+                    <button
+                      type="button"
+                      className="icon-btn"
+                      aria-label={`Delete ${t.name}`}
+                      title="Delete"
+                      onClick={() => void handleDeleteTemplate(t)}
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  </div>
+                </div>
+              ))
+            )}
+
+            {companyTemplates.length > 0 && (
+              <>
+                <div className="template-picker-section-head is-company">
+                  <span>Company templates</span>
+                  <span className="muted small">managed by admin</span>
+                </div>
+                {(() => {
+                  const grouped: Record<string, SmsTemplate[]> = {};
+                  for (const t of companyTemplates) {
+                    if (!grouped[t.category]) grouped[t.category] = [];
+                    grouped[t.category].push(t);
+                  }
+                  // Category order + labels come from the server registry now,
+                  // with any unrecognised category falling to the end rather
+                  // than vanishing (the old hardcoded list silently dropped
+                  // categories it didn't know).
+                  const known = categories.map((c) => c.key);
+                  const order = [
+                    ...known.filter((k) => grouped[k]?.length),
+                    ...Object.keys(grouped).filter((k) => !known.includes(k)),
+                  ];
+                  const labelOf = (key: string) =>
+                    categories.find((c) => c.key === key)?.label ?? key;
+                  return order.map((cat) => (
                     <div key={cat} className="template-picker-group">
-                      <div className="template-picker-group-label">
-                        {categoryLabel[cat] ?? cat}
-                      </div>
+                      <div className="template-picker-group-label">{labelOf(cat)}</div>
                       {grouped[cat].map((t) => (
                         <button
                           key={t.id}
                           type="button"
                           className="template-picker-item"
-                          onClick={() => {
-                            // v0.10.54 — Resolve TWO auto-fill variables:
-                            //   {firstName} → contact's first name
-                            //   {recruiter} → logged-in user's first name
-                            // Everything else stays as `{var}` for inline edit.
-                            let resolved = t.body.replace(/\{firstName\}/g, first);
-                            if (recruiterFirstName) {
-                              resolved = resolved.replace(/\{recruiter\}/g, recruiterFirstName);
-                            }
-                            setDraft(resolved);
-                            setShowTemplatePicker(false);
-                            requestAnimationFrame(() => {
-                              composeInputRef.current?.focus();
-                            });
-                          }}
+                          onClick={() => applyTemplate(t)}
                           title="Click to insert"
                         >
                           <div className="template-picker-item-name">{t.name}</div>
                           <div className="template-picker-item-body">
-                            {t.body.length > 80 ? t.body.slice(0, 80) + '…' : t.body}
+                            {t.body.length > 80 ? `${t.body.slice(0, 80)}…` : t.body}
                           </div>
                         </button>
                       ))}
                     </div>
-                  ))}
-              </div>
-            );
-          })()}
+                  ));
+                })()}
+              </>
+            )}
+          </div>
         </div>
+      )}
+
+
+      {/* v0.10.216 — personal template create/edit. */}
+      {templateEditor && (
+        <SmsTemplateEditor
+          template={templateEditor.mode === 'edit' ? templateEditor.template : undefined}
+          categories={categories}
+          placeholders={placeholders}
+          fillContext={fillContext}
+          onClose={() => setTemplateEditor(null)}
+          onSaved={() => {
+            setTemplateEditor(null);
+            reloadTemplates();
+          }}
+        />
+      )}
+
+      {/* v0.10.216 — AI rewrite review. Every action here at most changes the
+          draft; sending still requires the user's own Send click. */}
+      {rewriteOpen && (
+        <SmsRewriteSheet
+          original={draft}
+          onUse={(text) => {
+            setDraft(text);
+            setRewriteOpen(false);
+          }}
+          onEdit={(text) => {
+            setDraft(text);
+            setRewriteOpen(false);
+            requestAnimationFrame(() => composeInputRef.current?.focus());
+          }}
+          onClose={() => setRewriteOpen(false)}
+        />
       )}
 
       {showHistory && history && (

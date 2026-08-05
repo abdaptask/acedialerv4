@@ -16,5 +16,9 @@
     "noUnusedParameters": false,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src"]
+  "include": ["src"],
+  // v0.10.216 — unit tests run under `node --import tsx --test` (see the
+  // `test` script), not through the Vite build. Excluding them keeps
+  // node:test out of the browser bundle's typecheck, matching apps/api.
+  "exclude": ["src/**/*.test.ts"]
 }

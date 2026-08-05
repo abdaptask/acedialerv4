@@ -645,6 +645,7 @@ scripts/      One-off ops helpers (dedupe call legs, fix favorite names, etc.)
 
 ### 18.1 Capabilities & Scope
 - Send + receive SMS and MMS via Telnyx Messaging. Threaded by `threadKey` = the other party's E.164. MMS uploads land in Supabase Storage (`ace-media` bucket); URLs are persisted on the `Message` row.
+- **Composer assists (v0.10.216):** two-scope SMS templates (company-wide + per-user) with a validated placeholder registry, voice-to-text dictation, AI grammar rewrite with mandatory human review, and a live character/segment counter.
 
 ### 18.2 Current State & Truth
 **Status:** Shipped.
@@ -656,6 +657,13 @@ scripts/      One-off ops helpers (dedupe call legs, fix favorite names, etc.)
 | Web UI | `apps/web/src/pages/Messages.tsx` |
 | Compose | Quick replies pulled from `userPrefs.getQuickReplies()` |
 | Inbound | Telnyx webhook → `message.received` → resolve user via `resolveUserId` → upsert by `telnyxMessageId` |
+| **Templates (2 scopes)** | `SmsTemplate.ownerUserId`: `NULL` = company-wide (admin CRUD via `/admin/sms-templates`), non-null = personal (owner CRUD via `/me/sms-templates`) |
+| **Placeholder registry** | `apps/api/src/lib/smsPlaceholders.ts` — canonical `{camelCase}` keys, case-insensitive matching, validator; served by `GET /me/sms-placeholders` |
+| **Placeholder fill** | `apps/web/src/lib/smsPlaceholderFill.ts` — `contact` fields from Favorites/JobDiva, `user` fields from `/me`, `manual` fields left literal |
+| **Voice-to-text** | `POST /me/sms/transcribe` → `apps/api/src/lib/deepgram.ts` (nova-3, `language=multi`); recorder = `apps/web/src/lib/useMicRecorder.ts` + `components/SmsVoiceRecorder.tsx` |
+| **AI rewrite** | `POST /me/sms/rewrite` → `apps/api/src/lib/smsRewrite.ts`; provider layer `lib/llm.ts` (**self-hosted Qwen on the DGX via Ollama**, default `qwen3.5:9b`; Anthropic dormant fallback); output guards + `factsToVerify` in `lib/smsRewriteGuards.ts`; review UI = `components/SmsRewriteSheet.tsx` |
+| **Segment counter** | `apps/web/src/lib/smsSegments.ts` — GSM-7 (160/153) vs UCS-2 (70/67) |
+| **Env** | `DEEPGRAM_API_KEY` (shared with webhooks); `LLM_PROVIDER` (`ollama` default \| `anthropic` \| `off`), `LLM_BASE_URL`, `LLM_MODEL`, `LLM_KEEP_ALIVE`. Unconfigured ⇒ endpoint 501s and its button hides |
 
 ### 18.3 Execution Context
 - **MMS upload:** `POST /messages/upload` accepts `{ filename, mimeType, dataBase64 }` (16 MB body limit, ≤10 MB payload). Uploaded to Supabase via service-role key; returns `{ url }` for the sender to attach to a subsequent `POST /messages`.
@@ -666,6 +674,16 @@ scripts/      One-off ops helpers (dedupe call legs, fix favorite names, etc.)
 - **`threadKey` = the OTHER party's E.164 regardless of direction.** Don't store the user's own DID as `threadKey` or you'll fragment the thread.
 - **MMS upload size cap is real.** Larger payloads break Telnyx + cost a lot of storage. Reject early at the API.
 - **Quick replies live in `localStorage`.** They're a UI convenience, not synced; explicit user-content settings live in [[5-app-shell]] / Settings → Quick Replies.
+- **The template read filter is a security boundary.** Any query serving templates to a user MUST be scoped `OR: [{ ownerUserId: null }, { ownerUserId: <caller> }]`. Drop it and every user's personal templates leak tenant-wide.
+- **Template writes use a compound where on `(id, ownerUserId)` via `updateMany`** — never `findUnique(id)`-then-check. A guessed id must miss, not 403. Admin handlers are symmetrically scoped `ownerUserId: null`, so the admin pane can't reach a user's personal templates (deliberate — drafts carry candidate comp details, and moderation wasn't a requirement).
+- **Placeholders are validated on save, never on read.** An existing template must always still render and send, even if the registry later changes. Add a field to `smsPlaceholders.ts` rather than loosening the validator.
+- **Never resolve an unknown placeholder to an empty string.** Leave it literal. A visible `{role}` is a prompt to type; an empty gap is a bug the user won't notice until after they've sent it.
+- **Voice audio is never persisted and never sent.** It exists only to produce text — request-scoped buffer → Deepgram → discarded. No DB row, no Supabase object, no disk write, no audio in logs. Sending audio as a message is a separate feature with its own storage and consent story.
+- **Recording is refused while a call is live.** The SIP session owns the microphone; a second consumer risks the active call's audio ([[7-audio-devices]] no-zombie-tracks invariant). All recorder teardown goes through `useMicRecorder`, which stops tracks on every exit path.
+- **AI rewrite fails closed and is never auto-sent.** The model's output is mechanically validated (placeholder multiset, digit runs, URLs/emails, length ratio) before the user ever sees it; a failed guard keeps the user's original text. There is no code path from a suggestion to an outbound SMS that skips the user's Send click.
+- **Guards are calibrated, not maximal — keep them that way.** A guard that rejects good rewrites costs more than it protects, because users abandon a feature that keeps refusing them. Hence: numeral↔word substitution for 0–12 passes, an added currency symbol warns, a dropped proper noun warns — while a changed number value, a mangled placeholder, and an altered link still fail closed. That split is the point: block what reading a message cannot catch, warn about the rest, and name the specific facts to check via `factsToVerify()` so review is directed rather than a vibe check.
+- **Qwen3 needs Ollama's NATIVE `/api/chat` with `think: false`, not the OpenAI-compatible `/v1` path.** `/v1` offers no way to disable hybrid reasoning (`chat_template_kwargs.enable_thinking` is silently ignored): measured 16s vs 772ms, ~640 vs 24 output tokens, and — worst — HTTP 200 with an EMPTY response when reasoning exhausts `max_tokens`. Do not "simplify" `lib/llm.ts` back onto the OpenAI SDK without re-measuring.
+- **Never log message content, transcripts, or audio.** Audit rows for these actions carry lengths, model, and outcome only.
 
 ---
 

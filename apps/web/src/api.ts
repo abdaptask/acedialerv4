@@ -1775,6 +1775,7 @@ export async function adminRemoveBlockedNumber(token: string, id: number): Promi
 }
 
 // v0.10.52 — Tenant SMS templates.
+// v0.10.216 — two scopes: company-wide (admin-managed) and personal.
 export interface SmsTemplate {
   id: number;
   category: string;
@@ -1785,6 +1786,15 @@ export interface SmsTemplate {
   updatedBy?: number | null;
   createdAt?: string;
   updatedAt?: string;
+  /** null = company-wide; a user id = that user's personal template. */
+  ownerUserId?: number | null;
+  /** Derived server-side from ownerUserId. */
+  scope?: 'company' | 'personal';
+  /**
+   * Derived server-side. A rendering hint only — the server re-checks
+   * ownership on every write regardless of what the client sends.
+   */
+  canEdit?: boolean;
 }
 export interface SmsTemplateInput {
   category: string;
@@ -1846,6 +1856,183 @@ export async function seedSmsTemplateDefaults(token: string): Promise<{ ok: bool
   const body = await res.json().catch(() => ({}));
   if (!res.ok) return { ok: false, error: typeof body === 'object' && 'error' in body ? String((body as { error: unknown }).error) : `HTTP ${res.status}` };
   return body as { ok: boolean; inserted: number; skipped: number };
+}
+
+// ── v0.10.216 — Personal SMS templates + composer assists ───────────────
+//
+// Personal templates are created and managed by the user who owns them, from
+// the SMS composer. Distinct from the admin endpoints above, which manage the
+// company-wide playbook: these hit /me/* and the server scopes every write to
+// the caller.
+
+/** A dynamic field usable inside a template body, e.g. {firstName}. */
+export interface SmsPlaceholder {
+  key: string;
+  label: string;
+  sample: string;
+  /** 'contact' and 'user' fields auto-fill on insert; 'manual' ones don't. */
+  source: 'contact' | 'user' | 'manual';
+  /** Pre-rendered `{key}`, so the client never string-builds the braces. */
+  token: string;
+  /** Valid but superseded by a better-named field — not shown in the picker. */
+  hidden?: boolean;
+}
+
+export interface SmsTemplateCategory {
+  key: string;
+  label: string;
+}
+
+/**
+ * The placeholder registry + category labels, served so the client has no
+ * hardcoded copy (the category list alone used to be duplicated in three
+ * files and had already drifted).
+ */
+export async function getSmsPlaceholders(
+  token: string,
+): Promise<{ placeholders: SmsPlaceholder[]; categories: SmsTemplateCategory[] }> {
+  const res = await fetch(`${API_URL}/me/sms-placeholders`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) return { placeholders: [], categories: [] };
+  const body = (await res.json().catch(() => ({}))) as {
+    placeholders?: SmsPlaceholder[];
+    categories?: SmsTemplateCategory[];
+  };
+  return { placeholders: body.placeholders ?? [], categories: body.categories ?? [] };
+}
+
+export interface MySmsTemplateInput {
+  category: string;
+  name: string;
+  body: string;
+}
+
+export async function createMySmsTemplate(
+  token: string,
+  input: MySmsTemplateInput,
+): Promise<{ ok: boolean; template?: SmsTemplate; error?: string }> {
+  const res = await fetch(`${API_URL}/me/sms-templates`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify(input),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) return { ok: false, error: errorText(body, res.status) };
+  return body as { ok: boolean; template: SmsTemplate };
+}
+
+export async function updateMySmsTemplate(
+  token: string,
+  id: number,
+  input: Partial<MySmsTemplateInput>,
+): Promise<{ ok: boolean; template?: SmsTemplate; error?: string }> {
+  const res = await fetch(`${API_URL}/me/sms-templates/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify(input),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) return { ok: false, error: errorText(body, res.status) };
+  return body as { ok: boolean; template: SmsTemplate };
+}
+
+export async function deleteMySmsTemplate(
+  token: string,
+  id: number,
+): Promise<{ ok: boolean; error?: string }> {
+  const res = await fetch(`${API_URL}/me/sms-templates/${id}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) return { ok: false, error: errorText(body, res.status) };
+  return body as { ok: boolean };
+}
+
+/**
+ * Transcribe a recording into SMS text. The audio is used for this call only —
+ * the server streams it to the speech provider and discards it; nothing is
+ * stored, and the recording is never sent as an MMS attachment.
+ */
+export async function transcribeSmsVoice(
+  token: string,
+  blob: Blob,
+  mimeType: string,
+): Promise<{ ok: boolean; transcript?: string; error?: string; code?: string }> {
+  const dataBase64 = await blobToBase64(blob);
+  const res = await fetch(`${API_URL}/me/sms/transcribe`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ mimeType, dataBase64 }),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    return {
+      ok: false,
+      error: errorText(body, res.status),
+      code: typeof body === 'object' && body && 'code' in body ? String((body as { code: unknown }).code) : undefined,
+    };
+  }
+  return body as { ok: boolean; transcript: string };
+}
+
+export interface SmsRewriteResponse {
+  ok: boolean;
+  rewritten?: string;
+  /** Non-blocking things to eyeball, e.g. a name that may have been dropped. */
+  warnings?: string[];
+  /** True when the model returned the draft essentially unchanged. */
+  unchanged?: boolean;
+  /** Specific facts to eyeball before sending — rates, links, day names. */
+  verify?: string[];
+  error?: string;
+  code?: string;
+}
+
+/**
+ * Ask the server to correct grammar/spelling/structure in a draft. Returns the
+ * suggestion for the user to review — it is never sent automatically, and the
+ * server rejects any rewrite that altered a placeholder, number, or link.
+ */
+export async function rewriteSmsDraft(token: string, body: string): Promise<SmsRewriteResponse> {
+  const res = await fetch(`${API_URL}/me/sms/rewrite`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ body }),
+  });
+  const parsed = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    return {
+      ok: false,
+      error: errorText(parsed, res.status),
+      code:
+        typeof parsed === 'object' && parsed && 'code' in parsed
+          ? String((parsed as { code: unknown }).code)
+          : undefined,
+    };
+  }
+  return parsed as SmsRewriteResponse;
+}
+
+function errorText(body: unknown, status: number): string {
+  return typeof body === 'object' && body && 'error' in body
+    ? String((body as { error: unknown }).error)
+    : `HTTP ${status}`;
+}
+
+function blobToBase64(blob: Blob): Promise<string> {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = String(reader.result);
+      // Strip the "data:<mime>;base64," prefix — the API wants raw base64.
+      const comma = result.indexOf(',');
+      resolve(comma >= 0 ? result.slice(comma + 1) : result);
+    };
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(blob);
+  });
 }
 
 // v0.10.76 — Admin-uploaded ringtones (tenant-wide library).

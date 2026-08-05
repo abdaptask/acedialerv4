@@ -4577,11 +4577,18 @@ export async function adminRoutes(app: FastifyInstance) {
     isActive: z.boolean().optional(),
   });
 
+  // v0.10.216 — every handler below is scoped `ownerUserId: null` so the
+  // admin pane operates on company-wide templates ONLY. Users' personal
+  // templates share this table but are invisible and untouchable here: they
+  // routinely carry candidate comp details, and moderation of them wasn't a
+  // requirement. Removing that filter would silently turn the admin list
+  // into a window onto every employee's private drafts.
   app.get(
     '/admin/sms-templates',
     { onRequest: [app.authenticate, requireAdmin] },
     async () => {
       const templates = await prisma.smsTemplate.findMany({
+        where: { ownerUserId: null },
         orderBy: [
           { isActive: 'desc' },
           { category: 'asc' },
@@ -4603,7 +4610,8 @@ export async function adminRoutes(app: FastifyInstance) {
         return reply.code(400).send({ ok: false, error: 'Invalid input', details: parsed.error.flatten() });
       }
       const created = await prisma.smsTemplate.create({
-        data: { ...parsed.data, updatedBy: actor.sub },
+        // ownerUserId stays NULL — admin-authored templates are company-wide.
+        data: { ...parsed.data, ownerUserId: null, updatedBy: actor.sub },
       });
       await recordAudit(actor.sub, 'sms_template.created', null, {
         templateId: created.id,
@@ -4625,7 +4633,11 @@ export async function adminRoutes(app: FastifyInstance) {
       if (!parsed.success) {
         return reply.code(400).send({ ok: false, error: 'Invalid input', details: parsed.error.flatten() });
       }
-      const existing = await prisma.smsTemplate.findUnique({ where: { id } });
+      // Compound where: a personal template doesn't match, so it 404s rather
+      // than being editable from the admin pane.
+      const existing = await prisma.smsTemplate.findFirst({
+        where: { id, ownerUserId: null },
+      });
       if (!existing) return reply.code(404).send({ ok: false, error: 'Template not found' });
       const updated = await prisma.smsTemplate.update({
         where: { id },
@@ -4648,10 +4660,16 @@ export async function adminRoutes(app: FastifyInstance) {
       if (!Number.isFinite(id)) return reply.code(400).send({ ok: false, error: 'Invalid id' });
       // Soft delete â€” preserves history. Hard delete via admin would
       // require an additional ?hard=true param; not implementing now.
-      const updated = await prisma.smsTemplate.update({
-        where: { id },
+      // updateMany + ownerUserId:null so this can't archive a user's
+      // personal template.
+      const result = await prisma.smsTemplate.updateMany({
+        where: { id, ownerUserId: null },
         data: { isActive: false, updatedBy: actor.sub },
       });
+      if (result.count === 0) {
+        return reply.code(404).send({ ok: false, error: 'Template not found' });
+      }
+      const updated = await prisma.smsTemplate.findUnique({ where: { id } });
       await recordAudit(actor.sub, 'sms_template.archived', null, { templateId: id });
       return { ok: true, template: updated };
     },
@@ -4665,7 +4683,11 @@ export async function adminRoutes(app: FastifyInstance) {
     async (request) => {
       const actor = request.user as JwtPayload;
       const { SMS_TEMPLATE_SEEDS } = await import('../lib/smsTemplateSeed.js');
+      // Scoped to company templates: otherwise a user who happened to name a
+      // personal template "Cold outreach" in the outreach category would
+      // make the seeder skip the company one, leaving a gap in the playbook.
       const existing = await prisma.smsTemplate.findMany({
+        where: { ownerUserId: null },
         select: { category: true, name: true },
       });
       const existingKeys = new Set(existing.map((t) => `${t.category}|${t.name}`));
@@ -4681,6 +4703,7 @@ export async function adminRoutes(app: FastifyInstance) {
           name: s.name,
           body: s.body,
           sortOrder: s.sortOrder,
+          ownerUserId: null,
           updatedBy: actor.sub,
         })),
       });

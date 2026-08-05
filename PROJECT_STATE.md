@@ -1,6 +1,6 @@
 # ACE Dialer — Project State
 
-**Last updated:** July 22, 2026 (In-call DTMF display bar + physical keyboard + non-blocking Electron inbound, v0.10.213)
+**Last updated:** August 4, 2026 (SMS composer: personal templates + voice-to-text + AI rewrite — v0.10.216, UNCOMMITTED)
 **Maintained by:** Claude (update at end of every working session)
 
 This file is a living snapshot of where the project stands. New Claude
@@ -26,11 +26,40 @@ If you're a fresh Claude session opening this project:
 
 | Stream | Version | Status | Where |
 |---|---|---|---|
-| In progress (uncommitted) | v0.10.205 | Apply script run, tsc clean — NOT yet committed/tagged | scripts/apply-v205-force-update.mjs |
-| Latest committed | v0.10.204 | Pushed to origin/main, .exe built | GitHub release `v0.10.204` |
+| Latest committed | v0.10.215 | Pushed to `origin/release/0.10.215` — PR to main + `./deploy.sh` + desktop publish PENDING | branch `release/0.10.215` |
+| Latest committed (prior) | v0.10.204 | Pushed to origin/main, .exe built | GitHub release `v0.10.204` |
 | Stable published (auto-update) | v0.10.132 | **Published** to all 40+ ApTask users | GitHub release `v0.10.132` |
 | Backend (api/webhooks/socket) | up through v0.10.204 deployed | Self-hosted on dialer.aptask.com (pm2) | `pm2 list` / `./deploy.sh` |
 | Auto-update status | LOCKED (EV cert procurement window) | v0.10.143 enforces signing | docs/ev-cert-procurement.md |
+
+**August 4, 2026 — v0.10.216 staged (UNCOMMITTED, NOT DEPLOYED): SMS composer — personal templates, voice-to-text, AI rewrite**
+
+- **Scope:** four asks — user-created SMS templates (previously admin-only), voice dictation, "Rewrite with AI", plus accurate character/segment counts and audit coverage.
+- **Templates now have two scopes** on one table via a new nullable `SmsTemplate.ownerUserId`: `NULL` = company-wide (admin CRUD, unchanged), non-null = personal (owner CRUD via new `/me/sms-templates` POST/PATCH/DELETE). The read filter in `GET /me/sms-templates` (`OR: [{ownerUserId: null}, {ownerUserId: me}]`) is the security boundary; all writes use compound `updateMany` on `(id, ownerUserId)`. Admin handlers are symmetrically scoped `ownerUserId: null` so the admin pane cannot see or touch anyone's personal templates (deliberate privacy call — approved).
+- **Placeholder registry is new** (`apps/api/src/lib/smsPlaceholders.ts`). Placeholders were previously free-form text with only `{firstName}` / `{recruiter}` resolved by two hardcoded regexes in `Messages.tsx`; nothing validated them, so a typo shipped silently to a candidate. Now: canonical `{camelCase}` keys, case-insensitive matching (`{FirstName}` works), malformed-syntax detection, did-you-mean suggestions, and validation on save. `{lastName}`, `{jobTitle}`, `{companyName}`, `{recruiterName}` added and auto-fill from JobDiva/`/me`; legacy `{recruiter}` + `{currentCompany}` stay valid but hidden from the picker.
+- **Verified against production before enabling strict validation:** the live `sms_templates` table holds exactly the 20 seeded rows using exactly 16 placeholder keys — no admin ever created a custom template, so no existing template can fail validation. A test asserts all 20 seed bodies validate clean and normalize to themselves.
+- **Voice-to-text** reuses the existing Deepgram account (`nova-3`, `language=multi`) — no new vendor. `apps/api/src/lib/deepgram.ts` is a deliberate ~40-line copy of the webhooks helper (CLAUDE.md §1.4 forbids cross-app TS sharing); both files now cross-reference each other. Audio is request-scoped only: never written to disk/Postgres/Supabase, never sent as MMS. Recording is **blocked while a call is live** (mic contention would risk the call's audio) and all teardown runs through the new shared `useMicRecorder` hook, which `Settings.tsx`'s voicemail-greeting recorder was refactored onto.
+- **AI rewrite runs on our own DGX — no new vendor, no per-token cost, and no draft text leaves the network.** Provider layer `apps/api/src/lib/llm.ts`; default `LLM_PROVIDER=ollama` against `http://172.16.219.222:11434` with `qwen3.5:9b`. Anthropic is retained as a dormant fallback that only runs on an explicit `LLM_PROVIDER=anthropic`, so a stray key can never start billing. Kill switch is `LLM_PROVIDER=off`.
+- **Verified live end-to-end (2026-08-04):** DGX reachable from the app host in 13ms (internal IP, no tunnel/VPN needed). The production `rewriteSmsDraft()` delivered **6/6** realistic recruiting drafts at **~1.0–1.15s** each, with the two invented `$` symbols correctly surfaced as warnings rather than blocked.
+- **Three corrections to the internal QWEN-MIGRATION-GUIDE.md** (worth sending upstream — the guide is dated 2026-03-31 and will mislead the next team):
+  1. Its recommended default `qwen3:32b` **does not exist** on the box (`qwen3:8b` does). Live inventory is 21 models incl. a whole `qwen3.5` family and `-nothink` variants — check `curl http://172.16.219.222:11434/api/tags`.
+  2. The headline "drop-in OpenAI-compatible" claim **breaks on Qwen3**, a hybrid reasoning model. `/v1` cannot disable thinking (`chat_template_kwargs.enable_thinking: false` is silently ignored — verified): 16,031ms vs 772ms, ~640 vs 24 output tokens, 5/7 vs 7/7 guard pass. The two `/v1` failures returned HTTP 200 with **empty content** because reasoning consumed all of `max_tokens`, with the reasoning hidden in a separate `reasoning` field. Must use native `/api/chat` + `think: false`.
+  3. Cold start measured at **~47s**, not the documented 10–30s. Mitigated by `prewarmLlm()` on boot + `LLM_KEEP_ALIVE=30m`.
+- **Guards recalibrated after the first live run.** `qwen3.5:9b` rewrote "last 2 paystubs" → "last two payslips" — a good edit the original digit guard rejected. Numeral↔word equivalence (0–12) now passes; a changed value or a vanished number still fails closed. Added-fact detection (invented `$`/`%`) warns instead of blocking. New `factsToVerify()` feeds a "Verify: 65/hr · Friday · meet.example.com" line into the review sheet, so the human review the feature depends on is directed at specific tokens rather than a general proofread. Request carries the draft text ONLY — no thread history, contact, user id, or metadata; nothing logged or persisted. Model output is mechanically validated before display (placeholder multiset, digit runs, URLs/emails, length ratio) and **fails closed** to the user's original. Mandatory review sheet: Use / Edit / Keep original / Regenerate (capped at 3). No code path reaches the send path.
+- **Character/segment counter** added (`apps/web/src/lib/smsSegments.ts`) — there was none before, so requirement 4's "counts remain accurate" was really "build them". GSM-7 160/153 vs UCS-2 70/67, extended chars count double, emoji count as 1 char / 2 units.
+- **Kill switches:** voice is gated on `DEEPGRAM_API_KEY` (already set on the host); rewrite on `LLM_PROVIDER` (`off` disables). Either + `pm2 restart ace-api` removes the feature in seconds with no deploy and no effect on ordinary SMS. `ANTHROPIC_API_KEY` is deliberately **unset** and unnecessary — the DGX path needs no key.
+- **Tests:** 84 api (76 new) + 26 web (all new) passing. `apps/web` gained a `test` script + tsconfig test exclusion, mirroring `apps/api`. `tsc` clean for api + web; web production build clean.
+- **NOT DONE — needs approval:** `npm run db:push` (migration is exactly one nullable `ADD COLUMN` + one `CREATE INDEX`, verified via `prisma migrate diff`; nothing else pending), commit, PR, deploy, version bump across the 7 `package.json` + `APP_VERSION`.
+- **Cannot be verified headlessly:** Electron microphone behaviour during a live call (the recording-blocked-while-on-a-call path) needs an on-device pass. Everything else — including the full rewrite path against the live DGX — has been exercised.
+
+**July 29, 2026 — v0.10.215 released: short-code SMS threads open empty / show wrong messages**
+
+- **Root cause:** `GET /messages/threads/:number` ran the conversation key through `toE164()` before matching. The threads-list groups by the EXACT stored `thread_key`, so normalizing prepended `+` to short-code / alphanumeric sender IDs and hit the wrong bucket. Confirmed against live DB: `thread_key` `72524` (3 msgs) was queried as `+72524` → 0 rows → **empty thread** (Bug 1); `83356` (1 msg, the preview) was queried as `+83356` → loaded a *different* 6-msg June bucket → **preview ≠ thread** (Bug 2). Short codes split into drifted buckets (`83356` vs `+83356`) still exist in data — each now opens faithfully; auto-merging them was deliberately left out of scope (destructive data call).
+- **Fix:** new `apps/api/src/messages/threadKey.ts` — `threadKeyCandidates()` matches the stored key VERBATIM (guaranteeing preview == thread latest), adding an E.164 alias ONLY for real ≥10-digit numbers (deep links). Detail + `/read` + `/unread` now match `threadKey IN (candidates)`; this also lets short-code threads be marked read (old `length===10` gate 400'd them, so their unread dot never cleared).
+- **UI:** `Messages.tsx` gained an explicit empty-state ("No messages yet") + a distinct load-error state with Retry, so a failed load can't masquerade as a valid empty thread.
+- **Tests:** first tests in the repo — `apps/api/src/messages/threadKey.test.ts` via `node:test` + `tsx` (`npm run test -w apps/api`, 8/8). Covers both bugs as regressions + a list/thread preview-consistency model. Test files excluded from the api `tsc` build.
+- **Ships with:** the previously-staged 0.10.212–0.10.214 work (in-call keypad + diag logging), consolidated into this release. Version 0.10.214 → 0.10.215 across all 7 `package.json` + `APP_VERSION`; What's New entry added. `tsc` (api + web) clean.
+- **Note:** the reported bugs are fixed by the backend deploy alone (server-side matching); the desktop publish only carries the empty/error-state UI.
 
 **July 22, 2026 — v0.10.213 staged: In-call DTMF UX + non-blocking Electron inbound**
 
