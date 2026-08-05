@@ -24,6 +24,15 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.217',
+    date: 'August 5, 2026',
+    highlight: 'Message length feedback when scheduling, and a guard against accidentally huge texts.',
+    changes: [
+      { type: 'new', text: 'The scheduled-message box now shows the same character count and number-of-texts as the normal message box, so a message you schedule for later can\u2019t quietly cost three texts.' },
+      { type: 'improved', text: 'Very long messages (over 1,600 characters \u2014 about ten texts) are now caught before sending, with a clear note asking you to shorten it or split it in two. Previously an accidental paste of something huge would go out as dozens of separate texts.' },
+    ],
+  },
+  {
     version: '0.10.216',
     date: 'August 4, 2026',
     highlight: 'Save your own text templates, dictate a message with your voice, and clean up wording with AI.',

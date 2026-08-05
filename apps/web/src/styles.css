@@ -10831,3 +10831,13 @@ body::-webkit-scrollbar { display: none; }
   overflow-wrap: anywhere;
 }
 [data-theme="light"] .sms-rewrite-verify-item { background: rgba(0, 0, 0, 0.06); }
+
+/* v0.10.217 — over the 1600-char send limit. Red rather than amber: amber
+   means "this costs more than you think", red means "this will not send". */
+.compose-counter.is-over {
+  color: #f87171;
+  opacity: 1;
+  font-weight: 600;
+  text-align: left;
+}
+[data-theme="light"] .compose-counter.is-over { color: #dc2626; }

@@ -1,6 +1,6 @@
 # ACE Dialer — Project State
 
-**Last updated:** August 4, 2026 (SMS composer: personal templates + voice-to-text + AI rewrite — v0.10.216, UNCOMMITTED)
+**Last updated:** August 5, 2026 (SMS composer v0.10.216 — MERGED to main via PR #77 and RELEASED to the team)
 **Maintained by:** Claude (update at end of every working session)
 
 This file is a living snapshot of where the project stands. New Claude
@@ -26,10 +26,13 @@ If you're a fresh Claude session opening this project:
 
 | Stream | Version | Status | Where |
 |---|---|---|---|
-| Latest committed | v0.10.215 | Pushed to `origin/release/0.10.215` — PR to main + `./deploy.sh` + desktop publish PENDING | branch `release/0.10.215` |
+| Latest released | **v0.10.216** | **Merged to `main` via PR #77 (`a37d461`) and released to the team.** Backend + web live on the host | `main` |
+| Latest committed (prior) | v0.10.215 | Pushed to `origin/release/0.10.215` — its own PR to main still pending. 0.10.216 was branched from it, so it carries that fix too | branch `release/0.10.215` |
 | Latest committed (prior) | v0.10.204 | Pushed to origin/main, .exe built | GitHub release `v0.10.204` |
 | Stable published (auto-update) | v0.10.132 | **Published** to all 40+ ApTask users | GitHub release `v0.10.132` |
-| Backend (api/webhooks/socket) | up through v0.10.204 deployed | Self-hosted on dialer.aptask.com (pm2) | `pm2 list` / `./deploy.sh` |
+| Backend — `ace-api` | **v0.10.216 live** (reloaded Aug 5) | Self-hosted on dialer.aptask.com (pm2) | `pm2 list` / `./deploy.sh` |
+| Backend — `ace-webhooks` / `ace-socket` | still v0.10.204-era processes | NOT restarted for 0.10.216 — the only webhooks change was a comment, so no functional gap. Next `./deploy.sh` syncs them | `pm2 list` |
+| Web SPA (`ace-web`) | **v0.10.216 live** | Serves `apps/web/dist` off disk — see the build-is-deploy warning in §5 | `pm2 list` |
 | Auto-update status | LOCKED (EV cert procurement window) | v0.10.143 enforces signing | docs/ev-cert-procurement.md |
 
 **August 4, 2026 — v0.10.216 staged (UNCOMMITTED, NOT DEPLOYED): SMS composer — personal templates, voice-to-text, AI rewrite**
@@ -49,8 +52,12 @@ If you're a fresh Claude session opening this project:
 - **Character/segment counter** added (`apps/web/src/lib/smsSegments.ts`) — there was none before, so requirement 4's "counts remain accurate" was really "build them". GSM-7 160/153 vs UCS-2 70/67, extended chars count double, emoji count as 1 char / 2 units.
 - **Kill switches:** voice is gated on `DEEPGRAM_API_KEY` (already set on the host); rewrite on `LLM_PROVIDER` (`off` disables). Either + `pm2 restart ace-api` removes the feature in seconds with no deploy and no effect on ordinary SMS. `ANTHROPIC_API_KEY` is deliberately **unset** and unnecessary — the DGX path needs no key.
 - **Tests:** 84 api (76 new) + 26 web (all new) passing. `apps/web` gained a `test` script + tsconfig test exclusion, mirroring `apps/api`. `tsc` clean for api + web; web production build clean.
-- **NOT DONE — needs approval:** `npm run db:push` (migration is exactly one nullable `ADD COLUMN` + one `CREATE INDEX`, verified via `prisma migrate diff`; nothing else pending), commit, PR, deploy, version bump across the 7 `package.json` + `APP_VERSION`.
-- **Cannot be verified headlessly:** Electron microphone behaviour during a live call (the recording-blocked-while-on-a-call path) needs an on-device pass. Everything else — including the full rewrite path against the live DGX — has been exercised.
+- **DONE since:** migration applied (`db:push`; 20 rows before and after), ownership boundary verified against the live DB, version bumped to 0.10.216 across all 7 `package.json` + the hardcoded `APP_VERSION` in `DiagnosticsSection.tsx`, committed as `979240e` on `release/0.10.216`, pushed, draft PR opened, `ace-api` reloaded so the routes are live. Verified live: `POST /me/sms/rewrite` → 200 with a correct rewrite off the DGX; `GET /me/sms-placeholders` → 200 (20 fields, 9 categories).
+- **RELEASED.** PR #77 merged `979240e` to `main`; the feature is live for the team.
+- **Caveat on that merge:** it landed `979240e` only — the follow-up docs commit raced the merge and did **not** make it into `main`. Recovered separately (this file + the CLAUDE.md build guardrails). Check `git merge-base --is-ancestor <sha> origin/main` before assuming a late push made a release.
+- **STILL OUTSTANDING:** `ace-webhooks` and `ace-socket` are still running pre-0.10.216 processes — the only change in that area was a comment, so there is no functional gap, but the next `./deploy.sh` should sync them. Desktop publish remains gated on the EV cert, so Electron users are still on v0.10.132 and do not yet see the new composer; **web users have it now**.
+- **Cannot be verified headlessly:** Electron microphone behaviour during a live call (the recording-blocked-while-on-a-call path) needs an on-device pass. Also the real voice→transcript round trip, which needs actual audio from a browser — the endpoint itself is confirmed wired (a deliberately invalid payload returned 502 from Deepgram, not 501, so the key is loaded). Everything else, including the full rewrite path against the live DGX, has been exercised.
+- **Two self-inflicted production incidents during this session, both fixed — see §5 learnings.** Building the web bundle silently deployed the frontend while the API kept running 4-day-old code (404s on every new route), and that build omitted `VITE_FORCE_ABSOLUTE_BASE=1`, which blanked every nested route including the SSO callback.
 
 **July 29, 2026 — v0.10.215 released: short-code SMS threads open empty / show wrong messages**
 
@@ -225,6 +232,22 @@ From session history:
 ---
 
 ## 5. Recent learnings (debugging discoveries)
+
+**August 5, 2026 — v0.10.217: SMS length cap + scheduled-send counter (branch `release/0.10.217`, off `main`):**
+Two follow-ups measured against 90 days of real traffic (21,060 outbound messages: p90 body ~337 chars, 27.7% multi-segment, 9.9% non-ASCII, 8.8% carrying fixable typographic punctuation, **0.00% over 1600 chars**).
+- `MAX_SMS_BODY_CHARS = 1600` added to `messages/sendMessage.ts` and enforced inside `sendMessageImmediate`, so the immediate route AND the scheduled worker are both covered by one check. `POST /messages` and scheduled-create validate up front for a clean 400. Cannot reject real traffic (nothing has ever exceeded it); it exists to stop a pathological paste going out as 30+ billed segments.
+- The scheduled-send modal had **no** length feedback and no cap — fixed, it now uses the same counter as the composer.
+- Deliberately NOT done: no `maxLength` on the textarea (silently truncates a paste), no warning on multi-segment (27.7% of traffic is legitimately 2–3 segments), no emoji stripping. The typographic-normalization nudge was scoped out — real but worth only single-digit dollars a month.
+
+**August 5, 2026 — `npm run build -w apps/web` IS a production deploy of the frontend:**
+pm2's `ace-web` serves `apps/web/dist` **directly off disk**. There is no copy step, no cache, no restart needed — the moment a build writes that directory, every web user is on the new bundle. During the v0.10.216 session, builds run purely to typecheck silently published the new UI while `ace-api` kept running a 4-day-old in-memory process, so users saw Record/Rewrite buttons that 404'd on every click. **If you build the web bundle on the host, you have deployed it** — either finish the job (`pm2 reload ace-api` so the backend matches) or don't build in the repo working copy. Note `pm2 reload` alone does NOT pick up code the way a fresh start does for *other* services: `ace-webhooks` and `ace-socket` were left on old processes and needed the same treatment.
+
+**August 5, 2026 — a bare web build blanks every nested route (missing `VITE_FORCE_ABSOLUTE_BASE=1`):**
+Vite's base here defaults to `'./'` (relative), which is correct for Electron's `file://` load and **wrong for the self-hosted SPA**. With relative paths, a browser on `/settings/audio` resolves `./assets/index.js` to `/settings/assets/index.js`; the SPA fallback answers with `index.html` as `text/html`; the browser refuses it ("Failed to load module script") and renders a **blank page**. Single-segment routes (`/messages`, `/keypad`) happen to work, which makes this easy to miss — the broken ones are `/settings/:section` and `/auth/microsoft/callback`, i.e. **SSO login**. `deploy.sh` sets the flag; a hand-run `npm run build -w apps/web` does not. Always use `VITE_FORCE_ABSOLUTE_BASE=1 npm run build:web` for the host, and verify with:
+`curl -D- -o /dev/null http://127.0.0.1:3010/settings/assets/<hashed>.js` → must be `application/javascript`, never `text/html`.
+
+**August 4, 2026 — Qwen3 on the DGX: the OpenAI-compatible `/v1` endpoint is unusable for short tasks:**
+Qwen3 is a hybrid *reasoning* model and Ollama's `/v1` path offers no way to turn thinking off — the documented `chat_template_kwargs: {enable_thinking: false}` is silently ignored. Measured with the SMS-rewrite prompt: **16,031ms vs 772ms**, ~640 vs 24 output tokens, 5/7 vs 7/7 guard passes. The failures are the nasty part: HTTP 200 with **empty `content`**, because reasoning consumed all of `max_tokens` and the reasoning went into a separate `reasoning` field. Use the native `/api/chat` with `think: false`. Also: the internal `QWEN-MIGRATION-GUIDE.md` recommends `qwen3:32b`, which **does not exist** on the box (`curl http://172.16.219.222:11434/api/tags` for the real list), and cold start is ~47s not 10–30s. The DGX is reachable from the app host at `172.16.219.222:11434` in ~13ms with no VPN or tunnel.
 
 **June 12, 2026 — React error #310 in Reply with Text (v0.10.122/.125/.127/.129 all crashed):**
 Three prior attempts to add Reply with Text to the Electron floater crashed the renderer when an incoming call arrived. Root cause finally caught via DevTools console capture in v0.10.129: the new useEffect was placed AFTER the `if (!incoming) return null` early-return guard in IncomingCall.tsx, making it a conditional hook. On first render (no call) only 3 hooks ran; on second render (call arrives) the 4th hook tried to run, React detected the mismatch and threw error #310. Fix in v0.10.130: move the useEffect to BEFORE the early-return, compute callerLabel inside the handler instead of depending on it. Always place hooks at top of component, NEVER after early-returns.

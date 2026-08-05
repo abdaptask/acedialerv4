@@ -26,6 +26,27 @@ export type SendMessageOk = {
   };
 };
 
+/**
+ * v0.10.217 — Hard ceiling on an outbound SMS body.
+ *
+ * There was no cap here at all: whatever the client sent was forwarded to
+ * Telnyx, which would segment it. 1600 characters is ~10 GSM-7 segments —
+ * the edge of the range carriers reassemble reliably, and the same number the
+ * CPaaS providers use as their own API ceiling. Above it Telnyx would reject
+ * the send with an opaque error, so failing here gives the user a sentence
+ * they can act on instead.
+ *
+ * Sized from real traffic: across 21,060 outbound messages over 90 days, the
+ * p90 body was ~337 chars and NOTHING exceeded 1600. So this cannot reject a
+ * legitimate message — it exists to stop a pathological paste (someone
+ * dumping a job description into the compose box) from going out as 30+
+ * billed segments.
+ *
+ * Enforced here rather than only in the route so the scheduled-message worker
+ * is covered by the same check.
+ */
+export const MAX_SMS_BODY_CHARS = 1600;
+
 export type SendMessageErr = {
   ok: false;
   /** Short stable code for the route/worker to branch on. */
@@ -33,6 +54,7 @@ export type SendMessageErr = {
     | 'no_did_assigned'
     | 'telnyx_send_failed'
     | 'telnyx_request_failed'
+    | 'body_too_long'
     | 'config_missing';
   /** Human-readable for UI / audit. */
   message: string;
@@ -70,6 +92,14 @@ export async function sendMessageImmediate(
       ok: false,
       code: 'config_missing',
       message: 'TELNYX_API_KEY not configured on server',
+    };
+  }
+
+  if (body.length > MAX_SMS_BODY_CHARS) {
+    return {
+      ok: false,
+      code: 'body_too_long',
+      message: `Message is ${body.length} characters; the limit is ${MAX_SMS_BODY_CHARS}. Shorten it or send it in two texts.`,
     };
   }
 

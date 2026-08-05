@@ -10,6 +10,7 @@
 // worker has claimed the row ('sending') or sent it, the row is frozen.
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { prisma } from '@ace/db';
+import { MAX_SMS_BODY_CHARS } from './sendMessage.js';
 
 interface JwtPayload {
   sub: number;
@@ -92,6 +93,16 @@ export async function scheduledMessagesRoutes(app: FastifyInstance) {
     // race the worker.)
     if (scheduledFor.getTime() < Date.now() - 5_000) {
       return reply.code(400).send({ error: 'scheduledFor is in the past' });
+    }
+
+    // v0.10.217 — validate length when scheduling, so an over-long message
+    // fails while the user is still looking at it rather than silently at
+    // send time hours later (the worker enforces the same cap as a backstop).
+    if (text.length > MAX_SMS_BODY_CHARS) {
+      return reply.code(400).send({
+        error: 'body_too_long',
+        message: `Message is ${text.length} characters; the limit is ${MAX_SMS_BODY_CHARS}.`,
+      });
     }
 
     // Resolve which UserDid to pin. If caller didn't supply one, default

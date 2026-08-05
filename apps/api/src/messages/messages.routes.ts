@@ -6,7 +6,7 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { prisma } from '@ace/db';
 import { config } from '../config.js';
-import { sendMessageImmediate } from './sendMessage.js';
+import { MAX_SMS_BODY_CHARS, sendMessageImmediate } from './sendMessage.js';
 import { toE164, threadKeyCandidates } from './threadKey.js';
 
 interface JwtPayload {
@@ -179,6 +179,14 @@ export async function messagesRoutes(app: FastifyInstance) {
       if (!config.telnyxApiKey) {
         return reply.code(500).send({ error: 'TELNYX_API_KEY not configured on server' });
       }
+      // v0.10.217 — reject over-long bodies up front with a 400 rather than
+      // letting sendMessageImmediate's identical check surface as a 502.
+      if ((body.body ?? '').length > MAX_SMS_BODY_CHARS) {
+        return reply.code(400).send({
+          error: 'body_too_long',
+          message: `Message is ${(body.body ?? '').length} characters; the limit is ${MAX_SMS_BODY_CHARS}.`,
+        });
+      }
 
       const to = toE164(body.to);
 
@@ -198,6 +206,9 @@ export async function messagesRoutes(app: FastifyInstance) {
         }
         if (result.code === 'config_missing') {
           return reply.code(500).send({ error: result.message });
+        }
+        if (result.code === 'body_too_long') {
+          return reply.code(400).send({ error: result.code, message: result.message });
         }
         app.log.warn({ code: result.code, detail: result.detail }, '[messages] send failed');
         return reply.code(502).send({ error: result.code, message: result.message, details: result.detail });
