@@ -61,6 +61,12 @@ import SmsTemplateEditor from '../components/SmsTemplateEditor';
 import SmsVoiceRecorder from '../components/SmsVoiceRecorder';
 import SmsRewriteSheet from '../components/SmsRewriteSheet';
 import { formatSmsLength, measureSms } from '../lib/smsSegments';
+/**
+ * Mirrors MAX_SMS_BODY_CHARS in apps/api/src/messages/sendMessage.ts. The
+ * server is authoritative — this copy only exists so Send can disable with an
+ * explanation rather than the user learning the limit from a 400.
+ */
+const MAX_SMS_BODY_CHARS = 1600;
 import { fillTemplateBody, type FillContext } from '../lib/smsPlaceholderFill';
 import {
   getQuickReplies,
@@ -671,6 +677,14 @@ function ThreadDetail({ number, onBack }: ThreadDetailProps) {
   // after every path that mutates it — typing, paste, template insert, emoji,
   // quick reply, voice transcript, AI rewrite — with no per-feature wiring.
   const draftMeasure = useMemo(() => measureSms(draft), [draft]);
+
+  // v0.10.217 — the server rejects a body over 1600 chars (~10 GSM-7
+  // segments; nothing in 90 days of real traffic came close). Mirror it
+  // client-side so Send disables with an explanation instead of the user
+  // discovering the limit via a 400. Deliberately NOT a maxLength on the
+  // textarea: that silently truncates a paste, which loses the tail of
+  // someone's message without telling them.
+  const draftOverLimit = draft.length > MAX_SMS_BODY_CHARS;
 
   // A call being up is the one hard block on recording. 'idle'/'ended' mean
   // no live media; anything else (calling, ringing, incoming, connected) means
@@ -1681,7 +1695,7 @@ function ThreadDetail({ number, onBack }: ThreadDetailProps) {
             type="button"
             className="icon-btn compose-icon-btn"
             onClick={() => setShowScheduleModal({ mode: 'create' })}
-            disabled={sending || (!draft.trim() && attached.length === 0)}
+            disabled={sending || draftOverLimit || (!draft.trim() && attached.length === 0)}
             aria-label="Schedule send"
             title="Schedule send"
           >
@@ -1692,8 +1706,9 @@ function ThreadDetail({ number, onBack }: ThreadDetailProps) {
             type="button"
             className="send-btn"
             onClick={handleSend}
-            disabled={sending || (!draft.trim() && attached.length === 0)}
+            disabled={sending || draftOverLimit || (!draft.trim() && attached.length === 0)}
             aria-label="Send"
+            title={draftOverLimit ? `Too long — ${MAX_SMS_BODY_CHARS} character limit` : undefined}
           >
             <span className="send-btn-label">Send</span>
             <Send size={16} />
@@ -1717,10 +1732,12 @@ function ThreadDetail({ number, onBack }: ThreadDetailProps) {
             per-feature wiring. */}
         {draftMeasure.segments > 0 && (
           <div
-            className={`compose-counter${draftMeasure.segments > 1 ? ' is-multi' : ''}`}
+            className={`compose-counter${draftOverLimit ? ' is-over' : draftMeasure.segments > 1 ? ' is-multi' : ''}`}
             aria-live="polite"
           >
-            {formatSmsLength(draftMeasure)}
+            {draftOverLimit
+              ? `${draft.length} characters — ${MAX_SMS_BODY_CHARS} is the limit. Shorten it or send in two texts.`
+              : formatSmsLength(draftMeasure)}
           </div>
         )}
 
@@ -2143,9 +2160,15 @@ function ScheduleMessageModal({
     return () => window.removeEventListener('keydown', onKey);
   }, [submitting, onClose]);
 
+  // v0.10.217 — length feedback + the same 1600-char server cap the
+  // immediate-send path enforces.
+  const bodyMeasure = useMemo(() => measureSms(body), [body]);
+  const bodyOverLimit = body.length > MAX_SMS_BODY_CHARS;
+
   const canSubmit = (() => {
     if (submitting) return false;
     if (body.trim() === '' && mediaUrls.length === 0) return false;
+    if (bodyOverLimit) return false;
     const when = new Date(whenStr);
     if (Number.isNaN(when.getTime())) return false;
     if (when.getTime() < Date.now() - 5_000) return false;
@@ -2273,6 +2296,20 @@ function ScheduleMessageModal({
             placeholder={mediaUrls.length > 0 ? '(attachment only — body optional)' : 'Type your message...'}
           />
         </label>
+        {/* v0.10.217 — same character/segment counter as the main composer.
+            27.7% of real outbound traffic is multi-segment, and this modal
+            previously gave no length feedback at all, so a message scheduled
+            here could quietly cost three texts. */}
+        {bodyMeasure.segments > 0 && (
+          <div
+            className={`compose-counter${bodyOverLimit ? ' is-over' : bodyMeasure.segments > 1 ? ' is-multi' : ''}`}
+            aria-live="polite"
+          >
+            {bodyOverLimit
+              ? `${body.length} characters — ${MAX_SMS_BODY_CHARS} is the limit.`
+              : formatSmsLength(bodyMeasure)}
+          </div>
+        )}
         {mediaUrls.length > 0 && (
           <div className="muted small" style={{ marginTop: 4 }}>
             {mediaUrls.length} attachment{mediaUrls.length === 1 ? '' : 's'} attached

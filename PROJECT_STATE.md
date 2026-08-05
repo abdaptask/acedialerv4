@@ -233,6 +233,12 @@ From session history:
 
 ## 5. Recent learnings (debugging discoveries)
 
+**August 5, 2026 — v0.10.217: SMS length cap + scheduled-send counter (branch `release/0.10.217`, off `main`):**
+Two follow-ups measured against 90 days of real traffic (21,060 outbound messages: p90 body ~337 chars, 27.7% multi-segment, 9.9% non-ASCII, 8.8% carrying fixable typographic punctuation, **0.00% over 1600 chars**).
+- `MAX_SMS_BODY_CHARS = 1600` added to `messages/sendMessage.ts` and enforced inside `sendMessageImmediate`, so the immediate route AND the scheduled worker are both covered by one check. `POST /messages` and scheduled-create validate up front for a clean 400. Cannot reject real traffic (nothing has ever exceeded it); it exists to stop a pathological paste going out as 30+ billed segments.
+- The scheduled-send modal had **no** length feedback and no cap — fixed, it now uses the same counter as the composer.
+- Deliberately NOT done: no `maxLength` on the textarea (silently truncates a paste), no warning on multi-segment (27.7% of traffic is legitimately 2–3 segments), no emoji stripping. The typographic-normalization nudge was scoped out — real but worth only single-digit dollars a month.
+
 **August 5, 2026 — `npm run build -w apps/web` IS a production deploy of the frontend:**
 pm2's `ace-web` serves `apps/web/dist` **directly off disk**. There is no copy step, no cache, no restart needed — the moment a build writes that directory, every web user is on the new bundle. During the v0.10.216 session, builds run purely to typecheck silently published the new UI while `ace-api` kept running a 4-day-old in-memory process, so users saw Record/Rewrite buttons that 404'd on every click. **If you build the web bundle on the host, you have deployed it** — either finish the job (`pm2 reload ace-api` so the backend matches) or don't build in the repo working copy. Note `pm2 reload` alone does NOT pick up code the way a fresh start does for *other* services: `ace-webhooks` and `ace-socket` were left on old processes and needed the same treatment.
 
