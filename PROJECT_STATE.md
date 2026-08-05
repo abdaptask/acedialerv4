@@ -1,6 +1,6 @@
 # ACE Dialer — Project State
 
-**Last updated:** August 5, 2026 (SMS composer v0.10.216 — committed, pushed, backend LIVE; PR draft awaiting merge)
+**Last updated:** August 5, 2026 (SMS composer v0.10.216 — MERGED to main via PR #77 and RELEASED to the team)
 **Maintained by:** Claude (update at end of every working session)
 
 This file is a living snapshot of where the project stands. New Claude
@@ -26,7 +26,7 @@ If you're a fresh Claude session opening this project:
 
 | Stream | Version | Status | Where |
 |---|---|---|---|
-| Latest committed | v0.10.216 | Pushed to `origin/release/0.10.216` (`979240e`); **draft PR to main open, NOT merged**. Backend + web are LIVE on the host; desktop publish PENDING | branch `release/0.10.216` |
+| Latest released | **v0.10.216** | **Merged to `main` via PR #77 (`a37d461`) and released to the team.** Backend + web live on the host | `main` |
 | Latest committed (prior) | v0.10.215 | Pushed to `origin/release/0.10.215` — its own PR to main still pending. 0.10.216 was branched from it, so it carries that fix too | branch `release/0.10.215` |
 | Latest committed (prior) | v0.10.204 | Pushed to origin/main, .exe built | GitHub release `v0.10.204` |
 | Stable published (auto-update) | v0.10.132 | **Published** to all 40+ ApTask users | GitHub release `v0.10.132` |
@@ -53,7 +53,9 @@ If you're a fresh Claude session opening this project:
 - **Kill switches:** voice is gated on `DEEPGRAM_API_KEY` (already set on the host); rewrite on `LLM_PROVIDER` (`off` disables). Either + `pm2 restart ace-api` removes the feature in seconds with no deploy and no effect on ordinary SMS. `ANTHROPIC_API_KEY` is deliberately **unset** and unnecessary — the DGX path needs no key.
 - **Tests:** 84 api (76 new) + 26 web (all new) passing. `apps/web` gained a `test` script + tsconfig test exclusion, mirroring `apps/api`. `tsc` clean for api + web; web production build clean.
 - **DONE since:** migration applied (`db:push`; 20 rows before and after), ownership boundary verified against the live DB, version bumped to 0.10.216 across all 7 `package.json` + the hardcoded `APP_VERSION` in `DiagnosticsSection.tsx`, committed as `979240e` on `release/0.10.216`, pushed, draft PR opened, `ace-api` reloaded so the routes are live. Verified live: `POST /me/sms/rewrite` → 200 with a correct rewrite off the DGX; `GET /me/sms-placeholders` → 200 (20 fields, 9 categories).
-- **STILL OUTSTANDING:** merge the PR to main; restart `ace-webhooks`/`ace-socket` on the next deploy; desktop publish (gated on the EV cert). Production is currently running code from an unmerged draft PR — coherent (migration + both halves match) but worth closing out.
+- **RELEASED.** PR #77 merged `979240e` to `main`; the feature is live for the team.
+- **Caveat on that merge:** it landed `979240e` only — the follow-up docs commit raced the merge and did **not** make it into `main`. Recovered separately (this file + the CLAUDE.md build guardrails). Check `git merge-base --is-ancestor <sha> origin/main` before assuming a late push made a release.
+- **STILL OUTSTANDING:** `ace-webhooks` and `ace-socket` are still running pre-0.10.216 processes — the only change in that area was a comment, so there is no functional gap, but the next `./deploy.sh` should sync them. Desktop publish remains gated on the EV cert, so Electron users are still on v0.10.132 and do not yet see the new composer; **web users have it now**.
 - **Cannot be verified headlessly:** Electron microphone behaviour during a live call (the recording-blocked-while-on-a-call path) needs an on-device pass. Also the real voice→transcript round trip, which needs actual audio from a browser — the endpoint itself is confirmed wired (a deliberately invalid payload returned 502 from Deepgram, not 501, so the key is loaded). Everything else, including the full rewrite path against the live DGX, has been exercised.
 - **Two self-inflicted production incidents during this session, both fixed — see §5 learnings.** Building the web bundle silently deployed the frontend while the API kept running 4-day-old code (404s on every new route), and that build omitted `VITE_FORCE_ABSOLUTE_BASE=1`, which blanked every nested route including the SSO callback.
 
