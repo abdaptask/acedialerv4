@@ -17,7 +17,7 @@ import Settings from './pages/Settings';
 import type { User } from './api';
 import { getMe, listMyRingtones } from './api';
 import { installSessionGuard, onSessionExpired } from './lib/sessionGuard';
-import { loadFavoritesFromServer, clearFavoritesCache } from './lib/userPrefs';
+import { loadFavoritesFromServer, clearFavoritesCache, applyClickToDialPrefs } from './lib/userPrefs';
 
 // Install the fetch interceptor once, at module load — before any
 // component issues an API call. Subsequent calls are no-ops.
@@ -162,15 +162,22 @@ export default function App() {
         console.warn('[deep-link] missing to, ignoring');
         return;
       }
+      // v0.10.218 - propagate the provenance marker so Dialpad knows whether
+      // to validate strictly (highlighted text) or stay lenient (Teams card).
+      const srcParam = data.src === 'selection' ? '&src=selection' : '';
       const route =
         data.action === 'call'
-          ? `/keypad?to=${encodeURIComponent(data.to)}`
+          ? `/keypad?to=${encodeURIComponent(data.to)}${srcParam}`
           : `/messages?to=${encodeURIComponent(data.to)}`;
       console.info('[deep-link] navigating:', route);
       navigate(route);
     });
     // Tell main to flush any cold-start deep link buffered before mount.
     window.ace.notifyReadyForDeepLink?.();
+    // v0.10.218 — re-apply the click-to-dial prefs on every boot. Global
+    // shortcuts and protocol registrations don't survive a restart, and the
+    // renderer is where the prefs live, so main can't restore them itself.
+    void applyClickToDialPrefs();
     return unsub;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

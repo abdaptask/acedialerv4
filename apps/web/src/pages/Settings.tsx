@@ -2,6 +2,7 @@ import * as React from 'react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams, NavLink, Navigate } from 'react-router-dom';
 import {
+  MousePointerClick,
   ArrowLeft,
   Mic,
   Volume2,
@@ -246,6 +247,13 @@ import { formatPhone } from '../lib/phone';
 // v0.10.216 — shared with the SMS composer's voice-to-text, so both surfaces
 // get identical codec selection, duration capping, and mic teardown.
 import { useMicRecorder } from '../lib/useMicRecorder';
+import {
+  getClickToDialPrefs,
+  setClickToDialPrefs,
+  applyClickToDialPrefs,
+  SUGGESTED_DIAL_HOTKEY,
+  type ClickToDialPrefs,
+} from '../lib/userPrefs';
 
 interface AudioDevice {
   deviceId: string;
@@ -295,6 +303,7 @@ const SECTIONS: SectionDef[] = [
   // "Notifications" entry (NotificationsHubSection) is for external
   // notification channels (Email + Teams).
   { key: 'notifications', category: 'Personal', label: 'Sound & alerts', icon: Bell, blurb: 'In-app ringer sound + desktop popups', Component: NotificationsSection },
+  { key: 'click-to-dial', category: 'Personal', label: 'Click to dial', icon: MousePointerClick, blurb: 'Call numbers you highlight in other apps', Component: ClickToDialSection },
   // v0.10.75 — Per-user ringtone preference.
   { key: 'ringtone', category: 'Personal', label: 'Ringtone', icon: Bell, blurb: 'Pick the sound your incoming calls play', Component: RingtoneSection },
   // v0.10.91 — Notifications. Single Settings entry that contains both
@@ -8938,6 +8947,127 @@ function UserDevicesModal({
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+
+// v0.10.218 — Click-to-Dial settings.
+//
+// Both surfaces are OFF by default and opt-in, because both change behaviour
+// OUTSIDE this app: registering as the tel: handler can displace Teams or
+// FaceTime as the system's phone app, and a global hotkey claims a key
+// combination across every application. Neither should be switched on for
+// someone without them choosing it.
+//
+// Desktop-only. In the browser build the whole pane explains why rather than
+// showing dead toggles.
+function ClickToDialSection() {
+  const isElectron = Boolean(window.ace?.setClickToDialConfig);
+  const [prefs, setPrefs] = useState<ClickToDialPrefs>(() => getClickToDialPrefs());
+  const [error, setError] = useState<string | null>(null);
+  const [osTelHandler, setOsTelHandler] = useState<boolean | null>(null);
+
+  // Show what the OS actually thinks, not just what we last wrote locally —
+  // another app can take the tel: association at any time, and a toggle that
+  // claims "on" while Teams owns the association is worse than no toggle.
+  const refreshOsStatus = useCallback(() => {
+    if (!window.ace?.getClickToDialStatus) return;
+    window.ace
+      .getClickToDialStatus()
+      .then((s) => setOsTelHandler(s.telHandler))
+      .catch(() => undefined);
+  }, []);
+  useEffect(() => { refreshOsStatus(); }, [refreshOsStatus]);
+
+  async function update(next: ClickToDialPrefs) {
+    setPrefs(next);
+    setClickToDialPrefs(next);
+    setError(null);
+    const res = await applyClickToDialPrefs(next);
+    if (res.hotkey && !res.hotkey.ok) {
+      setError(res.hotkey.error ?? 'Could not register that shortcut.');
+      // Roll the stored pref back so Settings doesn't claim a hotkey that
+      // isn't actually registered.
+      const reverted = { ...next, hotkey: null };
+      setPrefs(reverted);
+      setClickToDialPrefs(reverted);
+    } else if (res.tel && !res.tel.ok) {
+      setError(res.tel.error ?? 'Could not change the phone-link setting.');
+    }
+    refreshOsStatus();
+  }
+
+  if (!isElectron) {
+    return (
+      <div className="settings-section">
+        <p className="settings-blurb">
+          Click to dial needs the desktop app — it registers with Windows or macOS
+          to catch phone links and shortcuts, which a web page can&apos;t do.
+          Install ACE Dialer on your computer to use it.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="settings-section">
+      <p className="settings-blurb">
+        Call a phone number you find in another app — Outlook, your ATS, a PDF —
+        without retyping it. The number is only filled into the dialer;
+        <strong> the call never starts until you press Call.</strong>
+      </p>
+
+      <label className="settings-toggle-row">
+        <input
+          type="checkbox"
+          checked={prefs.telHandler}
+          onChange={(e) => void update({ ...prefs, telHandler: e.target.checked })}
+        />
+        <span>
+          <strong>Open phone links in ACE Dialer</strong>
+          <span className="muted small">
+            Clicking a phone number in Outlook, Teams, your ATS, or a web page opens
+            it here. Windows or macOS may ask you to confirm the change.
+          </span>
+        </span>
+      </label>
+
+      {osTelHandler === false && prefs.telHandler && (
+        <p className="muted small" style={{ marginTop: -4, marginBottom: 12 }}>
+          Your operating system still has another app set as the default for phone
+          links. Open it from a phone link once and choose ACE Dialer, or set it in
+          your OS default-apps settings.
+        </p>
+      )}
+
+      <label className="settings-toggle-row">
+        <input
+          type="checkbox"
+          checked={prefs.hotkey !== null}
+          onChange={(e) =>
+            void update({ ...prefs, hotkey: e.target.checked ? SUGGESTED_DIAL_HOTKEY : null })
+          }
+        />
+        <span>
+          <strong>Dial what I&apos;ve copied ({SUGGESTED_DIAL_HOTKEY.replace('CommandOrControl', 'Ctrl/Cmd')})</strong>
+          <span className="muted small">
+            Copy a phone number anywhere (Ctrl+C), then press the shortcut to open it
+            here. ACE Dialer only reads your clipboard at the moment you press the
+            shortcut — it never monitors it in the background.
+          </span>
+        </span>
+      </label>
+
+      {error && <div className="error small" style={{ marginTop: 10 }}>{error}</div>}
+
+      <p className="muted small" style={{ marginTop: 16 }}>
+        To right-click a highlighted number in Chrome or Edge, install the ACE Dialer
+        browser extension. On macOS, IT can also install a &ldquo;Call with ACE
+        Dialer&rdquo; item into the right-click menu for other apps; once installed
+        you enable it under System Settings &rarr; Keyboard &rarr; Keyboard Shortcuts
+        &rarr; Services.
+      </p>
     </div>
   );
 }

@@ -1,0 +1,26 @@
+/* ACE Dialer chip.
+   Deliberately restrained: this is drawn on top of someone else's UI, so it
+   must read as "this is actionable" without repainting their page. A dotted
+   underline plus a pointer is the lightest treatment that still signals
+   clickability; the colour only appears on hover. Nothing here changes
+   layout — no padding, no display change, no borders that could reflow a
+   table cell. */
+.ace-dialer-chip {
+  cursor: pointer;
+  text-decoration: underline dotted currentColor 1px;
+  text-underline-offset: 2px;
+  border-radius: 3px;
+  transition: background-color 120ms ease-out, color 120ms ease-out;
+}
+.ace-dialer-chip:hover,
+.ace-dialer-chip:focus-visible {
+  background-color: rgba(16, 185, 129, 0.16);
+  text-decoration-style: solid;
+  outline: none;
+}
+.ace-dialer-chip.is-dialing {
+  background-color: rgba(16, 185, 129, 0.32);
+}
+@media (prefers-reduced-motion: reduce) {
+  .ace-dialer-chip { transition: none; }
+}

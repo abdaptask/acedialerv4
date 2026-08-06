@@ -31,7 +31,17 @@ const consoleWarn: LogFn = (obj, msg) => console.warn(msg, obj);
 
 type EventType = 'missed_call' | 'sms' | 'voicemail';
 
-const APP_URL = (process.env.WEB_BASE_URL ?? 'https://ace-dialer.vercel.app').replace(/\/+$/, '');
+/**
+ * Origin used for every link in a notification email.
+ *
+ * v0.10.217 — the fallback was `https://ace-dialer.vercel.app`, a domain that
+ * has been decommissioned (CLAUDE.md §1.1: "No Render, no Vercel"). It wasn't
+ * firing in production because WEB_BASE_URL is set on the host, but that made
+ * it a silent landmine: drop that one env var and every missed-call, SMS, and
+ * voicemail email would start pointing users at a dead site, with nothing in
+ * the logs to say so. The fallback is now the real self-hosted origin.
+ */
+const APP_URL = (process.env.WEB_BASE_URL ?? 'https://dialer.aptask.com').replace(/\/+$/, '');
 
 /**
  * Build a deep-link URL that opens the Electron desktop app via the

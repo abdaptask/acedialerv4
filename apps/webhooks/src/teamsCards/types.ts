@@ -139,8 +139,9 @@ export function formatTimeForDisplay(d: Date | string | number): string {
  *   buttons. Result: clicking Reply/Call in a card did nothing.
  *
  * v0.10.24: REVERTED to the v0.10.5 web-URL approach. Card buttons
- *   point at `https://ace-dialer.vercel.app/auto/call?to=...` and
- *   `.../auto/sms?to=...`. The web page does the protocol launch
+ *   point at `<WEB_BASE_URL>/auto/call?to=...` and `.../auto/sms?to=...`
+ *   (that origin was a Vercel domain at the time; it is now the
+ *   self-hosted dialer.aptask.com). The web page does the protocol launch
  *   (with browser permission prompt) and falls back to the in-browser
  *   dialer after 3s. Works on:
  *     • Teams desktop (Windows/Mac) — protocol prompt, user picks
@@ -151,9 +152,15 @@ export function formatTimeForDisplay(d: Date | string | number): string {
  * Voicemail playback URL ALSO stays as a web URL — it intentionally
  * opens a browser page (the audio playback view).
  *
- * `WEB_BASE_URL` is the Vercel origin used for all card action URLs. */
+ * `WEB_BASE_URL` is the web origin used for all card action URLs.
+ *
+ * v0.10.217 — fallback corrected from `https://ace-dialer.vercel.app` (a
+ * decommissioned domain — CLAUDE.md §1.1) to the real self-hosted origin.
+ * WEB_BASE_URL is set on the host so the old value never shipped, but a
+ * missing env var would otherwise have silently pointed every Teams card
+ * button at a dead site. */
 function webBase(): string {
-  return (process.env.WEB_BASE_URL ?? 'https://ace-dialer.vercel.app').replace(/\/+$/, '');
+  return (process.env.WEB_BASE_URL ?? 'https://dialer.aptask.com').replace(/\/+$/, '');
 }
 
 export function buildCallDeepLink(toNumber: string): string {

@@ -10841,3 +10841,59 @@ body::-webkit-scrollbar { display: none; }
   text-align: left;
 }
 [data-theme="light"] .compose-counter.is-over { color: #dc2626; }
+
+/* v0.10.218 — Click-to-Dial: the captured text wasn't a phone number. */
+.dial-selection-error {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 16px 8px;
+  padding: 9px 12px;
+  border-radius: 10px;
+  font-size: 13px;
+  line-height: 1.35;
+  color: #f87171;
+  background: rgba(248, 113, 113, 0.1);
+  border: 1px solid rgba(248, 113, 113, 0.25);
+}
+.dial-selection-error span { flex: 1; min-width: 0; }
+.dial-selection-error svg { flex-shrink: 0; }
+.dial-selection-error-dismiss {
+  flex-shrink: 0;
+  display: inline-flex;
+  padding: 2px;
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  opacity: 0.75;
+}
+.dial-selection-error-dismiss:hover { opacity: 1; }
+[data-theme="light"] .dial-selection-error {
+  color: #dc2626;
+  background: rgba(220, 38, 38, 0.07);
+  border-color: rgba(220, 38, 38, 0.22);
+}
+
+/* v0.10.218 — Click-to-Dial settings toggles. */
+.settings-toggle-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 0;
+  cursor: pointer;
+}
+.settings-toggle-row input[type="checkbox"] {
+  margin-top: 3px;
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+.settings-toggle-row > span {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.settings-toggle-row .muted { line-height: 1.45; }

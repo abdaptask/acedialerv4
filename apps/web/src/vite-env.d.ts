@@ -32,15 +32,25 @@ interface AceElectronBridge {
   notifyReadyForSso: () => void;
   // v0.10.4 Task 10 — Deep-link bridge (Teams card buttons)
   // v0.10.156 - widened for the voicemail Listen button.
+  // v0.10.218 - `src: 'selection'` marks a link whose number came from
+  // arbitrary highlighted text (tel: link, browser extension, clipboard
+  // hotkey) rather than our own database. Those get strict validation and an
+  // error surface; trusted sources keep the existing lenient behaviour.
   onDeepLink?: (
     cb: (
       data:
-        | { action: 'call'; to: string }
-        | { action: 'sms'; to: string }
+        | { action: 'call'; to: string; src?: 'selection' }
+        | { action: 'sms'; to: string; src?: 'selection' }
         | { action: 'voicemail'; id: string },
     ) => void,
   ) => () => void;
   notifyReadyForDeepLink?: () => void;
+  // v0.10.218 - Click-to-Dial OS registration, driven from Settings.
+  setClickToDialConfig?: (cfg: { telHandler?: boolean; hotkey?: string | null }) => Promise<{
+    tel?: { ok: boolean; error?: string };
+    hotkey?: { ok: boolean; error?: string };
+  }>;
+  getClickToDialStatus?: () => Promise<{ telHandler: boolean; hotkey: string | null }>;
   // v0.10.9 — System power events (resume from sleep / unlock screen).
   onSipWake?: (cb: (data: { reason: string }) => void) => () => void;
   // Phase 7.1 — silent auto-update bridge

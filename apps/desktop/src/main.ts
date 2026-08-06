@@ -1,7 +1,7 @@
 // Electron main process — owns the application lifecycle, creates the window,
 // handles the floating-ringer popup for inbound calls, and (Phase 6.4) hides
 // the window to the system tray on close so active calls keep running.
-import { app, BrowserWindow, shell, Menu, ipcMain, screen, Tray, nativeImage, powerMonitor, powerSaveBlocker } from 'electron';
+import { app, BrowserWindow, shell, Menu, ipcMain, screen, Tray, nativeImage, powerMonitor, powerSaveBlocker, globalShortcut, clipboard } from 'electron';
 import * as path from 'node:path';
 // electron-updater handles the entire silent-update lifecycle: poll GitHub
 // Releases, download the new installer in the background, and offer to restart.
@@ -46,17 +46,31 @@ let pendingSsoUrl: string | null = null;
 // transport supports the Teams voicemail Listen button. call/sms still
 // carry a 'to' (phone number); voicemail carries an 'id' (DB row id of
 // the voicemail to open).
+/** v0.10.218 — `src: 'selection'` marks a deep link whose `to` came from
+ *  arbitrary highlighted text (tel: link, browser extension, clipboard
+ *  hotkey) rather than a number we already trust from our own database
+ *  (Teams cards). The renderer validates strictly and shows an error for
+ *  those, while trusted sources keep their existing lenient behaviour — so
+ *  click-to-dial can't regress the Teams-card path. */
+type DeepLinkSource = 'selection';
+
 type PendingDeepLink =
-  | { action: 'call'; to: string }
+  | { action: 'call'; to: string; src?: DeepLinkSource }
   | { action: 'sms'; to: string }
   | { action: 'voicemail'; id: string };
 let pendingDeepLink: PendingDeepLink | null = null;
 
-/** Find an ace-dialer:// URL in an argv array. Windows passes it as the
+/** Schemes we answer to. `ace-dialer://` is ours (SSO + Teams cards);
+ *  `tel:`/`callto:` are the standard ones click-to-dial registers for
+ *  (v0.10.218) so a phone link in Outlook, a CRM, or any web page opens us. */
+const HANDLED_SCHEMES = ['ace-dialer://', 'tel:', 'callto:'] as const;
+
+/** Find a handled protocol URL in an argv array. Windows passes it as the
  *  last positional argument when the OS launches us from a protocol click. */
 function findProtocolUrl(argv: readonly string[]): string | null {
   for (const arg of argv) {
-    if (typeof arg === 'string' && arg.startsWith('ace-dialer://')) return arg;
+    if (typeof arg !== 'string') continue;
+    if (HANDLED_SCHEMES.some((s) => arg.startsWith(s))) return arg;
   }
   return null;
 }
@@ -132,6 +146,28 @@ function routeProtocolUrl(url: string) {
     //   ace-dialer://call?to=auth/callback
     // as an SSO callback and silently drop the user's keypad action.
     const parsed = new URL(url);
+
+    // v0.10.218 — Click-to-Dial. tel: and callto: are opaque URIs: the WHATWG
+    // parser leaves everything after the scheme in `pathname` and leaves
+    // `hostname` empty, so they must be handled before the hostname dispatch
+    // below or they fall through to "unrecognised action".
+    //
+    // We deliberately do NOT validate the number here. Parsing arbitrary
+    // human-selected text needs libphonenumber, which lives in the web
+    // workspace, and CLAUDE.md §1.4 forbids importing across apps. Main just
+    // forwards the raw string; the renderer validates it with
+    // parseSelectedNumber() and owns the error UI. That keeps one validator
+    // rather than two that can drift.
+    if (parsed.protocol === 'tel:' || parsed.protocol === 'callto:') {
+      const raw = decodeURIComponent(parsed.pathname || '').trim();
+      if (!raw) {
+        console.warn('[deep-link] empty tel: URI', url);
+        return;
+      }
+      handleDeepLink({ action: 'call', to: raw, src: 'selection' });
+      return;
+    }
+
     if (parsed.hostname === 'auth' && parsed.pathname.startsWith('/callback')) {
       handleSsoCallback(url);
       return;
@@ -143,7 +179,8 @@ function routeProtocolUrl(url: string) {
         console.warn('[deep-link] missing ?to= param', url);
         return;
       }
-      handleDeepLink({ action, to });
+      const src = parsed.searchParams.get('src') === 'selection' ? 'selection' : undefined;
+      handleDeepLink({ action, to, src });
       return;
     }
     // v0.10.156 - voicemail action from the Teams Listen card button.
@@ -790,6 +827,114 @@ function buildMenu() {
   ];
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
+
+// ── v0.10.218 — Click-to-Dial ────────────────────────────────────────────
+//
+// Two OS-level capture surfaces, both OFF until the user opts in from
+// Settings, and both fully reversible.
+//
+//   1. tel: / callto: default handler. Once registered, a phone link
+//      anywhere the OS can reach — Outlook, Teams, a CRM in the browser, a
+//      PDF — launches AceDialer with the number prefilled.
+//
+//   2. A global hotkey that reads the CURRENT clipboard.
+//
+// On (2), note what it deliberately does NOT do: it never polls the
+// clipboard, and it never synthesises Ctrl+C into the foreground app.
+// Polling would mean a background process reading every password and token
+// the user copies. Synthesising keystrokes is the behavioural signature EDR
+// and antivirus flag as keylogging, and on macOS it needs the Accessibility
+// (TCC) permission. Reading on an explicit keypress needs no permission on
+// either OS, touches nothing until the user asks, and costs the user one
+// extra Ctrl+C.
+//
+// The number itself is not validated here — main forwards the raw string and
+// the renderer validates with parseSelectedNumber(). See routeProtocolUrl().
+
+/** Schemes click-to-dial can own. Registered/unregistered on demand. */
+const CLICK_TO_DIAL_SCHEMES = ['tel', 'callto'] as const;
+
+function setTelHandlerRegistered(enabled: boolean): { ok: boolean; error?: string } {
+  try {
+    for (const scheme of CLICK_TO_DIAL_SCHEMES) {
+      if (enabled) {
+        if (process.defaultApp && process.argv.length >= 2) {
+          app.setAsDefaultProtocolClient(scheme, process.execPath, [path.resolve(process.argv[1])]);
+        } else {
+          app.setAsDefaultProtocolClient(scheme);
+        }
+      } else {
+        app.removeAsDefaultProtocolClient(scheme);
+      }
+    }
+    return { ok: true };
+  } catch (e) {
+    // Registration can fail on a locked-down machine (policy-managed
+    // file associations). Report it rather than leaving the toggle lying.
+    const error = e instanceof Error ? e.message : String(e);
+    console.warn('[click-to-dial] tel: registration failed', error);
+    return { ok: false, error };
+  }
+}
+
+let currentHotkey: string | null = null;
+
+function setDialHotkey(accelerator: string | null): { ok: boolean; error?: string } {
+  try {
+    if (currentHotkey) {
+      globalShortcut.unregister(currentHotkey);
+      currentHotkey = null;
+    }
+    if (!accelerator) return { ok: true };
+
+    const registered = globalShortcut.register(accelerator, () => {
+      // Read on demand only — see the note above.
+      const text = clipboard.readText().trim();
+      if (!text) {
+        console.info('[click-to-dial] hotkey pressed with an empty clipboard');
+        return;
+      }
+      // Cap before forwarding so a copied document doesn't travel over IPC.
+      handleDeepLink({ action: 'call', to: text.slice(0, 200), src: 'selection' });
+    });
+
+    if (!registered) {
+      // Another application already owns this combination.
+      return { ok: false, error: 'That shortcut is already in use by another app.' };
+    }
+    currentHotkey = accelerator;
+    return { ok: true };
+  } catch (e) {
+    const error = e instanceof Error ? e.message : String(e);
+    console.warn('[click-to-dial] hotkey registration failed', error);
+    return { ok: false, error };
+  }
+}
+
+// The renderer owns the preferences (localStorage, same as every other user
+// pref) and pushes them here on boot and on change.
+ipcMain.handle(
+  'ace:click-to-dial-config',
+  (_e, cfg: { telHandler?: boolean; hotkey?: string | null }) => {
+    const result: { tel?: { ok: boolean; error?: string }; hotkey?: { ok: boolean; error?: string } } = {};
+    if (typeof cfg?.telHandler === 'boolean') result.tel = setTelHandlerRegistered(cfg.telHandler);
+    if (cfg && 'hotkey' in cfg) result.hotkey = setDialHotkey(cfg.hotkey ?? null);
+    return result;
+  },
+);
+
+/** Whether the OS currently considers us the tel: handler — so Settings can
+ *  show real state rather than just what we last wrote to localStorage. */
+ipcMain.handle('ace:click-to-dial-status', () => ({
+  telHandler: app.isDefaultProtocolClient('tel'),
+  hotkey: currentHotkey,
+}));
+
+app.on('will-quit', () => {
+  // Global shortcuts are process-wide; leaving one registered after quit
+  // would swallow the combination for every other app until reboot.
+  globalShortcut.unregisterAll();
+});
 
 // Register ace-dialer:// as the default app for that protocol on the OS.
 // Without this, Windows shows a "no app to open this link" dialog when
