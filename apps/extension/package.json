@@ -1,0 +1,17 @@
+{
+  "name": "@ace/extension",
+  "version": "0.10.218",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "node --import tsx --test $(find src -name '*.test.ts')"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.2.5",
+    "esbuild": "^0.21.0"
+  },
+  "dependencies": {
+    "libphonenumber-js": "^1.11.10"
+  }
+}

@@ -1,16 +1,13 @@
 {
   "manifest_version": 3,
-  "name": "ACE Dialer \u2014 Click to Call",
+  "name": "ACE Dialer — Click to Call",
   "version": "0.10.218",
-  "description": "Highlight a phone number on any page, right-click, and call it with ACE Dialer.",
-  "minimum_chrome_version": "96",
-  "permissions": [
-    "contextMenus"
-  ],
-  "background": {
-    "service_worker": "background.js"
-  },
-  "icons": {
-    "128": "icons/icon128.png"
-  }
+  "description": "Finds phone numbers on a page and makes them clickable. One click opens the number in ACE Dialer, ready to dial.",
+  "minimum_chrome_version": "102",
+  "permissions": ["storage", "scripting"],
+  "optional_host_permissions": ["*://*/*"],
+  "background": { "service_worker": "background.js" },
+  "options_page": "options.html",
+  "action": { "default_title": "ACE Dialer — Click to Call" },
+  "icons": { "128": "icons/icon128.png" }
 }

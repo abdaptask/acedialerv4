@@ -1,109 +1,142 @@
 # ACE Dialer — Click to Call (browser extension)
 
-Adds **"Call with ACE Dialer"** to the right-click menu on selected text in
-Chrome and Edge. Highlight a phone number anywhere on a page, right-click,
-and the desktop dialer opens with the number prefilled — the call is **not**
-placed until the user clicks Call.
+Finds phone numbers on a page and makes them clickable. One click opens the
+number in the ACE Dialer desktop app, prefilled and ready — **the call is
+never placed automatically; the user presses Call.**
 
-## Why an extension exists at all
+## What it does
 
-macOS has a system-wide Services menu, so "right-click on selected text" works
-across native apps there. **Windows has no equivalent** — the shell context
-menu operates on files, not text selections. Inside a browser, neither OS can
-help: the page's context menu belongs to the browser. So for the surface where
-recruiters actually spend the day — a web ATS and CRM — an extension is the
-only way to offer right-click-to-call, on either OS.
+On an allowed site, every phone number in the page text gets a dotted
+underline. Click one and the desktop dialer comes up with the number in the
+field. That's it — no right-click, no copy-paste.
 
-## Permissions, and what it deliberately doesn't ask for
+Numbers are cleaned up automatically (spaces, brackets, and dashes removed,
+country code preserved). Detection is done with libphonenumber, not a regex
+guess, so `+91 98765 43210` and `+44 20 7946 0958` work as well as US numbers.
 
-The manifest requests exactly one permission: `contextMenus`.
+## The permission model — read this before publishing
 
-There is **no content script** and **no host permission**. That is a
-deliberate security decision rather than an oversight: our users work inside
-systems full of candidate PII, and `<all_urls>` would let this extension read
-every page they visit. Chrome passes the highlighted text in the click event
-(`info.selectionText`), which is all the feature needs, and only for the
-selection the user explicitly right-clicked.
+Auto-detecting numbers means reading page text. There is no way around that.
+But it does **not** follow that the extension needs to read *every* page, and
+this one doesn't:
 
-The selected text never leaves the machine — it becomes a local
-`ace-dialer://` URL. **The extension makes no network requests of any kind.**
+| | |
+|---|---|
+| `host_permissions` | **none** |
+| Static `content_scripts` | **none** |
+| On a fresh install, it can read | **nothing** |
+
+Instead it declares `optional_host_permissions` and registers the scanner
+**dynamically, per domain**, via `chrome.scripting.registerContentScripts()`.
+A domain becomes active only when someone adds it on the options page, which
+triggers Chrome's own permission prompt. Removing it there revokes the grant
+immediately.
+
+Why this rather than the usual `<all_urls>`: our users spend the day inside an
+ATS and a CRM full of candidate PII. With blanket access, a compromise of this
+extension — or of any dependency in it — would expose every page they visit.
+Scoped this way, it exposes only the ATS domains someone deliberately turned
+on. The feature is identical; the blast radius is not.
+
+The extension makes **no network requests of any kind**. The number goes into a
+local `ace-dialer://` URL handled by an app on the same machine.
+
+## Setup
+
+1. Install the extension (see Deployment).
+2. Click the toolbar icon, or Extensions → ACE Dialer → Options.
+3. Add your ATS domain, e.g. `app.jobdiva.com`, and accept Chrome's prompt.
+
+Numbers become clickable on that site immediately; no reload needed for new
+tabs.
 
 ## How it connects to the app
 
 ```
-selection → ace-dialer://call?to=<text>&src=selection → desktop app
-          → validated with parseSelectedNumber() → dialer field prefilled
+page text → detect (libphonenumber) → clickable chip
+          → click → ace-dialer://call?to=<number>&src=selection
+          → desktop app validates with parseSelectedNumber() → dialer prefilled
 ```
 
-`src=selection` tells the app the text came from a human highlight, so it
-validates strictly and shows an error for anything that isn't a phone number.
-Numbers coming from our own database (Teams cards) omit the marker and keep
-their existing behaviour.
+`src=selection` tells the app the number came from captured text, so it
+validates strictly and shows an error rather than prefilling something wrong.
+Validation lives in the app so there is one parser, not two that drift.
 
-Validation lives in the app, not here, so there is exactly one parser rather
-than two that drift apart.
+## Behaviour on someone else's page
 
-## Requirements
+The scanner runs inside a live ATS a recruiter is working in, so breaking that
+page is a worse outcome than missing a number. It therefore:
 
-The **desktop app must be installed** — the extension opens a protocol URL and
-does nothing on its own. Browser-only users should use the in-app dialer.
+- **never** touches `<input>`, `<textarea>`, or `contenteditable` — rewriting a
+  field mid-typing would destroy the user's work
+- skips `<script>`, `<style>`, `<code>`, `<pre>`, existing `<a>` tags, and its
+  own output (which would otherwise loop the MutationObserver forever)
+- only ever wraps text in a `<span>` — no layout change, nothing that reflows
+- batches DOM writes and debounces the observer through `requestIdleCallback`,
+  because an ATS re-renders constantly and a scan per mutation would peg the CPU
+- caps work per pass so a pathological page degrades instead of hanging
+- skips iframes (`allFrames: false`) — usually ads and widgets, cost without benefit
+
+## False positives are the real risk
+
+A recruiting page is full of numeric runs that are not phone numbers:
+candidate IDs, requisition numbers, invoice references, salaries, ZIP+4,
+tracking numbers. Underlining those is what makes someone switch the feature
+off, so detection is **deliberately biased toward false negatives** — a missed
+number costs one copy-paste; a wrong underline costs trust in the whole thing.
+
+Guards: `isValid()` rather than `isPossible()`, a negative-context check for
+preceding words like *invoice / req / ID / ref / acct / ticket*, rejection when
+glued to other digits or a currency symbol, and a 10–15 digit window.
+`src/detect.test.ts` pins both directions.
+
+It is still a heuristic. If a specific ATS screen produces a bad underline,
+add the label to `NEGATIVE_CONTEXT` in `src/detect.ts` and add a test.
+
+## Build
+
+```sh
+npm run build -w apps/extension   # → apps/extension/dist
+npm run test  -w apps/extension
+```
+
+Load `apps/extension/dist` (not the source folder) via `chrome://extensions` →
+Developer mode → **Load unpacked**.
+
+libphonenumber is bundled into the content script, which is why `content.js` is
+~125 KB. That's a deliberate trade for detection accuracy over a regex guess.
+
+## Requires the desktop app
+
+The extension only opens a protocol URL. Without ACE Dialer installed, clicking
+a number does nothing visible — by design: it opens a background tab and closes
+it, rather than navigating the user's tab to an error page and losing their
+work.
 
 ## Deployment
 
-For the ApTask fleet, force-install via Intune/GPO rather than asking 40+
-people to install it by hand:
+Force-install via Intune/GPO rather than asking 40+ people to do it by hand:
 
 - **Chrome:** `ExtensionInstallForcelist` → `<extension-id>;https://clients2.google.com/service/update2/crx`
 - **Edge:** `ExtensionInstallForcelist`, same shape
 
-Requires publishing to the Chrome Web Store / Edge Add-ons (or hosting a
-self-updating CRX). Unpacked loading via `chrome://extensions` → Developer
-mode → **Load unpacked** works for testing.
+Domains can be pre-granted by policy so users never see the options page —
+combine `ExtensionInstallForcelist` with a managed-storage policy for the
+allowlist if you want it fully hands-off.
 
-## Icons
-
-`icons/` is empty in the repo. Add 16/48/128px PNGs before publishing — the
-Web Store rejects submissions without them.
-
-## Chrome Web Store / Edge Add-ons listing
-
-Review asks for a permission justification and a data-use disclosure. Ours is
-unusually easy because the honest answer is "none" — draft copy below.
+## Store listing
 
 **Name:** ACE Dialer — Click to Call
-**Summary (132 char max):** Highlight a phone number on any page, right-click, and call it with ACE Dialer. Requires the ACE Dialer desktop app.
+**Summary:** Makes phone numbers on your ATS and CRM pages clickable, opening them in the ACE Dialer desktop app.
 
-**Description:**
-> Call phone numbers you find on the web without retyping them.
->
-> Highlight a phone number on any page, right-click, and choose "Call with ACE
-> Dialer". The number opens in your ACE Dialer desktop app, already filled in.
-> The call is never placed automatically — you always press Call yourself.
->
-> Numbers are cleaned up for you: spaces, dashes, and brackets are removed
-> while the country code is kept, and extensions such as "x203" are dialled
-> after the call connects.
->
-> This extension requires the ACE Dialer desktop application to be installed.
-> It is intended for ApTask staff.
+**Permission justification — `storage`:** stores the list of sites the user has
+enabled.
+**Permission justification — `scripting`:** registers the number scanner on
+those sites only.
+**Permission justification — host access:** requested per site at the user's
+request, never up front. Required to read page text to find phone numbers.
+**Remote code:** none.
+**Data usage:** collects nothing, transmits nothing, makes no network requests.
 
-**Permission justification — `contextMenus`:**
-> Used solely to add one "Call with ACE Dialer" item to the right-click menu,
-> shown only when text is selected.
-
-**Permission justification — host permissions / content scripts:**
-> None requested. The extension reads only the text the user explicitly
-> right-clicks, which Chrome provides in the context-menu click event
-> (`info.selectionText`). It cannot read page content.
-
-**Remote code:** No. All code is contained in the package.
-
-**Data usage disclosure:** This extension does **not** collect, transmit, or
-store any user data. The selected text is placed into a local `ace-dialer://`
-URL that is handled by an application on the same machine. The extension makes
-no network requests of any kind.
-
-**Distribution:** Set visibility to **Unlisted** (or Private to the ApTask
-domain) rather than Public. This is an internal tool that is useless without
-the desktop app, and a public listing invites confused installs and bad
-reviews.
+Set visibility to **Unlisted** or private to the ApTask domain — it's useless
+without the desktop app, and a public listing invites confused installs.
