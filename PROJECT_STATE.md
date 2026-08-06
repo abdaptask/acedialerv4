@@ -1,6 +1,6 @@
 # ACE Dialer — Project State
 
-**Last updated:** August 5, 2026 (SMS composer v0.10.216 — MERGED to main via PR #77 and RELEASED to the team)
+**Last updated:** August 6, 2026 (v0.10.217 released + deployed; v0.10.218 Click-to-Dial in draft PR)
 **Maintained by:** Claude (update at end of every working session)
 
 This file is a living snapshot of where the project stands. New Claude
@@ -26,7 +26,9 @@ If you're a fresh Claude session opening this project:
 
 | Stream | Version | Status | Where |
 |---|---|---|---|
-| Latest released | **v0.10.216** | **Merged to `main` via PR #77 (`a37d461`) and released to the team.** Backend + web live on the host | `main` |
+| Latest released | **v0.10.217** | Merged via PR #78 (`dd1d00f`) and **deployed** — verified live: a 1601-char send returns `400 body_too_long` on the running API, and all pm2 services restarted, clearing the earlier webhooks/socket drift | `main` |
+| In review | v0.10.218 | Click-to-Dial. Draft PR, branched from 217, now merged up to date with `main` | `release/0.10.218` |
+| Previously released | v0.10.216 | Merged via PR #77 (`a37d461`) | `main` |
 | Latest committed (prior) | v0.10.215 | Pushed to `origin/release/0.10.215` — its own PR to main still pending. 0.10.216 was branched from it, so it carries that fix too | branch `release/0.10.215` |
 | Latest committed (prior) | v0.10.204 | Pushed to origin/main, .exe built | GitHub release `v0.10.204` |
 | Stable published (auto-update) | v0.10.132 | **Published** to all 40+ ApTask users | GitHub release `v0.10.132` |
@@ -54,7 +56,8 @@ If you're a fresh Claude session opening this project:
 - **Tests:** 84 api (76 new) + 26 web (all new) passing. `apps/web` gained a `test` script + tsconfig test exclusion, mirroring `apps/api`. `tsc` clean for api + web; web production build clean.
 - **DONE since:** migration applied (`db:push`; 20 rows before and after), ownership boundary verified against the live DB, version bumped to 0.10.216 across all 7 `package.json` + the hardcoded `APP_VERSION` in `DiagnosticsSection.tsx`, committed as `979240e` on `release/0.10.216`, pushed, draft PR opened, `ace-api` reloaded so the routes are live. Verified live: `POST /me/sms/rewrite` → 200 with a correct rewrite off the DGX; `GET /me/sms-placeholders` → 200 (20 fields, 9 categories).
 - **RELEASED.** PR #77 merged `979240e` to `main`; the feature is live for the team.
-- **Caveat on that merge:** it landed `979240e` only — the follow-up docs commit raced the merge and did **not** make it into `main`. Recovered separately (this file + the CLAUDE.md build guardrails). Check `git merge-base --is-ancestor <sha> origin/main` before assuming a late push made a release.
+- **Caveat on that merge:** it landed `979240e` only — the follow-up docs commit raced the merge and did **not** make it into `main`. Recovered separately (this file + the CLAUDE.md build guardrails).
+- **This has now happened twice.** PR #78 (0.10.217) likewise merged at `f1afde6`, leaving `76cf47e` (the dead-Vercel-domain fallback fix) out of `main`. It rides along in the 0.10.218 branch, so nothing is lost — but the pattern is real: a push that lands after the merge button is pressed silently misses the release. **Always run `git merge-base --is-ancestor <sha> origin/main` after a merge** rather than assuming the branch state at push time is what shipped.
 - **STILL OUTSTANDING:** `ace-webhooks` and `ace-socket` are still running pre-0.10.216 processes — the only change in that area was a comment, so there is no functional gap, but the next `./deploy.sh` should sync them. Desktop publish remains gated on the EV cert, so Electron users are still on v0.10.132 and do not yet see the new composer; **web users have it now**.
 - **Cannot be verified headlessly:** Electron microphone behaviour during a live call (the recording-blocked-while-on-a-call path) needs an on-device pass. Also the real voice→transcript round trip, which needs actual audio from a browser — the endpoint itself is confirmed wired (a deliberately invalid payload returned 502 from Deepgram, not 501, so the key is loaded). Everything else, including the full rewrite path against the live DGX, has been exercised.
 - **Two self-inflicted production incidents during this session, both fixed — see §5 learnings.** Building the web bundle silently deployed the frontend while the API kept running 4-day-old code (404s on every new route), and that build omitted `VITE_FORCE_ABSOLUTE_BASE=1`, which blanked every nested route including the SSO callback.
