@@ -1,0 +1,10 @@
+{
+  "manifest_version": 3,
+  "name": "ACE Dialer — Click to Call",
+  "version": "0.10.218",
+  "description": "Highlight a phone number on any page, right-click, and call it with ACE Dialer.",
+  "minimum_chrome_version": "96",
+  "permissions": ["contextMenus"],
+  "background": { "service_worker": "background.js" },
+  "icons": { "16": "icons/icon16.png", "48": "icons/icon48.png", "128": "icons/icon128.png" }
+}

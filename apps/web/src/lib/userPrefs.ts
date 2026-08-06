@@ -581,3 +581,74 @@ export function setNotificationPrefs(prefs: Partial<NotificationPrefs>): Notific
   window.dispatchEvent(new CustomEvent('ace:notificationPrefsChanged'));
   return next;
 }
+
+// ── v0.10.218 — Click-to-Dial ────────────────────────────────────────────
+//
+// OS-level capture of highlighted phone numbers. Both surfaces are OFF by
+// default and opt-in: registering as the system's tel: handler changes
+// behaviour outside our app (it can displace Teams or FaceTime), and a global
+// hotkey claims a key combination process-wide. Neither is something to turn
+// on for someone without asking.
+//
+// The renderer owns these prefs — same localStorage pattern as every other
+// user pref — and pushes them to the Electron main process on boot and on
+// change, where the actual OS registration happens.
+
+const CLICK_TO_DIAL_KEY = 'ace_click_to_dial';
+
+export interface ClickToDialPrefs {
+  /** Register AceDialer as the OS handler for tel: / callto: links. */
+  telHandler: boolean;
+  /** Global shortcut that dials whatever is currently on the clipboard.
+   *  null = disabled. Electron accelerator syntax. */
+  hotkey: string | null;
+}
+
+export const DEFAULT_CLICK_TO_DIAL: ClickToDialPrefs = {
+  telHandler: false,
+  hotkey: null,
+};
+
+/** Suggested combination. Ctrl/Cmd+Shift+D is rarely claimed by other apps
+ *  and, importantly, isn't near anything destructive if mistyped. */
+export const SUGGESTED_DIAL_HOTKEY = 'CommandOrControl+Shift+D';
+
+export function getClickToDialPrefs(): ClickToDialPrefs {
+  try {
+    const raw = localStorage.getItem(CLICK_TO_DIAL_KEY);
+    if (!raw) return { ...DEFAULT_CLICK_TO_DIAL };
+    const parsed = JSON.parse(raw) as Partial<ClickToDialPrefs>;
+    return {
+      telHandler: typeof parsed.telHandler === 'boolean' ? parsed.telHandler : false,
+      hotkey: typeof parsed.hotkey === 'string' && parsed.hotkey ? parsed.hotkey : null,
+    };
+  } catch {
+    return { ...DEFAULT_CLICK_TO_DIAL };
+  }
+}
+
+export function setClickToDialPrefs(prefs: ClickToDialPrefs): void {
+  localStorage.setItem(CLICK_TO_DIAL_KEY, JSON.stringify(prefs));
+  window.dispatchEvent(new CustomEvent('ace:clickToDialChanged'));
+}
+
+/**
+ * Push the stored prefs to the Electron main process, which does the OS-level
+ * registration. No-op in the browser build, where neither surface exists.
+ * Returns per-surface results so Settings can report a failure (e.g. the
+ * hotkey already being owned by another application).
+ */
+export async function applyClickToDialPrefs(
+  prefs: ClickToDialPrefs = getClickToDialPrefs(),
+): Promise<{ tel?: { ok: boolean; error?: string }; hotkey?: { ok: boolean; error?: string } }> {
+  if (!window.ace?.setClickToDialConfig) return {};
+  try {
+    return await window.ace.setClickToDialConfig({
+      telHandler: prefs.telHandler,
+      hotkey: prefs.hotkey,
+    });
+  } catch (e) {
+    console.warn('[click-to-dial] failed to apply prefs', e);
+    return {};
+  }
+}

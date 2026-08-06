@@ -88,22 +88,38 @@ contextBridge.exposeInMainWorld('ace', {
   onDeepLink: (
     cb: (
       data:
-        | { action: 'call'; to: string }
-        | { action: 'sms'; to: string }
+        | { action: 'call'; to: string; src?: 'selection' }
+        | { action: 'sms'; to: string; src?: 'selection' }
         | { action: 'voicemail'; id: string },
     ) => void,
   ) => {
     const handler = (
       _e: unknown,
       data:
-        | { action: 'call'; to: string }
-        | { action: 'sms'; to: string }
+        | { action: 'call'; to: string; src?: 'selection' }
+        | { action: 'sms'; to: string; src?: 'selection' }
         | { action: 'voicemail'; id: string },
     ) => cb(data);
     ipcRenderer.on('ace:deep-link', handler);
     return () => ipcRenderer.removeListener('ace:deep-link', handler);
   },
   notifyReadyForDeepLink: () => ipcRenderer.send('ace:deep-link-ready'),
+
+  // v0.10.218 — Click-to-Dial. The renderer owns these preferences (they live
+  // in localStorage with every other user pref) and pushes them to main on
+  // boot and on change; main does the OS-level registration.
+  setClickToDialConfig: (cfg: { telHandler?: boolean; hotkey?: string | null }) =>
+    ipcRenderer.invoke('ace:click-to-dial-config', cfg) as Promise<{
+      tel?: { ok: boolean; error?: string };
+      hotkey?: { ok: boolean; error?: string };
+    }>,
+  /** Real OS state, so Settings can show what's actually registered rather
+   *  than only what we last stored. */
+  getClickToDialStatus: () =>
+    ipcRenderer.invoke('ace:click-to-dial-status') as Promise<{
+      telHandler: boolean;
+      hotkey: string | null;
+    }>,
   onSipWake: (cb: (data: { reason: string }) => void) => {
     const handler = (_e: unknown, data: { reason: string }) => cb(data);
     ipcRenderer.on('ace:sip-wake', handler);

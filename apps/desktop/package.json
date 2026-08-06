@@ -1,6 +1,6 @@
 {
   "name": "@ace/desktop",
-  "version": "0.10.217",
+  "version": "0.10.218",
   "private": true,
   "description": "ACE Dialer desktop app (Electron)",
   "author": "ApTask",
@@ -109,6 +109,13 @@
         "name": "ACE Dialer",
         "schemes": [
           "ace-dialer"
+        ]
+      },
+      {
+        "name": "Phone Call",
+        "schemes": [
+          "tel",
+          "callto"
         ]
       }
     ],

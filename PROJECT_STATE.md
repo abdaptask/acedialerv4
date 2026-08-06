@@ -233,6 +233,15 @@ From session history:
 
 ## 5. Recent learnings (debugging discoveries)
 
+**August 6, 2026 — v0.10.218 STAGED (UNCOMMITTED): Click-to-Dial for highlighted numbers (branch `release/0.10.218`, off 0.10.217):**
+Key finding from the investigation: ~70% already existed. `ace-dialer://call?to=…` → prefill (no auto-dial) has been in production since v0.10.4 for the Teams card buttons, so this was never a "how do we dial from outside" problem — only a "how do we capture highlighted text" one.
+- **Shipped (≥95% confidence):** `parseSelectedNumber()` in `lib/phone.ts` (strict extractor for arbitrary text — extensions → post-dial DTMF, unicode punctuation from Word/PDFs, prose-embedded numbers, vanity rejection; 45 web tests); `tel:`/`callto:` handling in `main.ts` + electron-builder protocols; opt-in registration and a clipboard-read global hotkey via IPC from Settings; a strict-validation branch in `Dialpad.tsx` gated on `src=selection`; MV3 browser extension in `apps/extension/`.
+- **Deliberately NOT shipped, per the 95% gate:** the macOS Automator Quick Action (needs a notarization/Gatekeeper spike) and the Windows auto-copy hotkey (needs a native input-synthesis module, which AV/EDR flags as keylogging and macOS gates behind Accessibility). The clipboard-read hotkey is the safe substitute — no native module, no OS permission.
+- **Windows has no OS-level "right-click on selected text" API.** The shell context menu operates on files. In-browser right-click is the extension's job; outside the browser, Windows gets `tel:` links plus the hotkey. This is an OS limitation, not a design choice.
+- **The extension requests `contextMenus` and nothing else** — no content script, no host permission. Our users work in an ATS full of candidate PII; `<all_urls>` would be a materially different security review for one convenience feature.
+- **Scheduling constraint:** every desktop piece needs an Electron release, and auto-update is still EV-cert-locked with users on v0.10.132. The extension is the exception — it distributes via the Chrome/Edge stores or Intune, independent of the desktop release, so it can reach users first.
+- **Outstanding before this ships:** extension icons (16/48/128 PNG — the Web Store rejects submissions without them), store publication or Intune force-install, and an on-device matrix test per app/platform.
+
 **August 5, 2026 — v0.10.217: SMS length cap + scheduled-send counter (branch `release/0.10.217`, off `main`):**
 Two follow-ups measured against 90 days of real traffic (21,060 outbound messages: p90 body ~337 chars, 27.7% multi-segment, 9.9% non-ASCII, 8.8% carrying fixable typographic punctuation, **0.00% over 1600 chars**).
 - `MAX_SMS_BODY_CHARS = 1600` added to `messages/sendMessage.ts` and enforced inside `sendMessageImmediate`, so the immediate route AND the scheduled worker are both covered by one check. `POST /messages` and scheduled-create validate up front for a clean 400. Cannot reject real traffic (nothing has ever exceeded it); it exists to stop a pathological paste going out as 30+ billed segments.

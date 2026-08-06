@@ -207,6 +207,7 @@ scripts/      One-off ops helpers (dedupe call legs, fix favorite names, etc.)
 | Tray | `Tray` + `tray-icon-16.png` from `assets/`, `setTemplateImage(true)` on macOS |
 | Floating ringer | Frameless `BrowserWindow` (440×240) anchored bottom-right of work area, `alwaysOnTop('screen-saver')`, inline data-URL HTML — see [[25-notifications]] |
 | Deep link | `app.setAsDefaultProtocolClient('ace-dialer')` + `open-url` (mac) + `second-instance` argv (win) → `handleSsoCallback` → IPC `ace:sso-callback` |
+| **Click-to-Dial (v0.10.218)** | `tel:` / `callto:` handler (opt-in), global clipboard hotkey (opt-in), MV3 browser extension in `apps/extension/`. All three converge on the existing `ace-dialer://call?to=…&src=selection` path |
 | Auto-update | `electron-updater` → `autoUpdater.checkForUpdates()` after 15s, then hourly; events mirror through `lastUpdateState` so a remounted banner can rehydrate via `ace:get-update-state` |
 
 ### 4.3 Execution Context
@@ -224,6 +225,11 @@ scripts/      One-off ops helpers (dedupe call legs, fix favorite names, etc.)
 - **Never load Microsoft sign-in inside the main window.** Always `shell.openExternal` — embedded webviews are blocked by MS and break Conditional Access MFA.
 - **Floating ringer is a separate window, not a modal.** A modal blocks the main UI's call-control buttons; a separate `BrowserWindow` lets the user keep operating the main window while the call rings.
 - **Preload must remain context-isolated with `nodeIntegration: false`.** Expose only the typed `window.ace` surface defined in `preload.ts`.
+- **Click-to-Dial can only ever PREFILL — it must never reach `call()`.** Every capture path terminates at `setNumber()` in `Dialpad.tsx`; the user presses Call. This is the property that makes an OS-wide capture feature safe, and it's structural rather than a policy: nothing in the deep-link chain has access to the dial function.
+- **Never poll the clipboard.** The hotkey reads it inside the keypress handler and nowhere else. A background watcher would see every password and token the user copies. Equally: do **not** synthesise Ctrl+C into the foreground app to auto-grab a selection — that's the behavioural signature EDR flags as keylogging, and on macOS it needs the Accessibility (TCC) permission. One extra Ctrl+C from the user is the right trade.
+- **`tel:` registration and the global hotkey are opt-in and reversible.** Both change behaviour *outside* our app — the first can displace Teams/FaceTime as the system phone handler, the second claims a key combination process-wide. Default off; Settings → Click to dial owns them; `globalShortcut.unregisterAll()` on `will-quit` so a stale binding can't survive the app.
+- **Numbers from highlighted text are validated strictly; numbers from our own database are not.** `src=selection` marks the former. Keeping that distinction is what stops click-to-dial from regressing the Teams-card deep links that already work in production.
+- **The browser extension must never gain a content script or a host permission.** `contextMenus` alone is sufficient — Chrome supplies the highlighted text in the click event. `<all_urls>` would give it read access to every ATS and CRM page our users touch, which is a categorically different security posture for one feature.
 
 ---
 

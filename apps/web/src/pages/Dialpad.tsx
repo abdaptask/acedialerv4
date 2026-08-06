@@ -4,10 +4,11 @@
 // formatPhone/favorite/JobDiva helpers were only used by that panel.
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
-import { Phone, Delete } from 'lucide-react';
+import { Phone, Delete, AlertCircle, X } from 'lucide-react';
 import { AsYouType, parsePhoneNumberFromString, getCountryCallingCode } from 'libphonenumber-js/min';
 import type { CountryCode } from 'libphonenumber-js/min';
 import { useSip } from '../contexts/SipContext';
+import { parseSelectedNumber } from '../lib/phone';
 
 interface DialpadLocationState {
   addCall?: boolean;
@@ -169,6 +170,8 @@ export default function Dialpad() {
   // Country prefix (+1 by default) is rendered as a separate label to the
   // left of the input so it's always shown without occupying input space.
   const [number, setNumber] = useState('');
+  // v0.10.218 — set when a click-to-dial capture couldn't be parsed.
+  const [selectionError, setSelectionError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const { sipState, callState, call, addCall } = useSip();
   const navigate = useNavigate();
@@ -187,14 +190,42 @@ export default function Dialpad() {
   useEffect(() => {
     const to = searchParams.get('to');
     if (to && !number) {
-      setNumber(smartNormalize(to) || to);
-      // Remove the param so refreshes don't override the user's edits.
+      // v0.10.218 — Click-to-Dial. `src=selection` means `to` came from text
+      // a human highlighted somewhere on their machine (a tel: link, the
+      // browser extension, or the clipboard hotkey), so it gets the strict
+      // parser and a visible error when it isn't a phone number.
+      //
+      // Anything WITHOUT that marker is a number from our own database
+      // (Teams card buttons, /auto/call) and keeps the original lenient
+      // smartNormalize path untouched — this feature must not be able to
+      // regress deep links that already work in production.
+      if (searchParams.get('src') === 'selection') {
+        const parsed = parseSelectedNumber(to);
+        if (parsed.ok) {
+          setNumber(parsed.value.dialString);
+          setSelectionError(null);
+        } else {
+          // Deliberately do NOT prefill: putting unparseable text in the
+          // field invites the user to hit Call on it.
+          setSelectionError(parsed.message);
+        }
+      } else {
+        setNumber(smartNormalize(to) || to);
+      }
+      // Remove the params so refreshes don't override the user's edits.
       const next = new URLSearchParams(searchParams);
       next.delete('to');
+      next.delete('src');
       setSearchParams(next, { replace: true });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams]);
+
+  // Clear the click-to-dial error as soon as the user starts typing — the
+  // message is about the captured text, not about what they're entering now.
+  useEffect(() => {
+    if (number) setSelectionError(null);
+  }, [number]);
 
   // Inline status for Add Call. While we wait for Telnyx to register the
   // active leg (so we have a callControlId to bridge with), we show this
@@ -375,6 +406,24 @@ export default function Dialpad() {
           Type · Paste · Enter to call · Backspace to delete · Esc to clear
         </div>
       </div>
+
+      {/* v0.10.218 — Click-to-Dial couldn't read a phone number out of the
+          text the user highlighted. Shown instead of prefilling, so nobody
+          hits Call on garbage. */}
+      {selectionError && (
+        <div className="dial-selection-error" role="alert">
+          <AlertCircle size={15} />
+          <span>{selectionError}</span>
+          <button
+            type="button"
+            className="dial-selection-error-dismiss"
+            onClick={() => setSelectionError(null)}
+            aria-label="Dismiss"
+          >
+            <X size={14} />
+          </button>
+        </div>
+      )}
 
       {(() => {
         const country = detectCountry(number);
