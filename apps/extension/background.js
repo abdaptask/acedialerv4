@@ -58,17 +58,34 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
   }
 
   const url = `ace-dialer://call?to=${encodeURIComponent(selection)}&src=selection`;
-
-  // chrome.tabs.update on the active tab triggers the OS protocol handler
-  // without needing the "tabs" permission (we don't read the tab, only
-  // navigate it), and Chrome cancels the navigation once the external handler
-  // takes over, so the user's page is left alone.
-  if (tab?.id != null) {
-    chrome.tabs.update(tab.id, { url });
-  } else {
-    chrome.tabs.create({ url });
-  }
+  launchProtocol(url);
 });
+
+/**
+ * Hand a protocol URL to the OS.
+ *
+ * Deliberately NOT chrome.tabs.update() on the active tab. That works when
+ * the desktop app is installed — Chrome shows its "Open ACE Dialer?" prompt
+ * and leaves the page alone — but when it ISN'T installed, Chrome navigates
+ * the tab to an error page and the user loses whatever they were looking at.
+ * Destroying a recruiter's half-filled ATS form because they right-clicked a
+ * number is a far worse outcome than the feature simply not working.
+ *
+ * So: open a background tab (active:false, no focus stolen), let it trigger
+ * the handler, then close it. Worst case the user sees a tab flicker.
+ */
+function launchProtocol(url) {
+  chrome.tabs.create({ url, active: false }, (created) => {
+    if (chrome.runtime.lastError || !created?.id) {
+      notify('Could not open ACE Dialer.');
+      return;
+    }
+    // Long enough for the OS handoff, short enough not to leave litter.
+    setTimeout(() => {
+      chrome.tabs.remove(created.id, () => void chrome.runtime.lastError);
+    }, 1500);
+  });
+}
 
 /** Best-effort user feedback. `notifications` is not in permissions — if it's
  *  unavailable we simply log, rather than requesting a broader permission

@@ -64,3 +64,46 @@ mode → **Load unpacked** works for testing.
 
 `icons/` is empty in the repo. Add 16/48/128px PNGs before publishing — the
 Web Store rejects submissions without them.
+
+## Chrome Web Store / Edge Add-ons listing
+
+Review asks for a permission justification and a data-use disclosure. Ours is
+unusually easy because the honest answer is "none" — draft copy below.
+
+**Name:** ACE Dialer — Click to Call
+**Summary (132 char max):** Highlight a phone number on any page, right-click, and call it with ACE Dialer. Requires the ACE Dialer desktop app.
+
+**Description:**
+> Call phone numbers you find on the web without retyping them.
+>
+> Highlight a phone number on any page, right-click, and choose "Call with ACE
+> Dialer". The number opens in your ACE Dialer desktop app, already filled in.
+> The call is never placed automatically — you always press Call yourself.
+>
+> Numbers are cleaned up for you: spaces, dashes, and brackets are removed
+> while the country code is kept, and extensions such as "x203" are dialled
+> after the call connects.
+>
+> This extension requires the ACE Dialer desktop application to be installed.
+> It is intended for ApTask staff.
+
+**Permission justification — `contextMenus`:**
+> Used solely to add one "Call with ACE Dialer" item to the right-click menu,
+> shown only when text is selected.
+
+**Permission justification — host permissions / content scripts:**
+> None requested. The extension reads only the text the user explicitly
+> right-clicks, which Chrome provides in the context-menu click event
+> (`info.selectionText`). It cannot read page content.
+
+**Remote code:** No. All code is contained in the package.
+
+**Data usage disclosure:** This extension does **not** collect, transmit, or
+store any user data. The selected text is placed into a local `ace-dialer://`
+URL that is handled by an application on the same machine. The extension makes
+no network requests of any kind.
+
+**Distribution:** Set visibility to **Unlisted** (or Private to the ApTask
+domain) rather than Public. This is an internal tool that is useless without
+the desktop app, and a public listing invites confused installs and bad
+reviews.

@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>NSServices</key>
+	<array>
+		<dict>
+			<!-- Title as it appears in the right-click menu and in
+			     System Settings > Keyboard > Shortcuts > Services. -->
+			<key>NSMenuItem</key>
+			<dict>
+				<key>default</key>
+				<string>Call with ACE Dialer</string>
+			</dict>
+			<key>NSMessage</key>
+			<string>runWorkflowAsService</string>
+			<!-- Text only. We do not accept files, URLs, or anything else,
+			     so the item stays out of menus where it makes no sense. -->
+			<key>NSSendTypes</key>
+			<array>
+				<string>NSStringPboardType</string>
+			</array>
+			<!-- No NSReturnTypes: this service acts, it does not replace the
+			     user's selection. Declaring a return type would let it
+			     overwrite text in an editable field, which we never want. -->
+		</dict>
+	</array>
+</dict>
+</plist>
