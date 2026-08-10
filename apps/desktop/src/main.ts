@@ -933,6 +933,18 @@ ipcMain.handle('ace:click-to-dial-status', () => ({
 app.on('will-quit', () => {
   // Global shortcuts are process-wide; leaving one registered after quit
   // would swallow the combination for every other app until reboot.
+  //
+  // The isReady() guard is load-bearing, not defensive noise. Losing the
+  // single-instance lock below calls app.quit() at MODULE SCOPE, which
+  // emits 'will-quit' synchronously — before ready. Touching globalShortcut
+  // there throws "globalShortcut cannot be used before the app is ready",
+  // and because it escapes during module evaluation it surfaces as an
+  // uncaught-exception dialog instead of a silent exit. That path is the
+  // common one now: every tel: link, every ace-dialer:// deep link, and
+  // every click on the icon while we're parked in the tray launches a
+  // second process whose whole job is to lose the lock and quit.
+  // Nothing can be registered before ready, so there is nothing to clean up.
+  if (!app.isReady()) return;
   globalShortcut.unregisterAll();
 });
 
