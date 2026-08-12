@@ -6610,6 +6610,15 @@ body {
   max-width: 100%;
   width: 100%;
 }
+/* Marks a conversation the user started writing in but never sent. The
+   parent .thread-preview sets opacity: 0.6, which children can't exceed —
+   so this reads by hue and weight against the dimmed grey, not by being
+   brighter. Accent blue, not red: red is reserved for hangup/destructive. */
+.thread-draft-tag {
+  color: var(--accent);
+  font-weight: 600;
+  margin-right: 5px;
+}
 .thread-time {
   font-size: 12px;
   opacity: 0.5;

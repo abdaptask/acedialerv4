@@ -2546,6 +2546,11 @@ function ThreadRow({
   const unread =
     thread.direction === 'inbound' &&
     new Date(thread.createdAt) > new Date(getThreadLastVisit(thread.threadKey));
+  // An unsent draft outranks the last message in the preview: it's the only
+  // line in this list that's waiting on the user rather than reporting what
+  // already happened. Read at render — returning from a thread remounts these
+  // rows, so it's current without any subscription.
+  const pendingDraft = getDraft(thread.threadKey);
   return (
     <li
       className={`thread-row${unread ? ' unread' : ''}`}
@@ -2560,8 +2565,17 @@ function ThreadRow({
           <LineBadge userDid={thread.userDid} />
         </div>
         <div className="thread-preview">
-          {thread.direction === 'outbound' ? 'You: ' : ''}
-          {thread.body || (thread.mediaUrls?.length ? '\u{1F4CE} attachment' : '')}
+          {pendingDraft ? (
+            <>
+              <span className="thread-draft-tag">Draft</span>
+              {pendingDraft}
+            </>
+          ) : (
+            <>
+              {thread.direction === 'outbound' ? 'You: ' : ''}
+              {thread.body || (thread.mediaUrls?.length ? '\u{1F4CE} attachment' : '')}
+            </>
+          )}
         </div>
       </div>
       <div className="thread-time">{formatRelative(thread.createdAt)}</div>
