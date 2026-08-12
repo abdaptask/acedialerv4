@@ -18,6 +18,7 @@ import type { User } from './api';
 import { getMe, listMyRingtones } from './api';
 import { installSessionGuard, onSessionExpired } from './lib/sessionGuard';
 import { loadFavoritesFromServer, clearFavoritesCache, applyClickToDialPrefs } from './lib/userPrefs';
+import { clearAllDrafts } from './lib/smsDrafts';
 
 // Install the fetch interceptor once, at module load — before any
 // component issues an API call. Subsequent calls are no-ops.
@@ -127,6 +128,9 @@ export default function App() {
     // Wipe the favorites cache so a different user on the same machine
     // doesn't inherit them. (Phase 6.11)
     clearFavoritesCache();
+    // Same reasoning, higher stakes: an unsent draft can hold a candidate's
+    // name and pay rate, so it must not survive into the next user's session.
+    clearAllDrafts();
     setToken(null);
     setUser(null);
     navigate('/login');

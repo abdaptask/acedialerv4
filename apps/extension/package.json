@@ -1,6 +1,6 @@
 {
   "name": "@ace/extension",
-  "version": "0.10.218",
+  "version": "0.10.219",
   "private": true,
   "type": "module",
   "scripts": {

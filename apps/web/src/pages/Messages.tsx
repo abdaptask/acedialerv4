@@ -61,6 +61,7 @@ import SmsTemplateEditor from '../components/SmsTemplateEditor';
 import SmsVoiceRecorder from '../components/SmsVoiceRecorder';
 import SmsRewriteSheet from '../components/SmsRewriteSheet';
 import { formatSmsLength, measureSms } from '../lib/smsSegments';
+import { getDraft, saveDraft, clearDraft } from '../lib/smsDrafts';
 /**
  * Mirrors MAX_SMS_BODY_CHARS in apps/api/src/messages/sendMessage.ts. The
  * server is authoritative — this copy only exists so Send can disable with an
@@ -472,6 +473,11 @@ export default function Messages() {
         </div>
       ) : (
         <ThreadDetail
+          // Remount per thread. Without this, a deep link that swaps `active`
+          // from one open thread straight to another (Messages?to=…) reuses the
+          // instance, so the draft initializer never re-runs and one contact's
+          // half-written message appears in another's compose box.
+          key={active}
           number={active}
           onBack={() => {
             setActive(null);
@@ -578,7 +584,9 @@ function ThreadDetail({ number, onBack }: ThreadDetailProps) {
   }, [number, messages.length]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [draft, setDraft] = useState('');
+  // Restored from the last visit to this thread, so an inbound call or a trip
+  // to another tab mid-sentence doesn't cost the user their message.
+  const [draft, setDraft] = useState(() => getDraft(number));
   const [sending, setSending] = useState(false);
   const [attached, setAttached] = useState<string[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -685,6 +693,22 @@ function ThreadDetail({ number, onBack }: ThreadDetailProps) {
   // textarea: that silently truncates a paste, which loses the tail of
   // someone's message without telling them.
   const draftOverLimit = draft.length > MAX_SMS_BODY_CHARS;
+
+  // Persist the draft on a short debounce so ordinary typing isn't doing a
+  // JSON round-trip through localStorage on every keystroke.
+  useEffect(() => {
+    const t = setTimeout(() => saveDraft(number, draft), 400);
+    return () => clearTimeout(t);
+  }, [number, draft]);
+
+  // The debounce above loses a race the feature exists to win: accepting an
+  // inbound call unmounts this component within milliseconds of the last
+  // keystroke, long before the timer fires. So flush synchronously on the way
+  // out, reading the live value through a ref — the cleanup closure would
+  // otherwise capture whatever `draft` was when the effect last ran.
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
+  useEffect(() => () => saveDraft(number, draftRef.current), [number]);
 
   // A call being up is the one hard block on recording. 'idle'/'ended' mean
   // no live media; anything else (calling, ringing, incoming, connected) means
@@ -980,6 +1004,9 @@ function ThreadDetail({ number, onBack }: ThreadDetailProps) {
       });
       setMessages((m) => [...m, saved]);
       setDraft('');
+      // Only after the send resolves — the catch below leaves `draft` intact
+      // so a Telnyx rejection doesn't also destroy what the user wrote.
+      clearDraft(number);
       setAttached([]);
     } catch (e) {
       // v0.10.72 — Translate Telnyx error codes to friendly blurbs.
@@ -2089,6 +2116,7 @@ function ThreadDetail({ number, onBack }: ThreadDetailProps) {
               // Treat scheduled-send as "draft handed off" — clear the
               // compose row so the user can't accidentally hit Send too.
               setDraft('');
+              clearDraft(number);
               setAttached([]);
             }
           }}

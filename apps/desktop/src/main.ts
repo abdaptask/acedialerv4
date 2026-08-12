@@ -986,7 +986,14 @@ if (!gotLock) {
 // macOS routes protocol launches through 'open-url' instead of argv.
 app.on('open-url', (event, url) => {
   event.preventDefault();
-  if (url.startsWith('ace-dialer://')) routeProtocolUrl(url);
+  // Must accept every scheme we register as a handler for, not just our own.
+  // v0.10.218 added tel:/callto: to HANDLED_SCHEMES and taught
+  // routeProtocolUrl to parse them, but this gate still tested for
+  // 'ace-dialer://' alone — so on macOS a tel: click launched/focused the
+  // app and the number was then silently dropped here. Windows was
+  // unaffected because it delivers protocol launches through argv
+  // (findProtocolUrl), which reads the same HANDLED_SCHEMES list.
+  if (HANDLED_SCHEMES.some((s) => url.startsWith(s))) routeProtocolUrl(url);
 });
 
 // Cold-start: Windows passes the protocol URL in our own argv when the
