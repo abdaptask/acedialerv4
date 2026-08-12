@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "ACE Dialer — Click to Call",
-  "version": "0.10.219",
+  "version": "0.10.220",
   "description": "Finds phone numbers on a page and makes them clickable. One click opens the number in ACE Dialer, ready to dial.",
   "minimum_chrome_version": "102",
   "permissions": ["storage", "scripting"],

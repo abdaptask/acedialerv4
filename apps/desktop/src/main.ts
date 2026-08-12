@@ -10,6 +10,30 @@ import * as path from 'node:path';
 // in package.json which points at our GH repo.
 import { autoUpdater } from 'electron-updater';
 
+// v0.10.220 — force HTTP/1.1 for everything Chromium's net stack fetches.
+//
+// The update check GETs .../releases/download/v<latest>/latest.yml, which
+// 302s to release-assets.githubusercontent.com (GitHub moved release-asset
+// hosting off objects.githubusercontent.com). Both legs are HTTP/2, and on
+// networks fronted by a TLS-inspecting proxy or VPN the middlebox answers
+// the request with RST_STREAM(REFUSED_STREAM). Electron surfaces that as
+// net::ERR_HTTP2_SERVER_REFUSED_STREAM and electron-updater emits it as an
+// 'error' — reproducible across retries, so it isn't GitHub flakiness.
+//
+// This MUST be appended before app ready to take effect. It applies to
+// electron-updater too: its ElectronHttpExecutor calls electron.net.request,
+// which routes through Chromium's stack and honors the switch. That's the
+// whole point — there's no way to scope HTTP/2 off per-request.
+//
+// Cost is near zero for us: our own traffic is a handful of REST calls to
+// dialer.aptask.com behind nginx, SIP is a WebSocket (never HTTP/2), and
+// media is WebRTC over UDP. Nothing here benefits from H2 multiplexing.
+//
+// If the asset host is blocked outright rather than stream-refused, this
+// changes nothing and the fix is a firewall allowlist entry — see the
+// silent-check-failure handling in initAutoUpdater().
+app.commandLine.appendSwitch('disable-http2');
+
 let mainWindow: BrowserWindow | null = null;
 let ringerWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
@@ -1130,6 +1154,26 @@ type UpdateStateMirror =
   | { phase: 'error'; message: string };
 let lastUpdateState: UpdateStateMirror = { phase: 'idle' };
 
+// v0.10.220 — did a human ask for this check, or is it the hourly poll?
+//
+// A check the user (or a force-update push) initiated is one they're
+// waiting on, so its failure must reach the renderer. The background poll
+// is invisible until it breaks, and a transient network failure there was
+// painting the same red role="alert" banner as a failed install — which is
+// what a 0.10.219 tester saw on every launch behind an H2-inspecting proxy.
+//
+// Timestamp rather than a boolean flag: there's no reliable "check
+// settled" signal to reset on (update-not-available, error, and the
+// available→downloaded chain are all possible terminal states), and a flag
+// stuck true would silently re-arm the noisy path forever. Errors arrive
+// within seconds; the window only has to outlive one request.
+let lastManualCheckAt = 0;
+const MANUAL_CHECK_WINDOW_MS = 2 * 60 * 1000;
+
+function checkWasUserInitiated(): boolean {
+  return Date.now() - lastManualCheckAt < MANUAL_CHECK_WINDOW_MS;
+}
+
 function versionFromMirror(): string | null {
   if (lastUpdateState.phase === 'available' ||
       lastUpdateState.phase === 'downloading' ||
@@ -1245,13 +1289,44 @@ function initAutoUpdater() {
   });
   autoUpdater.on('error', (err) => {
     const message = err?.message ?? String(err);
-    console.warn('[auto-update] error', message);
+    // v0.10.220 — capture the phase we were in BEFORE overwriting the
+    // mirror. Past 'available' means the check succeeded and we're on the
+    // hook to install something the user has been told about; a failure
+    // there is theirs to see. Fail during the check itself and there is
+    // nothing they can act on.
+    const wasInstalling =
+      lastUpdateState.phase === 'available' || lastUpdateState.phase === 'downloading';
+    const shouldSurface = wasInstalling || checkWasUserInitiated();
+
+    console.warn(
+      `[auto-update] error (phase=${lastUpdateState.phase}, surfaced=${shouldSurface})`,
+      message,
+    );
+
+    if (!shouldSurface) {
+      // Silent: a background poll couldn't reach the update feed. Leave the
+      // mirror idle so a remounting UpdateBanner doesn't rehydrate straight
+      // back into the red banner via 'ace:get-update-state', and let the
+      // hourly interval retry. Nothing is broken for the user — they're
+      // running the build they installed.
+      lastUpdateState = { phase: 'idle' };
+      return;
+    }
+
     lastUpdateState = { phase: 'error', message };
-    // v0.9.1 — also forward to the renderer so UpdateBanner can surface
-    // the failure. Previously we only updated the mirror, so the banner
-    // sat silently on "Downloading 100%" forever when (e.g.) the Windows
+    // v0.9.1 — forward to the renderer so UpdateBanner can surface the
+    // failure. Previously we only updated the mirror, so the banner sat
+    // silently on "Downloading 100%" forever when (e.g.) the Windows
     // installer was rejected because it isn't code-signed yet, or when
     // GitHub returned a 403 mid-download.
+    //
+    // v0.10.220 — ForceUpdateModal DEPENDS on this event firing for a
+    // user-initiated check: it blocks the entire app on "Preparing the
+    // update…" and onUpdateError is one of only three ways out (the others
+    // being downloaded and not-available). Suppressing errors
+    // unconditionally would reintroduce the v0.10.209 dead-end. That's why
+    // checkWasUserInitiated() is part of shouldSurface, not just
+    // wasInstalling.
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('ace:update-error', { message });
     }
@@ -1277,6 +1352,12 @@ ipcMain.handle('ace:get-update-state', async () => lastUpdateState);
 // (available / downloaded) still flow through the normal autoUpdater event
 // handlers, so the existing UpdateBanner machinery still works on top.
 ipcMain.handle('ace:check-for-updates', async () => {
+  // v0.10.220 — mark this check as user-initiated so the 'error' handler
+  // surfaces a failure instead of swallowing it. Both callers are waiting
+  // on the answer: the user-dropdown menu item shows the result inline,
+  // and ForceUpdateModal blocks the whole app until an update event lands.
+  // Stamp before the await — the error can fire during checkForUpdates().
+  lastManualCheckAt = Date.now();
   try {
     const result = await autoUpdater.checkForUpdates();
     if (!result) {
