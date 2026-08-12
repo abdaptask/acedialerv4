@@ -9013,8 +9013,10 @@ function ClickToDialSection() {
   return (
     <div className="settings-section">
       <p className="settings-blurb">
-        Call a phone number you find in another app — Outlook, your ATS, a PDF —
-        without retyping it. The number is only filled into the dialer;
+        Call a phone number you find in another app without retyping it. Clickable
+        phone links use the first option; a number that is only plain text — most
+        ATS and CRM screens — needs the copy shortcut below. Either way the number
+        is only filled into the dialer;
         <strong> the call never starts until you press Call.</strong>
       </p>
 
@@ -9027,8 +9029,9 @@ function ClickToDialSection() {
         <span>
           <strong>Open phone links in ACE Dialer</strong>
           <span className="muted small">
-            Clicking a phone number in Outlook, Teams, your ATS, or a web page opens
-            it here. Windows or macOS may ask you to confirm the change.
+            Clicking an already-clickable phone link — Outlook, Teams, a web page —
+            opens it here. Windows and macOS keep their own default for phone links,
+            so you may need to confirm ACE Dialer there once.
           </span>
         </span>
       </label>

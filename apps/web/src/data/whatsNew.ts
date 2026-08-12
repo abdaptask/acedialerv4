@@ -28,8 +28,8 @@ export const WHATS_NEW: ReleaseEntry[] = [
     date: 'August 12, 2026',
     highlight: 'Call a phone number you find in another app, without retyping it.',
     changes: [
-      { type: 'new', text: 'Turn on Settings \u2192 Click to dial, and clicking a phone number in Outlook, Teams, your ATS, or a web page opens it in ACE Dialer with the number already filled in. The call never starts on its own \u2014 you still press Call.' },
-      { type: 'new', text: 'Optional shortcut: copy a phone number anywhere (Ctrl+C), then press Ctrl/Cmd+Shift+D to open it in the dialer. ACE Dialer only looks at your clipboard the moment you press the shortcut \u2014 never in the background.' },
+      { type: 'new', text: 'Turn on Settings \u2192 Click to dial, and clicking a phone \u201clink\u201d \u2014 the kind that is already clickable, as in Outlook, Teams, or a web page \u2014 opens it in ACE Dialer with the number filled in. Windows and macOS will ask you to confirm ACE Dialer as your default for phone links the first time. The call never starts on its own \u2014 you still press Call.' },
+      { type: 'new', text: 'For a number that is plain text rather than a link \u2014 most ATS and CRM screens \u2014 use the shortcut instead: copy it (Ctrl+C), then press Ctrl/Cmd+Shift+D to open it in the dialer. ACE Dialer only looks at your clipboard the moment you press the shortcut \u2014 never in the background.' },
       { type: 'new', text: 'A half-written text is no longer lost. If a call comes in or you switch tabs while composing, your message is still there when you come back to that conversation.' },
       { type: 'improved', text: 'Numbers picked up this way are cleaned automatically \u2014 spaces, dashes, and brackets are removed while the country code is kept \u2014 and extensions like \u201cx203\u201d are dialled for you after the call connects. If the highlighted text isn\u2019t a phone number, you get a clear message instead of a wrong number in the dialer.' },
     ],

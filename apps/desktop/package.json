@@ -61,7 +61,8 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "ACE Dialer"
+      "shortcutName": "ACE Dialer",
+      "include": "installer.nsh"
     },
     "mac": {
       "target": [
