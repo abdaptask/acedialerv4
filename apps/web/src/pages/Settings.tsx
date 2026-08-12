@@ -9062,11 +9062,9 @@ function ClickToDialSection() {
       {error && <div className="error small" style={{ marginTop: 10 }}>{error}</div>}
 
       <p className="muted small" style={{ marginTop: 16 }}>
-        To right-click a highlighted number in Chrome or Edge, install the ACE Dialer
-        browser extension. On macOS, IT can also install a &ldquo;Call with ACE
-        Dialer&rdquo; item into the right-click menu for other apps; once installed
-        you enable it under System Settings &rarr; Keyboard &rarr; Keyboard Shortcuts
-        &rarr; Services.
+        On macOS, IT can install a &ldquo;Call with ACE Dialer&rdquo; item into the
+        right-click menu for other apps; once installed you enable it under System
+        Settings &rarr; Keyboard &rarr; Keyboard Shortcuts &rarr; Services.
       </p>
     </div>
   );
