@@ -150,6 +150,42 @@ test('an invoice or ID number is refused', () => {
   bad('Invoice 123456789', 'invalid');
 });
 
+// ── v0.10.220 — a neighbouring figure must not swallow the number ────────
+//
+// The run regex counts whitespace as part of a number (needed for
+// "+1 732 734 4818"), so copying a whole row merged an adjacent id into one
+// over-long run and the real number was refused. Reported from the field on
+// 0.10.219. We now fall back to the whitespace-separated segments.
+
+test('an id sitting beside the number no longer breaks it', () => {
+  assert.equal(ok('1234 732-734-4818')?.e164, '+17327344818');
+  assert.equal(ok('ID 4405 7327344818')?.e164, '+17327344818');
+  assert.equal(ok('Req 88213 (732) 734-4396')?.e164, '+17327344396');
+});
+
+test('segment fallback does not widen detection', () => {
+  // Each segment must still clear isValid() on its own. Two id-shaped runs
+  // beside each other stay refused rather than being stitched into a "number".
+  bad('Req 12345 67890', 'invalid');
+  bad('Invoice 4405 123456789', 'invalid');
+  // The deliberate false-negative bias survives: a 7-digit local number has
+  // no valid interpretation without an area code, segment or not.
+  bad('Ext 4405 555-1234', 'invalid');
+});
+
+test('a spaced international number still beats its own segments', () => {
+  // Longest-first ordering matters: split into segments, "+91", "98765" and
+  // "43210" are all junk. The whole run has to win.
+  assert.equal(ok('+91 98765 43210')?.e164, '+919876543210');
+  assert.equal(ok('+1 732 734 4818')?.e164, '+17327344818');
+});
+
+test('a refusal quotes the text it actually read', () => {
+  const r = parseSelectedNumber('Req 12345 67890');
+  assert.equal(r.ok, false);
+  if (!r.ok) assert.match(r.message, /Req 12345 67890/);
+});
+
 // ── Display ─────────────────────────────────────────────────────────────
 
 test('display is human-readable and mentions the extension', () => {

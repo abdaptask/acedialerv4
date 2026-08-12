@@ -183,24 +183,53 @@ export function parseSelectedNumber(
     };
   }
 
-  // Extract the longest run that looks like a phone number, so a number
-  // embedded in a sentence still works.
-  const candidates = dialablePart.match(/\+?[\d][\d\s().\-]{5,}\d/g) ?? [];
-  const candidate = candidates.sort((a, b) => digitCount(b) - digitCount(a))[0] ?? dialablePart;
+  // Extract the runs that look like a phone number, so a number embedded in a
+  // sentence still works.
+  const runs = dialablePart.match(/\+?[\d][\d\s().\-]{5,}\d/g) ?? [];
+  const base = runs.length ? runs : [dialablePart];
 
-  const digits = candidate.replace(/\D/g, '');
-  if (digits.length === 0) {
+  // v0.10.220 — try each whitespace-separated segment as a fallback, longest
+  // first, and take the first one libphonenumber actually validates.
+  //
+  // The run regex counts whitespace as part of the number. That is REQUIRED
+  // for "+1 732 734 4818", but it also swallows a neighbouring figure when a
+  // row is copied whole: "1234 732-734-4818" became a single 14-digit run and
+  // was refused outright, even though a perfectly good number was sitting in
+  // it. Recruiting screens put candidate ids and req numbers immediately
+  // beside phone numbers, so that is a common shape, not an edge case.
+  //
+  // Longest-first ordering is what keeps this from widening detection: the
+  // spaced international form still wins whenever it genuinely validates, and
+  // the trimmed-down attempts only get a turn after the long merge has
+  // failed. Each one must still clear isValid() on its own, so "Invoice
+  // 123456789" stays refused.
+  //
+  // Contiguous slices, not individual segments — a number can contain the
+  // very whitespace we are splitting on. "Req 88213 (732) 734-4396" shatters
+  // into "88213" / "(732)" / "734-4396" if you take segments alone, and none
+  // of those is dialable; the slice "(732) 734-4396" is the answer.
+  const attempts = Array.from(new Set(base.flatMap(contiguousSlices))).sort(
+    (a, b) => digitCount(b) - digitCount(a),
+  );
+
+  const longestDigits = digitCount(attempts[0] ?? '');
+  if (longestDigits === 0) {
     return { ok: false, error: 'no_digits', message: "That doesn't contain a phone number." };
   }
   // E.164 allows max 15 digits; below 7 nothing is a real external number.
-  if (digits.length < 7) {
+  if (longestDigits < 7) {
     return {
       ok: false,
       error: 'too_few_digits',
       message: 'That number is too short to dial.',
     };
   }
-  if (digits.length > 15) {
+
+  const viable = attempts.filter((a) => {
+    const d = digitCount(a);
+    return d >= 7 && d <= 15;
+  });
+  if (viable.length === 0) {
     return {
       ok: false,
       error: 'too_many_digits',
@@ -208,33 +237,70 @@ export function parseSelectedNumber(
     };
   }
 
-  // An explicit "+" means the user gave us a country code — never override it
-  // with defaultCountry, or a UK number pasted in a US-defaulted client gets
-  // silently rewritten into a wrong US number.
-  const hasPlus = candidate.trim().startsWith('+');
-  const parsed = hasPlus
-    ? parsePhoneNumberFromString(`+${digits}`)
-    : parsePhoneNumberFromString(candidate, defaultCountry);
+  for (const attempt of viable) {
+    // An explicit "+" means the user gave us a country code — never override
+    // it with defaultCountry, or a UK number pasted in a US-defaulted client
+    // gets silently rewritten into a wrong US number.
+    const hasPlus = attempt.startsWith('+');
+    const parsed = hasPlus
+      ? parsePhoneNumberFromString(`+${attempt.replace(/\D/g, '')}`)
+      : parsePhoneNumberFromString(attempt, defaultCountry);
+    if (!parsed || !parsed.isValid()) continue;
 
-  if (!parsed || !parsed.isValid()) {
+    const e164 = parsed.number;
     return {
-      ok: false,
-      error: 'invalid',
-      message: "That doesn't look like a valid phone number.",
+      ok: true,
+      value: {
+        e164,
+        extension,
+        // ',,' is a ~2s pause; the dial path already understands this syntax.
+        dialString: extension ? `${e164},,${extension}` : e164,
+        display: extension
+          ? `${parsed.formatInternational()} ext. ${extension}`
+          : parsed.formatInternational(),
+      },
     };
   }
 
-  const e164 = parsed.number;
+  // v0.10.220 — quote what we actually read. The capture paths are invisible
+  // to the user: they select or copy something, press a key, and get a
+  // refusal with no way to tell whether the problem was their selection, the
+  // clipboard holding something stale, or us. Showing the text turns an
+  // unfalsifiable "it doesn't work" into a self-evident one.
   return {
-    ok: true,
-    value: {
-      e164,
-      extension,
-      // ',,' is a ~2s pause; the dial path already understands this syntax.
-      dialString: extension ? `${e164},,${extension}` : e164,
-      display: extension ? `${parsed.formatInternational()} ext. ${extension}` : parsed.formatInternational(),
-    },
+    ok: false,
+    error: 'invalid',
+    message: `That doesn't look like a valid phone number: “${preview(text)}”`,
   };
+}
+
+/**
+ * Every contiguous whitespace-delimited slice of a run, longest first, so a
+ * number can shed junk from either end without being taken apart internally.
+ *
+ * Bounded deliberately: slices are quadratic in segment count, and a real
+ * phone number is never more than a handful of groups. Past the cap we fall
+ * back to the whole run plus its bare segments rather than doing the work.
+ */
+const MAX_SLICED_SEGMENTS = 8;
+
+function contiguousSlices(run: string): string[] {
+  const segments = run.split(/\s+/).filter(Boolean);
+  if (segments.length <= 1) return [run.trim()];
+  if (segments.length > MAX_SLICED_SEGMENTS) return [run.trim(), ...segments];
+  const out: string[] = [];
+  for (let start = 0; start < segments.length; start++) {
+    for (let end = start + 1; end <= segments.length; end++) {
+      out.push(segments.slice(start, end).join(' '));
+    }
+  }
+  return out;
+}
+
+/** Trim captured text to something that fits in an error line. */
+function preview(s: string): string {
+  const flat = s.replace(/\s+/g, ' ').trim();
+  return flat.length > 40 ? `${flat.slice(0, 39)}…` : flat;
 }
 
 function digitCount(s: string): number {
