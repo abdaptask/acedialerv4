@@ -187,9 +187,17 @@ export default function Dialpad() {
   // number but DON'T auto-dial — per the design decision the user
   // confirms by clicking Call. After prefilling, strip the param from
   // the URL so a page reload doesn't reset the number to a stale value.
+  // v0.10.220 — this used to read `if (to && !number)`. The `!number` guard
+  // was meant to protect a number the user had typed, but it made every
+  // capture after the first a no-op: press the click-to-dial hotkey on a
+  // second number and the window would surface still showing the first one.
+  // The guard was never needed — stripping `to` below already makes this
+  // fire once per navigation, and after the strip a re-run finds no `to`.
+  // Replacing the field is the whole point of a capture the user just asked
+  // for, so a new one always wins.
   useEffect(() => {
     const to = searchParams.get('to');
-    if (to && !number) {
+    if (to) {
       // v0.10.218 — Click-to-Dial. `src=selection` means `to` came from text
       // a human highlighted somewhere on their machine (a tel: link, the
       // browser extension, or the clipboard hotkey), so it gets the strict
@@ -207,6 +215,15 @@ export default function Dialpad() {
         } else {
           // Deliberately do NOT prefill: putting unparseable text in the
           // field invites the user to hit Call on it.
+          //
+          // v0.10.220 — and clear what was already there. Now that a second
+          // capture is no longer ignored, leaving the PREVIOUS number in the
+          // field under an error message is a wrong-number call waiting to
+          // happen: the user copies a new number, sees the field populated,
+          // and presses Call on the old one. Empty field + error is
+          // unambiguous. Safe against the [number] effect below, which only
+          // clears the error when `number` is non-empty.
+          setNumber('');
           setSelectionError(parsed.message);
         }
       } else {
