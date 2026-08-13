@@ -1,6 +1,6 @@
 # ACE Dialer — Project State
 
-**Last updated:** August 6, 2026 (v0.10.217 released + deployed; v0.10.218 Click-to-Dial in draft PR)
+**Last updated:** August 13, 2026 (v0.10.221 click-to-dial stale/wrong-number fixes staged, uncommitted, NOT built)
 **Maintained by:** Claude (update at end of every working session)
 
 This file is a living snapshot of where the project stands. New Claude
@@ -235,6 +235,15 @@ From session history:
 ---
 
 ## 5. Recent learnings (debugging discoveries)
+
+**August 13, 2026 — v0.10.221 STAGED (UNCOMMITTED, NOT BUILT): "click to dial keeps repeating stale numbers or incorrect numbers" (reported by abdulla on 0.10.220):**
+Ground truth first: the `user_devices` heartbeat showed abdulla on **0.10.220**, so the 0.10.220 repeat fix (`bceef60`) was already in the reporting build — this was a live bug, not a stale install. Everyone else is on 0.10.217 or older, i.e. no click-to-dial at all, so there is exactly one reporter and no comparison data. Three symptoms, three distinct causes; only the first was a defect in the click-to-dial code itself.
+- **The stale number came from the last-dialed recall, not from the capture.** A failed capture empties the field (0.10.220, deliberately), the user presses Call again, and `handleCall`'s empty-field branch recalls `ace_last_dialed` — planting an unrelated old number directly under the red error, one press from being dialled. The two behaviours are individually correct and jointly a wrong-number bug. Recall is now suppressed while a capture error is showing, and the Call button is disabled rather than silently doing nothing.
+- **"A number I selected previously" is the clipboard hotkey working as designed.** It reads the clipboard, not the selection, and it cannot do otherwise (no clipboard polling, no synthesised Ctrl+C — both rejected in 0.10.218 for good reasons). Highlight without Ctrl+C and you get your previous copy, correctly and invisibly. Unfixable as behaviour; fixed as *legibility*: `src` now names the capture path (`clipboard`/`tel`/`selection`), main flags a repeat press on unchanged clipboard content, and every refusal quotes the text it read. Only the `invalid` branch quoted before, so "that's too short to dial" was the one message that gave the user nothing to check.
+- **Ambiguous text was resolved by position.** `parseSelectedNumber` returned the first candidate that validated, so among equally long ones the leading token won — on a recruiting screen as likely a 10-digit candidate id as a phone, and `isValid()` can't distinguish them. Now evaluates a whole digit-count tier and refuses with both numbers named. Incidental finding while writing the test: `555xxxxxxx` is not a valid US number to libphonenumber, so any test that wants two plausible numbers needs two real area codes.
+- **The extension could dial a number the user couldn't see.** The dial string is parked in `data-ace-dial` at scan time, but a chip is a `<span>` injected into someone else's SPA — an ATS re-render can leave it displaying one number while carrying another. `dial()` now treats the displayed text as authoritative, and the observer watches `characterData` and re-derives the whole mutated subtree (unwrap chips → rescan) instead of only inspecting `addedNodes`, which by definition never contains the stale chip.
+- **Known residual limit, worth writing down:** when a framework updates a text node we replaced, it writes into the node we detached, so the page itself goes stale and our chip goes with it. Nothing inside a content script can fix that — the user is then looking at an out-of-date row and dialling what it shows. If that turns out to be common in JobDiva, the fix is to stop injecting chips and go back to a context-menu action on the selection (removed in the Aug 6 scope change; one small commit to restore).
+- **Verified:** `tsc` clean across web/desktop/extension, 72 web tests (8 new) + 8 extension tests pass. **NOT built and NOT deployed** — the web bundle is a production deploy on this host and the desktop side needs an Electron release, so both wait for a go-ahead.
 
 **August 6, 2026 — v0.10.218 STAGED (UNCOMMITTED): Click-to-Dial for highlighted numbers (branch `release/0.10.218`, off 0.10.217):**
 Key finding from the investigation: ~70% already existed. `ace-dialer://call?to=…` → prefill (no auto-dial) has been in production since v0.10.4 for the Teams card buttons, so this was never a "how do we dial from outside" problem — only a "how do we capture highlighted text" one.

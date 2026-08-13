@@ -4,7 +4,7 @@
 // formatPhone/favorite/JobDiva helpers were only used by that panel.
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
-import { Phone, Delete, AlertCircle, X } from 'lucide-react';
+import { Phone, Delete, AlertCircle, Info, X } from 'lucide-react';
 import { AsYouType, parsePhoneNumberFromString, getCountryCallingCode } from 'libphonenumber-js/min';
 import type { CountryCode } from 'libphonenumber-js/min';
 import { useSip } from '../contexts/SipContext';
@@ -12,6 +12,41 @@ import { parseSelectedNumber } from '../lib/phone';
 
 interface DialpadLocationState {
   addCall?: boolean;
+}
+
+/** v0.10.221 — what the click-to-dial banner is saying, and how loudly.
+ *  'error' means nothing was prefilled and the last-dialed recall is held
+ *  back; 'info' means the field IS populated and we're only explaining why it
+ *  looks unchanged. */
+interface CaptureNotice {
+  level: 'error' | 'info';
+  message: string;
+  /** Second line: what the user should do about it. */
+  hint?: string;
+}
+
+/** Which capture paths hand us text a human highlighted rather than a number
+ *  from our own database. See main.ts DeepLinkSource. */
+const UNTRUSTED_SOURCES = ['selection', 'clipboard', 'tel'] as const;
+type CaptureSource = (typeof UNTRUSTED_SOURCES)[number];
+
+/** What to tell the user when a capture from each path fails to parse. The
+ *  paths are invisible — text goes in, a dialer window comes up — so naming
+ *  the source is the difference between "the app is broken" and "ah, my
+ *  clipboard still had the last number in it". */
+function captureFailureHint(source: CaptureSource): string {
+  switch (source) {
+    case 'clipboard':
+      // The single most reported click-to-dial complaint on 0.10.220, and it
+      // isn't a defect: the hotkey reads the clipboard because the safe
+      // alternatives don't exist (no clipboard polling, no synthesised Ctrl+C
+      // — see the note in apps/desktop/src/main.ts). Say so plainly.
+      return 'That is what was on your clipboard. The hotkey reads the clipboard, not what you highlighted — press Ctrl+C on the number first, then the hotkey.';
+    case 'tel':
+      return 'That came from the link you clicked, not from anything you typed.';
+    case 'selection':
+      return 'That came from the text you clicked on the page. Try selecting just the number.';
+  }
 }
 
 const KEYS: Array<{ digit: string; letters?: string }> = [
@@ -171,7 +206,16 @@ export default function Dialpad() {
   // left of the input so it's always shown without occupying input space.
   const [number, setNumber] = useState('');
   // v0.10.218 — set when a click-to-dial capture couldn't be parsed.
-  const [selectionError, setSelectionError] = useState<string | null>(null);
+  // v0.10.221 — widened to carry a source attribution and an info level, so a
+  // capture that succeeded but looks stuck (unchanged clipboard) can explain
+  // itself without being dressed up as an error.
+  const [capture, setCapture] = useState<CaptureNotice | null>(null);
+  // The value of `number` at the moment the notice was raised. Any later
+  // change means the user typed, edited, or pasted — which retires the notice.
+  // Comparing against a ref rather than testing `if (number)` is what lets an
+  // INFO notice coexist with a prefilled field; the old effect would have
+  // cleared it on the same render that populated it.
+  const captureNumberRef = useRef('');
   const inputRef = useRef<HTMLInputElement | null>(null);
   const { sipState, callState, call, addCall } = useSip();
   const navigate = useNavigate();
@@ -207,11 +251,27 @@ export default function Dialpad() {
       // (Teams card buttons, /auto/call) and keeps the original lenient
       // smartNormalize path untouched — this feature must not be able to
       // regress deep links that already work in production.
-      if (searchParams.get('src') === 'selection') {
+      // v0.10.221 — `src` now names the path ('clipboard' | 'tel' |
+      // 'selection'); all three are untrusted text and take the strict parser.
+      const source = UNTRUSTED_SOURCES.find((s) => s === searchParams.get('src'));
+      if (source) {
         const parsed = parseSelectedNumber(to);
         if (parsed.ok) {
           setNumber(parsed.value.dialString);
-          setSelectionError(null);
+          captureNumberRef.current = parsed.value.dialString;
+          // A repeat press on unchanged clipboard content prefills the same
+          // number as last time, which reads as "the app is stuck on an old
+          // number". It isn't — but only the app can explain that, because the
+          // user's mental model is the highlight, not the clipboard.
+          setCapture(
+            source === 'clipboard' && searchParams.get('repeat') === '1'
+              ? {
+                  level: 'info',
+                  message: `Your clipboard still holds ${parsed.value.display}.`,
+                  hint: 'Copy the new number with Ctrl+C first — the hotkey reads your clipboard, not the text you highlighted.',
+                }
+              : null,
+          );
         } else {
           // Deliberately do NOT prefill: putting unparseable text in the
           // field invites the user to hit Call on it.
@@ -221,27 +281,36 @@ export default function Dialpad() {
           // field under an error message is a wrong-number call waiting to
           // happen: the user copies a new number, sees the field populated,
           // and presses Call on the old one. Empty field + error is
-          // unambiguous. Safe against the [number] effect below, which only
-          // clears the error when `number` is non-empty.
+          // unambiguous.
           setNumber('');
-          setSelectionError(parsed.message);
+          captureNumberRef.current = '';
+          setCapture({
+            level: 'error',
+            message: parsed.message,
+            hint: captureFailureHint(source),
+          });
         }
       } else {
         setNumber(smartNormalize(to) || to);
+        captureNumberRef.current = '';
+        setCapture(null);
       }
       // Remove the params so refreshes don't override the user's edits.
       const next = new URLSearchParams(searchParams);
       next.delete('to');
       next.delete('src');
+      next.delete('repeat');
       setSearchParams(next, { replace: true });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams]);
 
-  // Clear the click-to-dial error as soon as the user starts typing — the
+  // Retire the click-to-dial banner as soon as the user edits the field — the
   // message is about the captured text, not about what they're entering now.
+  // v0.10.221 — keyed off "changed since the capture" rather than "non-empty",
+  // so the info variant survives alongside the number it just prefilled.
   useEffect(() => {
-    if (number) setSelectionError(null);
+    if (number !== captureNumberRef.current) setCapture(null);
   }, [number]);
 
   // Inline status for Add Call. While we wait for Telnyx to register the
@@ -268,12 +337,25 @@ export default function Dialpad() {
   const hasLastDialed = (() => {
     try { return !!localStorage.getItem('ace_last_dialed'); } catch { return false; }
   })();
+  // v0.10.221 — handleCall suppresses the recall while a failed capture is on
+  // screen, so the button has to LOOK unavailable too. A button that silently
+  // does nothing when pressed is worse than a disabled one.
+  const canRecallLastDialed = hasLastDialed && capture?.level !== 'error';
 
   const handleCall = useCallback(async () => {
     // Empty field + call pressed: recall the last dialed number (classic
     // phone behavior — like the iOS dialer). User can press call again to
     // actually dial it.
     if (!hasDialableInput) {
+      // v0.10.221 — but NOT while a failed capture is on screen. That branch
+      // deliberately empties the field (v0.10.220), and the user's next move
+      // is almost always to press Call again — at which point the recall
+      // helpfully filled in a completely unrelated number from an hour ago,
+      // directly beneath a red error about the number they just tried to
+      // capture. Reported as "click to dial keeps putting stale numbers in".
+      // Recall is a convenience for a field the USER left empty; it has no
+      // business firing over an emptied one.
+      if (capture?.level === 'error') return;
       const last = localStorage.getItem('ace_last_dialed');
       if (last) setNumber(last);
       return;
@@ -302,7 +384,7 @@ export default function Dialpad() {
       call(number);
     }
     navigate('/in-call');
-  }, [number, hasDialableInput, sipState, isAddCall, call, addCall, navigate]);
+  }, [number, hasDialableInput, sipState, isAddCall, call, addCall, navigate, capture]);
 
   // Keyboard input — listen at the document level so the dialpad is "always focused".
   useEffect(() => {
@@ -427,14 +509,25 @@ export default function Dialpad() {
       {/* v0.10.218 — Click-to-Dial couldn't read a phone number out of the
           text the user highlighted. Shown instead of prefilling, so nobody
           hits Call on garbage. */}
-      {selectionError && (
-        <div className="dial-selection-error" role="alert">
-          <AlertCircle size={15} />
-          <span>{selectionError}</span>
+      {/* v0.10.221 — two levels now. An error means the field was left empty
+          on purpose; the info variant explains a field that WAS filled but
+          looks unchanged (same clipboard as last time), which is why it's
+          role="status" — announcing it as an alert would misrepresent a
+          working capture as a failure. */}
+      {capture && (
+        <div
+          className={`dial-selection-error${capture.level === 'info' ? ' is-info' : ''}`}
+          role={capture.level === 'error' ? 'alert' : 'status'}
+        >
+          {capture.level === 'error' ? <AlertCircle size={15} /> : <Info size={15} />}
+          <span>
+            {capture.message}
+            {capture.hint && <span className="dial-selection-error-hint">{capture.hint}</span>}
+          </span>
           <button
             type="button"
             className="dial-selection-error-dismiss"
-            onClick={() => setSelectionError(null)}
+            onClick={() => setCapture(null)}
             aria-label="Dismiss"
           >
             <X size={14} />
@@ -545,7 +638,7 @@ export default function Dialpad() {
           onClick={handleCall}
           disabled={
             sipState !== 'registered' ||
-            (!hasDialableInput && !hasLastDialed)
+            (!hasDialableInput && !canRecallLastDialed)
           }
           /* v0.10.169 - UX-048 - was a binary ternary that said
              "Recall last number" even when the input was empty AND no
@@ -555,12 +648,12 @@ export default function Dialpad() {
           aria-label={
             hasDialableInput
               ? 'Call'
-              : hasLastDialed
+              : canRecallLastDialed
                 ? 'Recall last number'
                 : 'Type a number to call'
           }
           title={
-            !hasDialableInput && hasLastDialed
+            !hasDialableInput && canRecallLastDialed
               ? 'Press to bring back the last dialed number'
               : 'Call'
           }

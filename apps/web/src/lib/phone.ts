@@ -1,7 +1,11 @@
 // Shared phone-number formatting helper.
 // Uses libphonenumber-js so we render +44, +91, +52, etc. correctly instead
 // of the homegrown US-only formatter that each page used to inline.
-import { parsePhoneNumberFromString, type CountryCode } from 'libphonenumber-js/min';
+import {
+  parsePhoneNumberFromString,
+  type CountryCode,
+  type PhoneNumber,
+} from 'libphonenumber-js/min';
 
 /** Default region for numbers without a country code. Tweak per deployment. */
 const DEFAULT_COUNTRY: CountryCode = 'US';
@@ -101,6 +105,8 @@ export type SelectionParseError =
   | 'no_digits'
   | 'too_few_digits'
   | 'too_many_digits'
+  /** v0.10.221 — two or more equally plausible numbers in one capture. */
+  | 'ambiguous'
   | 'invalid';
 
 export type ParseSelectionResult =
@@ -214,14 +220,22 @@ export function parseSelectedNumber(
 
   const longestDigits = digitCount(attempts[0] ?? '');
   if (longestDigits === 0) {
-    return { ok: false, error: 'no_digits', message: "That doesn't contain a phone number." };
+    return {
+      ok: false,
+      error: 'no_digits',
+      message: `That doesn't contain a phone number: “${preview(text)}”`,
+    };
   }
   // E.164 allows max 15 digits; below 7 nothing is a real external number.
   if (longestDigits < 7) {
     return {
       ok: false,
       error: 'too_few_digits',
-      message: 'That number is too short to dial.',
+      // v0.10.221 — quote it here too. This branch fires when the clipboard
+      // held something that was never a phone number, and "too short to dial"
+      // with nothing else told the user nothing about WHICH text we read —
+      // which is precisely the information that reveals a stale clipboard.
+      message: `That's too short to dial: “${preview(text)}”`,
     };
   }
 
@@ -237,16 +251,47 @@ export function parseSelectedNumber(
     };
   }
 
-  for (const attempt of viable) {
-    // An explicit "+" means the user gave us a country code — never override
-    // it with defaultCountry, or a UK number pasted in a US-defaulted client
-    // gets silently rewritten into a wrong US number.
-    const hasPlus = attempt.startsWith('+');
-    const parsed = hasPlus
-      ? parsePhoneNumberFromString(`+${attempt.replace(/\D/g, '')}`)
-      : parsePhoneNumberFromString(attempt, defaultCountry);
-    if (!parsed || !parsed.isValid()) continue;
+  // v0.10.221 — evaluate a whole digit-count tier before committing, and
+  // refuse when the tier holds more than one number.
+  //
+  // The old loop took the first attempt that validated, so among equally long
+  // candidates the winner was decided by position in the string. Copy a row
+  // reading "5551234567 … 9735551212" and the leading token won — which on a
+  // recruiting screen is as likely to be a 10-digit candidate id as it is the
+  // phone, and isValid() cannot tell them apart. Silently dialing one of two
+  // numbers is the one outcome a dialer must never produce, so an ambiguous
+  // capture now fails closed and asks the user to narrow the selection.
+  //
+  // Tiers, not the whole set: a spaced number and its own trimmed slices
+  // resolve to the SAME e164, and the longest tier is where the number the
+  // user highlighted lives. Junk from lower tiers must not make it ambiguous.
+  for (let i = 0; i < viable.length; ) {
+    const tierDigits = digitCount(viable[i]);
+    const hits = new Map<string, PhoneNumber>();
+    while (i < viable.length && digitCount(viable[i]) === tierDigits) {
+      const attempt = viable[i++];
+      // An explicit "+" means the user gave us a country code — never override
+      // it with defaultCountry, or a UK number pasted in a US-defaulted client
+      // gets silently rewritten into a wrong US number.
+      const hasPlus = attempt.startsWith('+');
+      const parsed = hasPlus
+        ? parsePhoneNumberFromString(`+${attempt.replace(/\D/g, '')}`)
+        : parsePhoneNumberFromString(attempt, defaultCountry);
+      if (!parsed || !parsed.isValid()) continue;
+      if (!hits.has(parsed.number)) hits.set(parsed.number, parsed);
+    }
 
+    if (hits.size === 0) continue;
+    if (hits.size > 1) {
+      const list = [...hits.values()].map((p) => p.formatInternational()).join(' and ');
+      return {
+        ok: false,
+        error: 'ambiguous',
+        message: `That text holds more than one number (${list}) — highlight just the one you want.`,
+      };
+    }
+
+    const [parsed] = [...hits.values()];
     const e164 = parsed.number;
     return {
       ok: true,

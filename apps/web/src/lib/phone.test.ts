@@ -186,6 +186,54 @@ test('a refusal quotes the text it actually read', () => {
   if (!r.ok) assert.match(r.message, /Req 12345 67890/);
 });
 
+// ── v0.10.221 — two numbers in one capture must not be guessed ───────────
+//
+// Reported from the field on 0.10.220: click-to-dial "puts in a number that
+// was selected previously / a wrong number". One cause was here — among
+// equally long candidates the winner was whichever came FIRST in the text, so
+// copying a row put a 10-digit candidate id in the field instead of the phone.
+
+test('two plausible numbers are refused, not silently picked', () => {
+  bad('7325551234 9735551212', 'ambiguous');
+  bad('mobile 732-555-1234 office 973-555-1212', 'ambiguous');
+});
+
+test('the ambiguity refusal names both numbers so the user can see why', () => {
+  const r = parseSelectedNumber('732-555-1234 973-555-1212');
+  assert.equal(r.ok, false);
+  if (!r.ok) {
+    assert.match(r.message, /732/);
+    assert.match(r.message, /973/);
+  }
+});
+
+test('one number written across several segments is not ambiguous', () => {
+  // Each slice of "+1 732 555 1234" resolves to the SAME e164, so the tier
+  // holds one number, not four. This is the case the guard must not break.
+  assert.equal(ok('+1 732 555 1234')?.e164, '+17325551234');
+  assert.equal(ok('+91 98765 43210')?.e164, '+919876543210');
+  assert.equal(ok('1234 732-734-4818')?.e164, '+17327344818');
+  assert.equal(ok('Req 88213 (732) 734-4396')?.e164, '+17327344396');
+});
+
+test('the same number twice in one capture is still dialable', () => {
+  // "Call 732-555-1234 (732-555-1234)" — duplicated in a signature block.
+  // Distinct slices, one number: dialing it is unambiguous.
+  assert.equal(ok('Call 732-555-1234 or 732-555-1234')?.e164, '+17325551234');
+});
+
+test('a short or digitless capture quotes what it read', () => {
+  // The clipboard-holding-something-stale case. Without the text, "too short
+  // to dial" gives the user no way to tell which text we actually got.
+  const short = parseSelectedNumber('12345');
+  assert.equal(short.ok, false);
+  if (!short.ok) assert.match(short.message, /12345/);
+
+  const none = parseSelectedNumber('no digits at all here');
+  assert.equal(none.ok, false);
+  if (!none.ok) assert.match(none.message, /no digits at all here/);
+});
+
 // ── Display ─────────────────────────────────────────────────────────────
 
 test('display is human-readable and mentions the extension', () => {

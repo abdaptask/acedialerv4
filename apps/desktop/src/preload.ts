@@ -88,16 +88,22 @@ contextBridge.exposeInMainWorld('ace', {
   onDeepLink: (
     cb: (
       data:
-        | { action: 'call'; to: string; src?: 'selection' }
-        | { action: 'sms'; to: string; src?: 'selection' }
+        // v0.10.221 — src names the capture path ('tel' link / browser
+        // extension selection / clipboard hotkey); repeat marks a hotkey press
+        // on unchanged clipboard content.
+        | { action: 'call'; to: string; src?: 'selection' | 'clipboard' | 'tel'; repeat?: boolean }
+        | { action: 'sms'; to: string; src?: 'selection' | 'clipboard' | 'tel' }
         | { action: 'voicemail'; id: string },
     ) => void,
   ) => {
     const handler = (
       _e: unknown,
       data:
-        | { action: 'call'; to: string; src?: 'selection' }
-        | { action: 'sms'; to: string; src?: 'selection' }
+        // v0.10.221 — src names the capture path ('tel' link / browser
+        // extension selection / clipboard hotkey); repeat marks a hotkey press
+        // on unchanged clipboard content.
+        | { action: 'call'; to: string; src?: 'selection' | 'clipboard' | 'tel'; repeat?: boolean }
+        | { action: 'sms'; to: string; src?: 'selection' | 'clipboard' | 'tel' }
         | { action: 'voicemail'; id: string },
     ) => cb(data);
     ipcRenderer.on('ace:deep-link', handler);

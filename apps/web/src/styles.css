@@ -10867,6 +10867,25 @@ body::-webkit-scrollbar { display: none; }
 }
 .dial-selection-error span { flex: 1; min-width: 0; }
 .dial-selection-error svg { flex-shrink: 0; }
+/* v0.10.221 — the icon sits beside a two-line message now, so top-align it
+   rather than letting flex centre it against the taller block. */
+.dial-selection-error { align-items: flex-start; }
+.dial-selection-error > svg { margin-top: 1px; }
+/* Second line: what to do about it. Dimmed so the message still leads. */
+.dial-selection-error-hint {
+  display: block;
+  margin-top: 3px;
+  font-size: 12px;
+  opacity: 0.8;
+}
+/* Info variant — the capture WORKED, we're only explaining why the field
+   looks unchanged. Red would read as a failure and train users to ignore the
+   real errors, so it uses the neutral elevated surface. */
+.dial-selection-error.is-info {
+  color: var(--text-dim);
+  background: var(--bg-elevated);
+  border-color: var(--border);
+}
 .dial-selection-error-dismiss {
   flex-shrink: 0;
   display: inline-flex;
