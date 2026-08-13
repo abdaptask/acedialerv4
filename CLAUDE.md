@@ -64,7 +64,7 @@ These are non-negotiable across modules. Repeat them in module-specific guardrai
 | 25 | Notifications, Ringtones & Floating Ringer | Shipped |
 | 26 | Auto-Update (Electron) | Shipped |
 | 27 | Visual System & Aesthetic | Shipped |
-| 28 | Audit Log | Planned |
+| 28 | Audit Log | Shipped |
 | 29 | Realtime Socket Service | Planned (Stub) |
 
 ---
@@ -980,14 +980,16 @@ scripts/      One-off ops helpers (dedupe call legs, fix favorite names, etc.)
 - Enterprise hygiene: every admin action (`user.invited`, `user.promoted`, `user.demoted`, `user.deactivated`, `user.password_reset`, `user.sso_first_signin`) writes a row. Read-only for non-admins; admins see the full feed at Settings → Audit Log.
 
 ### 28.2 Current State & Truth
-**Status:** Planned (schema landed, write paths + admin UI not yet wired).
+**Status:** Shipped.
 
 | Concern | Implementation |
 |---|---|
 | DB model | `AuditLog` — id, actorUserId?→User, action (dot-namespaced), targetUserId?→User, metadata Json?, createdAt |
 | Indexes | `createdAt`, `(actorUserId, createdAt)`, `(targetUserId, createdAt)`, `(action, createdAt)` |
-| Write sites | Not yet wired — TODO list in `ACE_DIALER_TODO.md` Phase 2 |
-| Admin UI | Planned: Settings → Audit Log |
+| Write helper | `recordAudit()` in `apps/api/src/lib/audit.ts` — lives outside `admin.routes.ts` so non-admin routes (`/me/active-did` and friends) can write too |
+| Write sites | ~50 across `apps/api/src` — admin user CRUD, DID assignment, Pulse migration, SSO first sign-in, `/me` mutations |
+| Read endpoint | `GET /admin/audit-logs` (paginated, default 100) |
+| Admin UI | Settings → Audit Log; users see a read-only view of their own last 90 days |
 
 ### 28.3 Execution Context
 - **Actions are dot-namespaced strings** so the prefix gives the entity (e.g., `user.*`, `dial.*`) and the suffix gives the verb.

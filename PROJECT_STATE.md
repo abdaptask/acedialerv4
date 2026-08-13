@@ -1,6 +1,6 @@
 # ACE Dialer — Project State
 
-**Last updated:** August 13, 2026 (v0.10.221 click-to-dial stale/wrong-number fixes staged, uncommitted, NOT built)
+**Last updated:** August 13, 2026 (v0.10.221 merged via PR #85 and **released to all users**; README refreshed off v0.10.8)
 **Maintained by:** Claude (update at end of every working session)
 
 This file is a living snapshot of where the project stands. New Claude
@@ -26,8 +26,10 @@ If you're a fresh Claude session opening this project:
 
 | Stream | Version | Status | Where |
 |---|---|---|---|
-| Latest released | **v0.10.217** | Merged via PR #78 (`dd1d00f`) and **deployed** — verified live: a 1601-char send returns `400 body_too_long` on the running API, and all pm2 services restarted, clearing the earlier webhooks/socket drift | `main` |
-| In review | v0.10.218 | Click-to-Dial. Draft PR, branched from 217, now merged up to date with `main` | `release/0.10.218` |
+| Latest released | **v0.10.221** | Click-to-dial stale/wrong-number fixes. Merged via PR #85 and **released to all users** (Aug 13) | `main` |
+| Previously released | v0.10.220 | Dialpad capture fix (only the first click-to-dial capture reached the field) | `main` |
+| Previously released | v0.10.218 | Click-to-Dial: `tel:` handler, clipboard hotkey, MV3 extension | `main` |
+| Previously released | v0.10.217 | Merged via PR #78 (`dd1d00f`) and **deployed** — verified live: a 1601-char send returns `400 body_too_long` on the running API, and all pm2 services restarted, clearing the earlier webhooks/socket drift | `main` |
 | Previously released | v0.10.216 | Merged via PR #77 (`a37d461`) | `main` |
 | Latest committed (prior) | v0.10.215 | Pushed to `origin/release/0.10.215` — its own PR to main still pending. 0.10.216 was branched from it, so it carries that fix too | branch `release/0.10.215` |
 | Latest committed (prior) | v0.10.204 | Pushed to origin/main, .exe built | GitHub release `v0.10.204` |

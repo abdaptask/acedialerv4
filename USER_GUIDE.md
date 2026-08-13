@@ -3,7 +3,7 @@
 Welcome to ACE Dialer, ApTask's internal softphone. This guide covers
 everything you can do, with quick how-to steps for each feature.
 
-Last updated: v0.9.5
+Last updated: v0.10.221 (August 13, 2026)
 
 ---
 
@@ -80,6 +80,41 @@ for sales, press 3 for billing" menus).
 Just type `+` and the country code, or paste an international number
 and ACE auto-detects the country (you'll see the flag appear).
 
+### Calling a number you found in another app
+
+Desktop app only. Instead of reading a number off one screen and typing it
+into ACE, you can send it straight to the dialer. Turn it on first in
+**Settings → Click to dial** — there are two switches, both off until you
+enable them.
+
+**Clickable phone links.** Turn on "Open phone links in ACE Dialer", and
+clicking a phone link — in an Outlook signature, a Teams message, a web
+page — opens ACE with the number filled in. The first time, Windows or
+macOS will ask you to confirm ACE as your default for phone links.
+
+**Numbers that are just text.** Most ATS and CRM screens show a number as
+plain text, not a link. For those, turn on "Dial what I've copied" and:
+
+1. **Copy the number — Ctrl+C.** This part matters: the shortcut reads what
+   you've *copied*, not what you've *highlighted*. If you skip the copy,
+   you'll get whatever you copied earlier.
+2. Press **Ctrl+Shift+D** (**Cmd+Shift+D** on a Mac).
+
+Either way, **the call never starts on its own.** The number lands in the
+dialer and you press Call, so you always get a look at it first.
+
+ACE tidies the number up for you — spaces, dashes and brackets come out,
+the country code stays — and an extension like `x203` is dialled for you
+once the call connects.
+
+If what you copied isn't a phone number, ACE tells you and shows the text
+it actually read, rather than leaving a wrong number in the dialer. If the
+text holds two numbers — a candidate ID sitting next to a phone number, say
+— it names both and asks you to copy just the one you want. It won't guess.
+
+**On privacy:** ACE looks at your clipboard only at the moment you press the
+shortcut. It never watches it in the background.
+
 ---
 
 ## Receiving calls
@@ -118,7 +153,7 @@ While on a call, you have these controls (3×3 grid):
 | **Keypad** | Opens a number pad for IVR menus (press 1, 2, etc.) |
 | **Audio** | Switches between microphone/speaker devices (headphones, USB, etc.) |
 | **Record** | Records the call (recording saved to your account) |
-| **Transfer** | Transfers the call to someone else (warm or blind) |
+| **Transfer** | Hands the call to someone else and drops you out |
 | **Add Call** | Adds a second person to make it a 3-way conference |
 | **Message** | Opens the SMS thread with this caller |
 | **Hangup** (red) | Ends the call |
@@ -130,14 +165,28 @@ While on a call, you have these controls (3×3 grid):
 3. When they answer, click **Merge** to bring all 3 together
 4. You can mute individual participants from the conference view
 
+### Two calls at once
+
+You don't have to hang up to take or make another call.
+
+- **Add Call** puts the current caller on hold (with your hold music if
+  you've set one) and lets you dial someone else. The parked call stays
+  visible in a strip at the bottom with its own hangup button.
+- **Swap** switches which call you're talking to — one tap, the other goes
+  back on hold.
+- If a second call rings while you're busy, **Hold & Accept** parks the
+  first and answers the new one.
+- **Merge** joins the two into a 3-way conference.
+
 ### Transferring a call
 
-Two flavors:
+Click **Transfer** during the call and type the number. The caller is handed
+straight to that number and your side of the call ends — you don't stay on
+the line.
 
-- **Blind transfer**: ring the new person; the caller is handed off immediately
-- **Warm transfer**: talk to the new person first, then complete the transfer
-
-Click **Transfer** during the call, type the number, pick the flavor.
+The Transfer button stays greyed out for a second or two at the start of a
+call. That's deliberate: it only lights up once the carrier has fully
+registered the call, so pressing it can never silently do nothing.
 
 ---
 
@@ -164,6 +213,62 @@ For common responses, you can set up quick-reply templates:
 1. Settings → Quick replies
 2. Add / edit / reorder your common phrases
 3. While composing a message, click the quick-reply icon to pick one
+
+### Templates
+
+Longer, reusable messages live under the **Templates** button in the
+composer. You'll see two kinds:
+
+- **Company templates**, managed by an admin and shared with everyone
+- **Your own templates**, which only you can see — an admin can't read them
+
+Templates can contain placeholders like `{firstName}` or `{recruiter}`,
+which fill in automatically from the contact and from your own profile.
+Anything meant to be typed by you stays visible as `{role}` so you can spot
+it — it's never silently left blank.
+
+### Dictating a message
+
+Click the microphone in the composer and talk; your words appear as text you
+can edit before sending. The recording is only ever used to produce that
+text — it isn't saved, isn't sent, and isn't attached to the message.
+
+You can't dictate during a call, because the call is using your microphone.
+
+### Cleaning up wording with AI
+
+Click the wand to have ACE tidy up spelling, grammar and tone. You always
+see the suggestion side by side with what you wrote, along with a short list
+of things worth double-checking (numbers, names, links). Accept it, edit it,
+or keep your original. **Nothing is ever sent automatically.**
+
+### How long is too long
+
+Under the composer you'll see a character count and how many *texts* the
+message will actually cost. That second number is what matters — carriers
+bill per text, and a single emoji, curly quote, or em dash cuts a text from
+160 characters down to 70.
+
+Messages over 1,600 characters (about ten texts) are blocked before sending,
+with a note asking you to shorten or split. Pasting something huge won't
+quietly go out as dozens of separate texts.
+
+### Drafts
+
+If you're partway through typing and a call comes in, or you switch to
+another conversation, or you close ACE — your text is still there when you
+come back to that conversation. Conversations holding unsent text are marked
+**Draft** in the message list, with a preview of what you'd written.
+
+Your draft clears once the message actually sends. If a send fails, your
+text stays put. Drafts live on the computer you typed them on, and are
+cleared when you sign out.
+
+### Sending later
+
+Click the clock icon to pick a date and time instead of sending now.
+Scheduled messages are listed in a sidebar where you can edit or cancel them
+before they go out.
 
 ### Reading a thread
 
@@ -315,8 +420,10 @@ the gear icon.
 | **Theme** | Light, Dark, or System (matches your OS) |
 | **Notifications** | Enable/disable desktop notifications for calls/SMS/voicemail |
 | **Quick replies** | Manage your SMS quick-reply templates |
-| **Call forwarding** | Forward all calls to another number (e.g. your cell) |
-| **Number blocking** | Block specific numbers — they go straight to voicemail or get rejected |
+| **Call forwarding** | Send calls to another number (e.g. your cell) — either always, or only when you don't answer |
+| **Number blocking** | Block specific numbers — they get a busy signal and can't leave a voicemail |
+| **Click to dial** | Turn on phone links and the copy-and-dial shortcut (desktop app only) |
+| **Hold music** | Upload an MP3 so callers on hold hear music instead of silence |
 | **Backup / restore prefs** | Export your settings as a file; import on a new computer |
 | **Audio devices** | Pick which mic and speaker ACE uses |
 
@@ -324,7 +431,7 @@ the gear icon.
 
 | Setting | What it does |
 |---|---|
-| **Voicemail greeting** | Record a custom "you've reached..." message (coming soon) |
+| **Voicemail greeting** | Upload a custom "you've reached..." message |
 | **Auto-delete** | Voicemails older than 30 days are deleted automatically |
 
 ### Signing out

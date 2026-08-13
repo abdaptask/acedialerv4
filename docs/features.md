@@ -1,6 +1,6 @@
 # ACE Dialer — Features
 
-What ACE Dialer can do as of v0.10.192 (June 18, 2026).
+What ACE Dialer can do as of v0.10.221 (August 13, 2026).
 
 ## Calling
 
@@ -28,12 +28,42 @@ What ACE Dialer can do as of v0.10.192 (June 18, 2026).
 ### In-call controls
 - Mute / unmute (mic)
 - Hold / resume
-- DTMF keypad during active call
+- **Hold music** — upload an MP3 (≤2 MB) in Settings; the held caller hears
+  it instead of silence
+- DTMF keypad during active call, with an editable extension bar (caret +
+  physical Backspace) so a mistyped extension can be corrected
 - Record-while-talking (recording attaches to the Call row)
-- Add call — bring a third party in via Telnyx Conference (independent
-  hangup behavior per leg)
 - Real-time call quality meter (RTT + jitter, India-calibrated thresholds)
 - Active call survives window-minimize-to-tray (no audio drop)
+
+### Multi-call (v0.10.60+, JsSIP)
+Migrating off the Telnyx WebRTC SDK to JsSIP gave every call its own
+`RTCSession`, which is what makes these possible — the SDK exposed only one
+call object.
+
+- **Add call** — put the current call on hold (with music if configured) and
+  dial a second party. Both stay live; a "held strip" shows the parked call
+  with its own hangup button.
+- **Swap** — one tap toggles which call you're talking to; the other holds.
+- **Hold & Accept** — a second call ringing during an active one can be
+  answered without dropping the first.
+- **3-way conference** — merge the two calls. Audio is mixed in the client
+  via Web Audio, so each leg can be hung up independently and any single
+  participant can be muted for everyone.
+- **Blind transfer** — hand the caller to another number via Telnyx Call
+  Control; your leg drops and Telnyx bridges the two. The button stays
+  disabled until Telnyx has registered the leg, so it can never silently
+  no-op.
+- Two concurrent calls is the designed ceiling (active + held, optionally
+  conferenced).
+
+### Call forwarding
+- Per-user, configured in Settings → Call Forwarding
+- **Always** — every inbound call forwards immediately, never rings the app
+- **On no-answer** — rings the app first, then the forwarding number, then
+  falls through to voicemail
+- Saving provisions Telnyx directly, so the carrier config can't drift from
+  what the setting says
 
 ### Audio quality (v0.10.21)
 - **User-controlled noise suppression** — Settings → Microphone → "Noise
@@ -53,6 +83,47 @@ What ACE Dialer can do as of v0.10.192 (June 18, 2026).
   forwarded / blocked / failed
 - Calls that ended without `answered_at` set are correctly classified as
   missed (handles caller-cancelled, no_answer, rejected, busy)
+
+## Click to dial (v0.10.218+, desktop only)
+
+Call a number you find in another app without retyping it. Three capture
+paths, all of which only ever **prefill** the dialer — nothing in the chain
+can place a call, so the user always sees the number and presses Call.
+
+- **Phone links** — `tel:` / `callto:` links in Outlook, Teams, or a web
+  page open ACE Dialer with the number filled in. Opt-in, because it makes
+  ACE the system's default phone handler.
+- **Clipboard shortcut** — copy a number (Ctrl+C), then Ctrl/Cmd+Shift+D.
+  Opt-in, because it claims a key combination process-wide. The clipboard
+  is read *only* inside that keypress — never polled in the background, and
+  the app never synthesises a copy into whatever you're using.
+- **Browser extension** — an MV3 extension underlines phone numbers on ATS
+  and CRM pages; clicking one hands it to the desktop app. It ships with no
+  host permissions and registers its scanner only for domains you grant on
+  its options page, so it can't read every page you visit. It never touches
+  form fields you're typing in.
+
+Numbers are cleaned automatically (spaces, dashes, brackets removed, country
+code kept) and extensions like `x203` are dialled for you once connected.
+Detection is deliberately biased toward missing a number rather than
+underlining a candidate ID. When captured text can't be read as a phone
+number, or holds two numbers, the dialer says so and quotes the text it
+read instead of guessing.
+
+## Contacts & Favorites
+
+- **Favorites are server-synced** — the same starred list on every browser,
+  every machine, and the desktop app. Local storage is only a read cache;
+  the database is the source of truth.
+- Favorite names surface everywhere a number appears — Recents, incoming
+  call, in-call, and message threads
+- **JobDiva lookup** — inbound and dialed numbers are matched against the
+  ApTask CRM to show name, company, and job title inline. Enrichment only:
+  if the lookup fails, the display falls back to your own Favorites name,
+  then the formatted number.
+- **Blocked numbers** — per-user list. A blocked caller gets a busy signal
+  at the Telnyx layer and skips voicemail entirely; blocked-sender SMS is
+  dropped before it reaches the inbox.
 
 ## SMS / MMS
 
@@ -76,8 +147,37 @@ What ACE Dialer can do as of v0.10.192 (June 18, 2026).
   Ctrl+Enter (Cmd+Enter on Mac) also inserts a newline (v0.10.190).
 - **Quick replies (v0.10.52)** — per-user saved short text snippets,
   accessible from a popover above the composer.
-- **SMS templates (v0.10.52+)** — tenant-level templates picker. The
-  `{recruiter}` placeholder auto-fills with the user's first name (v0.10.54).
+- **SMS templates — two scopes (v0.10.216)** — company-wide templates
+  (admin-managed) plus each user's own personal templates, in one picker.
+  A user's personal templates are visible only to them; admins can't see
+  them either.
+- **Placeholders** — a fixed registry of `{camelCase}` fields. Contact
+  fields fill from Favorites/JobDiva, user fields from your profile, and
+  anything meant to be typed is left visible as `{role}` rather than
+  silently blanked. Validated when a template is saved, never on read, so
+  an existing template always still sends.
+- **Voice-to-text (v0.10.216)** — dictate a message; Deepgram Nova-3
+  (`language=multi`) transcribes it into the composer. The audio is
+  request-scoped and discarded — never stored, never sent, never logged.
+  Recording is refused while a call is live, since the call owns the mic.
+- **AI rewrite (v0.10.216)** — clean up wording via a self-hosted Qwen
+  model on the DGX. The suggestion is mechanically checked first
+  (placeholders, numbers, links, emails, length) and shown for review with
+  the specific facts to verify called out. A failed check keeps your
+  original text, and nothing is ever auto-sent.
+- **Character / segment counter** — shows both characters and how many
+  texts the message will actually cost. One emoji, curly quote, or em dash
+  drops a message from 160 characters per text to 70, so the counter tracks
+  segments rather than characters.
+- **1,600-character send cap** — about ten texts. Enforced server-side in
+  one place, so the immediate send, the scheduled worker, templates, and
+  AI rewrite all inherit it. The composer disables Send and explains,
+  rather than truncating a paste.
+- **Drafts (v0.10.219)** — a half-written message survives an incoming
+  call, a thread switch, or closing the app. Threads with unsent text are
+  marked **Draft** in the list with a preview. Cleared only once the
+  message actually sends — a failed send keeps your text. Device-local,
+  and wiped on sign-out.
 - **Emoji picker** — categorized picker, recent emojis remembered locally.
 - **Schedule send (v0.10.59)** — pick a future date/time; the message is
   queued and fired by a worker. Pending schedules are listed in a sidebar
@@ -99,6 +199,9 @@ What ACE Dialer can do as of v0.10.192 (June 18, 2026).
 - **MMS per-image download** — each inbound media item has a download
   button to save directly to disk; clicking the image still opens it
   full-size in a new tab.
+- **Reactions (v0.10.195+)** — react to a message from a 5×5 emoji grid.
+  Stored locally by default, with an option to also send the reaction as
+  its own text so the other party sees it.
 
 ## Voicemail
 
@@ -262,7 +365,9 @@ three event types: **missed call**, **inbound SMS**, **voicemail**.
 ## Chat (internal messaging)
 
 - 1:1 chat between ACE Dialer users (not external PSTN — that's SMS)
-- Real-time delivery via WebSocket (`apps/socket`)
+- Delivered by polling today. `apps/socket` exists but is still a stub, so
+  chat, badges, and the voicemail inbox all refresh on a timer rather than
+  being pushed
 - Presence: Online / Away / Idle / Offline indicators
 - Sort by presence — reachable teammates float to the top
 - Per-thread unread counts + last-message preview
@@ -353,6 +458,13 @@ three event types: **missed call**, **inbound SMS**, **voicemail**.
   - `ace-dialer://auth/callback?code=...` — MS SSO callback
   - `ace-dialer://call?to=+1...` — focus dialer + prefill caller pad
   - `ace-dialer://sms?to=+1...` — focus dialer + open composer with prefill
+  - `&src=selection|clipboard|tel` marks a number that came from text the
+    user highlighted, which is validated strictly. Numbers from our own
+    database (Teams cards, Recents) carry no `src` and stay lenient.
+- **Click to dial (v0.10.218+)** — optional `tel:`/`callto:` handler
+  registration and an optional global clipboard hotkey, both off by default
+  and both managed from Settings → Click to dial. See the Click to dial
+  section above.
 - Silent auto-update via electron-updater
   - Checks GitHub Releases on launch + every 60 min while running
   - Downloads new installer in background
@@ -441,6 +553,9 @@ Documented in `CLAUDE.md` at repo root. Summary:
 - **EV/OV code-signing cert** — Windows installer is not signed today;
   `verifyUpdateCodeSignature` is bypassed to allow auto-update. Cert
   procurement is on the todo list.
+- **Realtime push** — `apps/socket` is a ping/pong stub. Tab badges, chat
+  threads, and the voicemail inbox all poll on a timer. The socket has no
+  auth handshake yet, so nothing in the UI is wired to it.
 - **Staging environment** — main is production for web/API/webhooks
 - **Feature flags** — every change ships to all users
 - **Pulse auto-backfill via MySQL** — broken since June 5, 2026 due to
