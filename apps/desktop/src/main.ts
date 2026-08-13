@@ -75,11 +75,28 @@ let pendingSsoUrl: string | null = null;
  *  hotkey) rather than a number we already trust from our own database
  *  (Teams cards). The renderer validates strictly and shows an error for
  *  those, while trusted sources keep their existing lenient behaviour — so
- *  click-to-dial can't regress the Teams-card path. */
-type DeepLinkSource = 'selection';
+ *  click-to-dial can't regress the Teams-card path.
+ *
+ *  v0.10.221 — widened from a single 'selection' flag to name WHICH path
+ *  captured the text. All three still get the strict parser; the difference is
+ *  that the renderer can now say "from your clipboard" instead of a bare
+ *  refusal. That distinction is the whole diagnosis for the top field report
+ *  on 0.10.220 ("it keeps giving me a number I selected earlier"): the hotkey
+ *  reads the CLIPBOARD, so a user who highlights without pressing Ctrl+C gets
+ *  their previous copy, correctly and invisibly. Naming the source is what
+ *  makes that self-evident instead of looking like a bug in the app.
+ *  Older values stay accepted so a renderer/main version skew degrades to the
+ *  0.10.218 behaviour rather than losing strict validation. */
+type DeepLinkSource = 'selection' | 'clipboard' | 'tel';
 
 type PendingDeepLink =
-  | { action: 'call'; to: string; src?: DeepLinkSource }
+  | {
+      action: 'call';
+      to: string;
+      src?: DeepLinkSource;
+      /** v0.10.221 — clipboard hotkey pressed twice on identical text. */
+      repeat?: boolean;
+    }
   | { action: 'sms'; to: string }
   | { action: 'voicemail'; id: string };
 let pendingDeepLink: PendingDeepLink | null = null;
@@ -188,7 +205,7 @@ function routeProtocolUrl(url: string) {
         console.warn('[deep-link] empty tel: URI', url);
         return;
       }
-      handleDeepLink({ action: 'call', to: raw, src: 'selection' });
+      handleDeepLink({ action: 'call', to: raw, src: 'tel' });
       return;
     }
 
@@ -203,7 +220,10 @@ function routeProtocolUrl(url: string) {
         console.warn('[deep-link] missing ?to= param', url);
         return;
       }
-      const src = parsed.searchParams.get('src') === 'selection' ? 'selection' : undefined;
+      // Anything we don't recognise is dropped rather than passed through, so
+      // a crafted ?src= can't talk the renderer out of strict validation.
+      const rawSrc = parsed.searchParams.get('src');
+      const src = (['selection', 'clipboard', 'tel'] as const).find((s) => s === rawSrc);
       handleDeepLink({ action, to, src });
       return;
     }
@@ -903,6 +923,18 @@ function setTelHandlerRegistered(enabled: boolean): { ok: boolean; error?: strin
 
 let currentHotkey: string | null = null;
 
+/** v0.10.221 — the last clipboard text the hotkey forwarded. Held so a second
+ *  press on unchanged clipboard content can be labelled as such.
+ *
+ *  Why it matters: the hotkey reads the clipboard, not the selection, and it
+ *  cannot do otherwise (polling the clipboard would mean watching every
+ *  password the user copies; synthesising Ctrl+C is what EDR flags as
+ *  keylogging — see the note above). So "I highlighted a new number and got
+ *  the old one" is the feature working exactly as built, and the only fix
+ *  available is to make it legible. We still prefill — redialing the same
+ *  number is legitimate — but the renderer says why the field didn't change. */
+let lastHotkeyClipboard: string | null = null;
+
 function setDialHotkey(accelerator: string | null): { ok: boolean; error?: string } {
   try {
     if (currentHotkey) {
@@ -919,7 +951,10 @@ function setDialHotkey(accelerator: string | null): { ok: boolean; error?: strin
         return;
       }
       // Cap before forwarding so a copied document doesn't travel over IPC.
-      handleDeepLink({ action: 'call', to: text.slice(0, 200), src: 'selection' });
+      const to = text.slice(0, 200);
+      const repeat = lastHotkeyClipboard === to;
+      lastHotkeyClipboard = to;
+      handleDeepLink({ action: 'call', to, src: 'clipboard', repeat });
     });
 
     if (!registered) {

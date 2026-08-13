@@ -168,10 +168,21 @@ export default function App() {
       }
       // v0.10.218 - propagate the provenance marker so Dialpad knows whether
       // to validate strictly (highlighted text) or stay lenient (Teams card).
-      const srcParam = data.src === 'selection' ? '&src=selection' : '';
+      // v0.10.221 - and WHICH untrusted path it came from, so a refusal can
+      // name the source. Anything unrecognised falls back to the strict
+      // 'selection' bucket rather than to the lenient path: a src we can't
+      // place is untrusted by definition.
+      const src = !data.src
+        ? undefined // no marker at all = our own database (Teams card): lenient
+        : data.src === 'clipboard' || data.src === 'tel' || data.src === 'selection'
+          ? data.src
+          : 'selection'; // marked but unrecognised: still untrusted text
+      const srcParam = src ? `&src=${src}` : '';
+      const repeatParam =
+        src === 'clipboard' && data.action === 'call' && data.repeat ? '&repeat=1' : '';
       const route =
         data.action === 'call'
-          ? `/keypad?to=${encodeURIComponent(data.to)}${srcParam}`
+          ? `/keypad?to=${encodeURIComponent(data.to)}${srcParam}${repeatParam}`
           : `/messages?to=${encodeURIComponent(data.to)}`;
       console.info('[deep-link] navigating:', route);
       navigate(route);

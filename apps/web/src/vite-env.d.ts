@@ -39,8 +39,11 @@ interface AceElectronBridge {
   onDeepLink?: (
     cb: (
       data:
-        | { action: 'call'; to: string; src?: 'selection' }
-        | { action: 'sms'; to: string; src?: 'selection' }
+        // v0.10.221 - src names WHICH path captured the text, so the dialer can
+        // attribute a refusal ("from your clipboard") instead of just refusing.
+        // repeat = the hotkey was pressed twice on identical clipboard content.
+        | { action: 'call'; to: string; src?: 'selection' | 'clipboard' | 'tel'; repeat?: boolean }
+        | { action: 'sms'; to: string; src?: 'selection' | 'clipboard' | 'tel' }
         | { action: 'voicemail'; id: string },
     ) => void,
   ) => () => void;

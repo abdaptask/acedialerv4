@@ -24,6 +24,17 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.221',
+    date: 'August 13, 2026',
+    highlight: 'Click to dial no longer brings back an old number.',
+    changes: [
+      { type: 'fixed', text: 'When a copied number couldn’t be read, pressing Call would fill the box with the last number you dialled — an unrelated number sitting right under the error. It no longer does.' },
+      { type: 'fixed', text: 'Text holding two phone numbers is no longer guessed at. Instead of picking one — which could just as easily be a candidate ID — the dialer names both and asks you to highlight the one you want.' },
+      { type: 'improved', text: 'The shortcut reads your clipboard, so if you highlight a number without copying it first you get the number you copied earlier. The dialer now says so, and quotes the text it actually read, instead of just refusing.' },
+      { type: 'fixed', text: 'In the browser extension, a number that had been re-drawn on the page could still be underlined with the previous row’s number behind it. Clicking now always dials the number you can see, and re-checks the page as it changes.' },
+    ],
+  },
+  {
     version: '0.10.219',
     date: 'August 12, 2026',
     highlight: 'Call a phone number you find in another app, without retyping it.',
