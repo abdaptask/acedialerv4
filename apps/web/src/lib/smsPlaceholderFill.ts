@@ -22,6 +22,20 @@ import type { JobDivaContact, SmsPlaceholder } from '../api';
 export interface FillContext {
   /** Favourites/JobDiva display name for the conversation, if any. */
   displayName?: string | null;
+  /**
+   * Explicit structured names, when the caller already has them.
+   *
+   * A Favorite row carries firstName / lastName the USER typed, which beats
+   * splitting a display string on whitespace — that guesses wrong on "Dr. Amy
+   * Chen", on "Chen, Amy", and on a mononym. Used by the multi-select send,
+   * where there is no JobDiva lookup per contact and the favourite's own
+   * fields are the best source available.
+   *
+   * Preferred over displayName splitting, but NOT over JobDiva, so the 1:1
+   * composer's precedence is unchanged.
+   */
+  contactFirstName?: string | null;
+  contactLastName?: string | null;
   /** JobDiva enrichment for this number, if the lookup succeeded. */
   jobDiva?: JobDivaContact | null;
   /** Signed-in user's first name. */
@@ -41,6 +55,13 @@ function contactNames(ctx: FillContext): { first?: string; last?: string } {
   const jd = ctx.jobDiva;
   if (jd?.firstName || jd?.lastName) {
     return { first: jd.firstName?.trim() || undefined, last: jd.lastName?.trim() || undefined };
+  }
+  // Structured names the caller handed us (a Favorite's own fields) — still
+  // better than splitting a display string, which is the last resort.
+  const explicitFirst = (ctx.contactFirstName ?? '').trim();
+  const explicitLast = (ctx.contactLastName ?? '').trim();
+  if (explicitFirst || explicitLast) {
+    return { first: explicitFirst || undefined, last: explicitLast || undefined };
   }
   const display = (ctx.displayName ?? '').trim();
   if (!display || !/[a-zA-Z]/.test(display)) return {};
