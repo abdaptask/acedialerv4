@@ -53,6 +53,16 @@ export type SendMessageErr = {
   code:
     | 'no_did_assigned'
     | 'telnyx_send_failed'
+    /**
+     * "Not now", as distinct from "no". HTTP 429 or a Telnyx 5xx: the message
+     * was never judged on its merits, so a caller that counts failures must
+     * NOT count this one. Split out in the scheduled-send hardening pass
+     * because the worker's MAX_ATTEMPTS=5 budget meant five rate-limit
+     * responses permanently failed a message Telnyx had not rejected —
+     * reachable today by scheduling a handful of sends for the same minute,
+     * and guaranteed the moment anything fans out over a saved list.
+     */
+    | 'telnyx_rate_limited'
     | 'telnyx_request_failed'
     | 'body_too_long'
     | 'config_missing';
@@ -171,6 +181,19 @@ export async function sendMessageImmediate(
     });
     const json = (await res.json()) as { data?: typeof telnyxResponse; errors?: unknown };
     if (!res.ok) {
+      // 429 = we exceeded our messaging throughput; 5xx = Telnyx itself is
+      // unhealthy. Neither says anything about this recipient or this body, so
+      // they get their own code and the caller retries them for free. Anything
+      // else (4xx validation, opted-out recipient, unregistered DID) is a real
+      // rejection and keeps the original code.
+      if (res.status === 429 || res.status >= 500) {
+        return {
+          ok: false,
+          code: 'telnyx_rate_limited',
+          message: `Telnyx HTTP ${res.status} — throughput or upstream health, not a rejection`,
+          detail: json.errors,
+        };
+      }
       return {
         ok: false,
         code: 'telnyx_send_failed',
