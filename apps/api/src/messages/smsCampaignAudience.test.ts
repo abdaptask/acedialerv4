@@ -6,6 +6,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   MAX_CAMPAIGN_RECIPIENTS,
+  deriveCampaignStatus,
   indexOwnedNumbers,
   isOverRecipientLimit,
   pickPrimaryPhone,
@@ -252,5 +253,58 @@ test('a mixed batch accepts the good and names every exclusion', () => {
     skipped.map((s) => s.reason).sort(),
     ['blocked', 'duplicate', 'not_a_favorite', 'unresolved_placeholder'],
     'a partial send must never be silent — every exclusion is reported',
+  );
+});
+
+// ── Derived campaign status ─────────────────────────────────────────────
+//
+// Regression tests for a real bug: the stored SmsCampaign.status column was
+// written at enqueue and never updated, so a fully-delivered send still
+// reported "queued". Status is now derived from the recipient rows.
+
+test('status is sending while any recipient is outstanding', () => {
+  assert.equal(
+    deriveCampaignStatus({ total: 3, pending: 1, sent: 2, failed: 0, canceled: 0 }),
+    'sending',
+  );
+  // 'sending' covers both pending and worker-claimed rows.
+  assert.equal(
+    deriveCampaignStatus({ total: 1, pending: 1, sent: 0, failed: 0, canceled: 0 }),
+    'sending',
+  );
+});
+
+test('status is done once nothing is outstanding — the bug this replaced', () => {
+  assert.equal(
+    deriveCampaignStatus({ total: 1, pending: 0, sent: 1, failed: 0, canceled: 0 }),
+    'done',
+    'a fully-sent campaign must not still read as queued',
+  );
+});
+
+test('a send where everything failed is done, not canceled', () => {
+  assert.equal(
+    deriveCampaignStatus({ total: 2, pending: 0, sent: 0, failed: 2, canceled: 0 }),
+    'done',
+  );
+});
+
+test('canceled requires ALL recipients canceled', () => {
+  assert.equal(
+    deriveCampaignStatus({ total: 2, pending: 0, sent: 0, failed: 0, canceled: 2 }),
+    'canceled',
+  );
+  // A partial cancel is 'done': some texts really were delivered, and calling
+  // that "canceled" would misrepresent what recipients received.
+  assert.equal(
+    deriveCampaignStatus({ total: 2, pending: 0, sent: 1, failed: 0, canceled: 1 }),
+    'done',
+  );
+});
+
+test('an empty campaign is distinguishable from a finished one', () => {
+  assert.equal(
+    deriveCampaignStatus({ total: 0, pending: 0, sent: 0, failed: 0, canceled: 0 }),
+    'empty',
   );
 });

@@ -241,6 +241,39 @@ export function resolveAudience(args: {
   return { accepted, skipped };
 }
 
+export interface CampaignCounts {
+  total: number;
+  pending: number;
+  sent: number;
+  failed: number;
+  canceled: number;
+}
+
+export type CampaignStatus = 'sending' | 'done' | 'canceled' | 'empty';
+
+/**
+ * Derive a campaign's status from its recipient rows.
+ *
+ * DERIVED, not stored, and deliberately so. The stored SmsCampaign.status
+ * column was written once at enqueue and never updated — the worker drains
+ * ScheduledMessage rows and has no reason to know about campaigns, so a
+ * finished send still reported "queued" forever. The options were to make the
+ * worker scan every open campaign each 30s tick, or to compute this from rows
+ * we're already fetching. The second can't go stale.
+ *
+ * The column is still written on create/cancel as an audit breadcrumb, but the
+ * API returns this instead. Don't reintroduce a code path that trusts it.
+ */
+export function deriveCampaignStatus(counts: CampaignCounts): CampaignStatus {
+  if (counts.total === 0) return 'empty';
+  if (counts.pending > 0) return 'sending';
+  // Every row canceled = the user pulled the whole thing before it went out.
+  // A partial cancel still counts as done: some texts were delivered, and
+  // calling that "canceled" would misrepresent what the recipients received.
+  if (counts.canceled === counts.total) return 'canceled';
+  return 'done';
+}
+
 /** True when the request is too large to accept at all. */
 export function isOverRecipientLimit(
   requestedCount: number,

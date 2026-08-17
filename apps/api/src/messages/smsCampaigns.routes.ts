@@ -24,8 +24,10 @@ import { recordAudit } from '../lib/audit.js';
 import { last10 } from '../lib/phone.js';
 import {
   MAX_CAMPAIGN_RECIPIENTS,
+  deriveCampaignStatus,
   isOverRecipientLimit,
   resolveAudience,
+  type CampaignCounts,
   type RequestedRecipient,
 } from './smsCampaignAudience.js';
 
@@ -152,7 +154,15 @@ export async function smsCampaignsRoutes(app: FastifyInstance) {
     return reply.code(201).send({
       campaign: {
         id: campaign.id,
-        status: campaign.status,
+        // Derived, like the GETs — every row is pending at this instant, so
+        // this is 'sending'. Never echo the stored column; it doesn't update.
+        status: deriveCampaignStatus({
+          total: accepted.length,
+          pending: accepted.length,
+          sent: 0,
+          failed: 0,
+          canceled: 0,
+        }),
         totalCount: campaign.totalCount,
         createdAt: campaign.createdAt,
       },
@@ -168,15 +178,39 @@ export async function smsCampaignsRoutes(app: FastifyInstance) {
       where: { userId: me },
       orderBy: { createdAt: 'desc' },
       take: 50,
-      select: {
-        id: true,
-        templateBody: true,
-        status: true,
-        totalCount: true,
-        createdAt: true,
-      },
+      select: { id: true, templateBody: true, totalCount: true, createdAt: true },
     });
-    return { campaigns: rows };
+    if (rows.length === 0) return { campaigns: [] };
+
+    // One groupBy for every campaign on the page — status is derived, so this
+    // is what makes the list accurate without an N+1.
+    const groups = await prisma.scheduledMessage.groupBy({
+      by: ['campaignId', 'status'],
+      where: { userId: me, campaignId: { in: rows.map((r) => r.id) } },
+      _count: { _all: true },
+    });
+    const countsByCampaign = new Map<number, CampaignCounts>();
+    for (const g of groups) {
+      if (g.campaignId === null) continue;
+      const c =
+        countsByCampaign.get(g.campaignId) ??
+        { total: 0, pending: 0, sent: 0, failed: 0, canceled: 0 };
+      const n = g._count._all;
+      c.total += n;
+      if (g.status === 'pending' || g.status === 'sending') c.pending += n;
+      else if (g.status === 'sent') c.sent += n;
+      else if (g.status === 'failed') c.failed += n;
+      else if (g.status === 'canceled') c.canceled += n;
+      countsByCampaign.set(g.campaignId, c);
+    }
+
+    return {
+      campaigns: rows.map((r) => {
+        const counts =
+          countsByCampaign.get(r.id) ?? { total: 0, pending: 0, sent: 0, failed: 0, canceled: 0 };
+        return { ...r, counts, status: deriveCampaignStatus(counts) };
+      }),
+    };
   });
 
   // ── GET /me/sms-campaigns/:id ───────────────────────────────────────────
@@ -190,10 +224,11 @@ export async function smsCampaignsRoutes(app: FastifyInstance) {
 
       const campaign = await prisma.smsCampaign.findFirst({
         where: { id, userId: me },
+        // `status` is NOT selected — it's derived below from the recipient
+        // rows, because the stored column never gets updated after enqueue.
         select: {
           id: true,
           templateBody: true,
-          status: true,
           totalCount: true,
           skipped: true,
           createdAt: true,
@@ -260,16 +295,23 @@ export async function smsCampaignsRoutes(app: FastifyInstance) {
         };
       });
 
+      const counts: CampaignCounts = {
+        total: recipients.length,
+        pending: recipients.filter((r) => r.status === 'pending' || r.status === 'sending').length,
+        sent: recipients.filter((r) => r.status === 'sent').length,
+        failed: recipients.filter((r) => r.status === 'failed').length,
+        canceled: recipients.filter((r) => r.status === 'canceled').length,
+      };
+
       return {
-        campaign,
+        campaign: { ...campaign, status: deriveCampaignStatus(counts) },
         counts: {
-          total: recipients.length,
-          pending: recipients.filter((r) => r.status === 'pending' || r.status === 'sending').length,
-          sent: recipients.filter((r) => r.status === 'sent').length,
+          ...counts,
+          // Carrier-confirmed, a strict subset of `sent`. Kept separate because
+          // "we handed it to Telnyx" and "the handset got it" are different
+          // claims and the UI must not conflate them.
           delivered: recipients.filter((r) => r.carrierStatus === 'delivered').length,
-          failed: recipients.filter((r) => r.status === 'failed' || r.carrierStatus === 'failed')
-            .length,
-          canceled: recipients.filter((r) => r.status === 'canceled').length,
+          carrierFailed: recipients.filter((r) => r.carrierStatus === 'failed').length,
         },
         recipients,
       };
