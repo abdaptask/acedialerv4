@@ -25,6 +25,12 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { prisma } from '@ace/db';
+import {
+  computeTouchBase,
+  indexLatestByKey,
+  parseDays,
+  type ContactEvent,
+} from './touchBase.js';
 
 interface JwtPayload {
   sub: number;
@@ -102,6 +108,115 @@ async function ensureFavoriteHasNumber(fav: {
 }
 
 export async function favoritesRoutes(app: FastifyInstance) {
+  // ── GET /favorites/touch-base ───────────────────────────────────────────
+  //
+  // "Who haven't I been in touch with in N days?" — the reminder behind
+  // monthly outreach. Matching rules and their rationale live in touchBase.ts.
+  //
+  // Registered BEFORE the /:id routes. Fastify's router gives static segments
+  // priority over parametric ones, so this can't be swallowed by /favorites/:id
+  // regardless of order — but keeping it first makes that obvious to a reader.
+  //
+  // Cost is three aggregate queries INDEPENDENT of how many favorites the user
+  // has. The naive shape (one lookup per favorite) would be ~60 round trips on
+  // a real list; these group in Postgres and are matched in memory instead.
+  app.get(
+    '/favorites/touch-base',
+    { onRequest: [app.authenticate] },
+    async (request: FastifyRequest) => {
+      const u = request.user as JwtPayload;
+      const days = parseDays((request.query as { days?: string })?.days);
+      const now = new Date();
+
+      const favorites = await prisma.favorite.findMany({
+        where: { userId: u.sub },
+        select: {
+          id: true,
+          phone: true,
+          firstName: true,
+          lastName: true,
+          label: true,
+          numbers: {
+            orderBy: [{ isPrimary: 'desc' }, { sortOrder: 'asc' }, { id: 'asc' }],
+            select: { phone: true, label: true, isPrimary: true },
+          },
+        },
+      });
+
+      // No favorites means nothing to aggregate — skip the three queries.
+      if (favorites.length === 0) {
+        return { days, generatedAt: now, summary: { total: 0, due: 0, never: 0 }, favorites: [] };
+      }
+
+      // Deliberately NOT windowed to `days`. A favorite last contacted 200 days
+      // ago and one never contacted at all are different situations the UI
+      // needs to word differently, and a windowed query collapses both to
+      // "nothing found". Aggregating in Postgres keeps this cheap anyway.
+      const [smsGroups, outboundCallGroups, inboundCallGroups] = await Promise.all([
+        // threadKey is always the OTHER party regardless of direction, so one
+        // groupBy covers both directions — but we need them separated, hence
+        // the direction in the by-clause.
+        prisma.message.groupBy({
+          by: ['threadKey', 'direction'],
+          where: {
+            userId: u.sub,
+            // A failed send never reached anyone. Counting it would mark a
+            // contact as fresh at exactly the moment they weren't reached.
+            status: { not: 'failed' },
+          },
+          _max: { createdAt: true },
+        }),
+        prisma.call.groupBy({
+          by: ['toNumber'],
+          // answeredAt non-null = the call actually connected. A missed
+          // outbound call is an attempt, not a contact.
+          where: { userId: u.sub, direction: 'outbound', answeredAt: { not: null } },
+          _max: { startedAt: true },
+        }),
+        prisma.call.groupBy({
+          by: ['fromNumber'],
+          where: { userId: u.sub, direction: 'inbound', answeredAt: { not: null } },
+          _max: { startedAt: true },
+        }),
+      ]);
+
+      const outboundEvents: ContactEvent[] = [];
+      const inboundEvents: ContactEvent[] = [];
+
+      for (const g of smsGroups) {
+        const at = g._max.createdAt;
+        if (!at) continue;
+        const target = g.direction === 'outbound' ? outboundEvents : inboundEvents;
+        target.push({ phone: g.threadKey, at });
+      }
+      for (const g of outboundCallGroups) {
+        if (g._max.startedAt) outboundEvents.push({ phone: g.toNumber, at: g._max.startedAt });
+      }
+      for (const g of inboundCallGroups) {
+        if (g._max.startedAt) inboundEvents.push({ phone: g.fromNumber, at: g._max.startedAt });
+      }
+
+      const rows = computeTouchBase({
+        favorites,
+        outboundByKey: indexLatestByKey(outboundEvents),
+        inboundByKey: indexLatestByKey(inboundEvents),
+        days,
+        now,
+      });
+
+      return {
+        days,
+        generatedAt: now,
+        summary: {
+          total: rows.length,
+          due: rows.filter((r) => r.due).length,
+          never: rows.filter((r) => r.neverContacted).length,
+        },
+        favorites: rows,
+      };
+    },
+  );
+
   // ── GET /favorites ──────────────────────────────────────────────────────
   app.get(
     '/favorites',
