@@ -157,6 +157,7 @@ model User {
   blockedNumbers     BlockedNumber[]
   favorites          Favorite[]
   scheduledMessages  ScheduledMessage[]
+  smsCampaigns       SmsCampaign[]
   auditLogsAuthored  AuditLog[]        @relation("AuditLogActor")
   auditLogsTargeting AuditLog[]        @relation("AuditLogTarget")
   /// v0.10.0 — Multi-DID support. Replaces the singular User.didNumber
@@ -917,6 +918,21 @@ model ScheduledMessage {
   telnyxMessageId String?  @map("telnyx_message_id")
   /// When we actually handed it to Telnyx. Null while pending.
   sentAt        DateTime? @map("sent_at")
+  /// Non-null = this row is ONE RECIPIENT of a multi-select send from the
+  /// Favorites list. Null = an ordinary 1:1 scheduled message.
+  ///
+  /// A bulk send is deliberately modelled as N independent rows rather than
+  /// one row with a recipient array: it inherits per-recipient retry, the
+  /// per-recipient double-send guard, individual cancel, and individual
+  /// delivery status from the existing worker instead of reimplementing all
+  /// four. Each recipient also lands in their own 1:1 thread — this is not a
+  /// group conversation, and replies come back to the normal thread.
+  campaignId    Int?      @map("campaign_id")
+  campaign      SmsCampaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  /// Which Favorite this recipient came from, for the progress view's name
+  /// column. Not a foreign key on purpose — un-starring someone mid-send
+  /// must not cascade into the send record.
+  favoriteId    Int?      @map("favorite_id")
   createdAt     DateTime  @default(now()) @map("created_at")
   updatedAt     DateTime  @updatedAt      @map("updated_at")
 
@@ -924,7 +940,46 @@ model ScheduledMessage {
   @@index([status, scheduledFor])
   /// Per-user list (Messages compose UI shows pending count on a thread).
   @@index([userId, status, scheduledFor])
+  /// Campaign progress view groups on this.
+  @@index([campaignId, status])
   @@map("scheduled_messages")
+}
+
+/// Multi-select send: one message, several favorites, one press of Send.
+///
+/// This row is the GROUPING only — it holds the body as the user typed it and
+/// the counts. The actual sends are ScheduledMessage rows pointing back here,
+/// one per recipient, which is what makes each of them an ordinary 1:1 text
+/// with its own retry, status, and thread.
+///
+/// There is deliberately NO recurrence/schedule-series model. Recurring
+/// unattended outbound to a saved list is a different product with different
+/// obligations; this is a person choosing recipients and pressing Send.
+model SmsCampaign {
+  id           Int      @id @default(autoincrement())
+  userId       Int      @map("user_id")
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// The body AS THE USER TYPED IT, placeholders like {firstName} intact.
+  /// Each recipient's resolved copy lives on their own ScheduledMessage.body,
+  /// which is what actually goes to the carrier. Kept so "send this again next
+  /// month" doesn't require re-typing, and so the audit trail shows intent.
+  templateBody String   @map("template_body")
+  /// queued (rows created, worker will drain them) | sending | done | canceled
+  status       String   @default("queued")
+  /// How many recipients were accepted. Rows can be canceled individually
+  /// afterwards, so this is the count at enqueue time, not a live total.
+  totalCount   Int      @default(0) @map("total_count")
+  /// Recipients the enqueue route refused, with reasons (duplicate number,
+  /// blocked, not a favorite, unresolved placeholder). Surfaced in the UI so a
+  /// silent partial send is impossible.
+  skipped      Json?
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt      @map("updated_at")
+
+  recipients   ScheduledMessage[]
+
+  @@index([userId, createdAt])
+  @@map("sms_campaigns")
 }
 
 /// v0.10.119 — small key/value config table for runtime-derived settings
