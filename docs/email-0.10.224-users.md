@@ -1,4 +1,4 @@
-# Email draft — ACE Dialer 0.10.223 user announcement
+# Email draft — ACE Dialer 0.10.224 user announcement
 
 **Subject:** ACE Dialer: text several favorites at once, and know when a scheduled text doesn't go out
 
@@ -19,7 +19,9 @@ For when you want to touch base with a group of people and don't want to type th
 **How it works** — open the **Favorites** tab and tap the **send icon** at the top, next to the **+**. Four steps:
 
 1. **Pick who.** Tick as many contacts as you like, or **Select all**.
-2. **Write the message.** You can start from one of your saved templates, or type it fresh. If your text uses **{firstName}**, each person's own name is filled in for them.
+2. **Write the message.** You can start from one of your saved templates, or type it fresh. If your text uses **{firstName}**, each person's own name is filled in for them, and **{recruiter}** becomes your own name.
+
+   Most templates also have blanks that aren't specific to one person — **{client}**, **{role}**, **{rate}**. You get a box for each of those on this screen: type the value once and it goes into everyone's message.
 3. **Review.** You see every message exactly as that person will receive it, with their name already filled in. This is the point to catch anything wrong — once you send, it's gone.
 4. **Send.**
 
