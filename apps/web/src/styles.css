@@ -11275,3 +11275,86 @@ body::-webkit-scrollbar { display: none; }
   border-color: rgba(178, 80, 0, 0.25);
   background: rgba(255, 214, 10, 0.1);
 }
+
+/* "Fill in for everyone" — values for placeholders that can't auto-fill
+   ({client}, {role}, {rate}…), typed once and applied to every recipient. */
+.bulk-fillins {
+  margin-top: 0.75rem;
+  padding: 0.75rem;
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.08));
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.03);
+}
+.bulk-fillins-head {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  margin: 0 0 0.625rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text, #fff);
+}
+.bulk-fillins-head span {
+  font-weight: 400;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  color: var(--text-muted, rgba(235, 235, 245, 0.45));
+}
+.bulk-fillin { display: block; margin-bottom: 0.5rem; }
+.bulk-fillin:last-child { margin-bottom: 0; }
+.bulk-fillin-label {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  margin-bottom: 0.25rem;
+  font-size: 0.75rem;
+}
+.bulk-fillin-label code {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  color: var(--accent, #0a84ff);
+}
+.bulk-fillin-label span { color: var(--text-muted, rgba(235, 235, 245, 0.45)); }
+.bulk-fillin input {
+  width: 100%;
+  min-height: 40px;
+  padding: 0 0.625rem;
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.08));
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text, #fff);
+  font-family: inherit;
+  font-size: 0.9375rem;
+}
+.bulk-fillin input:focus { outline: none; border-color: var(--accent, #0a84ff); }
+.bulk-fillin input::placeholder { color: var(--text-muted, rgba(235, 235, 245, 0.3)); }
+
+/* Grouped variable list in the template editor — auto-fills vs type-yourself. */
+.sms-field-group-head {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  margin: 0.5rem 0 0.35rem;
+  padding: 0 0.5rem;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-dim, rgba(235, 235, 245, 0.7));
+}
+.sms-field-group-head:first-child { margin-top: 0; }
+.sms-field-group-head span {
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+  font-size: 0.75rem;
+  color: var(--text-muted, rgba(235, 235, 245, 0.45));
+}
+.sms-field-menu-sample {
+  margin-left: auto;
+  font-size: 0.6875rem;
+  font-style: italic;
+  color: var(--text-muted, rgba(235, 235, 245, 0.45));
+}
+
+[data-theme="light"] .bulk-fillins { background: rgba(0, 0, 0, 0.02); }
+[data-theme="light"] .bulk-fillin input { background: rgba(0, 0, 0, 0.03); }

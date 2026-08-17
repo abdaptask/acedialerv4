@@ -32,6 +32,7 @@ import {
 } from 'lucide-react';
 import {
   createSmsCampaign,
+  getMe,
   getSmsCampaign,
   getSmsPlaceholders,
   listMySmsTemplates,
@@ -40,11 +41,23 @@ import {
   type SmsPlaceholder,
   type SmsTemplate,
 } from '../api';
-import { fillTemplateBody, remainingPlaceholders } from '../lib/smsPlaceholderFill';
+import { fillTemplateBody } from '../lib/smsPlaceholderFill';
 import { formatSmsLength, measureSms } from '../lib/smsSegments';
 import { getFavorites, type FavoriteContact } from '../lib/userPrefs';
 import { getCachedJobDivaName } from '../hooks/useJobDivaContact';
 import { formatPhone } from '../lib/phone';
+
+/**
+ * Every `{token}` left in a string, verbatim.
+ *
+ * Deliberately not registry-aware: a token we don't recognise (a typo like
+ * `{frstName}`) must be caught too, or it ships literally to everyone. The
+ * template editor validates on save so a stored template can't carry one, but
+ * the composer here accepts free text.
+ */
+function openTokensIn(text: string): string[] {
+  return [...(text ?? '').matchAll(/\{[^{}]+\}/g)].map((m) => m[0]);
+}
 
 /** Mirrors MAX_SMS_BODY_CHARS on the server, which stays authoritative. */
 const MAX_BODY = 1600;
@@ -92,12 +105,42 @@ export default function FavoritesBulkSend({ onClose }: { onClose: () => void }) 
   const [detail, setDetail] = useState<CampaignDetail | null>(null);
 
   const token = sessionStorage.getItem('ace_token');
-  const recruiterFirstName = sessionStorage.getItem('ace_first_name');
+
+  /**
+   * The signed-in user's first name, for {recruiter} / {recruiterName}.
+   *
+   * Comes from /me, exactly as the 1:1 composer does it (Messages.tsx). An
+   * earlier version of this component read a sessionStorage key that nothing
+   * in the app ever writes, so it was permanently null — {recruiter} never
+   * resolved, and the review gate then refused every template using it. There
+   * is no storage key for this; /me is the only source.
+   */
+  const [recruiterFirstName, setRecruiterFirstName] = useState('');
+
+  /**
+   * Values for placeholders that can't auto-fill — {client}, {role}, {rate} and
+   * friends — supplied ONCE and applied to every recipient. Keyed by the raw
+   * token, e.g. "{client}".
+   *
+   * This is what makes templates usable in bulk at all. 'manual' placeholders
+   * are never auto-resolved by design (a blank the recruiter types per
+   * message), and 18 of the 20 company templates contain {client} while 10
+   * contain {role} — so without this the review gate blocks almost everything.
+   * In a 1:1 the user just types over the token in the compose box; the bulk
+   * equivalent is to type it once here.
+   */
+  const [manualValues, setManualValues] = useState<Record<string, string>>({});
 
   useEffect(() => {
     if (!token) return;
     void getSmsPlaceholders(token).then((r) => setRegistry(r.placeholders));
     void listMySmsTemplates(token).then(setTemplates);
+    void getMe(token)
+      .then((u) => {
+        const first = (u.firstName ?? '').trim();
+        if (first) setRecruiterFirstName(first);
+      })
+      .catch(() => undefined);
   }, [token]);
 
   // Only favorites with a server id can be sent to — the id is how the server
@@ -108,31 +151,78 @@ export default function FavoritesBulkSend({ onClose }: { onClose: () => void }) 
     [favorites],
   );
 
-  // One entry per FAVORITE, on the primary number.
-  const recipients = useMemo<Recipient[]>(() => {
-    const out: Recipient[] = [];
+  // Pass 1: auto-fill per contact. {firstName}/{lastName} come from the
+  // favourite's own structured fields (the user typed them) rather than
+  // splitting a display string; {recruiter} comes from /me. There is no
+  // JobDiva lookup here — one per contact would be 155 requests on the
+  // heaviest list — so {jobTitle}/{companyName} fall through to pass 2.
+  const autoFilled = useMemo(() => {
+    const out: Array<{ f: FavoriteContact & { id: number }; phone: string; body: string }> = [];
     for (const f of sendable) {
       if (!selected.has(f.id)) continue;
-      const phone = primaryPhoneOf(f);
-      const body = fillTemplateBody(
-        template,
-        {
-          displayName: displayName(f),
-          jobDiva: null,
-          recruiterFirstName,
-        },
-        registry,
-      );
       out.push({
-        favoriteId: f.id,
-        phone,
-        name: displayName(f),
-        body,
-        unresolved: remainingPlaceholders(body, registry),
+        f,
+        phone: primaryPhoneOf(f),
+        body: fillTemplateBody(
+          template,
+          {
+            displayName: displayName(f),
+            contactFirstName: f.firstName ?? null,
+            contactLastName: f.lastName ?? null,
+            jobDiva: null,
+            recruiterFirstName,
+          },
+          registry,
+        ),
       });
     }
     return out;
   }, [sendable, selected, template, registry, recruiterFirstName]);
+
+  /**
+   * Tokens still open after auto-fill, across the WHOLE selection.
+   *
+   * Union rather than per-contact, because one input filling everyone is the
+   * point. A token that resolved for some contacts but not others still shows
+   * up here — typing a value covers the ones that came up blank and leaves the
+   * resolved ones alone, since substitution only touches what's still a token.
+   */
+  const openTokens = useMemo(() => {
+    const seen = new Set<string>();
+    for (const { body } of autoFilled) for (const t of openTokensIn(body)) seen.add(t);
+    return [...seen];
+  }, [autoFilled]);
+
+  /** Registry label for a raw token, for the input's caption. */
+  const labelForToken = (tok: string): string | null => {
+    const key = tok.slice(1, -1);
+    const def =
+      registry.find((p) => p.key === key) ??
+      registry.find((p) => p.key.toLowerCase() === key.toLowerCase());
+    return def?.label ?? null;
+  };
+
+  // Pass 2: apply the once-for-everyone values. Only non-empty values
+  // substitute, so an untouched input leaves its token visible and the gate
+  // below still catches it.
+  const recipients = useMemo<Recipient[]>(
+    () =>
+      autoFilled.map(({ f, phone, body }) => {
+        let final = body;
+        for (const [tok, val] of Object.entries(manualValues)) {
+          const v = val.trim();
+          if (v !== '') final = final.split(tok).join(v);
+        }
+        return {
+          favoriteId: f.id,
+          phone,
+          name: displayName(f),
+          body: final,
+          unresolved: openTokensIn(final),
+        };
+      }),
+    [autoFilled, manualValues],
+  );
 
   const withUnresolved = recipients.filter((r) => r.unresolved.length > 0);
   const tooLong = recipients.filter((r) => r.body.length > MAX_BODY);
@@ -144,8 +234,8 @@ export default function FavoritesBulkSend({ onClose }: { onClose: () => void }) 
       ? 'Pick at least one contact.'
       : template.trim() === ''
         ? 'Write a message first.'
-        : withUnresolved.length > 0
-          ? `${withUnresolved.length} message${withUnresolved.length === 1 ? '' : 's'} still contain a placeholder that didn't fill in.`
+          : openTokens.length > 0
+            ? `Fill in ${openTokens.join(', ')} — ${openTokens.length === 1 ? 'it applies' : 'they apply'} to everyone.`
           : tooLong.length > 0
             ? `${tooLong.length} message${tooLong.length === 1 ? '' : 's'} exceed ${MAX_BODY} characters.`
             : null;
@@ -354,6 +444,42 @@ export default function FavoritesBulkSend({ onClose }: { onClose: () => void }) 
                   messages.
                 </p>
               )}
+              {/* Placeholders that can't auto-fill. Typing a value here applies it
+                  to every recipient — the bulk equivalent of typing over the
+                  token in a 1:1 compose box. Without this, any template using
+                  {client} or {role} (18 and 10 of the 20 company templates)
+                  could never pass review. */}
+              {openTokens.length > 0 && (
+                <div className="bulk-fillins">
+                  <p className="bulk-fillins-head">
+                    Fill in for everyone
+                    <span>
+                      These aren't filled in automatically. What you type applies to all{' '}
+                      {recipients.length} contact{recipients.length === 1 ? '' : 's'}.
+                    </span>
+                  </p>
+                  {openTokens.map((tok) => {
+                    const label = labelForToken(tok);
+                    return (
+                      <label key={tok} className="bulk-fillin">
+                        <span className="bulk-fillin-label">
+                          <code>{tok}</code>
+                          {label && <span>{label}</span>}
+                        </span>
+                        <input
+                          type="text"
+                          value={manualValues[tok] ?? ''}
+                          onChange={(e) =>
+                            setManualValues((prev) => ({ ...prev, [tok]: e.target.value }))
+                          }
+                          placeholder={label ?? tok}
+                        />
+                      </label>
+                    );
+                  })}
+                </div>
+              )}
+
               {measure.encoding === 'UCS-2' && measure.segments > 0 && (
                 <p className="bulk-note">
                   A special character (emoji, curly quote, or em dash) puts this in UCS-2, which
@@ -364,10 +490,14 @@ export default function FavoritesBulkSend({ onClose }: { onClose: () => void }) 
             <footer className="bulk-foot">
               <button
                 className="bulk-primary"
-                disabled={template.trim() === '' || template.length > MAX_BODY}
+                disabled={
+                  template.trim() === '' || template.length > MAX_BODY || openTokens.length > 0
+                }
                 onClick={() => setStep('review')}
               >
-                Review {recipients.length} message{recipients.length === 1 ? '' : 's'}
+                {openTokens.length > 0
+                  ? `Fill in ${openTokens.length} field${openTokens.length === 1 ? '' : 's'} above`
+                  : `Review ${recipients.length} message${recipients.length === 1 ? '' : 's'}`}
               </button>
             </footer>
           </>

@@ -115,10 +115,20 @@ export default function SmsTemplateEditor({
   const [body, setBody] = useState(template?.body ?? '');
   const [submitting, setSubmitting] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
-  const [showFields, setShowFields] = useState(false);
+  // Open by default when CREATING a template, closed when editing an existing
+  // one. Someone writing their first template has no idea these fields exist —
+  // the list was behind a collapsed "Insert field" button, so the discoverable
+  // path was to already know. Editing is different: the body is already
+  // written, and an open panel just pushes it off screen.
+  const [showFields, setShowFields] = useState(template === undefined);
   const bodyRef = useRef<HTMLTextAreaElement>(null);
 
   const offered = useMemo(() => placeholders.filter((p) => !p.hidden), [placeholders]);
+  // Split by who supplies the value. This distinction is the whole story for a
+  // template author: an auto field is safe to leave alone, a manual one is a
+  // blank they (or a bulk send) must fill before it goes to anyone.
+  const autoFields = useMemo(() => offered.filter((p) => p.source !== 'manual'), [offered]);
+  const manualFields = useMemo(() => offered.filter((p) => p.source === 'manual'), [offered]);
   const validation = useMemo(() => validateBody(body, placeholders), [body, placeholders]);
   const measure = useMemo(() => measureSms(body), [body]);
   const preview = useMemo(
@@ -250,7 +260,11 @@ export default function SmsTemplateEditor({
 
           {showFields && (
             <div className="sms-field-menu" role="menu">
-              {offered.map((p) => (
+              <p className="sms-field-group-head">
+                Fills in automatically
+                <span>from the contact and your profile — nothing to type</span>
+              </p>
+              {autoFields.map((p) => (
                 <button
                   key={p.key}
                   type="button"
@@ -260,9 +274,24 @@ export default function SmsTemplateEditor({
                 >
                   <code>{p.token}</code>
                   <span className="sms-field-menu-label">{p.label}</span>
-                  {p.source !== 'manual' && (
-                    <span className="sms-field-menu-auto">auto-fills</span>
-                  )}
+                  <span className="sms-field-menu-auto">auto-fills</span>
+                </button>
+              ))}
+              <p className="sms-field-group-head">
+                You fill these in
+                <span>left as-is until you type over them, or fill them once per send</span>
+              </p>
+              {manualFields.map((p) => (
+                <button
+                  key={p.key}
+                  type="button"
+                  className="sms-field-menu-item"
+                  onClick={() => insertField(p.token)}
+                  role="menuitem"
+                >
+                  <code>{p.token}</code>
+                  <span className="sms-field-menu-label">{p.label}</span>
+                  {p.sample && <span className="sms-field-menu-sample">e.g. {p.sample}</span>}
                 </button>
               ))}
             </div>

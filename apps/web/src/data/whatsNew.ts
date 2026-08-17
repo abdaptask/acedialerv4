@@ -24,6 +24,17 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.224',
+    date: 'August 17, 2026',
+    highlight: 'Templates now work properly when sending to several favorites.',
+    changes: [
+      { type: 'fixed', text: 'Sending to several favorites using a template refused to go ahead, saying a placeholder couldn\'t be filled. Your own name now fills in for {recruiter} as it always did in a single conversation.' },
+      { type: 'new', text: 'Fields that were never meant to fill in on their own — {client}, {role}, {rate} and the like — now get a box each on the write screen. Type the value once and it applies to everyone in the send, instead of blocking it. Almost every saved template uses one of these, so this is what makes templates usable for a group.' },
+      { type: 'improved', text: 'Contact names come from the name you saved on the favorite, so people with an honorific or a single name are greeted correctly rather than by the wrong part of their name.' },
+      { type: 'improved', text: 'When you create a template, the full list of available fields is now open in front of you, split into the ones that fill in automatically and the ones you type yourself, with an example of each. It used to be hidden behind a button you had to know to press.' },
+    ],
+  },
+  {
     version: '0.10.223',
     date: 'August 17, 2026',
     highlight: 'Send one message to several favorites at once.',
