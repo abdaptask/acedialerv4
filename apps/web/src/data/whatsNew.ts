@@ -24,6 +24,16 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.222',
+    date: 'August 17, 2026',
+    highlight: 'You now find out when a scheduled text doesn’t go out.',
+    changes: [
+      { type: 'new', text: 'If a scheduled message fails to send, ACE Bot now messages you on Teams with who it was for, why it failed, and whether it’s worth trying again. Until now it failed quietly, so you could believe someone had been contacted when they hadn’t.' },
+      { type: 'fixed', text: 'A scheduled message could be given up on when the only problem was that several were going out at the same moment. Those now wait their turn instead of being counted as failures.' },
+      { type: 'improved', text: 'A scheduled message to a number that can’t receive it — disconnected, a landline, or someone who has replied STOP — now stops and tells you straight away, instead of retrying five times first.' },
+    ],
+  },
+  {
     version: '0.10.221',
     date: 'August 13, 2026',
     highlight: 'Click to dial no longer brings back an old number.',

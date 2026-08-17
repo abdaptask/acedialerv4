@@ -15,6 +15,19 @@
 //   * Generic "unknown" fallback that still gives the user something useful
 //     ("the carrier rejected this message") instead of a bare code.
 //
+// ── Sibling: apps/api/src/lib/telnyxErrorClass.ts ──────────────────────
+// This file is the PRESENTATION half — the prose a recruiter reads next to a
+// failed bubble. The API carries a narrow CLASSIFICATION half that maps the
+// same codes to permanent / rate_limited / transient, because the
+// scheduled-message worker has to decide whether to retry and can't import
+// across apps (CLAUDE.md §1.4). Only the code list and the `retryable` call
+// are duplicated there; none of the `detail` prose below is, so the two files
+// can't drift into telling the user different things.
+//
+// If you add a code to BLURBS, add it to the classification table too. An
+// unclassified code defaults to `transient`, meaning the worker spends all
+// five attempts on it before giving up.
+//
 // Reference: https://developers.telnyx.com/docs/messaging/error-codes
 
 export interface TelnyxErrorBlurb {
