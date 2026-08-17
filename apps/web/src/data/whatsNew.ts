@@ -24,6 +24,18 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.223',
+    date: 'August 17, 2026',
+    highlight: 'Send one message to several favorites at once.',
+    changes: [
+      { type: 'new', text: 'Favorites has a send button that lets you pick as many contacts as you like, write one message, and send it to all of them in one go. Each person gets a normal one-to-one text in their own conversation — it is not a group chat, and their replies come back to you privately as usual.' },
+      { type: 'new', text: 'You review every message before it goes. If you use a template with {firstName}, you see each person\'s name filled in, so you can catch a wrong one while it is still recallable.' },
+      { type: 'new', text: 'A live count shows how many texts you will actually be billed for across everyone selected — useful to spot when a curly quote or emoji has quietly doubled it.' },
+      { type: 'improved', text: 'Anyone who can\'t be messaged is named with the reason, rather than being quietly dropped: a number you\'ve blocked, a contact no longer in your favorites, or a placeholder that didn\'t fill in. A contact with several numbers gets a single text, on their primary number.' },
+      { type: 'new', text: 'A progress list shows each person as their message is sent and then confirmed delivered by the carrier, so you can see exactly who received it.' },
+    ],
+  },
+  {
     version: '0.10.222',
     date: 'August 17, 2026',
     highlight: 'You now find out when a scheduled text doesn’t go out.',
