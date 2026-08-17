@@ -3622,3 +3622,165 @@ export async function forceUpdateUserDevices(
   }
   return res.json();
 }
+
+// ── Multi-select send to chosen favorites ──────────────────────────────────
+//
+// One message, several favorites the user picked, one press of Send. The
+// server fans out to one ScheduledMessage row per recipient, so each person
+// gets an ordinary 1:1 text in their own thread and the existing worker
+// handles retry, pacing, and delivery status.
+
+export type CampaignSkipReason =
+  | 'not_dialable'
+  | 'duplicate'
+  | 'not_a_favorite'
+  | 'blocked'
+  | 'body_too_long'
+  | 'unresolved_placeholder'
+  | 'empty_body';
+
+export interface CampaignSkipped {
+  phone: string;
+  favoriteId: number | null;
+  reason: CampaignSkipReason;
+  /** Human sentence — render this, never the reason code. */
+  detail: string;
+}
+
+/** Derived server-side from the recipient rows; never a stored column. */
+export type CampaignStatus = 'sending' | 'done' | 'canceled' | 'empty';
+
+export interface CampaignCounts {
+  total: number;
+  pending: number;
+  sent: number;
+  failed: number;
+  canceled: number;
+  /** Detail endpoint only: carrier-confirmed, a strict subset of `sent`. */
+  delivered?: number;
+  /** Detail endpoint only: carrier rejected something we sent successfully. */
+  carrierFailed?: number;
+}
+
+export interface CampaignRecipient {
+  id: number;
+  toNumber: string;
+  name: string | null;
+  /** Our side: pending | sending | sent | failed | canceled. */
+  status: string;
+  attempts: number;
+  lastError: string | null;
+  sentAt: string | null;
+  /** Carrier side, from the delivery webhook. Null until Telnyx reports. */
+  carrierStatus: string | null;
+  deliveredAt: string | null;
+  carrierErrors: unknown;
+}
+
+export interface CampaignSummary {
+  id: number;
+  templateBody: string;
+  totalCount: number;
+  createdAt: string;
+  status: CampaignStatus;
+  counts: CampaignCounts;
+}
+
+export interface CampaignDetail {
+  campaign: {
+    id: number;
+    templateBody: string;
+    totalCount: number;
+    skipped: CampaignSkipped[] | null;
+    createdAt: string;
+    status: CampaignStatus;
+  };
+  counts: CampaignCounts;
+  recipients: CampaignRecipient[];
+}
+
+export interface CreateCampaignInput {
+  /** The body as typed, placeholders intact — stored for the audit trail. */
+  templateBody: string;
+  /** Per-recipient, already placeholder-filled client-side. */
+  recipients: Array<{ favoriteId: number; phone: string; body: string }>;
+}
+
+export interface CreateCampaignOk {
+  ok: true;
+  campaign: { id: number; status: CampaignStatus; totalCount: number; createdAt: string };
+  accepted: number;
+  skipped: CampaignSkipped[];
+}
+
+export interface CreateCampaignErr {
+  ok: false;
+  error: string;
+  message?: string;
+  /** Present on no_valid_recipients — why each contact was refused. */
+  skipped?: CampaignSkipped[];
+}
+
+/**
+ * Enqueue a multi-select send. Returns a discriminated result rather than
+ * throwing, because a refusal carries per-recipient reasons the UI must show —
+ * an exception with a bare message would lose them and read as "bulk send is
+ * broken".
+ */
+export async function createSmsCampaign(
+  token: string,
+  input: CreateCampaignInput,
+): Promise<CreateCampaignOk | CreateCampaignErr> {
+  const res = await fetch(`${API_URL}/me/sms-campaigns`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify(input),
+  });
+  const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!res.ok) {
+    return {
+      ok: false,
+      error: (body.error as string) ?? `HTTP ${res.status}`,
+      message: body.message as string | undefined,
+      skipped: body.skipped as CampaignSkipped[] | undefined,
+    };
+  }
+  return {
+    ok: true,
+    campaign: body.campaign as CreateCampaignOk['campaign'],
+    accepted: body.accepted as number,
+    skipped: (body.skipped as CampaignSkipped[]) ?? [],
+  };
+}
+
+export async function listSmsCampaigns(token: string): Promise<CampaignSummary[]> {
+  const res = await fetch(`${API_URL}/me/sms-campaigns`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) return [];
+  const body = (await res.json().catch(() => ({}))) as { campaigns?: CampaignSummary[] };
+  return body.campaigns ?? [];
+}
+
+export async function getSmsCampaign(
+  token: string,
+  id: number,
+): Promise<CampaignDetail | null> {
+  const res = await fetch(`${API_URL}/me/sms-campaigns/${id}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) return null;
+  return (await res.json()) as CampaignDetail;
+}
+
+export async function cancelSmsCampaign(
+  token: string,
+  id: number,
+): Promise<{ ok: boolean; canceled?: number }> {
+  const res = await fetch(`${API_URL}/me/sms-campaigns/${id}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) return { ok: false };
+  return (await res.json()) as { ok: boolean; canceled?: number };
+}

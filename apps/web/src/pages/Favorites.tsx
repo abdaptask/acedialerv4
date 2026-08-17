@@ -7,7 +7,7 @@
 // number with its own quick actions (call / SMS / block / remove).
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Phone, MessageSquare, Star, Plus, X, ChevronDown, ChevronUp, Ban, Trash2 } from 'lucide-react';
+import { Phone, MessageSquare, Star, Plus, X, ChevronDown, ChevronUp, Ban, Trash2, Send } from 'lucide-react';
 import {
   getFavorites,
   addFavorite,
@@ -23,10 +23,12 @@ import {
 import { useSip } from '../contexts/SipContext';
 import { useJobDivaContact, getCachedJobDivaName } from '../hooks/useJobDivaContact';
 import { formatPhone, toE164 } from '../lib/phone';
+import FavoritesBulkSend from '../components/FavoritesBulkSend';
 
 export default function Favorites() {
   const [favs, setFavs] = useState<FavoriteContact[]>(() => getFavorites());
   const [showAdd, setShowAdd] = useState(false);
+  const [showBulkSend, setShowBulkSend] = useState(false);
   const [draftPhone, setDraftPhone] = useState('');
   const [draftFirst, setDraftFirst] = useState('');
   const [draftLast, setDraftLast] = useState('');
@@ -73,14 +75,30 @@ export default function Favorites() {
     <div className="favorites">
       <div className="recents-header">
         <h2>Favorites</h2>
-        <button
-          type="button"
-          className="icon-btn"
-          onClick={() => setShowAdd(true)}
-          aria-label="Add favorite"
-        >
-          <Plus size={18} />
-        </button>
+        <div className="recents-header-actions">
+          {/* Only offered when there's more than one favorite — a "send to
+              several" flow for a single contact is just the normal composer
+              with extra steps. */}
+          {favs.length > 1 && (
+            <button
+              type="button"
+              className="icon-btn"
+              onClick={() => setShowBulkSend(true)}
+              aria-label="Send a message to several favorites"
+              title="Send to several"
+            >
+              <Send size={17} />
+            </button>
+          )}
+          <button
+            type="button"
+            className="icon-btn"
+            onClick={() => setShowAdd(true)}
+            aria-label="Add favorite"
+          >
+            <Plus size={18} />
+          </button>
+        </div>
       </div>
 
       {favs.length === 0 ? (
@@ -216,6 +234,7 @@ export default function Favorites() {
           </div>
         </div>
       )}
+      {showBulkSend && <FavoritesBulkSend onClose={() => setShowBulkSend(false)} />}
     </div>
   );
 }
