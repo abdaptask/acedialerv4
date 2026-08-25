@@ -6,7 +6,7 @@
 
 Hi all,
 
-Two additions to ACE Dialer are now live.
+Three additions to ACE Dialer are now live.
 
 ## 1. Send one message to several favorites
 
@@ -43,6 +43,23 @@ If you schedule a message and it fails to send, **ACE Bot now messages you on Te
 Until now that failed quietly. The message would sit marked as failed and nothing told you — so you could believe a candidate had been contacted when nobody had. That was the gap worth closing.
 
 Scheduled messages are also no longer given up on just because several were going out at the same moment, which previously could mark a perfectly good message as undeliverable.
+
+## 3. ACE Bot now tells you who it was
+
+Nothing to turn on for this one either.
+
+When ACE Bot messages you on Teams about a missed call, a text, or a voicemail — or emails you, if you've turned those on — it used to lead with the phone number alone. So a missed call from a candidate you'd already saved looked exactly like a cold call from a stranger, and you had to go into the dialer to find out which it was.
+
+It now shows the name, next to the number:
+
+> 📞 Missed call
+> **Sarah Chen — (732) 200-1305**
+
+The name is the one **you** saved on that favorite — so it's yours, not a shared directory. A call from a colleague's ACE line shows their name too.
+
+If the number isn't one you've saved, nothing changes: you get the number, exactly as before.
+
+**This one needs no update.** It runs on the server, so it applies to everyone as soon as it's live — desktop app and browser alike, whatever version you're on.
 
 ## Getting the update
 
