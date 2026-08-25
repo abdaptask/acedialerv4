@@ -2396,6 +2396,12 @@ function NotificationsSection() {
           />
         </div>
         <PrefToggle
+          label="Silence ringer during a call"
+          description="A call that arrives while you're already on one still appears on screen — it just doesn't make a sound."
+          checked={prefs.silenceRingerDuringCall}
+          onChange={(v) => update({ silenceRingerDuringCall: v })}
+        />
+        <PrefToggle
           label="Desktop notification when minimized"
           description="OS-level popup when the app window is hidden."
           checked={prefs.desktopNotification}

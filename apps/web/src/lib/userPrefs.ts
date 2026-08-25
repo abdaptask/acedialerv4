@@ -547,6 +547,15 @@ export interface NotificationPrefs {
   ringtoneVolume: number;
   /** Pop a desktop OS notification when the window is hidden. */
   desktopNotification: boolean;
+  /**
+   * Stay quiet for a call that arrives while another call is connected.
+   *
+   * The second ring plays out of the SAME output device the call is using,
+   * so it lands in the user's ear mid-sentence and bleeds into the mic —
+   * the person they're talking to hears it too. The banner and the Electron
+   * floating ringer still appear; only the sound is suppressed.
+   */
+  silenceRingerDuringCall: boolean;
   /** Show toast/sound for new inbound SMS. */
   smsNotification: boolean;
   /** v0.10.26 — Show toast/desktop notification for new voicemails. */
@@ -560,6 +569,9 @@ export const DEFAULT_NOTIFICATION_PREFS: NotificationPrefs = {
   ringtone: true,
   ringtoneVolume: 0.7,
   desktopNotification: true,
+  // Default ON: a ring over a live conversation is the disruption, and the
+  // call is still visible on screen, so nothing is missed by silencing it.
+  silenceRingerDuringCall: true,
   smsNotification: true,
   voicemailNotification: true,
 };

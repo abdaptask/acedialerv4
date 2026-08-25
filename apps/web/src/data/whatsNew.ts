@@ -24,6 +24,15 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.225',
+    date: 'August 25, 2026',
+    highlight: 'A second call no longer rings over the one you’re on.',
+    changes: [
+      { type: 'new', text: 'A call that arrives while you’re already on one no longer makes a sound. It still appears on screen with Decline and Hold & Accept, so you can see who it is and decide — the ring just doesn’t land in your ear or carry down the line to the person you’re talking to. Settings → Notifications → Silence ringer during a call turns it back on.' },
+      { type: 'improved', text: 'ACE Bot now names the caller in its Teams messages and notification emails — a missed call, text, or voicemail from someone in your Favorites shows the name you saved beside the number, and a call from a colleague’s line shows theirs. Nothing to turn on.' },
+    ],
+  },
+  {
     version: '0.10.224',
     date: 'August 17, 2026',
     highlight: 'Templates now work properly when sending to several favorites.',

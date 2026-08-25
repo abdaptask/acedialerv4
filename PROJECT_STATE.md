@@ -1,6 +1,6 @@
 # ACE Dialer — Project State
 
-**Last updated:** August 13, 2026 (v0.10.221 merged via PR #85 and **released to all users**; README refreshed off v0.10.8)
+**Last updated:** August 25, 2026 (caller names in ACE Bot notifications — live; silent secondary ringer + version bump to **0.10.225** — committed, NOT released)
 **Maintained by:** Claude (update at end of every working session)
 
 This file is a living snapshot of where the project stands. New Claude
@@ -117,6 +117,38 @@ If you're a fresh Claude session opening this project:
 - 15s force-register continues normally (keeps SIP registration alive via gentle REGISTER refresh).
 - Hypothesis: the Telnyx server-side INVITE-routing-staleness bug that v0.10.113 was solving is fixed, and the 600ms gap every minute is causing ~1% inbound failure baseline + the "Disconnected" UI state after SSO.
 - **Validation procedure:** Abdulla installs v0.10.135 .exe on his own machine, runs for 24h, monitors via Settings → Diagnostics → Download logs. If clean: publish v0.10.135 to all testers. If routing stale: install v0.10.132 .exe back over the canary, then ship v0.10.136 with the flag flipped back to true.
+
+---
+
+**August 25, 2026 — Caller names in ACE Bot Teams cards + notification emails (LIVE — `ace-webhooks` reloaded)**
+
+- **Problem:** every Teams card and notification email led with a bare formatted number, so a missed call from a saved contact read exactly like a cold call from a stranger.
+- **Root shape of the fix:** the card builders in `apps/webhooks/src/teamsCards/` have accepted an optional `fromName` since v0.10.0 and already render `Sarah Chen — (732) 200-1305`. Nothing ever populated it. So this is a resolver plus six call sites, not a card rewrite.
+- **New:** `apps/webhooks/src/contactName.ts` → `resolveContactName(userId, phone)`. Resolution order is the user's own Favorites (including the v0.10.66 `FavoriteNumber` children) then another ACE user's `UserDid` → coworker name. Last-10-digit matching, JS-side filter like the blocklist. Fails open to `null` (number only) on any DB error; returns `null` under 10 digits so short codes and withheld callers can't collide with a real contact.
+- **Wired into** all three `notify*` in `teamsNotifier.ts` and all three in `emailNotifier.ts` (same gap existed there). Emails go through a new `callerLabels()` helper: body gets `Name — number`, subject lines and header titles get the name alone.
+- **Deliberately NOT included:** JobDiva enrichment. `apps/webhooks` can't import from `apps/api` (CLAUDE.md §1.4) and the notify path shouldn't grow an external HTTP call while a voicemail's 30s fallback timer runs. Documented as a guardrail with what it would take.
+- **Verified read-only against production:** saved favorites resolve by name, the loose `(973) 727-0611` form resolves identically to `+19737270611`, a coworker's DID resolves to their name, and unknown numbers / a 5-digit short code / `anonymous` all return `null`. `tsc -p apps/webhooks --noEmit` exits 0.
+- **CLAUDE.md:** the whole outbound-notification stack was undocumented (modules stopped at 29). Added **module 30 — Outbound Notifications (Teams Cards + Email)** with the no-queue seam, the name-resolution order, and the fail-open / dedup / no-JobDiva guardrails, plus cross-refs from modules 16 and 25.
+- **Shipped server-side.** Committed as `cabca0d`, `npm run build -w apps/webhooks`, `pm2 reload ace-webhooks` — new pid up, listening on 3002, TeXML app re-verified, zero `[contactName]` warnings since. Applies to every user on any client version; api and web bundle untouched, no client install needed.
+- **Web + api deployed same session (Aug 25).** The live web bundle was still **0.10.216** (built Aug 5), so building it published 0.10.217 → 0.10.224 to every *browser* user in one step — desktop users are unaffected until a release is published. Order was deliberate: `ace-api` rebuilt and reloaded FIRST (its dist was from Aug 17 and predated `0cf08c6`, which derives campaign status instead of storing it), then `VITE_FORCE_ABSOLUTE_BASE=1 npm run build:web`. Verified: `/health` 200 on the new api pid, `dist/index.html` references `/assets/…` absolutely, `/assets/<hash>.js` serves `application/javascript`, and `/settings/email-notifications` serves the SPA. Root `build:api` was deliberately NOT used — it chains `db:push:ci` against the production database and there was no schema change.
+- **CLAUDE.md §1.4 verification command was wrong and is fixed.** It told you to curl `/settings/assets/<hashed>.js` and expect `application/javascript`; that path returns `text/html` even on a correct build, because with an absolute base nothing requests it and the SPA fallback answers. Following it literally reads as "the absolute-base fix didn't work".
+- **Release notes** (`5878929`): What's new entry + section 3 of `docs/email-0.10.224-users.md`. The rest of that branch (`e7f3292`, the bulk-send `{recruiter}` fix) is web-only and still NOT deployed — `apps/web/dist` is untouched, so the announcement's sections 1 and 2 are not live yet. Don't send that email until the web bundle is built.
+
+---
+
+**August 25, 2026 — 0.10.225: silent ringer for a call arriving mid-call (COMMITTED, NOT RELEASED)**
+
+- **Ask:** a second candidate calling during a live conversation rang loudly and disrupted it. Wanted a preference, the sound suppressed, the call still visible.
+- **Two sound sources, not one.** The synth ringtone in `IncomingCall.tsx` is the obvious one; `lib/notify.ts` hardcoded `silent: false` on the OS notification, and `notify()` only fires when the window is HIDDEN — i.e. exactly the mid-call case where the user is working in another app. Silencing only the ringtone would have left the Windows ding on top of the call and read as "the toggle doesn't work". `notify.ts` now takes `silent?: boolean`.
+- **The Electron floating ringer plays no audio** — no `<audio>`, no oscillator in its inline HTML; the sound is entirely the main renderer's. The `webPreferences` comment at `apps/desktop/src/main.ts:538` claiming otherwise is stale. Nothing in the desktop shell needed to change, and the floater keeps providing the visual alert (it already receives `hasActiveCall` since v0.10.120).
+- **Pref:** `NotificationPrefs.silenceRingerDuringCall`, device-local like the rest, **default ON**. Approved as a default rather than opt-in: the loud ring was the complaint and the call stays fully visible. Settings → Notifications, under Ringtone volume.
+- **Decided once per incoming call** (a ref stamped on `incoming.callId`, deliberately not re-evaluated when `hasActiveCall` changes): if the user hangs up the first call while the second is still ringing, a ringtone starting abruptly mid-ring is worse than staying quiet.
+- **Scope:** silences only while a call is `connected`, matching the `hasActiveCall` definition Hold & Accept already uses. A call arriving while you're *dialing out* (hearing ringback) still rings — deliberate, easy to widen.
+- **`apps/web/src/api.ts` touched for an unrelated reason.** `import.meta.env.VITE_API_URL` was read at module scope, so any lib importing `api` was untestable under the `node --import tsx --test` harness — the suite died on import before one assertion. Now `import.meta.env?.`; Vite still statically replaces it at build time, so production is byte-identical. This is what made `userPrefs` testable at all.
+- **Tests:** 4 new (88 total, all passing). The one that matters asserts an existing user whose stored prefs predate this key still reads the default — otherwise 60 users would read `undefined`, keep the loud ring, and see the toggle showing "off" for something they never set.
+- **Version bumped to 0.10.225** across all 9 `package.json`/`manifest.json` files + the hardcoded `APP_VERSION` in `DiagnosticsSection.tsx`. `tsc` clean for web/api/desktop; bundle verified via a scratch outDir so `apps/web/dist` was NOT republished.
+- **What's new** now has a 0.10.225 block holding this feature plus the ACE Bot caller-names line, which was **moved out of 0.10.224** — no 0.10.224 installer ever contained it, so it could never have been seen there.
+- **TO DO to ship:** PR to main, then the desktop release (tag + build on Windows/macOS), and `npm run build:web` on the host for browser users. Backend needs nothing — no api/webhooks change in this bump.
 
 ---
 

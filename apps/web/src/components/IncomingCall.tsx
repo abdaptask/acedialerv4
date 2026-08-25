@@ -13,7 +13,7 @@
 // a window event that PostDeclineReply (mounted in Layout, OUTSIDE this
 // component) picks up to surface a clean quick-reply sheet. Decoupling
 // keeps the reply UI alive after this component unmounts on decline.
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Phone, PhoneOff, PhoneForwarded, MessageSquare } from 'lucide-react';
 import { useSip } from '../contexts/SipContext';
@@ -21,7 +21,7 @@ import { ringtone } from '../services/ringtone';
 import { useJobDivaContact } from '../hooks/useJobDivaContact';
 import { notify } from '../lib/notify';
 import { formatPhone } from '../lib/phone';
-import { getFavoriteName } from '../lib/userPrefs';
+import { getFavoriteName, getNotificationPrefs } from '../lib/userPrefs';
 import { getRecentInboundCall, type RowUserDid } from '../api';
 
 function formatNumber(n: string | undefined): string {
@@ -55,12 +55,32 @@ export default function IncomingCall() {
     navigate('/in-call');
   };
 
+  // Whether THIS incoming call rings audibly. A call arriving mid-conversation
+  // rings out of the same output device the call is using, so it lands in the
+  // user's ear and bleeds into the mic — the other party hears it too. When
+  // Settings → Notifications → "Silence ringer during a call" is on, we keep
+  // the ring silent and let the banner (and the Electron floater) do the work.
+  const silenceRingerRef = useRef(false);
+  const incomingId = incoming?.callId ?? null;
+
+  // Decided ONCE, when the call arrives — deliberately NOT re-evaluated if
+  // hasActiveCall changes. If the user hangs up the first call while the
+  // second is still ringing, a ringtone abruptly starting mid-ring is worse
+  // than staying quiet for the rest of that call. Declared above the ringtone
+  // effect so it runs first in the same commit.
   useEffect(() => {
-    if (incoming) {
-      ringtone.start();
-      return () => ringtone.stop();
-    }
-    return undefined;
+    silenceRingerRef.current =
+      incomingId !== null &&
+      hasActiveCall &&
+      getNotificationPrefs().silenceRingerDuringCall;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [incomingId]);
+
+  useEffect(() => {
+    if (!incoming) return undefined;
+    if (silenceRingerRef.current) return undefined;
+    ringtone.start();
+    return () => ringtone.stop();
   }, [incoming]);
 
   const callerNumber = incoming?.fromNumber ?? incoming?.number;
@@ -101,6 +121,11 @@ export default function IncomingCall() {
       body: label,
       tag: `incoming-${incoming.callId ?? 'x'}`,
       prefKey: 'desktopNotification',
+      // The OS notification dings on its own. Silencing our ringtone but not
+      // this one would leave the disruption in place for exactly the case the
+      // pref exists for: the window is hidden (which is when notify() fires
+      // at all) because the user is working in another app mid-call.
+      silent: silenceRingerRef.current,
       onClick: () => {
         navigate('/in-call');
       },

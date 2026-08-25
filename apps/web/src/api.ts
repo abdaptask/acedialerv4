@@ -1,6 +1,13 @@
 
+// `import.meta.env?` — the optional access is load-bearing for tests, not
+// paranoia about Vite. Vite statically replaces `import.meta.env.VITE_API_URL`
+// at build time, so production is unaffected; but under the plain
+// `node --import tsx --test` harness there is no import.meta.env at all, and a
+// hard read throws at MODULE scope. That made every lib module that imports
+// this one (userPrefs among them) untestable — the suite died on import before
+// a single assertion ran.
 const API_URL =
-  (import.meta.env.VITE_API_URL as string | undefined) ||
+  (import.meta.env?.VITE_API_URL as string | undefined) ||
   'https://dialer.aptask.com/api';
 
 export interface User {
