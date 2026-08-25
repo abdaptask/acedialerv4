@@ -66,6 +66,7 @@ These are non-negotiable across modules. Repeat them in module-specific guardrai
 | 27 | Visual System & Aesthetic | Shipped |
 | 28 | Audit Log | Shipped |
 | 29 | Realtime Socket Service | Planned (Stub) |
+| 30 | Outbound Notifications (Teams Cards + Email) | Shipped |
 
 ---
 
@@ -600,6 +601,7 @@ scripts/      One-off ops helpers (dedupe call legs, fix favorite names, etc.)
 - Receives every Telnyx event (`call.initiated`, `call.answered`, `call.hangup`, `message.received`, `message.sent`, `calls.voicemail.completed`, etc.) and persists/routes per user.
 - Multi-user routing matches events to the right `User` via `sip_username`, then `did_number` (last-10 digits). When ownership can't be determined, the resolver returns null and the event is skipped (no row created) rather than mis-attributed.
 - Inbound number blocking: rejects blocked callers with `USER_BUSY` (skips Hosted Voicemail fallthrough) and silently drops blocked-sender SMS.
+- Fires the Teams-card / email notifiers fire-and-forget after acking Telnyx — see [[30-outbound-notifications]].
 
 ### 16.2 Current State & Truth
 **Status:** Shipped.
@@ -880,6 +882,7 @@ scripts/      One-off ops helpers (dedupe call legs, fix favorite names, etc.)
 
 ### 25.1 Capabilities & Scope
 - Three notification surfaces, per-user-toggleable: in-app toast for incoming calls, OS-level desktop notifications when the window is hidden, in-app SMS toast.
+- **Client-side only.** Teams cards and notification emails for the same three inbound events are server-pushed from the webhooks service — see [[30-outbound-notifications]].
 - Synth ringtone (Web Audio) for inbound calls; local ringback for outbound while waiting for early media.
 - Electron's floating ringer popup (separate `BrowserWindow`) so an inbound call surfaces even when the main window is buried.
 
@@ -1024,6 +1027,47 @@ scripts/      One-off ops helpers (dedupe call legs, fix favorite names, etc.)
 ### 29.4 Architectural Guardrails
 - **Don't wire UI to socket events until the auth handshake is implemented.** Currently anyone can connect — `socket.handshake.auth.token` validation is not in place.
 - **Polling stays the canonical path until socket is real.** Badge counts, chat threads, voicemail inbox all poll today; switch to socket invalidation in one feature at a time, not all at once.
+
+---
+
+# Section K — Outbound Notifications
+
+## 30. Outbound Notifications (Teams Cards + Email)
+
+### 30.1 Capabilities & Scope
+- Reaches the user when the dialer *isn't* in front of them: an Adaptive Card DM'd in Microsoft Teams and/or a SendGrid email for three inbound events — missed call, inbound SMS, new voicemail.
+- Per-user, per-event opt-in on both channels, independently. Teams defaults ON for all three; email defaults OFF (users self-enable).
+- Every card and email leads with the caller's **saved name** when we can resolve one, falling back to the formatted number.
+
+### 30.2 Current State & Truth
+**Status:** Shipped.
+
+| Concern | Implementation |
+|---|---|
+| Teams notifier | `apps/webhooks/src/teamsNotifier.ts` — `scheduleMissedCallNotification`, `notifyInboundSms`, `notifyVoicemail` |
+| Card builders | `apps/webhooks/src/teamsCards/{missedCall,inboundSms,voicemail}.ts` + shared `types.ts` |
+| Teams transport | `apps/webhooks/src/graphClient.ts` — `sendAdaptiveCardToEmail`, DMs as the `acebot@aptask.com` service account via MS Graph |
+| Email notifier | `apps/webhooks/src/emailNotifier.ts` — `notifyMissedCallByEmail`, `notifyInboundSmsByEmail`, `notifyVoicemailByEmail` |
+| Email transport | `apps/webhooks/src/email/sendgrid.ts` |
+| Opt-ins | `User.teamsNotifyOn` (CSV, DB default `missed_call,sms,voicemail`), `User.emailNotifyOn` (CSV, default empty = off) |
+| **Caller-name resolution** | `apps/webhooks/src/contactName.ts` — `resolveContactName(userId, phone)` |
+| Cross-replica dedup | `claimSend()` in `apps/webhooks/src/webhookDedup.ts` (`WebhookDedup` table) + per-process `Set` fast path |
+| Tenant-wide admin alert | `sendTenantTeamsCard` — still on the legacy `TEAMS_TENANT_WEBHOOK_URL` Power Automate flow, NOT ported to Graph (no per-user recipient) |
+
+### 30.3 Execution Context
+- **There is no notification queue.** Each `notify*` is called fire-and-forget from the Telnyx webhook handler in `apps/webhooks/src/main.ts` *after* the 200 has already gone back to Telnyx. The insertion point for anything that enriches a card is inside `notify*`, after the source row is fetched and before `buildXCard(...)`.
+- **Name resolution order** in `resolveContactName`, most-specific first: (1) the user's own `Favorite` rows including their `FavoriteNumber` children, (2) another ACE user's `UserDid` → that coworker's name. Returns `null` when neither hits.
+- **Matching is last-10-digits** (the dialer-wide convention, §3.4) and filtered in JS, mirroring the blocklist and `/contacts/history` lookups — the digit-normalised compare can't be expressed in a Prisma `where` without raw SQL, and per-user favorite counts are small.
+- **Display format** is `Sarah Chen — (732) 200-1305`. Cards pass the name as the builders' optional `fromName`. Emails go through `callerLabels()`, which additionally exposes a name-only `short` form for subject lines and header titles.
+
+### 30.4 Architectural Guardrails
+- **Notifications never throw and never block.** The webhook has already acked Telnyx; an exception here can only lose the notification. Every entry point catches, logs `[teams] …` / `[email] …` with structured fields, and returns.
+- **Name resolution fails open to the number.** A DB blip returns `null` and the card still sends. A named card is nice; a suppressed card is a missed call the user never hears about.
+- **A lookup under 10 digits returns `null` — don't loosen it.** Anonymous/withheld callers and SMS short codes would collide with real contacts on a suffix compare, and mislabelling a stranger as a saved contact is worse than showing the number.
+- **A favorite that matches but has no name stops the search.** Don't fall through to the DID table — the user's own (unnamed) entry must not get labelled with a coworker's name.
+- **No JobDiva in the notify path.** `apps/webhooks` can't import from `apps/api` (§1.4), and this path shouldn't grow an external HTTP round-trip while a voicemail's 30s fallback timer is running. Favorites + DIDs are already in the shared Prisma DB. If JobDiva enrichment is ever wanted here, it needs its own mirrored client, `JOBDIVA_*` env on the webhooks service, and a timeout that fails open.
+- **Dedup must survive both fire paths.** Voicemail cards fire from transcription-complete *and* a 30s timeout; missed-call cards can fire once per Telnyx `call.hangup` leg. The in-process `Set` is the fast path, `claimSend()` is the cross-replica guard, and a hard send failure releases the reservation so a blip doesn't permanently silence a user.
+- **A voicemail supersedes its missed call.** `notifyMissedCall` bails out if a `Voicemail` row exists for the same `telnyxCallId` — the voicemail card carries the same information plus a transcript.
 
 ---
 

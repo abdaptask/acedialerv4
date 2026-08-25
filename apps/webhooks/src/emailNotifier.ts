@@ -24,6 +24,7 @@
 
 import { prisma } from '@ace/db';
 import { send, escapeHtml, formatDidForDisplay } from './email/sendgrid.js';
+import { resolveContactName } from './contactName.js';
 
 type LogFn = (obj: Record<string, unknown>, msg: string) => void;
 const consoleLog: LogFn = (obj, msg) => console.info(msg, obj);
@@ -65,6 +66,26 @@ function buildDeepLink(action: 'call' | 'sms', toNumber: string | null | undefin
     return APP_URL;
   }
   return `${APP_URL}/auto/${action}?to=${encodeURIComponent(cleaned)}`;
+}
+
+/**
+ * How a caller is named in an email. Mirrors what the Teams cards render
+ * (`Sarah Chen — (732) 200-1305`) so the two channels agree on identity.
+ *
+ * `full` is for the body, where the number is worth showing even when we
+ * know the name — the user may want to see WHICH of a contact's numbers
+ * called. `short` is for subject lines and header titles, where the name
+ * alone is the scannable thing and a trailing number is noise.
+ */
+function callerLabels(
+  name: string | null,
+  number: string | null | undefined,
+): { full: string; short: string } {
+  const num = formatDidForDisplay(number) ?? number ?? 'Unknown';
+  return {
+    full: name ? `${name} — ${num}` : num,
+    short: name ?? num,
+  };
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -256,12 +277,16 @@ export async function notifyMissedCallByEmail(opts: {
   if (call.status === 'blocked') return;
 
   const lineLabel = await resolveLineLabel(opts.userId, call.userDidId, cfg.multiLine);
-  const fromDisplay = formatDidForDisplay(call.fromNumber) ?? call.fromNumber ?? 'Unknown';
+  const caller = callerLabels(
+    await resolveContactName(opts.userId, call.fromNumber),
+    call.fromNumber,
+  );
+  const fromDisplay = caller.full;
   const occurredAt = call.startedAt ?? new Date();
   const when = formatLocal(occurredAt);
   const firstName = (cfg.firstName?.trim() || '').split(/\s+/)[0] || 'there';
 
-  const subject = `Missed call from ${fromDisplay}`;
+  const subject = `Missed call from ${caller.short}`;
   const lineSuffix = lineLabel ? ` on your ${lineLabel} line` : '';
   const bodyHtml = `
     <p style="margin:0 0 12px 0;font-size:15px;color:#0f172a;">Hi ${escapeHtml(firstName)},</p>
@@ -359,14 +384,18 @@ export async function notifyInboundSmsByEmail(opts: {
   if (!msg || msg.direction !== 'inbound') return;
 
   const lineLabel = await resolveLineLabel(opts.userId, msg.userDidId, cfg.multiLine);
-  const fromDisplay = formatDidForDisplay(msg.fromNumber) ?? msg.fromNumber ?? 'Unknown';
+  const caller = callerLabels(
+    await resolveContactName(opts.userId, msg.fromNumber),
+    msg.fromNumber,
+  );
+  const fromDisplay = caller.full;
   const when = formatLocal(msg.sentAt ?? new Date());
   const firstName = (cfg.firstName?.trim() || '').split(/\s+/)[0] || 'there';
   const body = msg.body ?? '';
   // Cap preview length so attachment-heavy MMS doesn't blow up the email.
   const preview = body.length > 800 ? body.slice(0, 800) + '…' : body;
 
-  const subject = `New text from ${fromDisplay}`;
+  const subject = `New text from ${caller.short}`;
   const lineSuffix = lineLabel ? ` on your ${lineLabel} line` : '';
   const bodyHtml = `
     <p style="margin:0 0 12px 0;font-size:15px;color:#0f172a;">Hi ${escapeHtml(firstName)},</p>
@@ -396,7 +425,7 @@ export async function notifyInboundSmsByEmail(opts: {
   ].join('\n');
 
   const { html } = renderEmail({
-    headerTitle: `New text from ${fromDisplay}`,
+    headerTitle: `New text from ${caller.short}`,
     headerSubtitle: when,
     bodyHtml,
     ctaLabel: 'Reply in ACE Dialer',
@@ -463,7 +492,11 @@ export async function notifyVoicemailByEmail(opts: {
     if (!vm) return;
 
     const lineLabel = await resolveLineLabel(opts.userId, vm.userDidId, cfg.multiLine);
-    const fromDisplay = formatDidForDisplay(vm.fromNumber) ?? vm.fromNumber ?? 'Unknown';
+    const caller = callerLabels(
+      await resolveContactName(opts.userId, vm.fromNumber),
+      vm.fromNumber,
+    );
+    const fromDisplay = caller.full;
     const when = formatLocal(vm.receivedAt ?? new Date());
     const firstName = (cfg.firstName?.trim() || '').split(/\s+/)[0] || 'there';
     const duration = vm.durationSeconds
@@ -473,7 +506,7 @@ export async function notifyVoicemailByEmail(opts: {
       : null;
     const transcript = vm.transcription?.trim() || '';
 
-    const subject = `New voicemail from ${fromDisplay}`;
+    const subject = `New voicemail from ${caller.short}`;
     const lineSuffix = lineLabel ? ` on your ${lineLabel} line` : '';
     const transcriptHtml = transcript
       ? `<p style="margin:14px 0 6px 0;font-size:13px;font-weight:600;color:#0f172a;">Transcript</p>

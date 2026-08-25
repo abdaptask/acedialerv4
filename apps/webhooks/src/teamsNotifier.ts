@@ -48,6 +48,7 @@ import {
 // time before sending.
 
 import { sendAdaptiveCardToEmail } from './graphClient.js';
+import { resolveContactName } from './contactName.js';
 
 type LogFn = (obj: Record<string, unknown>, msg: string) => void;
 const consoleLog: LogFn = (obj, msg) => console.info(msg, obj);
@@ -252,9 +253,12 @@ async function notifyMissedCall(opts: {
   if (call.status === 'blocked') return;
 
   const lineLabel = await resolveLineLabel(opts.userId, call.userDidId);
+  // Saved-contact name, or null → the card falls back to the number alone.
+  const fromName = await resolveContactName(opts.userId, call.fromNumber);
 
   const envelope = buildMissedCallCard({
     fromNumber: call.fromNumber,
+    fromName,
     toLineLabel: lineLabel,
     occurredAt: call.startedAt ?? new Date(),
   });
@@ -317,9 +321,11 @@ export async function notifyInboundSms(opts: {
   if (!msg || msg.direction !== 'inbound') return;
 
   const lineLabel = await resolveLineLabel(opts.userId, msg.userDidId);
+  const fromName = await resolveContactName(opts.userId, msg.fromNumber);
 
   const envelope = buildInboundSmsCard({
     fromNumber: msg.fromNumber,
+    fromName,
     body: msg.body ?? '',
     toLineLabel: lineLabel,
     occurredAt: msg.sentAt ?? new Date(),
@@ -418,10 +424,12 @@ export async function notifyVoicemail(opts: {
     if (!vm) return;
 
     const lineLabel = await resolveLineLabel(opts.userId, vm.userDidId);
+    const fromName = await resolveContactName(opts.userId, vm.fromNumber);
 
     const envelope = buildVoicemailCard({
       voicemailId: opts.voicemailId,
       fromNumber: vm.fromNumber,
+      fromName,
       toLineLabel: lineLabel,
       occurredAt: vm.receivedAt ?? new Date(),
       durationSec: vm.durationSeconds,

@@ -1,6 +1,6 @@
 # ACE Dialer — Project State
 
-**Last updated:** August 13, 2026 (v0.10.221 merged via PR #85 and **released to all users**; README refreshed off v0.10.8)
+**Last updated:** August 25, 2026 (caller-name resolution in Teams cards + notification emails — staged on `fix/bulk-template-placeholders`, NOT deployed)
 **Maintained by:** Claude (update at end of every working session)
 
 This file is a living snapshot of where the project stands. New Claude
@@ -117,6 +117,19 @@ If you're a fresh Claude session opening this project:
 - 15s force-register continues normally (keeps SIP registration alive via gentle REGISTER refresh).
 - Hypothesis: the Telnyx server-side INVITE-routing-staleness bug that v0.10.113 was solving is fixed, and the 600ms gap every minute is causing ~1% inbound failure baseline + the "Disconnected" UI state after SSO.
 - **Validation procedure:** Abdulla installs v0.10.135 .exe on his own machine, runs for 24h, monitors via Settings → Diagnostics → Download logs. If clean: publish v0.10.135 to all testers. If routing stale: install v0.10.132 .exe back over the canary, then ship v0.10.136 with the flag flipped back to true.
+
+---
+
+**August 25, 2026 — Caller names in ACE Bot Teams cards + notification emails (STAGED, NOT DEPLOYED)**
+
+- **Problem:** every Teams card and notification email led with a bare formatted number, so a missed call from a saved contact read exactly like a cold call from a stranger.
+- **Root shape of the fix:** the card builders in `apps/webhooks/src/teamsCards/` have accepted an optional `fromName` since v0.10.0 and already render `Sarah Chen — (732) 200-1305`. Nothing ever populated it. So this is a resolver plus six call sites, not a card rewrite.
+- **New:** `apps/webhooks/src/contactName.ts` → `resolveContactName(userId, phone)`. Resolution order is the user's own Favorites (including the v0.10.66 `FavoriteNumber` children) then another ACE user's `UserDid` → coworker name. Last-10-digit matching, JS-side filter like the blocklist. Fails open to `null` (number only) on any DB error; returns `null` under 10 digits so short codes and withheld callers can't collide with a real contact.
+- **Wired into** all three `notify*` in `teamsNotifier.ts` and all three in `emailNotifier.ts` (same gap existed there). Emails go through a new `callerLabels()` helper: body gets `Name — number`, subject lines and header titles get the name alone.
+- **Deliberately NOT included:** JobDiva enrichment. `apps/webhooks` can't import from `apps/api` (CLAUDE.md §1.4) and the notify path shouldn't grow an external HTTP call while a voicemail's 30s fallback timer runs. Documented as a guardrail with what it would take.
+- **Verified read-only against production:** saved favorites resolve by name, the loose `(973) 727-0611` form resolves identically to `+19737270611`, a coworker's DID resolves to their name, and unknown numbers / a 5-digit short code / `anonymous` all return `null`. `tsc -p apps/webhooks --noEmit` exits 0.
+- **CLAUDE.md:** the whole outbound-notification stack was undocumented (modules stopped at 29). Added **module 30 — Outbound Notifications (Teams Cards + Email)** with the no-queue seam, the name-resolution order, and the fail-open / dedup / no-JobDiva guardrails, plus cross-refs from modules 16 and 25.
+- **TO DO to ship:** commit, then `pm2 reload ace-webhooks` on the host (api and web bundle untouched — no client install needed).
 
 ---
 
