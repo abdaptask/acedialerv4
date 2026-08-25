@@ -38,6 +38,12 @@ export interface NotifyOptions {
   prefKey?: 'desktopNotification' | 'smsNotification' | 'voicemailNotification';
   /** Icon URL — defaults to favicon. */
   icon?: string;
+  /**
+   * Suppress the OS notification sound. Needed because an OS notification
+   * dings on its own — silencing our synth ringtone alone still leaves the
+   * system sound landing on top of a live call.
+   */
+  silent?: boolean;
 }
 
 /** Fire a notification if all the gates pass. Returns true if it was shown. */
@@ -64,7 +70,7 @@ export async function notify(opts: NotifyOptions): Promise<boolean> {
       body: opts.body,
       tag: opts.tag,
       icon: opts.icon ?? '/favicon.ico',
-      silent: false,
+      silent: opts.silent ?? false,
     });
     n.onclick = () => {
       window.focus();
