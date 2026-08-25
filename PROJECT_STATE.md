@@ -1,6 +1,6 @@
 # ACE Dialer — Project State
 
-**Last updated:** August 25, 2026 (caller-name resolution in Teams cards + notification emails — staged on `fix/bulk-template-placeholders`, NOT deployed)
+**Last updated:** August 25, 2026 (caller-name resolution in Teams cards + notification emails — committed on `fix/bulk-template-placeholders` and **`ace-webhooks` reloaded, live for all users**)
 **Maintained by:** Claude (update at end of every working session)
 
 This file is a living snapshot of where the project stands. New Claude
@@ -120,7 +120,7 @@ If you're a fresh Claude session opening this project:
 
 ---
 
-**August 25, 2026 — Caller names in ACE Bot Teams cards + notification emails (STAGED, NOT DEPLOYED)**
+**August 25, 2026 — Caller names in ACE Bot Teams cards + notification emails (LIVE — `ace-webhooks` reloaded)**
 
 - **Problem:** every Teams card and notification email led with a bare formatted number, so a missed call from a saved contact read exactly like a cold call from a stranger.
 - **Root shape of the fix:** the card builders in `apps/webhooks/src/teamsCards/` have accepted an optional `fromName` since v0.10.0 and already render `Sarah Chen — (732) 200-1305`. Nothing ever populated it. So this is a resolver plus six call sites, not a card rewrite.
@@ -129,7 +129,8 @@ If you're a fresh Claude session opening this project:
 - **Deliberately NOT included:** JobDiva enrichment. `apps/webhooks` can't import from `apps/api` (CLAUDE.md §1.4) and the notify path shouldn't grow an external HTTP call while a voicemail's 30s fallback timer runs. Documented as a guardrail with what it would take.
 - **Verified read-only against production:** saved favorites resolve by name, the loose `(973) 727-0611` form resolves identically to `+19737270611`, a coworker's DID resolves to their name, and unknown numbers / a 5-digit short code / `anonymous` all return `null`. `tsc -p apps/webhooks --noEmit` exits 0.
 - **CLAUDE.md:** the whole outbound-notification stack was undocumented (modules stopped at 29). Added **module 30 — Outbound Notifications (Teams Cards + Email)** with the no-queue seam, the name-resolution order, and the fail-open / dedup / no-JobDiva guardrails, plus cross-refs from modules 16 and 25.
-- **TO DO to ship:** commit, then `pm2 reload ace-webhooks` on the host (api and web bundle untouched — no client install needed).
+- **Shipped server-side.** Committed as `cabca0d`, `npm run build -w apps/webhooks`, `pm2 reload ace-webhooks` — new pid up, listening on 3002, TeXML app re-verified, zero `[contactName]` warnings since. Applies to every user on any client version; api and web bundle untouched, no client install needed.
+- **Release notes** (`5878929`): What's new entry + section 3 of `docs/email-0.10.224-users.md`. The rest of that branch (`e7f3292`, the bulk-send `{recruiter}` fix) is web-only and still NOT deployed — `apps/web/dist` is untouched, so the announcement's sections 1 and 2 are not live yet. Don't send that email until the web bundle is built.
 
 ---
 
