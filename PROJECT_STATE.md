@@ -1,6 +1,6 @@
 # ACE Dialer — Project State
 
-**Last updated:** August 25, 2026 (caller names in ACE Bot notifications — live; silent secondary ringer + version bump to **0.10.225** — committed, NOT released)
+**Last updated:** August 26, 2026 (**v0.10.225 released to all users** — silent secondary ringer + ACE Bot caller names; web SPA live, desktop published)
 **Maintained by:** Claude (update at end of every working session)
 
 This file is a living snapshot of where the project stands. New Claude
@@ -26,18 +26,16 @@ If you're a fresh Claude session opening this project:
 
 | Stream | Version | Status | Where |
 |---|---|---|---|
-| Latest released | **v0.10.221** | Click-to-dial stale/wrong-number fixes. Merged via PR #85 and **released to all users** (Aug 13) | `main` |
-| Previously released | v0.10.220 | Dialpad capture fix (only the first click-to-dial capture reached the field) | `main` |
-| Previously released | v0.10.218 | Click-to-Dial: `tel:` handler, clipboard hotkey, MV3 extension | `main` |
-| Previously released | v0.10.217 | Merged via PR #78 (`dd1d00f`) and **deployed** — verified live: a 1601-char send returns `400 body_too_long` on the running API, and all pm2 services restarted, clearing the earlier webhooks/socket drift | `main` |
-| Previously released | v0.10.216 | Merged via PR #77 (`a37d461`) | `main` |
-| Latest committed (prior) | v0.10.215 | Pushed to `origin/release/0.10.215` — its own PR to main still pending. 0.10.216 was branched from it, so it carries that fix too | branch `release/0.10.215` |
-| Latest committed (prior) | v0.10.204 | Pushed to origin/main, .exe built | GitHub release `v0.10.204` |
-| Stable published (auto-update) | v0.10.132 | **Published** to all 40+ ApTask users | GitHub release `v0.10.132` |
-| Backend — `ace-api` | **v0.10.216 live** (reloaded Aug 5) | Self-hosted on dialer.aptask.com (pm2) | `pm2 list` / `./deploy.sh` |
-| Backend — `ace-webhooks` / `ace-socket` | still v0.10.204-era processes | NOT restarted for 0.10.216 — the only webhooks change was a comment, so no functional gap. Next `./deploy.sh` syncs them | `pm2 list` |
-| Web SPA (`ace-web`) | **v0.10.216 live** | Serves `apps/web/dist` off disk — see the build-is-deploy warning in §5 | `pm2 list` |
-| Auto-update status | LOCKED (EV cert procurement window) | v0.10.143 enforces signing | docs/ev-cert-procurement.md |
+| Latest released | **v0.10.225** | Silent ringer for a call arriving mid-call + ACE Bot caller names. Merged via PR #91, tagged `v0.10.225`, **released to all users (Aug 26)** | `main` |
+| Previously released | v0.10.224 | Bulk-send template placeholders — `{recruiter}` auto-fill + a box per manual field | `main` |
+| Previously released | v0.10.223 | Favorites multi-select send — one message to several favorites, each as a normal 1:1 text | `main` |
+| Previously released | v0.10.222 | Scheduled-SMS failure visibility + rate limits no longer burning the retry budget | `main` |
+| Previously released | v0.10.221 | Click-to-dial stale/wrong-number fixes. Merged via PR #85 (Aug 13) | `main` |
+| Desktop adoption | rolling | Aug 26 12:58 — 2 devices on 0.10.225, 64 still on 0.10.224, ~55 on older builds. Auto-update polls hourly, so this trails a release by a day or two. **Query `user_devices.app_version` for ground truth rather than assuming a release has landed** | `user_devices` table |
+| Backend — `ace-api` / `ace-webhooks` | v0.10.224 processes (reloaded Aug 25, ~21h uptime) | Correct as-is: 0.10.225 touched only `apps/web` + version bumps, so there is no api/webhooks gap. Next `./deploy.sh` syncs the version string | `pm2 list` / `./deploy.sh` |
+| Backend — `ace-socket` | v0.10.224 (7-day uptime) | Stub service ([[29-realtime-socket]]); nothing to sync | `pm2 list` |
+| Web SPA (`ace-web`) | **v0.10.225 live** | `apps/web/dist` rebuilt Aug 25 18:52 — absolute `/assets/` base verified. Serves off disk, so a build IS a deploy — see §5 | `pm2 list` |
+| Auto-update status | distributing | 0.10.224 reached 64 devices and 0.10.225 is now published, so current releases satisfy the v0.10.143 signing gate. The old "LOCKED on v0.10.132" line no longer described reality and has been removed; `docs/ev-cert-procurement.md` keeps the history | GitHub Releases |
 
 **August 4, 2026 — v0.10.216 staged (UNCOMMITTED, NOT DEPLOYED): SMS composer — personal templates, voice-to-text, AI rewrite**
 
@@ -60,7 +58,7 @@ If you're a fresh Claude session opening this project:
 - **RELEASED.** PR #77 merged `979240e` to `main`; the feature is live for the team.
 - **Caveat on that merge:** it landed `979240e` only — the follow-up docs commit raced the merge and did **not** make it into `main`. Recovered separately (this file + the CLAUDE.md build guardrails).
 - **This has now happened twice.** PR #78 (0.10.217) likewise merged at `f1afde6`, leaving `76cf47e` (the dead-Vercel-domain fallback fix) out of `main`. It rides along in the 0.10.218 branch, so nothing is lost — but the pattern is real: a push that lands after the merge button is pressed silently misses the release. **Always run `git merge-base --is-ancestor <sha> origin/main` after a merge** rather than assuming the branch state at push time is what shipped.
-- **STILL OUTSTANDING:** `ace-webhooks` and `ace-socket` are still running pre-0.10.216 processes — the only change in that area was a comment, so there is no functional gap, but the next `./deploy.sh` should sync them. Desktop publish remains gated on the EV cert, so Electron users are still on v0.10.132 and do not yet see the new composer; **web users have it now**.
+- ~~**STILL OUTSTANDING:**~~ *(resolved — as of Aug 25 all pm2 services run 0.10.224-era code, and desktop publishing resumed; users are on 0.10.224/0.10.225, not v0.10.132.)* `ace-webhooks` and `ace-socket` were still running pre-0.10.216 processes — the only change in that area was a comment, so there is no functional gap, but the next `./deploy.sh` should sync them. Desktop publish remains gated on the EV cert, so Electron users are still on v0.10.132 and do not yet see the new composer; **web users have it now**.
 - **Cannot be verified headlessly:** Electron microphone behaviour during a live call (the recording-blocked-while-on-a-call path) needs an on-device pass. Also the real voice→transcript round trip, which needs actual audio from a browser — the endpoint itself is confirmed wired (a deliberately invalid payload returned 502 from Deepgram, not 501, so the key is loaded). Everything else, including the full rewrite path against the live DGX, has been exercised.
 - **Two self-inflicted production incidents during this session, both fixed — see §5 learnings.** Building the web bundle silently deployed the frontend while the API kept running 4-day-old code (404s on every new route), and that build omitted `VITE_FORCE_ABSOLUTE_BASE=1`, which blanked every nested route including the SSO callback.
 
@@ -136,7 +134,7 @@ If you're a fresh Claude session opening this project:
 
 ---
 
-**August 25, 2026 — 0.10.225: silent ringer for a call arriving mid-call (COMMITTED, NOT RELEASED)**
+**August 25–26, 2026 — 0.10.225: silent ringer for a call arriving mid-call (RELEASED TO ALL USERS)**
 
 - **Ask:** a second candidate calling during a live conversation rang loudly and disrupted it. Wanted a preference, the sound suppressed, the call still visible.
 - **Two sound sources, not one.** The synth ringtone in `IncomingCall.tsx` is the obvious one; `lib/notify.ts` hardcoded `silent: false` on the OS notification, and `notify()` only fires when the window is HIDDEN — i.e. exactly the mid-call case where the user is working in another app. Silencing only the ringtone would have left the Windows ding on top of the call and read as "the toggle doesn't work". `notify.ts` now takes `silent?: boolean`.
@@ -148,7 +146,7 @@ If you're a fresh Claude session opening this project:
 - **Tests:** 4 new (88 total, all passing). The one that matters asserts an existing user whose stored prefs predate this key still reads the default — otherwise 60 users would read `undefined`, keep the loud ring, and see the toggle showing "off" for something they never set.
 - **Version bumped to 0.10.225** across all 9 `package.json`/`manifest.json` files + the hardcoded `APP_VERSION` in `DiagnosticsSection.tsx`. `tsc` clean for web/api/desktop; bundle verified via a scratch outDir so `apps/web/dist` was NOT republished.
 - **What's new** now has a 0.10.225 block holding this feature plus the ACE Bot caller-names line, which was **moved out of 0.10.224** — no 0.10.224 installer ever contained it, so it could never have been seen there.
-- **TO DO to ship:** PR to main, then the desktop release (tag + build on Windows/macOS), and `npm run build:web` on the host for browser users. Backend needs nothing — no api/webhooks change in this bump.
+- **SHIPPED (Aug 26).** PR #91 merged (`f0f0a0c`, ancestry confirmed on `origin/main`), tagged `v0.10.225`, desktop release published to all users, and `apps/web/dist` rebuilt so browser users have it too. Backend needed nothing — no api/webhooks change in this bump, which is why `ace-api`/`ace-webhooks` correctly still report 0.10.224.
 
 ---
 
@@ -285,7 +283,7 @@ Key finding from the investigation: ~70% already existed. `ace-dialer://call?to=
 - **Deliberately NOT shipped, per the 95% gate:** the macOS Automator Quick Action (needs a notarization/Gatekeeper spike) and the Windows auto-copy hotkey (needs a native input-synthesis module, which AV/EDR flags as keylogging and macOS gates behind Accessibility). The clipboard-read hotkey is the safe substitute — no native module, no OS permission.
 - **Windows has no OS-level "right-click on selected text" API.** The shell context menu operates on files. In-browser right-click is the extension's job; outside the browser, Windows gets `tel:` links plus the hotkey. This is an OS limitation, not a design choice.
 - **The extension requests `contextMenus` and nothing else** — no content script, no host permission. Our users work in an ATS full of candidate PII; `<all_urls>` would be a materially different security review for one convenience feature.
-- **Scheduling constraint:** every desktop piece needs an Electron release, and auto-update is still EV-cert-locked with users on v0.10.132. The extension is the exception — it distributes via the Chrome/Edge stores or Intune, independent of the desktop release, so it can reach users first.
+- **Scheduling constraint:** every desktop piece needs an Electron release. *(Aug 26 correction: the "auto-update is EV-cert-locked with users on v0.10.132" half of this is no longer true — releases through 0.10.225 have reached users. The constraint that remains is simply that desktop changes wait on an installer build.)* The extension is the exception — it distributes via the Chrome/Edge stores or Intune, independent of the desktop release, so it can reach users first.
 - **macOS Services item built but NOT auto-installed** (`apps/desktop/resources/Call with ACE Dialer.workflow`). Complete, hand-installable in one `cp -R`, documented with a test checklist. Left unwired on purpose: Automator Quick Actions with a shell action interact with Gatekeeper/notarization and the macOS automation-consent flow in ways that can't be verified without a Mac, and auto-copying a bundle into `~/Library/Services` either silently no-ops or throws an unexpected consent prompt. macOS users aren't blocked meanwhile — `tel:` links and the clipboard hotkey both work there today; the Services item only adds right-click-on-selection *outside* the browser.
 - **SCOPE CHANGE (Aug 6, requested):** right-click-on-selection was dropped in favour of **auto-detect + highlight**. The extension now scans page text, underlines real phone numbers, and one click prefills the desktop dialer. The context-menu code was removed; it's one small commit away if detection turns out to miss numbers in practice and a manual fallback is wanted.
 - **This required the permission I had argued against, and it was flagged before building.** Auto-detection means reading page text — unavoidable. But it was built so the extension has **no `host_permissions` and no static `content_scripts`**: it can read nothing on install, and registers the scanner dynamically per domain granted on its options page (Chrome's own prompt; revocable per site; pre-grantable by Intune policy). Blanket `<all_urls>` would mean a compromise exposes every page a recruiter visits; this exposes only the ATS domains someone enabled.

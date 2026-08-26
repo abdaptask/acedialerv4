@@ -31,7 +31,10 @@ coverage/
 # Misc
 .cache/
 .turbo/
-.tsbuildinfo
+# tsc incremental cache. NOTE: the pattern must be `*.tsbuildinfo` — a bare
+# `.tsbuildinfo` matches only a file literally named that, so the real
+# `tsconfig.tsbuildinfo` files stayed tracked and dirtied `git status` on every build.
+*.tsbuildinfo
 
 .env
 
