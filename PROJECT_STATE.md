@@ -1,6 +1,6 @@
 # ACE Dialer — Project State
 
-**Last updated:** August 26, 2026 (**v0.10.225 released to all users** — silent secondary ringer + ACE Bot caller names; web SPA live, desktop published)
+**Last updated:** August 26, 2026 (conference self-mute bug fixed — committed, NOT released; **v0.10.225 released to all users** — silent secondary ringer + ACE Bot caller names; web SPA live, desktop published)
 **Maintained by:** Claude (update at end of every working session)
 
 This file is a living snapshot of where the project stands. New Claude
@@ -131,6 +131,19 @@ If you're a fresh Claude session opening this project:
 - **Web + api deployed same session (Aug 25).** The live web bundle was still **0.10.216** (built Aug 5), so building it published 0.10.217 → 0.10.224 to every *browser* user in one step — desktop users are unaffected until a release is published. Order was deliberate: `ace-api` rebuilt and reloaded FIRST (its dist was from Aug 17 and predated `0cf08c6`, which derives campaign status instead of storing it), then `VITE_FORCE_ABSOLUTE_BASE=1 npm run build:web`. Verified: `/health` 200 on the new api pid, `dist/index.html` references `/assets/…` absolutely, `/assets/<hash>.js` serves `application/javascript`, and `/settings/email-notifications` serves the SPA. Root `build:api` was deliberately NOT used — it chains `db:push:ci` against the production database and there was no schema change.
 - **CLAUDE.md §1.4 verification command was wrong and is fixed.** It told you to curl `/settings/assets/<hashed>.js` and expect `application/javascript`; that path returns `text/html` even on a correct build, because with an absolute base nothing requests it and the SPA fallback answers. Following it literally reads as "the absolute-base fix didn't work".
 - **Release notes** (`5878929`): What's new entry + section 3 of `docs/email-0.10.224-users.md`. The rest of that branch (`e7f3292`, the bulk-send `{recruiter}` fix) is web-only and still NOT deployed — `apps/web/dist` is untouched, so the announcement's sections 1 and 2 are not live yet. Don't send that email until the web bundle is built.
+
+---
+
+**August 26, 2026 — Conference self-mute muted the wrong things (FIXED, NOT RELEASED)**
+
+- **Reported as:** muting myself in a conference mutes everyone. That was half of it. `toggleMute()` called JsSIP's `session.mute()`, which is `sender.track.enabled = false` — and in conference the sender's track is not the mic, it's the **mixed** track (mic + every other participant) that `startConference()` puts there via `replaceTrack`. So the active leg's participant lost the whole mix, including the other participant's relayed voice; that's the reported symptom.
+- **The unreported half is worse.** `toggleMute()` only ever touches the ACTIVE call, so the second leg's sender was never muted at all — the user stayed fully audible to that participant while the button read "Unmute". Someone believing they were muted kept talking. Both halves come from the same line.
+- **Fix:** the mic now feeds every outgoing destination through one `GainNode`, and self-mute sets that gain (0 / 1, 10ms ramp so it doesn't click on the far end). Participants' relayed paths and the speaker path both sit downstream of it and are untouched, so everyone keeps hearing everyone. `toggleMute()` branches on a new `isConferenceActive()`; participant-mute (the per-pill button, which disconnects a source node) was already correct and is unchanged.
+- **Three state-desync corollaries fixed with it**, each of which silently un-mutes a user who believes they're muted: (1) merging while muted — the mixed track arrives `enabled`, so the mute vanished at Merge; now carried into the gain node, and the stale `_audioMuted` is cleared on every leg because JsSIP re-applies it on the next re-INVITE and would disable the mixed track. (2) A participant dropping — `stopConference()` restores mic tracks via `replaceTrack(clone)`, and clones arrive `enabled`; now restored muted, with `session.mute()` re-applied so JsSIP agrees. (3) The gap between Merge committing and `getUserMedia` resolving — self-mute is graph-owned from the merge (`conferencePending`), so a Mute pressed in that window can't take the SIP path.
+- **UI:** `InCall`'s `muted` was local `useState(false)` and went stale across both transitions. `SipContext` now exposes `isSelfMuted()` and the component resyncs when `conferenceActive` flips.
+- **Tests:** 5 new in `apps/web/src/services/sipConferenceMute.test.ts` (93 web total, passing). They drive the real `startConference()`/`toggleMute()` against a fake Web Audio graph and assert on the graph edges — that self-mute moves the mic gain and disconnects **no** participant path, and that no leg's mixed track is ever disabled. Verified as real regression tests: reinstating the old one-line behaviour fails 2 of them, restoring the fix passes 5/5. First test in the repo to cover `services/` — `sip.ts` imports cleanly under `node --import tsx` with light `window`/`document`/`navigator`/`MediaStream` stubs, which is worth knowing for future SIP work.
+- **Not verifiable headlessly:** the actual three-party audio. A real conference on hardware still needs a pass — confirm each participant can hear the other while you're muted, and that unmuting comes back cleanly.
+- **NOT released.** No version bump yet; `apps/web/dist` deliberately untouched (built to a scratch outDir to verify). Web users are still on 0.10.225.
 
 ---
 

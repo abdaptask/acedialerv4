@@ -2484,6 +2484,27 @@ export class SipService {
   private conferenceCtx: AudioContext | null = null;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private conferenceMic: MediaStream | null = null;
+  /** Self-mute for the conference. The mic feeds every outgoing destination
+   *  through this one gain node, so setting it to 0 removes the USER from
+   *  every leg's mix while leaving each participant's relayed audio intact.
+   *
+   *  Self-mute MUST NOT go through session.mute() while a conference is up.
+   *  JsSIP's mute sets `sender.track.enabled = false`, and in conference the
+   *  sender's track is not the mic — it's the MIXED track (mic + every other
+   *  participant). Disabling it silenced the whole mix on that one leg, so
+   *  that participant stopped hearing everyone ("mute muted all participants")
+   *  while the other leg's sender was never touched, leaving the user still
+   *  audible to them. Over-muting one party and under-muting the other, from
+   *  a single button. */
+  private conferenceMicGain: GainNode | null = null;
+  private conferenceSelfMuted = false;
+  /** True from the moment a merge commits until the mic graph is wired (or
+   *  fails). getUserMedia is async, so without this a Mute pressed in that
+   *  window took the SIP path — leaving a `_audioMuted` on the session that
+   *  JsSIP later re-applies to the MIXED track, i.e. the original bug on a
+   *  delay. The flag makes self-mute graph-owned from the merge onward; the
+   *  gain node reads `conferenceSelfMuted` when it is created. */
+  private conferencePending = false;
   /** Per-participant audio graph state — used by mute/unmute. We keep
    *  references so we can disconnect/reconnect a participant's source from
    *  the speaker and from every other call's outgoing destination, hiding
@@ -2515,6 +2536,30 @@ export class SipService {
           }
         } catch (err) {
           console.warn('[sip] conference unhold failed for', e.id, err);
+        }
+      }
+
+      // Carry a pre-merge mute into the conference, then clear it at the SIP
+      // layer on every leg. Two reasons this must happen here:
+      //   1. Merging replaces each sender's track with the mixed track, which
+      //      arrives enabled — so a user who was muted before hitting Merge
+      //      was silently live again with the button still reading "Unmute".
+      //   2. A leftover `_audioMuted` on a session is re-applied by JsSIP on
+      //      the next re-INVITE (_toggleMuteAudio over getSenders()), which
+      //      would disable the MIXED track and drop that participant's audio
+      //      for everyone. The gain node owns self-mute from here on.
+      this.conferenceSelfMuted = entries.some((e) => {
+        try {
+          return !!e.session.isMuted().audio;
+        } catch {
+          return false;
+        }
+      });
+      for (const e of entries) {
+        try {
+          if (e.session.isMuted().audio) e.session.unmute({ audio: true });
+        } catch (err) {
+          console.warn('[sip] conference pre-mute clear failed for', e.id, err);
         }
       }
 
@@ -2557,14 +2602,20 @@ export class SipService {
       // Mic source — one shared node for all outgoing destinations.
       // Use a fresh getUserMedia so we don't reuse a stream that's still
       // wired to a closed AudioContext from a prior conference.
+      this.conferencePending = true;
       return ((): boolean => {
         void navigator.mediaDevices.getUserMedia({ audio: buildAudioConstraints() }).then(async (micStream) => {
           this.conferenceMic = micStream;
           const micNode = ctx.createMediaStreamSource(micStream);
 
-          // Route mic into every outgoing destination.
+          // Route mic into every outgoing destination THROUGH a single gain
+          // node, which is the one place self-mute acts (see the field docs).
+          const micGain = ctx.createGain();
+          micGain.gain.value = this.conferenceSelfMuted ? 0 : 1;
+          this.conferenceMicGain = micGain;
+          micNode.connect(micGain);
           for (const [, dest] of outgoingDests) {
-            micNode.connect(dest);
+            micGain.connect(dest);
           }
 
           // Route each remote stream into:
@@ -2604,8 +2655,10 @@ export class SipService {
               console.log('[sip] conference: replaced outgoing track on', rs.entry.id);
             }
           }
+          this.conferencePending = false;
           console.log('[sip] conference active across', remoteSources.length, 'calls');
         }).catch((e) => {
+          this.conferencePending = false;
           console.error('[sip] conference: failed to acquire mic', e);
         });
         return true;
@@ -2666,6 +2719,13 @@ export class SipService {
    *  so the surviving call still hears the user. */
   private stopConference(): void {
     const hadConference = !!this.conferenceCtx;
+    // Self-mute survives the teardown: the restored mic tracks below arrive
+    // enabled, so without this a muted user is silently live again the moment
+    // one participant drops — with the button still reading "Unmute".
+    const selfMuted = this.conferenceSelfMuted;
+    this.conferenceSelfMuted = false;
+    this.conferencePending = false;
+    this.conferenceMicGain = null;
     this.conferenceParticipants.clear();
     if (this.conferenceMic) {
       try { this.conferenceMic.getTracks().forEach((t) => t.stop()); } catch { /* noop */ }
@@ -2692,8 +2752,15 @@ export class SipService {
             if (sender) {
               try {
                 // Clone for each sender so each has its own track instance.
-                await sender.replaceTrack(micTrack.clone());
-                console.log('[sip] post-conference mic restored for', entry.id);
+                const restored = micTrack.clone();
+                restored.enabled = !selfMuted;
+                await sender.replaceTrack(restored);
+                // Put JsSIP's own flag back in step, or its next re-INVITE
+                // would re-enable the track and undo the mute.
+                if (selfMuted) {
+                  try { entry.session.mute({ audio: true }); } catch { /* noop */ }
+                }
+                console.log('[sip] post-conference mic restored for', entry.id, selfMuted ? '(muted)' : '');
               } catch (e) {
                 console.warn('[sip] post-conference replaceTrack failed', entry.id, e);
               }
@@ -2828,7 +2895,63 @@ export class SipService {
     }
   }
 
+  /** True while the Web Audio conference mix is wired up. */
+  isConferenceActive(): boolean {
+    return !!this.conferenceCtx && (this.conferencePending || this.conferenceParticipants.size > 0);
+  }
+
+  /** Is the LOCAL user (not a participant) muted right now? */
+  isSelfMuted(): boolean {
+    if (this.isConferenceActive()) return this.conferenceSelfMuted;
+    const active = this.activeCallId ? this.calls.get(this.activeCallId) : null;
+    if (!active) return false;
+    try {
+      return !!active.session.isMuted().audio;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Self-mute during a conference: silence the user's MIC for every
+   * participant, and nothing else.
+   *
+   * The mic reaches all legs through one gain node, so zeroing it removes
+   * exactly the user's own audio. Each participant's relayed voice enters the
+   * mix downstream of this node and is untouched, so everyone keeps hearing
+   * everyone else — and the user keeps hearing the whole conference, since
+   * inbound and the speaker path never pass through here.
+   *
+   * Deliberately NOT session.mute(): that disables the sender's track, which
+   * in conference is the mixed output, not the mic.
+   */
+  private setConferenceSelfMuted(muted: boolean): boolean {
+    const gain = this.conferenceMicGain;
+    const ctx = this.conferenceCtx;
+    this.conferenceSelfMuted = muted;
+    if (!gain || !ctx) {
+      // Graph not wired yet (getUserMedia still in flight). The flag is read
+      // when the gain node is created, so the intent isn't lost.
+      return muted;
+    }
+    try {
+      // Short ramp rather than a hard step — a mic path cut to 0 in one
+      // sample clicks audibly on the far end.
+      gain.gain.setTargetAtTime(muted ? 0 : 1, ctx.currentTime, 0.01);
+    } catch {
+      gain.gain.value = muted ? 0 : 1;
+    }
+    console.log('[sip] conference self-mute', muted ? 'on' : 'off');
+    return muted;
+  }
+
+  /** Toggle the local mic. Returns the new muted state. */
   toggleMute(): boolean {
+    // In conference the mic is mixed in Web Audio, so mute belongs to the
+    // graph, not to any one SIP session — see setConferenceSelfMuted.
+    if (this.isConferenceActive()) {
+      return this.setConferenceSelfMuted(!this.conferenceSelfMuted);
+    }
     const active = this.activeCallId ? this.calls.get(this.activeCallId) : null;
     if (!active) return false;
     const muted = active.session.isMuted();

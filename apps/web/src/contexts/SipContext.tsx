@@ -44,6 +44,10 @@ interface SipContextValue {
   kickAudioPlay: () => void;
   declineCall: () => void;
   toggleMute: () => boolean;
+  /** Is the LOCAL user's mic muted? Ask after a merge or a participant drop:
+   *  self-mute carries across both, so a `muted` flag held in component state
+   *  goes stale and the button ends up lying about what the far end hears. */
+  isSelfMuted: () => boolean;
   toggleHold: () => Promise<boolean>;
   isOnHold: () => boolean;
   /** Server-side transfer via Telnyx Call Control. */
@@ -495,6 +499,7 @@ export function SipProvider({ children }: { children: React.ReactNode }) {
       setIncoming(null);
     },
     toggleMute: () => sipService.toggleMute(),
+    isSelfMuted: () => sipService.isSelfMuted(),
     toggleHold: () => sipService.toggleHold(),
     isOnHold: () => sipService.isOnHold(),
     // Phase 5.4 (rebuild): Transfer goes through the API → Telnyx Call Control.

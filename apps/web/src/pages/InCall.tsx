@@ -47,6 +47,7 @@ export default function InCall() {
     hangup,
     hangupCall,
     toggleMute,
+    isSelfMuted,
     toggleHold,
     transferCall,
     sendDTMF,
@@ -128,6 +129,18 @@ export default function InCall() {
   }, [toast]);
 
   const showToast = useCallback((msg: string) => setToast(msg), []);
+
+  // Merging into a conference, and dropping back out of one, both move the
+  // mic between the SIP sender and the Web Audio mix. The service carries the
+  // mute across; resync so the button can't sit on a stale `muted` and tell
+  // the user they're muted when the far end can hear them.
+  // (ref so the effect keys off the conference transition alone — the context
+  // value isn't memoized, so the function identity changes every render.)
+  const isSelfMutedRef = useRef(isSelfMuted);
+  isSelfMutedRef.current = isSelfMuted;
+  useEffect(() => {
+    setMuted(isSelfMutedRef.current());
+  }, [conferenceActive]);
 
   const handleMute = () => setMuted(toggleMute());
   const handleHold = async () => {
