@@ -1,6 +1,6 @@
 # ACE Dialer — Project State
 
-**Last updated:** August 26, 2026 (conference self-mute fixed + bumped to **0.10.226** — committed, NOT released; **v0.10.225 released to all users** — silent secondary ringer + ACE Bot caller names; web SPA live, desktop published)
+**Last updated:** August 26, 2026 (**0.10.226 conference self-mute fix — web LIVE, desktop draft awaiting publish**; **v0.10.225 released to all users** — silent secondary ringer + ACE Bot caller names; web SPA live, desktop published)
 **Maintained by:** Claude (update at end of every working session)
 
 This file is a living snapshot of where the project stands. New Claude
@@ -26,7 +26,8 @@ If you're a fresh Claude session opening this project:
 
 | Stream | Version | Status | Where |
 |---|---|---|---|
-| Latest released | **v0.10.225** | Silent ringer for a call arriving mid-call + ACE Bot caller names. Merged via PR #91, tagged `v0.10.225`, **released to all users (Aug 26)** | `main` |
+| Latest released | **v0.10.226** | Conference self-mute muted the mix instead of the mic. Merged `682b270`, tagged `v0.10.226`. **Web live (Aug 26); the desktop GitHub release is a DRAFT until someone presses Publish — clients cannot auto-update to a draft** | `main` |
+| Previously released | v0.10.225 | Silent ringer for a call arriving mid-call + ACE Bot caller names. Merged via PR #91, tagged `v0.10.225`, released to all users (Aug 26) | `main` |
 | Previously released | v0.10.224 | Bulk-send template placeholders — `{recruiter}` auto-fill + a box per manual field | `main` |
 | Previously released | v0.10.223 | Favorites multi-select send — one message to several favorites, each as a normal 1:1 text | `main` |
 | Previously released | v0.10.222 | Scheduled-SMS failure visibility + rate limits no longer burning the retry budget | `main` |
@@ -34,7 +35,7 @@ If you're a fresh Claude session opening this project:
 | Desktop adoption | rolling | Aug 26 12:58 — 2 devices on 0.10.225, 64 still on 0.10.224, ~55 on older builds. Auto-update polls hourly, so this trails a release by a day or two. **Query `user_devices.app_version` for ground truth rather than assuming a release has landed** | `user_devices` table |
 | Backend — `ace-api` / `ace-webhooks` | v0.10.224 processes (reloaded Aug 25, ~21h uptime) | Correct as-is: 0.10.225 touched only `apps/web` + version bumps, so there is no api/webhooks gap. Next `./deploy.sh` syncs the version string | `pm2 list` / `./deploy.sh` |
 | Backend — `ace-socket` | v0.10.224 (7-day uptime) | Stub service ([[29-realtime-socket]]); nothing to sync | `pm2 list` |
-| Web SPA (`ace-web`) | **v0.10.225 live** | `apps/web/dist` rebuilt Aug 25 18:52 — absolute `/assets/` base verified. Serves off disk, so a build IS a deploy — see §5 | `pm2 list` |
+| Web SPA (`ace-web`) | **v0.10.226 live** | `apps/web/dist` rebuilt Aug 26 13:26 — absolute `/assets/` base verified. Serves off disk, so a build IS a deploy — see §5 | `pm2 list` |
 | Auto-update status | distributing | 0.10.224 reached 64 devices and 0.10.225 is now published, so current releases satisfy the v0.10.143 signing gate. The old "LOCKED on v0.10.132" line no longer described reality and has been removed; `docs/ev-cert-procurement.md` keeps the history | GitHub Releases |
 
 **August 4, 2026 — v0.10.216 staged (UNCOMMITTED, NOT DEPLOYED): SMS composer — personal templates, voice-to-text, AI rewrite**
@@ -134,7 +135,7 @@ If you're a fresh Claude session opening this project:
 
 ---
 
-**August 26, 2026 — 0.10.226: conference self-mute muted the wrong things (FIXED, NOT RELEASED)**
+**August 26, 2026 — 0.10.226: conference self-mute muted the wrong things (WEB LIVE; desktop draft awaiting publish)**
 
 - **Reported as:** muting myself in a conference mutes everyone. That was half of it. `toggleMute()` called JsSIP's `session.mute()`, which is `sender.track.enabled = false` — and in conference the sender's track is not the mic, it's the **mixed** track (mic + every other participant) that `startConference()` puts there via `replaceTrack`. So the active leg's participant lost the whole mix, including the other participant's relayed voice; that's the reported symptom.
 - **The unreported half is worse.** `toggleMute()` only ever touches the ACTIVE call, so the second leg's sender was never muted at all — the user stayed fully audible to that participant while the button read "Unmute". Someone believing they were muted kept talking. Both halves come from the same line.
@@ -144,7 +145,10 @@ If you're a fresh Claude session opening this project:
 - **Tests:** 5 new in `apps/web/src/services/sipConferenceMute.test.ts` (93 web total, passing). They drive the real `startConference()`/`toggleMute()` against a fake Web Audio graph and assert on the graph edges — that self-mute moves the mic gain and disconnects **no** participant path, and that no leg's mixed track is ever disabled. Verified as real regression tests: reinstating the old one-line behaviour fails 2 of them, restoring the fix passes 5/5. First test in the repo to cover `services/` — `sip.ts` imports cleanly under `node --import tsx` with light `window`/`document`/`navigator`/`MediaStream` stubs, which is worth knowing for future SIP work.
 - **Not verifiable headlessly:** the actual three-party audio. A real conference on hardware still needs a pass — confirm each participant can hear the other while you're muted, and that unmuting comes back cleanly.
 - **Version bumped to 0.10.226** across all 9 `package.json`/`manifest.json` files + the hardcoded `APP_VERSION` in `DiagnosticsSection.tsx`, with a What's New block. `tsc` clean for web/api/desktop; bundle verified via a scratch outDir so `apps/web/dist` was NOT republished.
-- **NOT released.** Branch `fix/conference-self-mute`, rebased onto `main`. Still to ship: PR to main, desktop release (tag + build), and `npm run build:web` on the host for browser users. Backend needs nothing — the change is `apps/web` only. Web users are still on 0.10.225.
+- **SHIPPED to web (Aug 26).** Merged fast-forward to `main` (`682b270`), pushed, tagged `v0.10.226`. `apps/web/dist` rebuilt on the host with `VITE_FORCE_ABSOLUTE_BASE=1` — verified live: absolute `/assets/` base, `index-Xl1qbPbx.js` returns `application/javascript` through nginx, `/settings/notifications` returns 200, and the shipped bundle contains the new conference self-mute path.
+- **Backend deliberately not reloaded.** The change is `apps/web` only — no new routes, so there is nothing for `ace-api`/`ace-webhooks` to serve. They keep reporting 0.10.224 and that is correct, not drift.
+- **DESKTOP STILL NEEDS A HUMAN.** `build-desktop.yml` publishes with `releaseType: "draft"` (`apps/desktop/package.json` → `build.publish`), and **electron-updater clients never see a draft**. The tag push started the installer build; someone has to open the release on GitHub and press Publish, or desktop users stay on what they have. This is the step that silently doesn't happen — 0.10.225 only reached 2 devices by the next afternoon for exactly this reason.
+- **Shipped without the on-hardware conference pass**, at the user's explicit call. The three-party audio has not been heard by a human: tests prove the graph topology (self-mute moves the mic gain, disconnects no participant path, never disables a mixed track), not what comes out of a speaker. If a report comes in, that pass is the first thing to run.
 
 ---
 
