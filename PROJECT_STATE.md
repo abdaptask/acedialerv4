@@ -1,6 +1,6 @@
 # ACE Dialer — Project State
 
-**Last updated:** August 26, 2026 (conference self-mute bug fixed — committed, NOT released; **v0.10.225 released to all users** — silent secondary ringer + ACE Bot caller names; web SPA live, desktop published)
+**Last updated:** August 26, 2026 (conference self-mute fixed + bumped to **0.10.226** — committed, NOT released; **v0.10.225 released to all users** — silent secondary ringer + ACE Bot caller names; web SPA live, desktop published)
 **Maintained by:** Claude (update at end of every working session)
 
 This file is a living snapshot of where the project stands. New Claude
@@ -134,7 +134,7 @@ If you're a fresh Claude session opening this project:
 
 ---
 
-**August 26, 2026 — Conference self-mute muted the wrong things (FIXED, NOT RELEASED)**
+**August 26, 2026 — 0.10.226: conference self-mute muted the wrong things (FIXED, NOT RELEASED)**
 
 - **Reported as:** muting myself in a conference mutes everyone. That was half of it. `toggleMute()` called JsSIP's `session.mute()`, which is `sender.track.enabled = false` — and in conference the sender's track is not the mic, it's the **mixed** track (mic + every other participant) that `startConference()` puts there via `replaceTrack`. So the active leg's participant lost the whole mix, including the other participant's relayed voice; that's the reported symptom.
 - **The unreported half is worse.** `toggleMute()` only ever touches the ACTIVE call, so the second leg's sender was never muted at all — the user stayed fully audible to that participant while the button read "Unmute". Someone believing they were muted kept talking. Both halves come from the same line.
@@ -143,7 +143,8 @@ If you're a fresh Claude session opening this project:
 - **UI:** `InCall`'s `muted` was local `useState(false)` and went stale across both transitions. `SipContext` now exposes `isSelfMuted()` and the component resyncs when `conferenceActive` flips.
 - **Tests:** 5 new in `apps/web/src/services/sipConferenceMute.test.ts` (93 web total, passing). They drive the real `startConference()`/`toggleMute()` against a fake Web Audio graph and assert on the graph edges — that self-mute moves the mic gain and disconnects **no** participant path, and that no leg's mixed track is ever disabled. Verified as real regression tests: reinstating the old one-line behaviour fails 2 of them, restoring the fix passes 5/5. First test in the repo to cover `services/` — `sip.ts` imports cleanly under `node --import tsx` with light `window`/`document`/`navigator`/`MediaStream` stubs, which is worth knowing for future SIP work.
 - **Not verifiable headlessly:** the actual three-party audio. A real conference on hardware still needs a pass — confirm each participant can hear the other while you're muted, and that unmuting comes back cleanly.
-- **NOT released.** No version bump yet; `apps/web/dist` deliberately untouched (built to a scratch outDir to verify). Web users are still on 0.10.225.
+- **Version bumped to 0.10.226** across all 9 `package.json`/`manifest.json` files + the hardcoded `APP_VERSION` in `DiagnosticsSection.tsx`, with a What's New block. `tsc` clean for web/api/desktop; bundle verified via a scratch outDir so `apps/web/dist` was NOT republished.
+- **NOT released.** Branch `fix/conference-self-mute`, rebased onto `main`. Still to ship: PR to main, desktop release (tag + build), and `npm run build:web` on the host for browser users. Backend needs nothing — the change is `apps/web` only. Web users are still on 0.10.225.
 
 ---
 

@@ -24,6 +24,16 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.226',
+    date: 'August 26, 2026',
+    highlight: 'On a conference call, Mute now mutes you and only you.',
+    changes: [
+      { type: 'fixed', text: 'Muting yourself on a conference call cut the audio between the two people you had joined together — one of them stopped hearing the other, not just you. Mute now takes your microphone out of the call and leaves everything else alone, so the other two keep hearing each other normally.' },
+      { type: 'fixed', text: 'Muting yourself on a conference call did not mute you for the second person. You could still be heard by them while the button showed you as muted. You are now muted for everyone on the call.' },
+      { type: 'fixed', text: 'Mute now stays on when you join two calls together, and when one person hangs up. Before, it quietly switched itself off at both of those moments while still showing you as muted.' },
+    ],
+  },
+  {
     version: '0.10.225',
     date: 'August 25, 2026',
     highlight: 'A second call no longer rings over the one you’re on.',
