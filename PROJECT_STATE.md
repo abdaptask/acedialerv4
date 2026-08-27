@@ -1,6 +1,6 @@
 # ACE Dialer — Project State
 
-**Last updated:** August 27, 2026 (0.10.227 personal SMS templates given a Settings home — committed, NOT released; **0.10.226 conference self-mute fix — web LIVE, desktop draft awaiting publish**; **v0.10.225 released to all users** — silent secondary ringer + ACE Bot caller names; web SPA live, desktop published)
+**Last updated:** August 27, 2026 (**0.10.227 personal SMS templates given a Settings home — web LIVE**; 0.10.226 conference self-mute fix — released, on 38 devices; **v0.10.225 released to all users** — silent secondary ringer + ACE Bot caller names; web SPA live, desktop published)
 **Maintained by:** Claude (update at end of every working session)
 
 This file is a living snapshot of where the project stands. New Claude
@@ -26,16 +26,17 @@ If you're a fresh Claude session opening this project:
 
 | Stream | Version | Status | Where |
 |---|---|---|---|
-| Latest released | **v0.10.226** | Conference self-mute muted the mix instead of the mic. Merged `682b270`, tagged `v0.10.226`. **Web live (Aug 26); the desktop GitHub release is a DRAFT until someone presses Publish — clients cannot auto-update to a draft** | `main` |
+| Latest released | **v0.10.227** | Personal SMS templates given a Settings home. Merged `56efaa5`, tagged `v0.10.227`, web live (Aug 27) | `main` |
+| Previously released | v0.10.226 | Conference self-mute muted the mix instead of the mic. Merged `682b270`, tagged `v0.10.226`, **published with 12 assets 2026-08-26T13:36Z — on 38 devices within a day** | `main` |
 | Previously released | v0.10.225 | Silent ringer for a call arriving mid-call + ACE Bot caller names. Merged via PR #91, tagged `v0.10.225`, released to all users (Aug 26) | `main` |
 | Previously released | v0.10.224 | Bulk-send template placeholders — `{recruiter}` auto-fill + a box per manual field | `main` |
 | Previously released | v0.10.223 | Favorites multi-select send — one message to several favorites, each as a normal 1:1 text | `main` |
 | Previously released | v0.10.222 | Scheduled-SMS failure visibility + rate limits no longer burning the retry budget | `main` |
 | Previously released | v0.10.221 | Click-to-dial stale/wrong-number fixes. Merged via PR #85 (Aug 13) | `main` |
-| Desktop adoption | rolling | Aug 26 12:58 — 2 devices on 0.10.225, 64 still on 0.10.224, ~55 on older builds. Auto-update polls hourly, so this trails a release by a day or two. **Query `user_devices.app_version` for ground truth rather than assuming a release has landed** | `user_devices` table |
+| Desktop adoption | rolling | Aug 27 15:40 — 38 on 0.10.226, 23 on 0.10.224, 14 on older builds (9 of them pre-0.10.216). A release reaches most users within a day; a residual tail does not, and why is unexplained (see the 0.10.227 entry). **Query `user_devices.app_version` for ground truth rather than assuming a release has landed** | `user_devices` table |
 | Backend — `ace-api` / `ace-webhooks` | v0.10.224 processes (reloaded Aug 25, ~21h uptime) | Correct as-is: 0.10.225 touched only `apps/web` + version bumps, so there is no api/webhooks gap. Next `./deploy.sh` syncs the version string | `pm2 list` / `./deploy.sh` |
 | Backend — `ace-socket` | v0.10.224 (7-day uptime) | Stub service ([[29-realtime-socket]]); nothing to sync | `pm2 list` |
-| Web SPA (`ace-web`) | **v0.10.226 live** | `apps/web/dist` rebuilt Aug 26 13:26 — absolute `/assets/` base verified. Serves off disk, so a build IS a deploy — see §5 | `pm2 list` |
+| Web SPA (`ace-web`) | **v0.10.227 live** | `apps/web/dist` rebuilt Aug 27 15:40 — absolute `/assets/` base verified. Serves off disk, so a build IS a deploy — see §5 | `pm2 list` |
 | Auto-update status | distributing | 0.10.224 reached 64 devices and 0.10.225 is now published, so current releases satisfy the v0.10.143 signing gate. The old "LOCKED on v0.10.132" line no longer described reality and has been removed; `docs/ev-cert-procurement.md` keeps the history | GitHub Releases |
 
 **August 4, 2026 — v0.10.216 staged (UNCOMMITTED, NOT DEPLOYED): SMS composer — personal templates, voice-to-text, AI rewrite**
@@ -135,7 +136,7 @@ If you're a fresh Claude session opening this project:
 
 ---
 
-**August 27, 2026 — 0.10.227: personal SMS templates were unreachable, not missing (COMMITTED, NOT RELEASED)**
+**August 27, 2026 — 0.10.227: personal SMS templates were unreachable, not missing (WEB LIVE)**
 
 - **Reported as:** users can't create their own SMS templates, and they should see every placeholder while writing one. Both were built — 0.10.216 (personal templates) and 0.10.224 (full field list open by default when creating). Neither was broken.
 - **Checked before changing anything:** `POST /me/sms-templates` returns **401, not 404** on the live API (route present), and the table holds **16 personal templates** — `afreenp@aptask.com` created one the previous afternoon. The feature works end to end.
@@ -143,9 +144,10 @@ If you're a fresh Claude session opening this project:
 - **Cause is discoverability, and it was structural.** There was exactly ONE route to the editor: Messages → open a conversation with a specific person → Templates pill → New (`Messages.tsx:1951`, inside `ThreadDetail`). **You could not write a template without first having a text thread open with somebody.** A template is a thing you write *before* you need it; the feature demanded you already be mid-conversation.
 - **Settings actively sent people the wrong way.** Settings → **Quick replies** carried the blurb "**SMS templates**" — a different, device-local feature. Someone hunting for templates found that, concluded it was the feature, and stopped looking. The real pane, Settings → SMS templates, is `adminOnly`. So the honest answer to "why can't users create templates" is that Settings told them these were their templates and they weren't.
 - **Fix:** new **Settings → My SMS templates** (Personal), listing your own templates with create / edit / delete, plus a line pointing at the company set. It mounts the SAME `SmsTemplateEditor` the composer uses, so the field list — open by default on create, split into auto-fill vs type-it-yourself with examples — comes along unchanged. The Quick replies blurb now reads "One-tap canned replies, saved on this device". Delete uses an inline confirm, not `window.confirm`, which doesn't render in the Electron shell (UX-004).
-- **Version drift is the smaller half, but it is real.** Of 85 devices active in the last 7 days: **9 users are on builds older than 0.10.216 and literally cannot create a template**, and **12 more are on <0.10.224**, so their editor still hides the field list behind a collapsed button. 64 are current. Those 21 need the desktop release published + a force-update; no code fixes them.
+- **Version drift is the smaller half, but it is real.** Of 85 devices active in the last 7 days: **9 users are on builds older than 0.10.216 and literally cannot create a template**, and **12 more are on <0.10.224**, so their editor still hides the field list behind a collapsed button. 64 are current. No code change reaches those 21.
+- **Why those 21 are stuck is NOT established.** Releases publish fine and auto-update demonstrably works (0.10.226 → 38 devices in a day), so "the release wasn't published" is not the explanation. Candidates not yet checked: the app never restarted, the v0.10.143 signing gate failing on those machines, or update errors in their logs. Settings → Force update can push them regardless, but somebody should find out why first — 21 users a version behind is a symptom, and force-update only treats it.
 - **Not verified:** the new pane hasn't been opened by a human. It reuses the admin section's proven class set (`settings-section`, `users-admin-table`, `device-action`) rather than new CSS, and typechecks and builds clean, but nobody has looked at it.
-- **NOT released.** Bumped to 0.10.227 across the 9 manifests + `APP_VERSION`, with a What's New entry. `apps/web/dist` untouched (built to a scratch outDir).
+- **SHIPPED (Aug 27).** Bumped to 0.10.227 across the 9 manifests + `APP_VERSION` with a What's New entry, merged `56efaa5` to `main`, tagged `v0.10.227`, and `apps/web/dist` rebuilt on the host. Verified live: absolute `/assets/` base, `index-CDvzqIA6.js` serves as `application/javascript`, `/settings/my-sms-templates` returns 200, and the shipped bundle contains the new pane. Desktop installers build off the tag.
 
 ---
 
@@ -161,7 +163,7 @@ If you're a fresh Claude session opening this project:
 - **Version bumped to 0.10.226** across all 9 `package.json`/`manifest.json` files + the hardcoded `APP_VERSION` in `DiagnosticsSection.tsx`, with a What's New block. `tsc` clean for web/api/desktop; bundle verified via a scratch outDir so `apps/web/dist` was NOT republished.
 - **SHIPPED to web (Aug 26).** Merged fast-forward to `main` (`682b270`), pushed, tagged `v0.10.226`. `apps/web/dist` rebuilt on the host with `VITE_FORCE_ABSOLUTE_BASE=1` — verified live: absolute `/assets/` base, `index-Xl1qbPbx.js` returns `application/javascript` through nginx, `/settings/notifications` returns 200, and the shipped bundle contains the new conference self-mute path.
 - **Backend deliberately not reloaded.** The change is `apps/web` only — no new routes, so there is nothing for `ace-api`/`ace-webhooks` to serve. They keep reporting 0.10.224 and that is correct, not drift.
-- **DESKTOP STILL NEEDS A HUMAN.** `build-desktop.yml` publishes with `releaseType: "draft"` (`apps/desktop/package.json` → `build.publish`), and **electron-updater clients never see a draft**. The tag push started the installer build; someone has to open the release on GitHub and press Publish, or desktop users stay on what they have. This is the step that silently doesn't happen — 0.10.225 only reached 2 devices by the next afternoon for exactly this reason.
+- ~~**DESKTOP STILL NEEDS A HUMAN.**~~ **This was wrong — corrected Aug 27.** `apps/desktop/package.json` does set `releaseType: "draft"`, but the GitHub API shows every recent tag published with 12 assets: `v0.10.225` at 2026-08-26T12:52Z, `v0.10.226` at 13:36Z, both `draft=false`. The draft does not sit there; it gets published as part of the normal flow. **The tag push is the whole desktop release step.** The "0.10.225 only reached 2 devices" figure that this claim was built on was ordinary auto-update lag measured an hour after the tag — 0.10.226 was on 38 devices within a day. Do not re-derive the draft theory from the `releaseType` line alone; check the API.
 - **Shipped without the on-hardware conference pass**, at the user's explicit call. The three-party audio has not been heard by a human: tests prove the graph topology (self-mute moves the mic gain, disconnects no participant path, never disables a mixed track), not what comes out of a speaker. If a report comes in, that pass is the first thing to run.
 
 ---
