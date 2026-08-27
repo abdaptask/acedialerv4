@@ -24,6 +24,15 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.227',
+    date: 'August 27, 2026',
+    highlight: 'Your own SMS templates now have a home in Settings.',
+    changes: [
+      { type: 'improved', text: 'You can write and manage your own message templates from Settings → My SMS templates. Until now the only way in was to open a text conversation with someone first and find the Templates button there, so most people never came across it. Anything you have already saved is waiting for you in the new screen, and it still works from the conversation exactly as before.' },
+      { type: 'improved', text: 'The template editor lists every field you can use — the ones that fill in on their own from the contact and your profile, and the ones you type yourself, with an example of each. The list is open in front of you when you write a new template rather than hidden behind a button.' },
+    ],
+  },
+  {
     version: '0.10.226',
     date: 'August 26, 2026',
     highlight: 'On a conference call, Mute now mutes you and only you.',

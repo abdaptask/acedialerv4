@@ -87,6 +87,11 @@ import {
   setTenantHoldMusic,
   clearTenantHoldMusic,
   listAdminSmsTemplates,
+  listMySmsTemplates,
+  deleteMySmsTemplate,
+  getSmsPlaceholders,
+  type SmsPlaceholder,
+  type SmsTemplateCategory,
   createSmsTemplate,
   updateSmsTemplate,
   archiveSmsTemplate,
@@ -190,6 +195,8 @@ import {
 // The component file remains in the repo for now in case the workflow ever
 // gets re-exposed; nothing references it after this change.
 // import PendingUsersSection from '../components/PendingUsersSection';
+import SmsTemplateEditor from '../components/SmsTemplateEditor';
+import type { FillContext } from '../lib/smsPlaceholderFill';
 import UserLinesManagerModal from '../components/UserLinesManagerModal';
 import TeamsNotificationsSection from '../components/TeamsNotificationsSection';
 // v0.10.79 — per-user email notification opt-ins (parallel to Teams).
@@ -313,7 +320,14 @@ const SECTIONS: SectionDef[] = [
   { key: 'notifications-hub', category: 'Personal', label: 'Notifications', icon: Bell, blurb: 'Email and Teams alerts for missed calls, texts, and voicemails', Component: NotificationsHubSection },
   // v0.10.80 — Diagnostics. Download the in-memory log buffer when something's wrong.
   { key: 'diagnostics', category: 'Personal', label: 'Diagnostics', icon: Stethoscope, blurb: 'Download logs to share with support when you hit an issue', Component: DiagnosticsSection },
-  { key: 'quick-replies', category: 'Personal', label: 'Quick replies', icon: MessageSquare, blurb: 'SMS templates', Component: QuickRepliesSection },
+  // v0.10.227 — the only route to "New template" used to be a popover inside
+  // an open text conversation, so you had to be messaging someone to write
+  // one. 3 of 83 users ever found it. This is its discoverable home.
+  { key: 'my-sms-templates', category: 'Personal', label: 'My SMS templates', icon: FileText, blurb: 'Write reusable messages with fields that fill themselves in', Component: MySmsTemplatesSection },
+  // Blurb was "SMS templates", which is the OTHER feature — someone hunting
+  // for templates in Settings landed here, found canned one-liners, and
+  // concluded that was it. Quick replies are device-local one-tap sends.
+  { key: 'quick-replies', category: 'Personal', label: 'Quick replies', icon: MessageSquare, blurb: 'One-tap canned replies, saved on this device', Component: QuickRepliesSection },
   { key: 'hold-music', category: 'Calling', label: 'Hold music', icon: Music, blurb: 'Play music when on hold', Component: HoldMusicSection },
   { key: 'voicemail-greeting', category: 'Calling', label: 'Voicemail greeting', icon: Mic, blurb: 'Upload a custom greeting callers hear', Component: VoicemailGreetingSection },
   { key: 'call-forwarding', category: 'Calling', label: 'Call forwarding', icon: PhoneForwarded, blurb: 'Forward calls to another number', Component: CallForwardingSection },
@@ -6999,6 +7013,184 @@ const SMS_TEMPLATE_CATEGORY_OPTIONS: Array<{ key: string; label: string }> = [
   { key: 'relationship', label: 'Relationship maintenance' },
   { key: 'custom', label: 'Custom' },
 ];
+
+// ---------------------------------------------------------------------------
+// My SMS templates (v0.10.227)
+//
+// Personal templates have existed since 0.10.216, but the only way to reach
+// the editor was: Messages → open a conversation with someone → Templates →
+// New. You could not write a template without first having a thread open, and
+// Settings — where people actually look — offered "Quick replies", a different
+// feature whose blurb read "SMS templates". Three users out of eighty-three
+// ever created one. The feature was fine; nobody could find it.
+//
+// The editor is the same component the composer uses, so the field list (open
+// by default when creating) comes along for free.
+// ---------------------------------------------------------------------------
+function MySmsTemplatesSection() {
+  const [templates, setTemplates] = useState<SmsTemplate[] | null>(null);
+  const [placeholders, setPlaceholders] = useState<SmsPlaceholder[]>([]);
+  const [categories, setCategories] = useState<SmsTemplateCategory[]>([]);
+  const [recruiterFirstName, setRecruiterFirstName] = useState('');
+  const [editor, setEditor] = useState<
+    { mode: 'create' } | { mode: 'edit'; template: SmsTemplate } | null
+  >(null);
+  // Inline rather than window.confirm: confirm() is one of the dialogs that
+  // doesn't render in the Electron shell (UX-004), so a new code path must
+  // not depend on it.
+  const [confirmDelete, setConfirmDelete] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const reload = useCallback(async () => {
+    const token = sessionStorage.getItem('ace_token');
+    if (!token) return;
+    try {
+      setTemplates(await listMySmsTemplates(token));
+    } catch {
+      setError('Could not load your templates. Check your connection and try again.');
+    }
+  }, []);
+
+  useEffect(() => {
+    const token = sessionStorage.getItem('ace_token');
+    if (!token) return;
+    void reload();
+    getSmsPlaceholders(token)
+      .then((r) => {
+        setPlaceholders(r.placeholders);
+        setCategories(r.categories);
+      })
+      .catch(() => undefined);
+    getMe(token)
+      .then((u) => {
+        const first = (u.firstName ?? '').trim();
+        if (first) setRecruiterFirstName(first);
+      })
+      .catch(() => undefined);
+  }, [reload]);
+
+  // No contact in Settings, so contact fields preview as themselves. The
+  // recruiter fields still resolve, which is what makes the preview useful.
+  const fillContext: FillContext = { recruiterFirstName };
+
+  const mine = (templates ?? []).filter((t) => t.scope === 'personal');
+  const company = (templates ?? []).filter((t) => t.scope !== 'personal');
+
+  async function handleDelete(t: SmsTemplate) {
+    const token = sessionStorage.getItem('ace_token');
+    if (!token) return;
+    const res = await deleteMySmsTemplate(token, t.id);
+    setConfirmDelete(null);
+    if (res.ok) await reload();
+    else setError(res.error ?? 'Could not delete that template.');
+  }
+
+  if (templates === null) {
+    return <div className="muted">Loading your templates…</div>;
+  }
+
+  return (
+    <div className="settings-section">
+      <p className="settings-blurb">
+        A template is a message you send often, saved once. Fields like{' '}
+        <code>{'{firstName}'}</code> fill themselves in from the contact when
+        you use it. Yours are private — nobody else can see or edit them.
+      </p>
+
+      {error && <p className="muted small" style={{ color: 'var(--danger, #ff453a)' }}>{error}</p>}
+
+      <div className="device-actions" style={{ marginBottom: '1rem' }}>
+        <button
+          type="button"
+          className="device-action primary"
+          onClick={() => setEditor({ mode: 'create' })}
+        >
+          New template
+        </button>
+      </div>
+
+      {mine.length === 0 ? (
+        <div className="muted" style={{ padding: '1.5rem 0' }}>
+          You haven&apos;t written any yet. &ldquo;New template&rdquo; opens the
+          editor with every available field listed — what fills in
+          automatically, and what you type yourself — so you can see your
+          options before writing a word.
+        </div>
+      ) : (
+        <table className="users-admin-table" style={{ width: '100%', marginBottom: '1.5rem' }}>
+          <tbody>
+            {mine.map((t) => (
+              <tr key={t.id}>
+                <td style={{ width: '30%', fontWeight: 600 }}>{t.name}</td>
+                <td className="muted small" style={{ fontSize: 12 }}>
+                  {t.body.length > 100 ? `${t.body.slice(0, 100)}…` : t.body}
+                </td>
+                <td style={{ width: 180, textAlign: 'right', whiteSpace: 'nowrap' }}>
+                  {confirmDelete === t.id ? (
+                    <>
+                      <span className="muted small" style={{ marginRight: 6 }}>Delete?</span>
+                      <button
+                        type="button"
+                        className="device-action danger"
+                        onClick={() => void handleDelete(t)}
+                        style={{ marginRight: 6 }}
+                      >
+                        Delete
+                      </button>
+                      <button type="button" className="device-action" onClick={() => setConfirmDelete(null)}>
+                        Cancel
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        className="device-action"
+                        onClick={() => setEditor({ mode: 'edit', template: t })}
+                        style={{ marginRight: 6 }}
+                      >
+                        Edit
+                      </button>
+                      <button
+                        type="button"
+                        className="device-action danger"
+                        onClick={() => setConfirmDelete(t.id)}
+                      >
+                        Delete
+                      </button>
+                    </>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+
+      {company.length > 0 && (
+        <p className="muted small">
+          {company.length} company template{company.length === 1 ? '' : 's'} are
+          also available to you, managed by your admin. Use them from Messages →
+          Templates; to change one, copy it into a template of your own.
+        </p>
+      )}
+
+      {editor && (
+        <SmsTemplateEditor
+          template={editor.mode === 'edit' ? editor.template : undefined}
+          categories={categories}
+          placeholders={placeholders}
+          fillContext={fillContext}
+          onClose={() => setEditor(null)}
+          onSaved={() => {
+            setEditor(null);
+            void reload();
+          }}
+        />
+      )}
+    </div>
+  );
+}
 
 function SmsTemplatesAdminSection() {
   const [templates, setTemplates] = useState<SmsTemplate[] | null>(null);

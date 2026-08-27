@@ -1,6 +1,6 @@
 # ACE Dialer — Project State
 
-**Last updated:** August 26, 2026 (**0.10.226 conference self-mute fix — web LIVE, desktop draft awaiting publish**; **v0.10.225 released to all users** — silent secondary ringer + ACE Bot caller names; web SPA live, desktop published)
+**Last updated:** August 27, 2026 (0.10.227 personal SMS templates given a Settings home — committed, NOT released; **0.10.226 conference self-mute fix — web LIVE, desktop draft awaiting publish**; **v0.10.225 released to all users** — silent secondary ringer + ACE Bot caller names; web SPA live, desktop published)
 **Maintained by:** Claude (update at end of every working session)
 
 This file is a living snapshot of where the project stands. New Claude
@@ -132,6 +132,20 @@ If you're a fresh Claude session opening this project:
 - **Web + api deployed same session (Aug 25).** The live web bundle was still **0.10.216** (built Aug 5), so building it published 0.10.217 → 0.10.224 to every *browser* user in one step — desktop users are unaffected until a release is published. Order was deliberate: `ace-api` rebuilt and reloaded FIRST (its dist was from Aug 17 and predated `0cf08c6`, which derives campaign status instead of storing it), then `VITE_FORCE_ABSOLUTE_BASE=1 npm run build:web`. Verified: `/health` 200 on the new api pid, `dist/index.html` references `/assets/…` absolutely, `/assets/<hash>.js` serves `application/javascript`, and `/settings/email-notifications` serves the SPA. Root `build:api` was deliberately NOT used — it chains `db:push:ci` against the production database and there was no schema change.
 - **CLAUDE.md §1.4 verification command was wrong and is fixed.** It told you to curl `/settings/assets/<hashed>.js` and expect `application/javascript`; that path returns `text/html` even on a correct build, because with an absolute base nothing requests it and the SPA fallback answers. Following it literally reads as "the absolute-base fix didn't work".
 - **Release notes** (`5878929`): What's new entry + section 3 of `docs/email-0.10.224-users.md`. The rest of that branch (`e7f3292`, the bulk-send `{recruiter}` fix) is web-only and still NOT deployed — `apps/web/dist` is untouched, so the announcement's sections 1 and 2 are not live yet. Don't send that email until the web bundle is built.
+
+---
+
+**August 27, 2026 — 0.10.227: personal SMS templates were unreachable, not missing (COMMITTED, NOT RELEASED)**
+
+- **Reported as:** users can't create their own SMS templates, and they should see every placeholder while writing one. Both were built — 0.10.216 (personal templates) and 0.10.224 (full field list open by default when creating). Neither was broken.
+- **Checked before changing anything:** `POST /me/sms-templates` returns **401, not 404** on the live API (route present), and the table holds **16 personal templates** — `afreenp@aptask.com` created one the previous afternoon. The feature works end to end.
+- **The real number: 3 users out of 83 have ever created one.** afreenp (14), saifalin (1), soumyas (1) — and the last two both stopped on Aug 5, the day it shipped.
+- **Cause is discoverability, and it was structural.** There was exactly ONE route to the editor: Messages → open a conversation with a specific person → Templates pill → New (`Messages.tsx:1951`, inside `ThreadDetail`). **You could not write a template without first having a text thread open with somebody.** A template is a thing you write *before* you need it; the feature demanded you already be mid-conversation.
+- **Settings actively sent people the wrong way.** Settings → **Quick replies** carried the blurb "**SMS templates**" — a different, device-local feature. Someone hunting for templates found that, concluded it was the feature, and stopped looking. The real pane, Settings → SMS templates, is `adminOnly`. So the honest answer to "why can't users create templates" is that Settings told them these were their templates and they weren't.
+- **Fix:** new **Settings → My SMS templates** (Personal), listing your own templates with create / edit / delete, plus a line pointing at the company set. It mounts the SAME `SmsTemplateEditor` the composer uses, so the field list — open by default on create, split into auto-fill vs type-it-yourself with examples — comes along unchanged. The Quick replies blurb now reads "One-tap canned replies, saved on this device". Delete uses an inline confirm, not `window.confirm`, which doesn't render in the Electron shell (UX-004).
+- **Version drift is the smaller half, but it is real.** Of 85 devices active in the last 7 days: **9 users are on builds older than 0.10.216 and literally cannot create a template**, and **12 more are on <0.10.224**, so their editor still hides the field list behind a collapsed button. 64 are current. Those 21 need the desktop release published + a force-update; no code fixes them.
+- **Not verified:** the new pane hasn't been opened by a human. It reuses the admin section's proven class set (`settings-section`, `users-admin-table`, `device-action`) rather than new CSS, and typechecks and builds clean, but nobody has looked at it.
+- **NOT released.** Bumped to 0.10.227 across the 9 manifests + `APP_VERSION`, with a What's New entry. `apps/web/dist` untouched (built to a scratch outDir).
 
 ---
 
