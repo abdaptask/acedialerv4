@@ -1736,7 +1736,14 @@ import { readFileSync } from 'node:fs';
 import { PrismaClient } from '@prisma/client';
 
 const COMMIT = process.argv.includes('--commit');
-const { entries } = JSON.parse(readFileSync('scripts/out/supabase-to-s3-manifest.json', 'utf8'));
+// The journal accumulates across every run (dry or --commit) and is never
+// truncated, so it is the authoritative record even after an interrupted
+// or multi-run migration — unlike the end-of-run summary JSON, which only
+// covers whatever completed within the single run that wrote it.
+const entries = readFileSync('scripts/out/supabase-to-s3-journal.ndjson', 'utf8')
+  .split('\n')
+  .filter(Boolean)
+  .map((line) => JSON.parse(line));
 const prisma = new PrismaClient();
 
 for (const e of entries.filter((x) => x.action === 'copied')) {
