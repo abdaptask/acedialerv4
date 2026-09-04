@@ -6,6 +6,7 @@ import cors from '@fastify/cors';
 import formbody from '@fastify/formbody';
 import { prisma } from '@ace/db';
 import { transcribeAndUpdateVoicemail } from './deepgram.js';
+import { persistRecording } from './voicemailCallControl.js';
 import {
   notifyInboundSms,
   scheduleMissedCallNotification,
@@ -1002,6 +1003,14 @@ app.post('/telnyx/calls', async (request) => {
             select: { id: true },
           });
 
+          // Telnyx presigns this URL for 7 days. Copy the bytes into our own
+          // bucket so the recording outlives that window. Fire-and-forget:
+          // the 200 already went back to Telnyx, and a failure just leaves
+          // the Telnyx URL, which the fresh-url endpoint still resolves.
+          void persistRecording(created.id, ownerUserId, recordingUrl, (obj, msg) =>
+            app.log.info(obj, msg),
+          );
+
           const unreadCount = await prisma.voicemail.count({
             where: { userId: ownerUserId, listenedAt: null },
           });
@@ -1913,6 +1922,13 @@ async function processVoicemail(
       userDidId,
     },
   });
+
+  // Same reasoning as the Hosted-Voicemail seam above. This one covers
+  // POST /texml/voicemail/recording-complete and the legacy
+  // /webhooks/telnyx/voicemail route, which both funnel through here.
+  void persistRecording(created.id, ownerUserId, payload.recordingUrl, (obj, msg) =>
+    app.log.info(obj, msg),
+  );
 
   const unreadCount = await prisma.voicemail.count({
     where: { userId: ownerUserId, listenedAt: null },
