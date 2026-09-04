@@ -8,11 +8,12 @@
     "build": "tsc",
     "start": "node dist/main.js",
     "dev": "tsx watch --env-file=../../.env src/main.ts",
-    "test": "node --import tsx --test $(find src -name '*.test.ts')"
+    "test": "node --env-file=../../.env --import tsx --test $(find src -name '*.test.ts')"
   },
   "dependencies": {
     "@ace/db": "*",
     "@anthropic-ai/sdk": "^0.115.0",
+    "@aws-sdk/client-s3": "^3.1126.0",
     "@azure/msal-node": "^2.16.2",
     "@fastify/compress": "^7.0.3",
     "@fastify/cors": "^9.0.1",

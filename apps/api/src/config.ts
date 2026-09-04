@@ -61,10 +61,19 @@ export const config = {
   // → Application ID at the top of the Details tab.
   telnyxVoicemailCcAppId: optional('TELNYX_VOICEMAIL_CC_APP_ID'),
 
-  // Supabase Storage (for MMS uploads)
+  // Supabase Storage — retained only until the S3 backfill completes.
+  // Read by scripts/migrate-supabase-to-s3.mjs; no upload path uses it.
   supabaseUrl: optional('SUPABASE_URL'),
   supabaseServiceKey: optional('SUPABASE_SERVICE_ROLE_KEY'),
   supabaseMediaBucket: optional('SUPABASE_MEDIA_BUCKET', 'ace-media'),
+
+  // AWS S3 — user media. Bucket apt-dialer, everything under the media/
+  // prefix (the bucket is shared with an unrelated `updates` prefix).
+  s3Bucket: optional('S3_BUCKET', 'apt-dialer'),
+  s3Region: optional('S3_REGION', 'us-east-1'),
+  s3AccessKeyId: optional('S3_ACCESS_KEY_ID'),
+  s3SecretAccessKey: optional('S3_SECRET_ACCESS_KEY'),
+  s3PublicBase: optional('S3_PUBLIC_BASE'),
 
   // JobDiva (Phase 5.5 — contact lookup)
   jobDivaBaseUrl: optional('JOBDIVA_BASE_URL'),
