@@ -4,7 +4,7 @@
 // without a network mock.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildPublicUrl } from './s3.js';
+import { buildPublicUrl } from './s3Url.js';
 
 test('builds a virtual-hosted-style URL from bucket + region', () => {
   const got = buildPublicUrl('media/mms/out/u12/1700000000000_photo.jpg', {
