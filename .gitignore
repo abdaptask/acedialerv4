@@ -48,3 +48,6 @@ pulse_users*.csv
 # Local Claude Code settings — per-developer, not shared
 .claude/settings.local.json
 
+
+# Backfill manifests (contain media URLs)
+scripts/out/
