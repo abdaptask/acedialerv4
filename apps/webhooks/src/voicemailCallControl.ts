@@ -13,6 +13,8 @@ import { prisma } from '@ace/db';
 import { transcribeAndUpdateVoicemail } from './deepgram.js';
 import { scheduleVoicemailTimeoutFallback } from './teamsNotifier.js';
 import { scheduleVoicemailEmailTimeoutFallback } from './emailNotifier.js';
+import { isS3Configured, putObject } from './s3.js';
+import { extAndContentTypeFromUrl, voicemailKey } from './mediaKeys.js';
 
 type LogFn = (obj: Record<string, unknown>, msg: string) => void;
 
@@ -208,62 +210,55 @@ async function fallToVoicemail(state: ClientState, cause: string, logger: LogFn)
   await callControlAction(state.callerCallId, 'answer', { client_state: encodeState(vmState) }, logger);
 }
 
-// v0.10.101 - Persist the Telnyx recording to our Supabase Storage bucket
-// so the playback URL doesn't expire after 10 minutes. Fire-and-forget;
-// failures are logged but never block the voicemail row creation.
-async function persistRecordingToSupabase(
+// v0.10.101 / 2026-09 - Copy the Telnyx recording into our own S3 bucket so
+// the playback URL doesn't expire. Telnyx presigns with a finite window
+// (7 days on Hosted Voicemail, 10 minutes on the Recordings API); after
+// that the object is only reachable by re-querying Telnyx.
+//
+// Exported because main.ts calls it from BOTH of its
+// prisma.voicemail.create seams — see spec §8.
+//
+// Fire-and-forget by contract: the Telnyx 200 has already been sent
+// (CLAUDE.md §16.4), so this never throws and never blocks. A failure
+// leaves recordingUrl pointing at Telnyx, where the existing
+// /voicemails/:id/fresh-url and audio-proxy paths still play it.
+export async function persistRecording(
   voicemailId: number,
   userId: number,
   telnyxUrl: string,
   logger: LogFn,
 ): Promise<void> {
-  const supabaseUrl = (process.env.SUPABASE_URL ?? '').trim();
-  const supabaseKey = (process.env.SUPABASE_SERVICE_ROLE_KEY ?? '').trim();
-  const bucket = (process.env.SUPABASE_MEDIA_BUCKET ?? 'ace-media').trim();
-  if (!supabaseUrl || !supabaseKey) {
-    logger({ voicemailId }, '[vm-cc] Supabase not configured - leaving Telnyx URL (will expire in 10 min)');
+  if (!isS3Configured()) {
+    logger({ voicemailId }, '[vm] S3 not configured - leaving the Telnyx URL in place');
     return;
   }
   try {
-    // 1. Download the recording from Telnyx (while the signed URL is valid).
+    // 1. Download from Telnyx while the presigned URL is still valid.
     const downloadRes = await fetch(telnyxUrl);
     if (!downloadRes.ok) {
-      logger({ voicemailId, status: downloadRes.status }, '[vm-cc] failed to download recording from Telnyx');
+      logger({ voicemailId, status: downloadRes.status }, '[vm] failed to download recording from Telnyx');
       return;
     }
     const bytes = Buffer.from(await downloadRes.arrayBuffer());
     if (bytes.length === 0) {
-      logger({ voicemailId }, '[vm-cc] Telnyx recording was empty - skipping persistence');
+      logger({ voicemailId }, '[vm] Telnyx recording was empty - skipping persistence');
       return;
     }
 
-    // 2. Upload to Supabase Storage.
-    const objectPath = `voicemails/u${userId}/${voicemailId}.mp3`;
-    const uploadUrl = `${supabaseUrl}/storage/v1/object/${bucket}/${objectPath}`;
-    const uploadRes = await fetch(uploadUrl, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${supabaseKey}`,
-        'Content-Type': 'audio/mpeg',
-        'x-upsert': 'true',
-      },
-      body: bytes,
-    });
-    if (!uploadRes.ok) {
-      const errText = await uploadRes.text().catch(() => '');
-      logger({ voicemailId, status: uploadRes.status, errText }, '[vm-cc] Supabase upload failed');
-      return;
-    }
+    // 2. Upload, deriving the format from the source URL rather than
+    //    assuming mp3 — Hosted Voicemail serves wav.
+    const { ext, contentType } = extAndContentTypeFromUrl(telnyxUrl);
+    const key = voicemailKey(userId, voicemailId, ext);
+    const { publicUrl } = await putObject({ key, body: bytes, contentType });
 
-    // 3. Update the Voicemail row to the permanent public URL.
-    const publicUrl = `${supabaseUrl}/storage/v1/object/public/${bucket}/${objectPath}`;
+    // 3. Repoint the row at the permanent URL.
     await prisma.voicemail.update({
       where: { id: voicemailId },
       data: { recordingUrl: publicUrl },
     });
-    logger({ voicemailId, publicUrl, bytes: bytes.length }, '[vm-cc] recording persisted to Supabase');
+    logger({ voicemailId, key, bytes: bytes.length }, '[vm] recording persisted to S3');
   } catch (e) {
-    logger({ voicemailId, err: e instanceof Error ? e.message : String(e) }, '[vm-cc] persistence threw');
+    logger({ voicemailId, err: e instanceof Error ? e.message : String(e) }, '[vm] persistence threw');
   }
 }
 
@@ -462,7 +457,7 @@ export async function handleVoicemailCallControlEvent(event: TelnyxEventLike, lo
             // v0.10.101 - Persist the recording to Supabase BEFORE the Telnyx
             // signed URL expires (10 min). Fire-and-forget; updates the
             // Voicemail row's recordingUrl when done so playback never breaks.
-            void persistRecordingToSupabase(created.id, found.user.id, recordingUrl, logger);
+            void persistRecording(created.id, found.user.id, recordingUrl, logger);
             // v0.10.100 fix - Fire transcription + Teams + email notifications,
             // matching the legacy /webhooks/telnyx/calls voicemail flow.
             void transcribeAndUpdateVoicemail(created.id, recordingUrl, found.user.id);
