@@ -454,7 +454,7 @@ export async function handleVoicemailCallControlEvent(event: TelnyxEventLike, lo
               select: { id: true },
             });
             logger({ userId: found.user.id, voicemailId: created.id, fromNumber, toNumber }, '[vm-cc] voicemail row created');
-            // v0.10.101 - Persist the recording to Supabase BEFORE the Telnyx
+            // v0.10.101 - Persist the recording to S3 BEFORE the Telnyx
             // signed URL expires (10 min). Fire-and-forget; updates the
             // Voicemail row's recordingUrl when done so playback never breaks.
             void persistRecording(created.id, found.user.id, recordingUrl, logger);

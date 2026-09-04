@@ -19,7 +19,12 @@ export function voicemailKey(userId: number, voicemailId: number, ext: string): 
  * recording.
  */
 export function extAndContentTypeFromUrl(url: string): { ext: string; contentType: string } {
-  const path = url.split('?')[0] ?? '';
+  // Split on both '?' and '#': a presigned URL's query string is the common
+  // case, but a URL ending in a fragment (no query string) needs the same
+  // stripping or the fragment gets swept into the "extension" match below.
+  // scripts/lib/rewriteMediaUrls.mjs solved this the same way — keep them
+  // in agreement rather than drifting apart.
+  const path = url.split(/[?#]/)[0] ?? '';
   const ext = (/\.([a-zA-Z0-9]+)$/.exec(path)?.[1] ?? 'mp3').toLowerCase();
   const contentType = ext === 'wav' ? 'audio/wav' : ext === 'ogg' ? 'audio/ogg' : 'audio/mpeg';
   return { ext, contentType };

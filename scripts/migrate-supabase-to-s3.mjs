@@ -165,8 +165,18 @@ async function copyOne(url, kind, context) {
       recordEntry({ ...context, kind, oldUrl: url, newUrl: null, action: 'empty' });
       return { url: null, outcome: 'empty' };
     }
+    // Supabase already knows the stored content-type — prefer the header
+    // from the download we just did over re-deriving one from the
+    // filename. contentTypeFor()'s extension map is short (it doesn't
+    // cover .aac/.webm greetings or the arbitrary MIME types /messages/
+    // upload accepts, e.g. .mp4/.mov/.heic), so falling back to it here
+    // would relabel every object with an unlisted extension as
+    // application/octet-stream — the exact mislabelling this migration
+    // fixes for voicemail. Fixing that after the fact means re-uploading
+    // every object, so get it right on the one pass.
+    const ct = res.headers.get('content-type') || contentTypeFor(oldKey);
     await s3.send(new PutObjectCommand({
-      Bucket: S3_BUCKET, Key: newKey, Body: body, ContentType: contentTypeFor(oldKey),
+      Bucket: S3_BUCKET, Key: newKey, Body: body, ContentType: ct,
     }));
     recordEntry({ ...context, kind, oldUrl: url, newUrl, action: 'copied', bytes: body.length });
     return { url: newUrl, outcome: 'copied' };

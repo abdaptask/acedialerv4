@@ -47,7 +47,8 @@ owning the data, not repairing playback.
   Telnyx ack, plus a backfill over historic rows whose URLs may already be dead.
 - **No move to private objects or presigned URLs.** Public-read is retained (see §4.2).
 - No change to the web client. It has no Supabase code — only stale comments in `api.ts:729`,
-  `Settings.tsx:1382,1791`, and `whatsNew.ts:698`. It renders whatever URL the API hands it.
+  `api.ts:1162` (`'[mms upload] supabase error:'`), `Settings.tsx:1382,1791`, and `whatsNew.ts:698`.
+  It renders whatever URL the API hands it.
 
 ## 4. Decisions
 

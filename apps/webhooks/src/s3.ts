@@ -3,7 +3,7 @@
 // Duplicate of apps/api/src/lib/s3.ts on purpose — CLAUDE.md §1.4 forbids
 // shared code in packages/ outside db and forbids importing from apps/api.
 // Reads process.env directly rather than a config module because that is
-// how this service already reads its Supabase and Telnyx settings.
+// how this service already reads its Telnyx settings.
 import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 
 function env(name: string, fallback = ''): string {

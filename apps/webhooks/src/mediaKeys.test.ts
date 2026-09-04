@@ -52,3 +52,15 @@ test('falls back to mp3 when the URL has no extension', () => {
     contentType: 'audio/mpeg',
   });
 });
+
+test('ignores a URL fragment when deriving the extension', () => {
+  const got = extAndContentTypeFromUrl('https://example.com/a/b.wav#section');
+  assert.deepEqual(got, { ext: 'wav', contentType: 'audio/wav' });
+});
+
+test('ignores both a query string and a fragment when deriving the extension', () => {
+  const url =
+    'https://voice-mail-prod.s3.us-east-1.amazonaws.com/%2B17329935698/b0fba8e9.wav' +
+    '?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Expires=604800#section';
+  assert.deepEqual(extAndContentTypeFromUrl(url), { ext: 'wav', contentType: 'audio/wav' });
+});

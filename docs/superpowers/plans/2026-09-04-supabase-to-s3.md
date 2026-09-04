@@ -36,7 +36,7 @@
 
 - [ ] **Step 1: Deactivate the exposed access key**
 
-The key `AKIAIZEP7HTIT3WMLMDQ` was pasted into a chat transcript during design and must be treated as compromised. IAM → Users → that user → Security credentials → set the access key to **Inactive**, then Delete. Do not reuse it anywhere.
+The key `AKIAIZEP7…` was pasted into a chat transcript during design and must be treated as compromised. IAM → Users → that user → Security credentials → set the access key to **Inactive**, then Delete. Do not reuse it anywhere.
 
 - [ ] **Step 2: Create a scoped IAM user**
 
@@ -56,7 +56,7 @@ IAM → Users → Create user, name `ace-dialer-media`. No console access. Attac
 }
 ```
 
-No `s3:*`. No second bucket. No `s3:ListAllMyBuckets`. Create an access key and hold it for Step 6.
+No `s3:*`. No second bucket. No `s3:ListAllMyBuckets`. Create an access key and hold it for Step 7.
 
 - [ ] **Step 3: Add the public-read statement to the bucket policy**
 
@@ -84,7 +84,26 @@ S3 → `apt-dialer` → Management → Lifecycle rules → Create rule.
 
 **Do not** add a rule for `media/greetings/` or `media/mms/` — those are long-lived. A prefix-less rule would silently delete every greeting after 30 days.
 
-- [ ] **Step 5: Tighten Block Public Access**
+- [ ] **Step 5: Configure bucket CORS**
+
+S3 → `apt-dialer` → Permissions → Cross-origin resource sharing (CORS) → Edit.
+
+```json
+[
+  {
+    "AllowedMethods": ["GET", "HEAD"],
+    "AllowedOrigins": ["*"],
+    "AllowedHeaders": ["*"],
+    "MaxAgeSeconds": 3000
+  }
+]
+```
+
+`apps/web/src/pages/Messages.tsx:210` fetches attachment URLs with `mode: 'cors'` to implement the one-click "save attachment to disk" feature (v0.10.177). Supabase Storage answers every request with `Access-Control-Allow-Origin: *`; S3 sends no CORS headers at all unless a rule is configured. Without this step, every S3-hosted attachment fails that fetch and the code's `catch` silently falls back to opening the file in a new tab instead of saving it — no error surfaces anywhere, so this is easy to ship broken and not notice (see Task 11 Step 8, which exists to catch exactly this).
+
+`AllowedOrigins: ["*"]` is deliberate, not a shortcut: it matches the Supabase posture this migration replaces, and the Electron renderer sends `Origin: null` on these fetches, which an explicit origin allowlist would not match. `GET`/`HEAD` only — this bucket never needs to accept a CORS-preflighted write from a browser.
+
+- [ ] **Step 6: Tighten Block Public Access**
 
 S3 → `apt-dialer` → Permissions → Block public access → Edit. Leave "Block *all* public access" **off** (the policy needs to grant public read), but turn **on** both ACL-related settings:
 
@@ -93,7 +112,7 @@ S3 → `apt-dialer` → Permissions → Block public access → Edit. Leave "Blo
 
 Leave both policy-related settings off. Also confirm Properties → Default encryption is SSE-S3.
 
-- [ ] **Step 6: Add env vars**
+- [ ] **Step 7: Add env vars**
 
 Append to the repo-root `.env` on the app host (gitignored):
 
@@ -107,7 +126,7 @@ S3_SECRET_ACCESS_KEY="<from Step 2>"
 S3_PUBLIC_BASE=""
 ```
 
-- [ ] **Step 7: Mirror the keys into `.env.example` with empty values**
+- [ ] **Step 8: Mirror the keys into `.env.example` with empty values**
 
 ```bash
 cat >> .env.example <<'EOF'
@@ -121,7 +140,7 @@ S3_PUBLIC_BASE=""              # optional CDN/custom-domain override
 EOF
 ```
 
-- [ ] **Step 8: Verify the policy took effect**
+- [ ] **Step 9: Verify the policy took effect**
 
 Upload any small file to `media/probe.txt` via the console, then:
 
@@ -131,7 +150,7 @@ curl -D- -o /dev/null https://apt-dialer.s3.us-east-1.amazonaws.com/media/probe.
 
 Expected: `HTTP/1.1 200`. A `403` means the `PublicReadAceMedia` statement is missing or its `Resource` is wrong — fix before continuing. Delete `media/probe.txt` afterwards.
 
-- [ ] **Step 9: Commit the `.env.example` change**
+- [ ] **Step 10: Commit the `.env.example` change**
 
 ```bash
 git add .env.example
@@ -1315,205 +1334,18 @@ git commit -m "feat(scripts): add tested URL mapper for the Supabase to S3 backf
 
 - [ ] **Step 1: Write the script**
 
-Create `scripts/migrate-supabase-to-s3.mjs`:
+Create `scripts/migrate-supabase-to-s3.mjs`. It:
 
-```js
-// One-off backfill: copy every object we own out of Supabase Storage into
-// the apt-dialer S3 bucket and repoint the five DB columns that hold their
-// URLs. Operator tool — run by hand, never imported (CLAUDE.md §1.4).
-//
-//   node --env-file=.env scripts/migrate-supabase-to-s3.mjs            # dry run
-//   node --env-file=.env scripts/migrate-supabase-to-s3.mjs --commit   # writes
-//
-// Idempotent: re-running finds no Supabase-prefixed URLs left and reports
-// zero rewrites, so a partial or failed run is always safe to repeat.
-import { writeFileSync, mkdirSync } from 'node:fs';
-import { PrismaClient } from '@prisma/client';
-import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
-import {
-  isSupabaseMediaUrl,
-  rewriteArray,
-  supabaseUrlToKey,
-} from './lib/rewriteMediaUrls.mjs';
+- Reads every Supabase-prefixed URL across the five columns (`Voicemail.recordingUrl`, `User.voicemailGreetingUrl`, `User.voicemailBusyGreetingUrl`, `Message.mediaUrls`, `ScheduledMessage.mediaUrls`), using `isSupabaseMediaUrl` / `supabaseUrlToKey` / `rewriteArray` from Task 9's `scripts/lib/rewriteMediaUrls.mjs`.
+- Downloads each object from Supabase and `PutObject`s it to S3 under `media/{voicemails,greetings,mms/out}/legacy/<oldKey>`, preserving the old key verbatim (it already carries the user id and timestamp).
+- In `--commit` mode, rewrites the DB column to the new public URL after a successful copy.
+- Is idempotent: a second run finds no Supabase-prefixed URLs left and reports everything as `skipped`, so a partial or failed run is always safe to repeat.
 
-const COMMIT = process.argv.includes('--commit');
-const SUPABASE_BASE = (process.env.SUPABASE_URL ?? '').trim().replace(/\/+$/, '');
-const SUPABASE_BUCKET = (process.env.SUPABASE_MEDIA_BUCKET ?? 'ace-media').trim();
-const S3_BUCKET = (process.env.S3_BUCKET ?? 'apt-dialer').trim();
-const S3_REGION = (process.env.S3_REGION ?? 'us-east-1').trim();
-const S3_PUBLIC_BASE = (process.env.S3_PUBLIC_BASE ?? '').trim();
-
-if (!SUPABASE_BASE) {
-  console.error('SUPABASE_URL is not set — nothing to migrate from.');
-  process.exit(1);
-}
-
-const prisma = new PrismaClient();
-const s3 = new S3Client({
-  region: S3_REGION,
-  credentials: {
-    accessKeyId: (process.env.S3_ACCESS_KEY_ID ?? '').trim(),
-    secretAccessKey: (process.env.S3_SECRET_ACCESS_KEY ?? '').trim(),
-  },
-});
-
-const manifest = [];
-const stats = {};
-
-function bump(column, field) {
-  stats[column] ??= { scanned: 0, rewritten: 0, skipped: 0, failed: 0 };
-  stats[column][field] += 1;
-}
-
-function publicUrlFor(key) {
-  const base = S3_PUBLIC_BASE
-    ? S3_PUBLIC_BASE.replace(/\/+$/, '')
-    : `https://${S3_BUCKET}.s3.${S3_REGION}.amazonaws.com`;
-  return `${base}/${key}`;
-}
-
-function contentTypeFor(key) {
-  const ext = (key.split('?')[0].match(/\.([a-zA-Z0-9]+)$/)?.[1] ?? '').toLowerCase();
-  const map = {
-    wav: 'audio/wav', mp3: 'audio/mpeg', ogg: 'audio/ogg', m4a: 'audio/mp4',
-    jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif',
-    webp: 'image/webp', pdf: 'application/pdf', txt: 'text/plain',
-  };
-  return map[ext] ?? 'application/octet-stream';
-}
-
-// Map an old Supabase key onto the new media/ layout. Keys are preserved
-// verbatim under a type prefix rather than renamed: the old key already
-// carries the user id and timestamp, and re-deriving them risks collisions.
-function newKeyFor(oldKey, kind) {
-  if (kind === 'voicemail') return `media/voicemails/legacy/${oldKey}`;
-  if (kind === 'greeting') return `media/greetings/legacy/${oldKey}`;
-  return `media/mms/out/legacy/${oldKey}`;
-}
-
-/** Copy one object. Returns the new public URL, or null on any failure. */
-async function copyOne(url, kind, context) {
-  const oldKey = supabaseUrlToKey(url, SUPABASE_BASE, SUPABASE_BUCKET);
-  if (!oldKey) return null;
-  const newKey = newKeyFor(oldKey, kind);
-  const newUrl = publicUrlFor(newKey);
-
-  if (!COMMIT) {
-    manifest.push({ ...context, kind, oldUrl: url, newUrl, action: 'would-copy' });
-    return newUrl;
-  }
-
-  try {
-    const res = await fetch(url);
-    if (!res.ok) {
-      console.warn(`  ! download ${res.status} for ${oldKey}`);
-      manifest.push({ ...context, kind, oldUrl: url, newUrl: null, action: 'download-failed', status: res.status });
-      return null;
-    }
-    const body = Buffer.from(await res.arrayBuffer());
-    if (body.length === 0) {
-      console.warn(`  ! empty object ${oldKey}`);
-      manifest.push({ ...context, kind, oldUrl: url, newUrl: null, action: 'empty' });
-      return null;
-    }
-    await s3.send(new PutObjectCommand({
-      Bucket: S3_BUCKET, Key: newKey, Body: body, ContentType: contentTypeFor(oldKey),
-    }));
-    manifest.push({ ...context, kind, oldUrl: url, newUrl, action: 'copied', bytes: body.length });
-    return newUrl;
-  } catch (e) {
-    console.warn(`  ! upload failed for ${oldKey}: ${e.message}`);
-    manifest.push({ ...context, kind, oldUrl: url, newUrl: null, action: 'upload-failed', error: e.message });
-    return null;
-  }
-}
-
-async function migrateVoicemails() {
-  const rows = await prisma.voicemail.findMany({ select: { id: true, recordingUrl: true } });
-  for (const row of rows) {
-    bump('Voicemail.recordingUrl', 'scanned');
-    if (!isSupabaseMediaUrl(row.recordingUrl, SUPABASE_BASE)) {
-      bump('Voicemail.recordingUrl', 'skipped');
-      continue;
-    }
-    const newUrl = await copyOne(row.recordingUrl, 'voicemail', { table: 'Voicemail', id: row.id });
-    if (!newUrl) { bump('Voicemail.recordingUrl', 'failed'); continue; }
-    if (COMMIT) {
-      await prisma.voicemail.update({ where: { id: row.id }, data: { recordingUrl: newUrl } });
-    }
-    bump('Voicemail.recordingUrl', 'rewritten');
-  }
-}
-
-async function migrateGreetings() {
-  const rows = await prisma.user.findMany({
-    select: { id: true, voicemailGreetingUrl: true, voicemailBusyGreetingUrl: true },
-  });
-  for (const row of rows) {
-    for (const col of ['voicemailGreetingUrl', 'voicemailBusyGreetingUrl']) {
-      const label = `User.${col}`;
-      bump(label, 'scanned');
-      const url = row[col];
-      if (!isSupabaseMediaUrl(url, SUPABASE_BASE)) { bump(label, 'skipped'); continue; }
-      const newUrl = await copyOne(url, 'greeting', { table: 'User', id: row.id, column: col });
-      if (!newUrl) { bump(label, 'failed'); continue; }
-      if (COMMIT) {
-        await prisma.user.update({ where: { id: row.id }, data: { [col]: newUrl } });
-      }
-      bump(label, 'rewritten');
-    }
-  }
-}
-
-// The array columns. Only Supabase-prefixed entries are touched; Telnyx
-// inbound URLs in the same array must survive verbatim.
-async function migrateArrayColumn(model, label) {
-  const rows = await prisma[model].findMany({ select: { id: true, mediaUrls: true } });
-  for (const row of rows) {
-    bump(label, 'scanned');
-    if (!row.mediaUrls?.some((u) => isSupabaseMediaUrl(u, SUPABASE_BASE))) {
-      bump(label, 'skipped');
-      continue;
-    }
-    const resolved = new Map();
-    for (const u of row.mediaUrls) {
-      if (isSupabaseMediaUrl(u, SUPABASE_BASE)) {
-        resolved.set(u, await copyOne(u, 'mms', { table: label, id: row.id }));
-      }
-    }
-    const { next, changed } = rewriteArray(row.mediaUrls, (u) => resolved.get(u) ?? null);
-    if (changed === 0) { bump(label, 'failed'); continue; }
-    if (COMMIT) {
-      await prisma[model].update({ where: { id: row.id }, data: { mediaUrls: next } });
-    }
-    bump(label, 'rewritten');
-  }
-}
-
-async function main() {
-  console.log(COMMIT ? '=== COMMIT MODE — writing ===' : '=== DRY RUN — pass --commit to write ===');
-  console.log(`  from: ${SUPABASE_BASE}/storage/v1/object/public/${SUPABASE_BUCKET}/`);
-  console.log(`  to:   ${publicUrlFor('media/…')}`);
-
-  await migrateVoicemails();
-  await migrateGreetings();
-  await migrateArrayColumn('message', 'Message.mediaUrls');
-  await migrateArrayColumn('scheduledMessage', 'ScheduledMessage.mediaUrls');
-
-  console.table(stats);
-  mkdirSync('scripts/out', { recursive: true });
-  const out = `scripts/out/supabase-to-s3-manifest${COMMIT ? '' : '-dryrun'}.json`;
-  writeFileSync(out, JSON.stringify({ stats, entries: manifest }, null, 2));
-  console.log(`manifest: ${out} (${manifest.length} entries)`);
-  await prisma.$disconnect();
-}
-
-main().catch(async (e) => {
-  console.error(e);
-  await prisma.$disconnect();
-  process.exit(1);
-});
-```
+> **Note (post-review):** this section originally embedded the full script body. That copy went stale the moment the script was revised during review and is deliberately not re-pasted here — a second embedded copy is a second place to keep in sync, and it already drifted once. **The committed file `scripts/migrate-supabase-to-s3.mjs` is authoritative.** Read it directly. The review pass added, beyond what's summarized above:
+> - An append-only NDJSON journal (`scripts/out/supabase-to-s3-journal.ndjson`, `-dryrun` variant for dry runs) written per-entry in real time, distinct from the end-of-run JSON summary — the durable record a rollback replays, so it survives an interrupted run in a way the summary (written once, at the end) cannot.
+> - A `wrong_bucket` outcome, counted separately from `failed`, for the case where the Supabase *project* in a URL matches but the *bucket* segment doesn't (`SUPABASE_MEDIA_BUCKET` misconfigured) — see Step 3 below for why this must gate the run.
+> - Per-entry accounting on the array columns (`Message.mediaUrls`, `ScheduledMessage.mediaUrls`): each URL in the array is counted individually as scanned/rewritten/skipped/failed/wrong_bucket, not rolled up to one outcome per row, so a row with 2 of 3 attachments copied doesn't hide the one that didn't.
+> - `SIGINT`/`SIGTERM` handlers that write the summary before the process exits, so a manually interrupted run still leaves a readable report of what completed.
 
 - [ ] **Step 2: Ignore the manifest output directory**
 
@@ -1529,7 +1361,15 @@ The manifest lists media URLs, which are unauthenticated handles to voicemail au
 node --env-file=.env scripts/migrate-supabase-to-s3.mjs
 ```
 
-Expected: a `console.table` with `scanned` / `rewritten` / `skipped` / `failed` per column, and `failed: 0`. Read `scripts/out/supabase-to-s3-manifest-dryrun.json` and spot-check that no Telnyx URL appears as an `oldUrl`.
+Expected: a `console.table` with five counters per column — `scanned` / `rewritten` / `skipped` / `failed` / `wrong_bucket`. The gate to proceed requires **all three** of:
+
+- `failed: 0`
+- `wrong_bucket: 0`
+- `rewritten > 0`
+
+Do not gate on `failed: 0` alone — `wrong_bucket` is a separate counter precisely so a misconfigured `SUPABASE_MEDIA_BUCKET` can't hide inside `failed`. A nonzero `wrong_bucket` means every URL it counted has a Supabase project that matched but a bucket segment that didn't: **stop and fix the `SUPABASE_MEDIA_BUCKET` env var — do not proceed to `--commit`.** And on this first run, `rewritten: 0` does not mean success — it means nothing matched at all (e.g. `SUPABASE_URL` itself is wrong), which is indistinguishable from "there was nothing to migrate" unless you also check that `scanned` is nonzero and roughly matches the row counts you expect.
+
+Read `scripts/out/supabase-to-s3-manifest-dryrun.json` and spot-check that no Telnyx URL appears as an `oldUrl`.
 
 - [ ] **Step 4: Run for real**
 
@@ -1618,7 +1458,19 @@ union all select 'Scheduled', count(*) from scheduled_messages where array_to_st
 
 Expected: `0` on all five rows.
 
-- [ ] **Step 8: Wait**
+- [ ] **Step 8: The "save attachment to disk" control works against S3**
+
+Send an MMS with an attachment, open the received message, and click the download control on the attachment. Confirm the file saves to disk. This exercises `apps/web/src/pages/Messages.tsx:210`, which fetches the attachment with `mode: 'cors'` — with the bucket CORS rule from Task 1 Step 5 missing or wrong, that fetch fails and the code's `catch` silently falls back to opening the file in a new tab instead. There is no error, toast, or log line on that failure path, so this cannot be verified by reading logs — it must be clicked.
+
+- [ ] **Step 9: Spot-check a migrated object's content-type**
+
+```bash
+curl -I "<a migrated recordingUrl or mediaUrl from Task 10's manifest>"
+```
+
+Confirm the `content-type` header matches what the file actually is (e.g. `audio/wav` for a `.wav`, `image/jpeg` for a `.jpg`, `audio/mp4` for a legacy `.aac`/`.m4a` greeting) rather than the generic `application/octet-stream`. This is what the content-type fix in Task 10 (preferring Supabase's stored `content-type` header over guessing from the filename) protects — check at least one object whose extension isn't in the common set (a `.aac` or `.webm` greeting, or an `.mp4`/`.mov`/`.heic` MMS attachment) since those are exactly the ones a filename-based guess mislabels.
+
+- [ ] **Step 10: Wait**
 
 Leave the Supabase bucket alive and read-only for ~2 weeks before Task 12. This is the rollback window — the manifest can restore the old URLs only while those objects still exist.
 
@@ -1725,7 +1577,7 @@ Spec §14. Contingency only — not part of the forward path.
 
 **Before Task 10 Step 4 (`--commit`):** nothing was migrated. Revert the deploy; new uploads return to Supabase.
 
-**After Task 10, before Task 12:** replay the manifest in reverse. The Supabase objects still exist — that is what the two-week window in Task 11 Step 8 protects.
+**After Task 10, before Task 12:** replay the manifest in reverse. The Supabase objects still exist — that is what the two-week window in Task 11 Step 10 protects.
 
 ```bash
 cat > scripts/rollback-s3-to-supabase.mjs <<'EOF'
