@@ -8,8 +8,8 @@
 // Flow:
 //   1. Client POSTs an audio file (or in-app recording Blob) as base64
 //      JSON to POST /voicemail-greeting/:type (type = noanswer | busy).
-//   2. We store the file in Supabase Storage (ace-media bucket) under
-//      voicemail-greetings/u{userId}/{type}/...
+//   2. We store the file in S3 (see lib/s3.ts, lib/mediaKeys.ts) under
+//      media/greetings/u{userId}/{type}/...
 //   3. We save the URL + filename on the User row and flip mode='audio'.
 //
 // The Call Control voicemail webhook (apps/webhooks/src/voicemailCallControl.ts)
@@ -19,7 +19,8 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { prisma } from '@ace/db';
-import { config } from '../config.js';
+import { isS3Configured, putObject } from '../lib/s3.js';
+import { greetingKey } from '../lib/mediaKeys.js';
 // v0.10.152 - bundled ffmpeg binary for webm→wav transcode at upload time.
 // In-app MediaRecorder produces audio/webm which Telnyx <Play> cannot
 // decode (caused "application error has occurred" for TeXML trial
@@ -259,8 +260,8 @@ export async function voicemailGreetingRoutes(app: FastifyInstance) {
           error: `Unsupported audio type: ${mimeType}. Use MP3, WAV, M4A, AAC, OGG, or WebM.`,
         });
       }
-      if (!config.supabaseUrl || !config.supabaseServiceKey) {
-        return reply.code(500).send({ error: 'Supabase Storage not configured' });
+      if (!isS3Configured()) {
+        return reply.code(500).send({ error: 'S3 media storage not configured' });
       }
 
       // v0.10.149 - explicitly type as the wider Buffer<ArrayBufferLike>
@@ -301,30 +302,22 @@ export async function voicemailGreetingRoutes(app: FastifyInstance) {
         }
       }
 
-      const safeName = effectiveFilename.replace(/[^a-zA-Z0-9._-]/g, '_');
-      const objectPath = `voicemail-greetings/u${u.sub}/${type}/${Date.now()}_${safeName}`;
-      const uploadUrl = `${config.supabaseUrl}/storage/v1/object/${config.supabaseMediaBucket}/${objectPath}`;
-      const uploadRes = await fetch(uploadUrl, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${config.supabaseServiceKey}`,
-          // v0.10.152 - use effectiveMime so transcoded webm files get
-          // stored with audio/wav content-type. Telnyx + browsers
-          // then receive the right MIME on fetch.
-          'Content-Type': effectiveMime,
-          'x-upsert': 'true',
-        },
-        body: bytes,
-      });
-      if (!uploadRes.ok) {
-        const errText = await uploadRes.text().catch(() => '');
+      const key = greetingKey(u.sub, type, effectiveFilename);
+
+      let publicUrl: string;
+      try {
+        // effectiveMime, not the client's mimeType: the v0.10.152 ffmpeg
+        // step transcodes in-app webm recordings to WAV, and Telnyx <Play>
+        // needs the stored content-type to match the actual bytes.
+        ({ publicUrl } = await putObject({ key, body: bytes, contentType: effectiveMime }));
+      } catch (e) {
+        const err = e as { name?: string; message?: string };
         app.log.warn(
-          { status: uploadRes.status, errText, type },
-          '[vm-greeting] supabase upload failed',
+          { name: err.name, message: err.message, type, key },
+          '[vm-greeting] s3 put failed',
         );
-        return reply.code(502).send({ error: 'Storage upload failed', details: errText });
+        return reply.code(502).send({ error: 'Storage upload failed', details: err.message ?? String(e) });
       }
-      const publicUrl = `${config.supabaseUrl}/storage/v1/object/public/${config.supabaseMediaBucket}/${objectPath}`;
 
       const c = colsFor(type);
       const saved = await prisma.user.update({
