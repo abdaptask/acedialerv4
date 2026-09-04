@@ -100,3 +100,33 @@ test('rewriteArray keeps the original entry when the mapper returns null', () =>
   assert.equal(changed, 0);
   assert.deepEqual(next, input);
 });
+
+test('strips query string from object key', () => {
+  assert.equal(
+    supabaseUrlToKey(`${BASE}/storage/v1/object/public/${BUCKET}/u12/1_a.jpg?width=800&height=600`, BASE, BUCKET),
+    'u12/1_a.jpg',
+  );
+});
+
+test('strips fragment from object key', () => {
+  assert.equal(
+    supabaseUrlToKey(`${BASE}/storage/v1/object/public/${BUCKET}/u12/1_a.jpg#section`, BASE, BUCKET),
+    'u12/1_a.jpg',
+  );
+});
+
+test('isSupabaseMediaUrl returns true for different bucket, but supabaseUrlToKey returns null', () => {
+  // isSupabaseMediaUrl validates the project host only, not the bucket.
+  // supabaseUrlToKey enforces the bucket check. This divergence is by design.
+  const urlOtherBucket = `${BASE}/storage/v1/object/public/some-other-bucket/u1/a.jpg`;
+  assert.equal(isSupabaseMediaUrl(urlOtherBucket, BASE), true);
+  assert.equal(supabaseUrlToKey(urlOtherBucket, BASE, BUCKET), null);
+});
+
+test('rewriteArray keeps the original entry when the mapper returns empty string', () => {
+  // Empty string is falsy and must be treated like null — leave the entry alone.
+  const input = [`${BASE}/storage/v1/object/public/${BUCKET}/u1/a.jpg`];
+  const { next, changed } = rewriteArray(input, () => '');
+  assert.equal(changed, 0);
+  assert.deepEqual(next, input);
+});

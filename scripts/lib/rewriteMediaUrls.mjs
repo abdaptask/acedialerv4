@@ -9,7 +9,11 @@
 
 const PUBLIC_SEGMENT = '/storage/v1/object/public/';
 
-/** True only for a public object URL belonging to OUR Supabase project. */
+/**
+ * True for a public object URL in OUR Supabase project, but does NOT verify
+ * the bucket. A URL matching this prefix may belong to a different bucket.
+ * Callers must chain this with supabaseUrlToKey and treat null as "not ours".
+ */
 export function isSupabaseMediaUrl(url, supabaseBase) {
   if (!url || typeof url !== 'string') return false;
   const base = supabaseBase.replace(/\/+$/, '');
@@ -25,7 +29,9 @@ export function supabaseUrlToKey(url, supabaseBase, bucket) {
   const base = supabaseBase.replace(/\/+$/, '');
   const prefix = `${base}${PUBLIC_SEGMENT}${bucket}/`;
   if (!url.startsWith(prefix)) return null;
-  const key = url.slice(prefix.length);
+  // Supabase public URLs support render/transform params (?width=, #section).
+  // The S3 key is the object path alone, without query string or fragment.
+  const key = url.slice(prefix.length).split(/[?#]/)[0];
   return key.length > 0 ? key : null;
 }
 
