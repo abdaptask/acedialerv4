@@ -8,7 +8,7 @@
     "build": "tsc",
     "start": "node dist/main.js",
     "dev": "tsx watch --env-file=../../.env src/main.ts",
-    "test": "node --env-file=../../.env --import tsx --test $(find src -name '*.test.ts')"
+    "test": "node --env-file-if-exists=../../.env --import tsx --test $(find src -name '*.test.ts')"
   },
   "dependencies": {
     "@ace/db": "*",
