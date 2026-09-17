@@ -1,6 +1,6 @@
 # ACE Dialer — Project State
 
-**Last updated:** August 27, 2026 (**0.10.227 personal SMS templates given a Settings home — web LIVE**; 0.10.226 conference self-mute fix — released, on 38 devices; **v0.10.225 released to all users** — silent secondary ringer + ACE Bot caller names; web SPA live, desktop published)
+**Last updated:** September 17, 2026 (**0.10.228 audio-output picker contrast fix — web LIVE, desktop tagged**; 0.10.227 personal SMS templates given a Settings home — web LIVE; 0.10.226 conference self-mute fix — released, on 38 devices)
 **Maintained by:** Claude (update at end of every working session)
 
 This file is a living snapshot of where the project stands. New Claude
@@ -26,7 +26,8 @@ If you're a fresh Claude session opening this project:
 
 | Stream | Version | Status | Where |
 |---|---|---|---|
-| Latest released | **v0.10.227** | Personal SMS templates given a Settings home. Merged `56efaa5`, tagged `v0.10.227`, web live (Aug 27) | `main` |
+| Latest released | **v0.10.228** | Audio-output picker was dark-on-dark in light mode. Fix `c583aec`, release `948d5db`, tagged `v0.10.228`, **web live Sep 17**; desktop installers built by CI (see the Sep 17 entry — macOS signing is failing) | `main` |
+| Previously released | v0.10.227 | Personal SMS templates given a Settings home. Merged `56efaa5`, tagged `v0.10.227`, web live (Aug 27) | `main` |
 | Previously released | v0.10.226 | Conference self-mute muted the mix instead of the mic. Merged `682b270`, tagged `v0.10.226`, **published with 12 assets 2026-08-26T13:36Z — on 38 devices within a day** | `main` |
 | Previously released | v0.10.225 | Silent ringer for a call arriving mid-call + ACE Bot caller names. Merged via PR #91, tagged `v0.10.225`, released to all users (Aug 26) | `main` |
 | Previously released | v0.10.224 | Bulk-send template placeholders — `{recruiter}` auto-fill + a box per manual field | `main` |
@@ -38,6 +39,17 @@ If you're a fresh Claude session opening this project:
 | Backend — `ace-socket` | v0.10.224 (7-day uptime) | Stub service ([[29-realtime-socket]]); nothing to sync | `pm2 list` |
 | Web SPA (`ace-web`) | **v0.10.227 live** | `apps/web/dist` rebuilt Aug 27 15:40 — absolute `/assets/` base verified. Serves off disk, so a build IS a deploy — see §5 | `pm2 list` |
 | Auto-update status | distributing | 0.10.224 reached 64 devices and 0.10.225 is now published, so current releases satisfy the v0.10.143 signing gate. The old "LOCKED on v0.10.132" line no longer described reality and has been removed; `docs/ev-cert-procurement.md` keeps the history | GitHub Releases |
+
+**September 17, 2026 — v0.10.228 released: in-call audio-output picker unreadable in light mode**
+
+- **Symptom (reported against the desktop app):** opening Audio during a call listed every output device, but only the *selected* one was legible; the rest were dark text on a dark fill.
+- **Root cause — a cascade gap, not a missing colour.** `.audio-picker-item` (styles.css) hardcodes `background:#1f2937`, which only makes sense against the dark theme's `#111827` box. The light-theme block flipped **only** the text to `var(--text)` (`#1c1c1e`) and never overrode that fill, so unselected rows were near-black on near-black. The selected row escaped it purely because `.active` supplies its own background — which is exactly why it was the one readable item, and why the bug reads as "only the selection renders properly".
+- **Second, subtler half:** in light mode the selected row was white-on-10%-blue (~1.3:1). The base `.active { color:#fff }` was beating the light-mode text colour on **source order alone** — `[data-theme="light"] .audio-picker-item` and `.audio-picker-item.active` both score one class + one attribute. The new light `.active` selector carries an extra class so it wins on specificity regardless of file position. Light mode now measures ~15:1 unselected / ~14.8:1 selected; the compiled dark-theme rules are byte-for-byte unchanged.
+- **Dark theme never had this bug** — the box supplies `color:#e5e7eb`, which inherits onto `#1f2937` fine. This was light-mode-only.
+- **`styles.css` has mixed line endings and the edit tooling will silently normalise them.** The file is 10,927 CRLF lines plus a contiguous 433-line LF-only tail (the bulk-send section, ~10928-11360). A whole-file rewrite turned the tail to CRLF and produced a 446/436-line diff for a 13-line change — caught via `git diff --stat` vs `--ignore-all-space`, rebuilt from the original bytes, amended. **Check the stat on any `styles.css` edit**, or `git blame` on someone else's section gets wiped. A `.gitattributes` with `*.css text eol=lf` would end this class of problem.
+- **Desktop needs its own release for a CSS change.** `apps/desktop/package.json` copies `../web/dist` into the installer via `extraResources` and `main.ts:378` `loadFile`s it from inside the package — the web deploy cannot reach desktop users. Version bumped across all 8 `package.json` + `package-lock`, What's new entry added, tagged `v0.10.228`.
+- **macOS installer signing is broken, and it is NOT the known Apple notarization flakiness.** On the run before this release, the Windows job succeeded while the macOS job failed at the *signed-only fallback* — the step that deliberately omits the `APPLE_*` notarization vars — after **3 seconds**. A 3s failure is a credential problem (missing/invalid `APPLE_CSC_LINK` / `APPLE_CSC_KEY_PASSWORD` secret), not a build or notarization problem, and the retry-then-fallback design cannot rescue it. Windows users still get installers; **Mac users get none until that secret is fixed.**
+- **Note on CI triggers:** `build-desktop.yml` fires on any push to `main` touching `apps/web/**` or `**/package.json`, so a web-only commit starts a desktop build at the *unchanged* version. It re-upserts the existing release rather than advancing anyone — only a version bump moves users.
 
 **August 4, 2026 — v0.10.216 staged (UNCOMMITTED, NOT DEPLOYED): SMS composer — personal templates, voice-to-text, AI rewrite**
 
