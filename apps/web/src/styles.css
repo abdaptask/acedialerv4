@@ -2956,9 +2956,19 @@ body {
 /* Audio picker / device picker modals. */
 [data-theme="light"] .audio-picker-box { background: #fff; color: var(--text); border-color: rgba(0,0,0,0.1); }
 [data-theme="light"] .audio-picker-title { color: var(--text); }
-[data-theme="light"] .audio-picker-item { color: var(--text); }
-[data-theme="light"] .audio-picker-item:hover { background: rgba(0, 0, 0, 0.05); }
-[data-theme="light"] .audio-picker-item.active { background: rgba(0, 122, 255, 0.1); }
+/* The base .audio-picker-item hardcodes a dark slate fill (#1f2937) that only
+   makes sense against the dark theme's box. Light mode used to flip the text
+   to var(--text) and nothing else, so every UNSELECTED device rendered as
+   near-black text on that same near-black fill. The selected row escaped it
+   only because .active supplies its own background. Set the surface here too,
+   mirroring .device-row in Settings, which is the same control in list form. */
+[data-theme="light"] .audio-picker-item { background: var(--surface); color: var(--text); }
+[data-theme="light"] .audio-picker-item:hover { background: var(--surface-hover); }
+/* The base .active rule also sets color:#fff, and it outranked the light-mode
+   text colour on source order alone (both are one class + one attribute), so
+   the selected row was white-on-10%-blue. This selector carries an extra class,
+   so it wins on specificity regardless of where either rule sits in the file. */
+[data-theme="light"] .audio-picker-item.active { background: rgba(10, 132, 255, 0.12); color: var(--text); }
 [data-theme="light"] .audio-picker-close {
   background: rgba(0, 0, 0, 0.05);
   color: var(--text);
