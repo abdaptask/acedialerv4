@@ -24,6 +24,14 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.228',
+    date: 'September 17, 2026',
+    highlight: 'The audio output list is readable again in light mode.',
+    changes: [
+      { type: 'fixed', text: 'On a call, tapping Audio to switch speaker or headset showed every device except the one you were already using as dark text on an almost-black background, so the list was impossible to read. Every device now reads clearly, and the one you are using still stands out. This only affected the light theme.' },
+    ],
+  },
+  {
     version: '0.10.227',
     date: 'August 27, 2026',
     highlight: 'Your own SMS templates now have a home in Settings.',
