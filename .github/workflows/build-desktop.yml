@@ -34,7 +34,26 @@ on:
 jobs:
   mac:
     name: Build macOS .dmg
-    runs-on: macos-latest
+    # v0.10.228 — PINNED, do not put this back to macos-latest without reading
+    # this. electron-builder 25.1.8 creates its signing keychain with a random
+    # 32-byte password, then calls `security set-key-partition-list -k <the
+    # P12 password>` — the wrong secret entirely (app-builder-lib/out/codeSign/
+    # macCodeSign.js: keychainPassword at ~140 vs importCerts at ~165). That
+    # call only consults -k when the keychain is LOCKED, so the preceding
+    # `unlock-keychain` masked the bug for as long as the runner left it open.
+    #
+    # When macos-latest rolled to macOS 26 (Darwin 25.x) the keychain started
+    # locking before that call and every Mac build began dying in ~5s at
+    # signApp — `SecKeychainUnlock: the user name or passphrase you entered is
+    # not correct` — which reads exactly like a bad APPLE_CSC_KEY_PASSWORD and
+    # sends you off rotating certs that were never the problem. The retry +
+    # signed-only fallback ladder cannot save this: both rungs keep CSC_LINK,
+    # so both fail identically and NO installer is produced.
+    #
+    # The real fix is electron-builder >= 26, which needs a proper test pass
+    # (packaging, signing and auto-update metadata all move). Until then this
+    # pin holds the environment that last shipped Mac installers on Aug 27.
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
