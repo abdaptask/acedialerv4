@@ -20,7 +20,9 @@
 // deleting it. Every mutation here is get -> merge -> put, snapshots what it
 // found before writing, and skips when the desired state is already present.
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join as pathJoin } from 'node:path';
 import { mergeCorsRule, mergeLifecycleRule, mergePolicyStatement } from './lib/s3BucketConfig.mjs';
 
 const COMMIT = process.argv.includes('--commit');
@@ -361,13 +363,22 @@ async function step9Probe() {
     return;
   }
 
-  aws([
-    's3api', 'put-object',
-    '--bucket', BUCKET,
-    '--key', key,
-    '--body', '/dev/null',
-    '--content-type', 'text/plain',
-  ]);
+  // A real temp file, not /dev/null: the CLI validates --body as a blob and
+  // rejects a character device with "Blob values must be a path to a file."
+  const probeFile = pathJoin(tmpdir(), `ace-s3-probe-${Date.now()}.txt`);
+  writeFileSync(probeFile, 'ace-dialer public-read probe\n');
+  try {
+    aws([
+      's3api', 'put-object',
+      '--bucket', BUCKET,
+      '--key', key,
+      '--body', probeFile,
+      '--content-type', 'text/plain',
+    ]);
+  } finally {
+    rmSync(probeFile, { force: true });
+  }
+
   try {
     const res = await fetch(url);
     if (res.ok) {
