@@ -293,7 +293,7 @@ export async function voicemailGreetingRoutes(app: FastifyInstance) {
         } catch (transcodeErr) {
           app.log.error(
             { err: transcodeErr instanceof Error ? transcodeErr.message : String(transcodeErr), userId: u.sub },
-            '[vm-greeting] webm→mp3 transcode failed',
+            '[vm-greeting] webm→wav transcode failed',
           );
           return reply.code(502).send({
             error: 'Greeting recording could not be processed. Try uploading an MP3 file instead.',
