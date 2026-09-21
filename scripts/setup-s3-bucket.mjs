@@ -222,7 +222,9 @@ function step4Lifecycle() {
   const rules = current?.Rules ?? [];
   snapshot('lifecycle.before', current);
 
-  const { next, skipped, legacyIds } = mergeLifecycleRule(rules, {
+  // Pass the whole response, not just rules — it carries siblings the put
+  // would otherwise reset (see mergeLifecycleRule).
+  const { next, skipped, legacyIds } = mergeLifecycleRule(current, {
     ID: LIFECYCLE_RULE_ID,
     Filter: { Prefix: 'media/voicemails/' },
     Status: 'Enabled',

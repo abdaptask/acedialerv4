@@ -34,19 +34,28 @@ export function mergePolicyStatement(current, statement) {
  * Append a lifecycle rule, preserving existing rules.
  * Returns { next, skipped, legacyIds }.
  *
+ * Accepts either the whole get-bucket-lifecycle-configuration response or a
+ * bare rules array. The response form matters: it can carry top-level
+ * siblings of `Rules` — apt-dialer returns
+ * `TransitionDefaultMinimumObjectSize` — and since put replaces the entire
+ * configuration, any sibling not echoed back is silently reset to its AWS
+ * default. Rebuilding `{ Rules }` alone would do exactly that.
+ *
  * `legacyIds` names any existing rule using the pre-2019 top-level `Prefix`
  * field. S3 rejects a put that mixes those with a Filter-style rule, and the
  * error names neither rule — the caller surfaces them instead of letting the
  * API fail opaquely.
  */
-export function mergeLifecycleRule(currentRules, rule) {
-  const rules = currentRules ?? [];
+export function mergeLifecycleRule(current, rule) {
+  const config = Array.isArray(current) ? { Rules: current } : (current ?? { Rules: [] });
+  const { Rules, ...siblings } = config;
+  const rules = Rules ?? [];
   const legacyIds = rules.filter((r) => r.Prefix !== undefined).map((r) => r.ID ?? '(unnamed)');
 
   if (rules.some((r) => r.ID === rule.ID)) {
-    return { next: { Rules: rules }, skipped: true, legacyIds };
+    return { next: { ...siblings, Rules: rules }, skipped: true, legacyIds };
   }
-  return { next: { Rules: [...rules, rule] }, skipped: false, legacyIds };
+  return { next: { ...siblings, Rules: [...rules, rule] }, skipped: false, legacyIds };
 }
 
 /**

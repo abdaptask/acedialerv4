@@ -116,6 +116,29 @@ test('handles a bucket with no lifecycle configuration', () => {
   assert.deepEqual(next.Rules, [VM_RULE]);
 });
 
+test('preserves top-level siblings of Rules when given the full response', () => {
+  // apt-dialer really returns this field. put-bucket-lifecycle-configuration
+  // replaces the whole configuration, so dropping it resets the setting to
+  // its AWS default without anyone asking.
+  const current = {
+    TransitionDefaultMinimumObjectSize: 'varies_by_storage_class',
+    Rules: [{ ID: 'keep-me', Filter: { Prefix: 'x/' }, Status: 'Enabled' }],
+  };
+  const { next } = mergeLifecycleRule(current, VM_RULE);
+  assert.equal(next.TransitionDefaultMinimumObjectSize, 'varies_by_storage_class');
+  assert.equal(next.Rules.length, 2);
+});
+
+test('preserves siblings even when the rule is already present', () => {
+  const current = {
+    TransitionDefaultMinimumObjectSize: 'all_storage_classes_128K',
+    Rules: [VM_RULE],
+  };
+  const { next, skipped } = mergeLifecycleRule(current, VM_RULE);
+  assert.equal(skipped, true);
+  assert.equal(next.TransitionDefaultMinimumObjectSize, 'all_storage_classes_128K');
+});
+
 // ── CORS ───────────────────────────────────────────────────────────────────
 
 const DESIRED_CORS = {
