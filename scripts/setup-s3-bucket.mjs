@@ -74,6 +74,20 @@ function aws(args, { tolerate = [] } = {}) {
     if (err.code === 'ENOENT') {
       fail('The `aws` CLI is not installed or not on PATH. Install AWS CLI v2 and retry.');
     }
+    // Name the credential source on an auth failure. Without this the CLI
+    // reports only "the security token is invalid", which reads as a bad key
+    // when the usual cause is the opposite: no key was supplied at all, so it
+    // silently fell back to a stale `default` profile.
+    if (/InvalidClientTokenId|SignatureDoesNotMatch|ExpiredToken|could not be found/.test(stderr)) {
+      const source = PROFILE
+        ? `--profile ${PROFILE}`
+        : process.env.AWS_PROFILE
+          ? `AWS_PROFILE=${process.env.AWS_PROFILE}`
+          : process.env.AWS_ACCESS_KEY_ID
+            ? `AWS_ACCESS_KEY_ID=${process.env.AWS_ACCESS_KEY_ID.slice(0, 8)}… from the environment`
+            : 'the `default` profile (no --profile flag and no AWS_* env vars were set)';
+      fail(`credentials rejected — this run authenticated with ${source}.\n${stderr.trim()}`);
+    }
     fail(`aws ${args.join(' ')}\n${stderr.trim() || err.message}`);
   }
 }
