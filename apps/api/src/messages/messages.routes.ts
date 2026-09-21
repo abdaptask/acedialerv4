@@ -6,6 +6,8 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { prisma } from '@ace/db';
 import { config } from '../config.js';
+import { isS3Configured, putObject } from '../lib/s3.js';
+import { mmsKey } from '../lib/mediaKeys.js';
 import { MAX_SMS_BODY_CHARS, sendMessageImmediate } from './sendMessage.js';
 import { toE164, threadKeyCandidates } from './threadKey.js';
 
@@ -217,9 +219,9 @@ export async function messagesRoutes(app: FastifyInstance) {
     }
   );
 
-  // --- MMS upload (base64 JSON to Supabase Storage public bucket) ---
+  // --- MMS upload (base64 JSON to S3, media/mms/out/ prefix) ---
   // Body: { filename: 'foo.jpg', mimeType: 'image/jpeg', dataBase64: '...' }
-  // Returns: { url: 'https://...supabase.co/storage/v1/object/public/<bucket>/<path>' }
+  // Returns: { url: 'https://<bucket>.s3.<region>.amazonaws.com/media/mms/out/<path>' }
   app.post(
     '/messages/upload',
     { onRequest: [app.authenticate] },
@@ -234,8 +236,8 @@ export async function messagesRoutes(app: FastifyInstance) {
       if (!body?.filename || !body?.dataBase64 || !body?.mimeType) {
         return reply.code(400).send({ error: 'filename, mimeType, dataBase64 required' });
       }
-      if (!config.supabaseUrl || !config.supabaseServiceKey) {
-        return reply.code(500).send({ error: 'Supabase Storage not configured' });
+      if (!isS3Configured()) {
+        return reply.code(500).send({ error: 'S3 media storage not configured' });
       }
 
       const bytes = Buffer.from(body.dataBase64, 'base64');
@@ -244,48 +246,42 @@ export async function messagesRoutes(app: FastifyInstance) {
         return reply.code(413).send({ error: 'file too large (max 10 MB)' });
       }
 
-      // Sanitise filename, prefix with user + timestamp so paths don't collide.
-      const safeName = body.filename.replace(/[^a-zA-Z0-9._-]/g, '_');
-      const objectPath = `u${user.sub}/${Date.now()}_${safeName}`;
+      const key = mmsKey(user.sub, body.filename);
 
-      const uploadUrl = `${config.supabaseUrl}/storage/v1/object/${config.supabaseMediaBucket}/${objectPath}`;
-      const res = await fetch(uploadUrl, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${config.supabaseServiceKey}`,
-          'Content-Type': body.mimeType,
-          'x-upsert': 'true',
-        },
-        body: bytes,
-      });
-
-      if (!res.ok) {
-        const errText = await res.text().catch(() => '');
-        app.log.warn({ status: res.status, errText, bucket: config.supabaseMediaBucket }, '[upload] supabase store failed');
-        // Surface a more useful hint to the browser so pilot users can
-        // diagnose without API log access. Map common Supabase responses
-        // to a human-readable cause.
-        let hint = 'Supabase Storage rejected the upload.';
-        const lower = errText.toLowerCase();
-        if (res.status === 404 || lower.includes('bucket not found')) {
-          hint = `Bucket "${config.supabaseMediaBucket}" not found. Create it in Supabase → Storage and mark it Public.`;
-        } else if (res.status === 401 || lower.includes('invalid api key') || lower.includes('jwt')) {
-          hint = 'API server has a bad SUPABASE_SERVICE_ROLE_KEY. Re-copy the service_role key from Supabase → Settings → API.';
-        } else if (lower.includes('row-level security') || lower.includes('not authorized')) {
-          hint = 'RLS rejected the upload — the env var is probably the anon key. Use the service_role key.';
-        } else if (lower.includes('mime') || lower.includes('content type')) {
-          hint = 'Bucket has a MIME-type allowlist that rejected this file. Remove the restriction in the bucket settings.';
+      try {
+        const { publicUrl } = await putObject({
+          key,
+          body: bytes,
+          contentType: body.mimeType,
+        });
+        return { url: publicUrl };
+      } catch (e) {
+        const err = e as { name?: string; message?: string; $metadata?: { httpStatusCode?: number } };
+        const status = err.$metadata?.httpStatusCode ?? 0;
+        app.log.warn(
+          { status, name: err.name, message: err.message, bucket: config.s3Bucket, key },
+          '[upload] s3 put failed',
+        );
+        // Pilot users have no API log access, so map the common AWS failures
+        // to something they can act on — this mirrors what the Supabase
+        // version did for its own error shapes.
+        let hint = 'S3 rejected the upload.';
+        if (err.name === 'NoSuchBucket') {
+          hint = `Bucket "${config.s3Bucket}" not found. Check S3_BUCKET and S3_REGION.`;
+        } else if (status === 403 || err.name === 'AccessDenied') {
+          hint = `The IAM user lacks s3:PutObject on ${config.s3Bucket}/media/*. Check the inline policy.`;
+        } else if (err.name === 'InvalidAccessKeyId' || err.name === 'SignatureDoesNotMatch') {
+          hint = 'S3_ACCESS_KEY_ID / S3_SECRET_ACCESS_KEY are wrong or the key was deactivated.';
+        } else if (err.name === 'AccessControlListNotSupported') {
+          hint = 'The upload sent an object ACL. It must not — public read comes from the bucket policy.';
         }
         return reply.code(502).send({
           error: 'storage_upload_failed',
-          status: res.status,
+          status,
           hint,
-          details: errText,
+          details: err.message ?? String(e),
         });
       }
-
-      const publicUrl = `${config.supabaseUrl}/storage/v1/object/public/${config.supabaseMediaBucket}/${objectPath}`;
-      return { url: publicUrl };
     }
   );
 
