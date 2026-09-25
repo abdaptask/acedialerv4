@@ -16,6 +16,7 @@ import {
 } from './canonicalCalls.js';
 import {
   computePeriod,
+  estimateSegments,
   type MessageRow,
   type PersonMetrics,
   type Pricing,
@@ -335,8 +336,14 @@ export async function reportsRoutes(app: FastifyInstance) {
       // of every candidate's number is exactly what "aggregates only" rules
       // out; one person's own log (or an admin looking at one person) is the
       // same thing Recents already shows them.
-      const callLog = scopeUserId !== null
-        ? await buildCallLog(scopeUserId, data.calls.filter((c) => c.startedAt >= startMs && c.startedAt < endMs), lines)
+      const names = scopeUserId !== null ? await loadContactNames(scopeUserId) : null;
+      const callLog = names
+        ? buildCallLog(data.calls.filter((c) => c.startedAt >= startMs && c.startedAt < endMs), lines, names)
+        : null;
+      // Same rule for texts: records only (when, who, direction, delivery,
+      // billed parts) — the message text itself never leaves this route.
+      const textLog = names
+        ? buildTextLog(msgRows.filter((m) => m.createdAt >= startMs && m.createdAt < endMs), names)
         : null;
 
       const adoption = await loadAdoption(shown.map((u) => u.id), userRows, startMs, endMs);
@@ -384,6 +391,7 @@ export async function reportsRoutes(app: FastifyInstance) {
         },
         adoption,
         callLog,
+        textLog,
       };
 
       if (cache.size > 50) cache.clear();
@@ -411,11 +419,7 @@ const OUTCOME_LABELS: Record<string, string> = {
 // covers a full 92-day range for everyone but a handful of outliers.
 const CALL_LOG_LIMIT = 5000;
 
-async function buildCallLog(
-  userId: number,
-  calls: LogicalCall[],
-  lines: Array<{ id: number; didNumber: string; label: string }>,
-) {
+async function loadContactNames(userId: number): Promise<Map<string, string>> {
   // Same resolution order as the Teams cards (apps/webhooks/src/contactName.ts):
   // the person's own favorites, then a coworker's line. Mirrored rather than
   // imported — apps may not share modules (CLAUDE.md §1.4).
@@ -448,6 +452,14 @@ async function buildCallLog(
       if (k) names.set(k, n);
     }
   }
+  return names;
+}
+
+function buildCallLog(
+  calls: LogicalCall[],
+  lines: Array<{ id: number; didNumber: string; label: string }>,
+  names: Map<string, string>,
+) {
   const lineById = new Map(lines.map((l) => [l.id, l]));
 
   const byNumber = new Map<string, {
@@ -492,6 +504,65 @@ async function buildCallLog(
       .slice(0, 1000)
       .map((n) => ({ ...n, lastAt: new Date(n.lastAt).toISOString() })),
     distinctNumbers: byNumber.size,
+  };
+}
+
+const FAILED_TEXT = new Set(['delivery_failed', 'failed', 'undelivered', 'sending_failed']);
+
+function textStatus(m: MessageRow): { key: 'received' | 'delivered' | 'failed' | 'sent'; label: string } {
+  if (m.direction === 'inbound') return { key: 'received', label: 'Received' };
+  if (m.status === 'delivered') return { key: 'delivered', label: 'Delivered' };
+  if (FAILED_TEXT.has(m.status)) return { key: 'failed', label: 'Failed' };
+  return { key: 'sent', label: 'Sent, not confirmed' };
+}
+
+function buildTextLog(messages: MessageRow[], names: Map<string, string>) {
+  const newest = [...messages].sort((a, b) => b.createdAt - a.createdAt);
+  const threads = new Map<string, {
+    number: string; name: string | null; sent: number; received: number; failed: number;
+    firstAt: number; lastAt: number; lastDirection: string;
+  }>();
+  // Oldest-first so lastDirection ends on the most recent message.
+  for (const m of [...messages].sort((a, b) => a.createdAt - b.createdAt)) {
+    const k = last10(m.threadKey);
+    const t = threads.get(m.threadKey) ?? {
+      number: m.threadKey, name: k ? names.get(k) ?? null : null,
+      sent: 0, received: 0, failed: 0, firstAt: m.createdAt, lastAt: m.createdAt, lastDirection: m.direction,
+    };
+    if (m.direction === 'outbound') t.sent += 1;
+    else t.received += 1;
+    if (m.direction === 'outbound' && FAILED_TEXT.has(m.status)) t.failed += 1;
+    t.lastAt = m.createdAt;
+    t.lastDirection = m.direction;
+    threads.set(m.threadKey, t);
+  }
+  return {
+    total: messages.length,
+    truncated: messages.length > CALL_LOG_LIMIT,
+    messages: newest.slice(0, CALL_LOG_LIMIT).map((m) => {
+      const k = last10(m.threadKey);
+      const st = textStatus(m);
+      return {
+        at: new Date(m.createdAt).toISOString(),
+        direction: m.direction === 'inbound' ? 'inbound' : 'outbound',
+        number: m.threadKey,
+        name: k ? names.get(k) ?? null : null,
+        status: st.key,
+        statusLabel: st.label,
+        failReason: st.key === 'failed' ? m.errorTitle : null,
+        parts: m.direction === 'outbound' ? estimateSegments(m.bodyLength, m.isGsm) : null,
+        hasMedia: m.hasMedia,
+      };
+    }),
+    threads: [...threads.values()]
+      .sort((a, b) => b.lastAt - a.lastAt)
+      .map((t) => ({
+        ...t,
+        firstAt: new Date(t.firstAt).toISOString(),
+        lastAt: new Date(t.lastAt).toISOString(),
+        // The conversation ended on their text: it's waiting on us.
+        awaitingReply: t.lastDirection === 'inbound',
+      })),
   };
 }
 

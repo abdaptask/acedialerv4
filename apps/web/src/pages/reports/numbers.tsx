@@ -1,25 +1,23 @@
-// Numbers tab — one person's dialled and incoming numbers plus their full
-// call log. Person scope only: the server sends callLog just for a single
-// person, never for the team view.
+// Activity tab — one person's calls and texts as individual records.
+// Person scope only: the server sends callLog/textLog just for a single
+// person, never for the team view. Texts are records (when, who, direction,
+// delivery, billed parts); the message text is never sent to the browser.
 
 import { useMemo, useState } from 'react';
 import { PhoneIncoming, PhoneOutgoing, Search } from 'lucide-react';
 import { formatPhone } from '../../lib/phone';
-import { fmtClockDuration, fmtDateTime, fmtInt, fmtTalk } from './format';
+import { fmtClockDuration, fmtDateTime, fmtInt, fmtRange, fmtTalk } from './format';
 import { Empty, Kpi, KpiGrid, Panel } from './parts';
+import { Outcome, TimelineSheet, callTone, textKind, textTone } from './records';
 import type { TabProps } from './tabs';
-import type { CallLogEntry, CallLogNumber } from './types';
+import type { CallLogEntry, CallLogNumber, TextLogEntry, TextThread } from './types';
 
-type Dir = 'all' | 'outbound' | 'inbound' | 'unanswered';
+type CallFilter = 'all' | 'outbound' | 'inbound' | 'unanswered';
+type TextFilter = 'all' | 'outbound' | 'inbound' | 'failed' | 'awaiting';
 const PAGE = 200;
 
-const OUTCOME_TONE: Record<string, 'good' | 'warn' | 'crit' | null> = {
-  answered: 'good', connected: 'good',
-  caller_hung_up: 'warn', rang_out: 'warn', declined: 'warn', no_answer: null, busy: null,
-  invalid_number: 'crit', rejected: null, failed: 'crit', blocked: null, other: null,
-};
-
 const digits = (s: string) => s.replace(/\D/g, '');
+const numbersLabel = (n: number) => `${fmtInt(n)} ${n === 1 ? 'number' : 'numbers'}`;
 
 function matches(q: string, number: string, name: string | null): boolean {
   if (!q) return true;
@@ -29,43 +27,65 @@ function matches(q: string, number: string, name: string | null): boolean {
 }
 
 export function Numbers(p: TabProps) {
+  const [mode, setMode] = useState<'calls' | 'texts'>('calls');
+  const [open, setOpen] = useState<{ number: string; name: string | null } | null>(null);
   const log = p.data.callLog;
-  const [dir, setDir] = useState<Dir>('all');
+  const texts = p.data.textLog;
+  if (!p.person || !log || !texts) return <Empty>Pick a person to see each of their calls and texts.</Empty>;
+
+  return (
+    <>
+      <div className="rp-mode">
+        <div className="rp-seg" role="group" aria-label="Show">
+          <button type="button" aria-pressed={mode === 'calls'} onClick={() => setMode('calls')}>Calls · {fmtInt(log.total)}</button>
+          <button type="button" aria-pressed={mode === 'texts'} onClick={() => setMode('texts')}>Texts · {fmtInt(texts.total)}</button>
+        </div>
+        <span className="rp-muted">Select any call, text or number to see the whole conversation with that number.</span>
+      </div>
+      {mode === 'calls'
+        ? <CallsView p={p} onOpen={(number, name) => setOpen({ number, name })} />
+        : <TextsView p={p} onOpen={(number, name) => setOpen({ number, name })} />}
+      {open && (
+        <TimelineSheet
+          number={open.number}
+          name={open.name}
+          personName={p.person.name}
+          rangeLabel={fmtRange(p.data.range.from, p.data.range.to)}
+          calls={log.calls}
+          texts={texts.messages}
+          onClose={() => setOpen(null)}
+        />
+      )}
+    </>
+  );
+}
+
+type Opener = (number: string, name: string | null) => void;
+
+function CallsView({ p, onOpen }: { p: TabProps; onOpen: Opener }) {
+  const log = p.data.callLog!;
+  const [dir, setDir] = useState<CallFilter>('all');
   const [q, setQ] = useState('');
   const [numQ, setNumQ] = useState('');
   const [numSort, setNumSort] = useState<'total' | 'out' | 'in' | 'unanswered' | 'talkSec' | 'lastAt'>('total');
   const [shown, setShown] = useState(PAGE);
 
-  const calls = useMemo(() => {
-    if (!log) return [] as CallLogEntry[];
-    return log.calls.filter((c) => {
-      if (dir === 'outbound' && c.direction !== 'outbound') return false;
-      if (dir === 'inbound' && c.direction !== 'inbound') return false;
-      if (dir === 'unanswered' && (c.direction !== 'inbound' || c.answered || c.outcome === 'blocked')) return false;
-      return matches(q, c.number, c.name);
-    });
-  }, [log, dir, q]);
+  const calls = useMemo(() => log.calls.filter((c: CallLogEntry) => {
+    if (dir === 'outbound' && c.direction !== 'outbound') return false;
+    if (dir === 'inbound' && c.direction !== 'inbound') return false;
+    if (dir === 'unanswered' && (c.direction !== 'inbound' || c.answered || c.outcome === 'blocked')) return false;
+    return matches(q, c.number, c.name);
+  }), [log, dir, q]);
 
   const numbers = useMemo(() => {
-    if (!log) return [] as CallLogNumber[];
     const val = (n: CallLogNumber) => (numSort === 'total' ? n.out + n.in : numSort === 'lastAt' ? Date.parse(n.lastAt) : n[numSort]);
     return log.numbers.filter((n) => matches(numQ, n.number, n.name)).sort((a, b) => val(b) - val(a));
   }, [log, numQ, numSort]);
 
-  if (!p.person || !log) return <Empty>Pick a person to see the numbers they called and that called them.</Empty>;
-
-  const dialled = log.numbers.filter((n) => n.out > 0).length;
-  const callers = log.numbers.filter((n) => n.in > 0).length;
-  const out = log.calls.filter((c) => c.direction === 'outbound').length;
-  const inn = log.calls.length - out;
+  const out = log.calls.filter((c) => c.direction === 'outbound');
+  const inn = log.calls.length - out.length;
+  const connected = log.calls.filter((c) => c.answered).length;
   const unanswered = log.calls.filter((c) => c.direction === 'inbound' && !c.answered && c.outcome !== 'blocked').length;
-
-  const openNumber = (n: CallLogNumber) => {
-    setQ(digits(n.number).slice(-10) || n.number);
-    setDir('all');
-    setShown(PAGE);
-    document.getElementById('rp-calllog')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  };
 
   const sortBtn = (key: typeof numSort, label: string) => (
     <button type="button" className={`rp-sort${numSort === key ? ' active' : ''}`} onClick={() => setNumSort(key)}>{label}</button>
@@ -74,16 +94,65 @@ export function Numbers(p: TabProps) {
   return (
     <>
       <KpiGrid cols={5}>
-        <Kpi label="Numbers dialled" value={fmtInt(dialled)} sub={`${fmtInt(out)} outbound calls`} />
-        <Kpi label="Numbers that called in" value={fmtInt(callers)} sub={`${fmtInt(inn)} inbound calls`} />
+        <Kpi label="Calls dialled out" value={fmtInt(out.length)} sub={`to ${numbersLabel(log.numbers.filter((n) => n.out > 0).length)}`} onOpen={() => { setDir('outbound'); setQ(''); }} />
+        <Kpi label="Calls in" value={fmtInt(inn)} sub={`from ${numbersLabel(log.numbers.filter((n) => n.in > 0).length)}`} onOpen={() => { setDir('inbound'); setQ(''); }} />
+        <Kpi label="Connected" value={fmtInt(connected)} sub={`${fmtTalk(log.calls.reduce((a, c) => a + c.talkSec, 0))} talk time`} />
+        <Kpi label="Unanswered inbound" value={fmtInt(unanswered)} sub="Select to list them" onOpen={() => { setDir('unanswered'); setQ(''); }} />
         <Kpi label="Different numbers" value={fmtInt(log.distinctNumbers)} sub="Called or called in" />
-        <Kpi label="Unanswered inbound" value={fmtInt(unanswered)} sub="Select Unanswered below to list them" />
-        <Kpi label="Saved contacts reached" value={fmtInt(log.numbers.filter((n) => n.name && n.connected > 0).length)} sub="Numbers with a name, connected" />
       </KpiGrid>
       <div className="rp-grid">
+        <section id="rp-calllog" className="rp-panel rp-span-12 rp-flush">
+          <header className="rp-panel-head">
+            <div>
+              <h3>Every call</h3>
+              <p>{fmtInt(calls.length)} of {fmtInt(log.total)} calls{log.truncated ? ` (newest ${fmtInt(log.calls.length)} loaded)` : ''}, newest first, Eastern time. Select a call to see the conversation</p>
+            </div>
+            <div className="rp-log-tools">
+              <div className="rp-seg" role="group" aria-label="Direction">
+                {([['all', 'All'], ['outbound', 'Dialled out'], ['inbound', 'Called in'], ['unanswered', 'Unanswered']] as Array<[CallFilter, string]>).map(([k, l]) => (
+                  <button key={k} type="button" aria-pressed={dir === k} onClick={() => { setDir(k); setShown(PAGE); }}>{l}</button>
+                ))}
+              </div>
+              <SearchBox id="rp-log-search" value={q} onChange={(v) => { setQ(v); setShown(PAGE); }} placeholder="Filter by number or name" />
+            </div>
+          </header>
+          {calls.length === 0 ? <Empty>No calls match.</Empty> : (
+            <div className="rp-table-wrap">
+              <table className="rp-table">
+                <thead>
+                  <tr><th>When</th><th>Direction</th><th>Number</th><th>Contact</th><th>Outcome</th><th className="rp-r">Talk time</th><th>Line</th></tr>
+                </thead>
+                <tbody>
+                  {calls.slice(0, shown).map((c, i) => (
+                    <tr key={`${c.startedAt}-${i}`} tabIndex={0} onClick={() => onOpen(c.number, c.name)} onKeyDown={(e) => { if (e.key === 'Enter') onOpen(c.number, c.name); }}>
+                      <td className="rp-num">{fmtDateTime(c.startedAt)}</td>
+                      <td>
+                        <span className="rp-dir">
+                          {c.direction === 'outbound' ? <PhoneOutgoing size={14} /> : <PhoneIncoming size={14} />}
+                          {c.direction === 'outbound' ? 'Dialled out' : 'Called in'}
+                        </span>
+                      </td>
+                      <td className="rp-num">{formatPhone(c.number)}</td>
+                      <td className={c.name ? undefined : 'rp-muted'}>{c.name ?? '—'}</td>
+                      <td><Outcome label={c.outcomeLabel} tone={callTone(c)} /></td>
+                      <td className="rp-r rp-num">{c.answered ? fmtClockDuration(c.talkSec) : '—'}</td>
+                      <td className="rp-muted">{c.line ?? '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {calls.length > shown && (
+            <div className="rp-more">
+              <button type="button" className="rp-btn" onClick={() => setShown((s) => s + PAGE)}>Show {fmtInt(Math.min(PAGE, calls.length - shown))} more</button>
+            </div>
+          )}
+        </section>
+
         <Panel
           title="By number"
-          sub="Every number called or calling in. Select one to see its calls"
+          sub="Every number called or calling in. Select one to see the conversation"
           right={<SearchBox id="rp-num-search" value={numQ} onChange={setNumQ} placeholder="Find a number or name" />}
           flush
         >
@@ -104,7 +173,7 @@ export function Numbers(p: TabProps) {
                 </thead>
                 <tbody>
                   {numbers.slice(0, 500).map((n) => (
-                    <tr key={n.number} onClick={() => openNumber(n)} tabIndex={0} onKeyDown={(e) => { if (e.key === 'Enter') openNumber(n); }}>
+                    <tr key={n.number} onClick={() => onOpen(n.number, n.name)} tabIndex={0} onKeyDown={(e) => { if (e.key === 'Enter') onOpen(n.number, n.name); }}>
                       <td className="rp-num">{formatPhone(n.number)}</td>
                       <td className={n.name ? undefined : 'rp-muted'}>{n.name ?? 'Not saved'}</td>
                       <td className="rp-r rp-num">{fmtInt(n.out)}</td>
@@ -121,59 +190,116 @@ export function Numbers(p: TabProps) {
           )}
           {numbers.length > 500 && <p className="rp-footnote rp-pad">Showing the first 500 of {fmtInt(numbers.length)}. Search to find the rest, or export CSV.</p>}
         </Panel>
+      </div>
+    </>
+  );
+}
 
-        <section id="rp-calllog" className="rp-panel rp-span-12 rp-flush">
-          <header className="rp-panel-head">
-            <div>
-              <h3>Call log</h3>
-              <p>{fmtInt(calls.length)} of {fmtInt(log.total)} calls{log.truncated ? ` (newest ${fmtInt(log.calls.length)} loaded)` : ''}, newest first, Eastern time</p>
-            </div>
-            <div className="rp-log-tools">
-              <div className="rp-seg" role="group" aria-label="Direction">
-                {([['all', 'All'], ['outbound', 'Dialled out'], ['inbound', 'Called in'], ['unanswered', 'Unanswered']] as Array<[Dir, string]>).map(([k, l]) => (
-                  <button key={k} type="button" aria-pressed={dir === k} onClick={() => { setDir(k); setShown(PAGE); }}>{l}</button>
-                ))}
-              </div>
-              <SearchBox id="rp-log-search" value={q} onChange={(v) => { setQ(v); setShown(PAGE); }} placeholder="Filter by number or name" />
-            </div>
-          </header>
-          {calls.length === 0 ? <Empty>No calls match.</Empty> : (
-            <div className="rp-table-wrap">
+function TextsView({ p, onOpen }: { p: TabProps; onOpen: Opener }) {
+  const log = p.data.textLog!;
+  const [filter, setFilter] = useState<TextFilter>('all');
+  const [q, setQ] = useState('');
+  const [threadQ, setThreadQ] = useState('');
+  const [shown, setShown] = useState(PAGE);
+
+  const awaiting = useMemo(() => new Set(log.threads.filter((t) => t.awaitingReply).map((t) => t.number)), [log]);
+  const messages = useMemo(() => log.messages.filter((m: TextLogEntry) => {
+    if (filter === 'outbound' && m.direction !== 'outbound') return false;
+    if (filter === 'inbound' && m.direction !== 'inbound') return false;
+    if (filter === 'failed' && m.status !== 'failed') return false;
+    if (filter === 'awaiting' && !awaiting.has(m.number)) return false;
+    return matches(q, m.number, m.name);
+  }), [log, filter, q, awaiting]);
+  const threads = useMemo(
+    () => log.threads.filter((t: TextThread) => matches(threadQ, t.number, t.name)),
+    [log, threadQ],
+  );
+
+  const sent = log.messages.filter((m) => m.direction === 'outbound').length;
+  const failed = log.messages.filter((m) => m.status === 'failed').length;
+
+  return (
+    <>
+      <KpiGrid cols={5}>
+        <Kpi label="Texts sent" value={fmtInt(sent)} sub={`to ${numbersLabel(log.threads.filter((t) => t.sent > 0).length)}`} onOpen={() => { setFilter('outbound'); setQ(''); }} />
+        <Kpi label="Texts received" value={fmtInt(log.total - sent)} sub={`from ${numbersLabel(log.threads.filter((t) => t.received > 0).length)}`} onOpen={() => { setFilter('inbound'); setQ(''); }} />
+        <Kpi label="Conversations" value={fmtInt(log.threads.length)} sub="Different numbers texted" />
+        <Kpi label="Waiting on a reply" value={fmtInt(awaiting.size)} sub="Their text was the last one" onOpen={() => { setFilter('awaiting'); setQ(''); }} />
+        <Kpi label="Failed" value={fmtInt(failed)} sub="Not delivered by the carrier" onOpen={() => { setFilter('failed'); setQ(''); }} />
+      </KpiGrid>
+      <div className="rp-grid">
+        <Panel
+          title="Conversations"
+          sub="One row per number. Select one to see the back-and-forth"
+          right={<SearchBox id="rp-thread-search" value={threadQ} onChange={setThreadQ} placeholder="Find a number or name" />}
+          flush
+        >
+          {threads.length === 0 ? <Empty>No conversations match.</Empty> : (
+            <div className="rp-table-wrap rp-table-scroll">
               <table className="rp-table">
                 <thead>
-                  <tr><th>When</th><th>Direction</th><th>Number</th><th>Contact</th><th>Outcome</th><th className="rp-r">Talk time</th><th>Line</th></tr>
+                  <tr><th>Number</th><th>Contact</th><th className="rp-r">Sent</th><th className="rp-r">Received</th><th className="rp-r">Failed</th><th>Status</th><th className="rp-r">Last text</th></tr>
                 </thead>
                 <tbody>
-                  {calls.slice(0, shown).map((c, i) => {
-                    const tone = OUTCOME_TONE[c.outcome] ?? null;
-                    return (
-                      <tr key={`${c.startedAt}-${i}`} className="rp-static">
-                        <td className="rp-num">{fmtDateTime(c.startedAt)}</td>
-                        <td>
-                          <span className="rp-dir">
-                            {c.direction === 'outbound' ? <PhoneOutgoing size={14} /> : <PhoneIncoming size={14} />}
-                            {c.direction === 'outbound' ? 'Dialled out' : 'Called in'}
-                          </span>
-                        </td>
-                        <td className="rp-num">
-                          <button type="button" className="rp-link" onClick={() => setQ(digits(c.number).slice(-10) || c.number)}>{formatPhone(c.number)}</button>
-                        </td>
-                        <td className={c.name ? undefined : 'rp-muted'}>{c.name ?? '—'}</td>
-                        <td>{tone ? <span className={`rp-pill rp-pill-${tone}`}>{c.outcomeLabel}</span> : <span className="rp-muted">{c.outcomeLabel}</span>}</td>
-                        <td className="rp-r rp-num">{c.answered ? fmtClockDuration(c.talkSec) : '—'}</td>
-                        <td className="rp-muted">{c.line ?? '—'}</td>
-                      </tr>
-                    );
-                  })}
+                  {threads.slice(0, 500).map((t) => (
+                    <tr key={t.number} tabIndex={0} onClick={() => onOpen(t.number, t.name)} onKeyDown={(e) => { if (e.key === 'Enter') onOpen(t.number, t.name); }}>
+                      <td className="rp-num">{formatPhone(t.number)}</td>
+                      <td className={t.name ? undefined : 'rp-muted'}>{t.name ?? 'Not saved'}</td>
+                      <td className="rp-r rp-num">{fmtInt(t.sent)}</td>
+                      <td className="rp-r rp-num">{fmtInt(t.received)}</td>
+                      <td className="rp-r rp-num">{t.failed ? <span className="rp-pill rp-pill-crit">{fmtInt(t.failed)}</span> : '0'}</td>
+                      <td>{t.awaitingReply ? <span className="rp-pill rp-pill-warn">Waiting on reply</span> : <span className="rp-muted">{t.received ? 'Last text was ours' : 'No reply yet'}</span>}</td>
+                      <td className="rp-r rp-num">{fmtDateTime(t.lastAt)}</td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
           )}
-          {calls.length > shown && (
+        </Panel>
+
+        <section className="rp-panel rp-span-12 rp-flush">
+          <header className="rp-panel-head">
+            <div>
+              <h3>Every text</h3>
+              <p>{fmtInt(messages.length)} of {fmtInt(log.total)} texts{log.truncated ? ` (newest ${fmtInt(log.messages.length)} loaded)` : ''}, newest first. Records only; message text is never shown</p>
+            </div>
+            <div className="rp-log-tools">
+              <div className="rp-seg" role="group" aria-label="Filter texts">
+                {([['all', 'All'], ['outbound', 'Sent'], ['inbound', 'Received'], ['awaiting', 'Waiting on reply'], ['failed', 'Failed']] as Array<[TextFilter, string]>).map(([k, l]) => (
+                  <button key={k} type="button" aria-pressed={filter === k} onClick={() => { setFilter(k); setShown(PAGE); }}>{l}</button>
+                ))}
+              </div>
+              <SearchBox id="rp-text-search" value={q} onChange={(v) => { setQ(v); setShown(PAGE); }} placeholder="Filter by number or name" />
+            </div>
+          </header>
+          {messages.length === 0 ? <Empty>No texts match.</Empty> : (
+            <div className="rp-table-wrap">
+              <table className="rp-table">
+                <thead>
+                  <tr><th>When</th><th>Direction</th><th>Number</th><th>Contact</th><th>Type</th><th>Status</th></tr>
+                </thead>
+                <tbody>
+                  {messages.slice(0, shown).map((m, i) => (
+                    <tr key={`${m.at}-${i}`} tabIndex={0} onClick={() => onOpen(m.number, m.name)} onKeyDown={(e) => { if (e.key === 'Enter') onOpen(m.number, m.name); }}>
+                      <td className="rp-num">{fmtDateTime(m.at)}</td>
+                      <td><span className="rp-dir">{m.direction === 'outbound' ? 'Sent' : 'Received'}</span></td>
+                      <td className="rp-num">{formatPhone(m.number)}</td>
+                      <td className={m.name ? undefined : 'rp-muted'}>{m.name ?? '—'}</td>
+                      <td className="rp-muted">{textKind(m)}</td>
+                      <td>
+                        <Outcome label={m.statusLabel} tone={textTone(m)} />
+                        {m.failReason && <span className="rp-muted rp-reason"> {m.failReason}</span>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {messages.length > shown && (
             <div className="rp-more">
-              <button type="button" className="rp-btn" onClick={() => setShown((s) => s + PAGE)}>
-                Show {fmtInt(Math.min(PAGE, calls.length - shown))} more
-              </button>
+              <button type="button" className="rp-btn" onClick={() => setShown((s) => s + PAGE)}>Show {fmtInt(Math.min(PAGE, messages.length - shown))} more</button>
             </div>
           )}
         </section>

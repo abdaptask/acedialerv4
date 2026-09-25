@@ -16,7 +16,7 @@ import {
   CompareTable, Empty, Kpi, KpiGrid, Legend, Panel, PeopleTable, Person, teamAverage,
   type Col, type DrillSpec, type RowLike,
 } from './parts';
-import type { DailyPoint, PersonMetrics, PersonRow, PrevMetrics, ReportsPayload } from './types';
+import type { CallLogEntry, DailyPoint, PersonMetrics, PersonRow, PrevMetrics, ReportsPayload, TextLogEntry } from './types';
 
 export interface TabProps {
   data: ReportsPayload;
@@ -107,6 +107,16 @@ const talkCol = secs('talkSec', 'Talk time', fmtTalk, { better: 'up', csv: (v) =
 const avgLenCol = secs('avgTalkSec', 'Avg length', fmtClockDuration, { better: 'up' });
 const allConnected: Col = { key: 'connected', label: 'Connected', value: (r) => r.connected, fmt: (v) => (v == null ? dash : fmtInt(v)) };
 
+// Which records make up a number, for a person's drill-down.
+const isOut = (c: CallLogEntry) => c.direction === 'outbound';
+const isIn = (c: CallLogEntry) => c.direction === 'inbound';
+const isConnected = (c: CallLogEntry) => c.answered;
+const isUnanswered = (c: CallLogEntry) => c.direction === 'inbound' && !c.answered && c.outcome !== 'blocked';
+const isFailedDial = (c: CallLogEntry) => c.direction === 'outbound' && ['busy', 'invalid_number', 'rejected', 'failed'].includes(c.outcome);
+const sentText = (m: TextLogEntry) => m.direction === 'outbound';
+const receivedText = (m: TextLogEntry) => m.direction === 'inbound';
+const anyText = () => true;
+
 const perDay = (value: (d: DailyPoint) => number, fmt: (v: number) => string = fmtInt) => ({ value, fmt });
 const dayRate = (num: (d: DailyPoint) => number, den: (d: DailyPoint) => number) =>
   perDay((d) => (den(d) ? num(d) / den(d) : 0), (v) => `${Math.round(v * 100)}%`);
@@ -122,7 +132,7 @@ function outcome(p: TabProps, title: string, total: number, key: NumKey) {
 }
 
 function drillTo(p: TabProps, title: string, value: string, col: Col, opts: Partial<DrillSpec> = {}) {
-  if (p.person && !opts.daily) return undefined;
+  if (p.person && !opts.daily && !opts.calls && !opts.texts) return undefined;
   return () => p.drill({ title, value, col, ...opts });
 }
 
@@ -252,27 +262,27 @@ function Overview(p: TabProps) {
       <KpiGrid>
         <Kpi label="Outbound calls" value={fmtInt(t.callsOut)} cur={t.callsOut} prev={pv.callsOut} spark={spark((d) => d.outbound)}
           sub={`${fmtInt(t.connectedOut)} connected`} 
-          onOpen={drillTo(p, 'Outbound calls', fmtInt(t.callsOut), count('callsOut', 'Calls out'), { additive: true, daily: perDay((d) => d.outbound) })} />
+          onOpen={drillTo(p, 'Outbound calls', fmtInt(t.callsOut), count('callsOut', 'Calls out'), { calls: isOut, additive: true, daily: perDay((d) => d.outbound) })} />
         <Kpi label="Talk time" value={fmtTalk(t.talkSec)} cur={t.talkSec} prev={pv.talkSec} spark={spark((d) => d.talkSec)}
           sub="All connected calls" 
-          onOpen={drillTo(p, 'Talk time', fmtTalk(t.talkSec), talkCol, { additive: true, daily: perDay((d) => d.talkSec, fmtTalk) })} />
+          onOpen={drillTo(p, 'Talk time', fmtTalk(t.talkSec), talkCol, { calls: isConnected, additive: true, daily: perDay((d) => d.talkSec, fmtTalk) })} />
         <Kpi label="Average call length" value={fmtClockDuration(t.avgTalkSec)} cur={t.avgTalkSec} prev={pv.avgTalkSec}
           sub={`Median ${fmtClockDuration(t.medianTalkSec)}`} 
-          onOpen={drillTo(p, 'Average call length', fmtClockDuration(t.avgTalkSec), avgLenCol)} />
+          onOpen={drillTo(p, 'Average call length', fmtClockDuration(t.avgTalkSec), avgLenCol, { calls: isConnected })} />
         <Kpi label="Inbound answered" value={fmtPct(t.answeredIn, t.answeredIn + t.unansweredIn)}
           points cur={answered} prev={pct(pv.answeredIn, pv.answeredIn + pv.unansweredIn)}
           sub={`${fmtInt(t.unansweredIn)} of ${fmtInt(t.answeredIn + t.unansweredIn)} unanswered`} 
-          onOpen={drillTo(p, 'Inbound calls answered', fmtPct(t.answeredIn, t.answeredIn + t.unansweredIn), answerRate, { note: 'People with fewer than 10 inbound calls are left out of the ranking.', daily: dayRate((d) => d.answeredIn, (d) => d.inbound) })} />
+          onOpen={drillTo(p, 'Inbound calls answered', fmtPct(t.answeredIn, t.answeredIn + t.unansweredIn), answerRate, { calls: (c) => isIn(c) && c.outcome !== 'blocked', note: 'People with fewer than 10 inbound calls are left out of the ranking.', daily: dayRate((d) => d.answeredIn, (d) => d.inbound) })} />
         <Kpi label="Missed calls returned" value={fmtPct(t.missedReturned, t.missedReturnable)}
           points cur={returned} prev={pct(pv.missedReturned, pv.missedReturnable)}
           sub={`within 24h · median ${fmtWait(t.medianCallbackSec)}`} 
-          onOpen={drillTo(p, 'Missed calls returned within 24h', fmtPct(t.missedReturned, t.missedReturnable), returnRate, { note: 'People with fewer than 10 missed calls are left out of the ranking.' })} />
+          onOpen={drillTo(p, 'Missed calls returned within 24h', fmtPct(t.missedReturned, t.missedReturnable), returnRate, { calls: isUnanswered,  note: 'People with fewer than 10 missed calls are left out of the ranking.' })} />
         <Kpi label="Texts sent" value={fmtInt(t.smsSent)} cur={t.smsSent} prev={pv.smsSent} spark={spark((d) => d.smsSent)}
           sub={`${fmtInt(t.smsReceived)} received`} 
-          onOpen={drillTo(p, 'Texts sent', fmtInt(t.smsSent), count('smsSent', 'Texts sent'), { additive: true, daily: perDay((d) => d.smsSent) })} />
+          onOpen={drillTo(p, 'Texts sent', fmtInt(t.smsSent), count('smsSent', 'Texts sent'), { texts: sentText, additive: true, daily: perDay((d) => d.smsSent) })} />
         <Kpi label="Texts replied to" value={fmtPct(t.smsReplied, t.smsRepliable)} points cur={replied} prev={pct(pv.smsReplied, pv.smsRepliable)}
           sub={`within 24h · median ${fmtWait(t.medianReplySec)}`} 
-          onOpen={drillTo(p, 'Texts replied to within 24h', fmtPct(t.smsReplied, t.smsRepliable), replyRate)} />
+          onOpen={drillTo(p, 'Texts replied to within 24h', fmtPct(t.smsReplied, t.smsRepliable), replyRate, { texts: receivedText })} />
         <Kpi label="Voicemails heard" value={fmtPct(t.voicemailsHeard, t.voicemails)} points cur={heard} prev={pct(pv.voicemailsHeard, pv.voicemails)}
           sub={t.voicemailsHeard ? `of ${fmtInt(t.voicemails)} · median ${fmtWait(t.medianListenSec)} to listen` : `None of ${fmtInt(t.voicemails)} heard yet`} 
           onOpen={drillTo(p, 'Voicemails heard', fmtPct(t.voicemailsHeard, t.voicemails), heardRate)} />
@@ -344,15 +354,15 @@ function Calls(p: TabProps) {
     <>
       <KpiGrid cols={5}>
         <Kpi label="Connected calls" value={fmtInt(t.connected)} cur={t.connected} prev={pv.connected} 
-          onOpen={drillTo(p, 'Connected calls', fmtInt(t.connected), allConnected, { additive: true, daily: perDay((d) => d.connected + d.answeredIn) })} />
+          onOpen={drillTo(p, 'Connected calls', fmtInt(t.connected), allConnected, { calls: isConnected, additive: true, daily: perDay((d) => d.connected + d.answeredIn) })} />
         <Kpi label="Average length" value={fmtClockDuration(t.avgTalkSec)} cur={t.avgTalkSec} prev={pv.avgTalkSec} sub={`Median ${fmtClockDuration(t.medianTalkSec)}`} 
-          onOpen={drillTo(p, 'Average call length', fmtClockDuration(t.avgTalkSec), avgLenCol)} />
+          onOpen={drillTo(p, 'Average call length', fmtClockDuration(t.avgTalkSec), avgLenCol, { calls: isConnected })} />
         <Kpi label="Calls under 10 seconds" value={fmtPct(t.shortCalls, t.connected)} points cur={pct(t.shortCalls, t.connected)} prev={pct(pv.shortCalls, pv.connected)} better="down"
           sub={`${fmtInt(t.shortCalls)} calls`} 
-          onOpen={drillTo(p, 'Calls under 10 seconds', fmtPct(t.shortCalls, t.connected), shortShare, { note: 'Share of each person\'s connected calls. People with fewer than 20 connected calls are left out.' })} />
+          onOpen={drillTo(p, 'Calls under 10 seconds', fmtPct(t.shortCalls, t.connected), shortShare, { calls: (c) => c.answered && c.talkSec < 10, note: 'Share of each person\'s connected calls. People with fewer than 20 connected calls are left out.' })} />
         <Kpi label="Conversations over 2 min" value={fmtInt(t.conversations)} cur={t.conversations} prev={pv.conversations}
           sub={`${fmtPct(t.conversations, t.connected)} of connected`} 
-          onOpen={drillTo(p, 'Conversations over 2 minutes', fmtInt(t.conversations), count('conversations', 'Over 2 min'), { additive: true })} />
+          onOpen={drillTo(p, 'Conversations over 2 minutes', fmtInt(t.conversations), count('conversations', 'Over 2 min'), { calls: (c) => c.answered && c.talkSec >= 120, additive: true })} />
         <Kpi label="Typical day" value={fmtTimeOfDay(t.firstCallMin)} sub={`to ${fmtTimeOfDay(t.lastCallMin)} · median first and last call`} 
           onOpen={drillTo(p, 'First call of the day', fmtTimeOfDay(t.firstCallMin), callCols.find((c) => c.key === 'firstCallMin')!, { note: 'Median time of each person\'s first call, Eastern time.' })} />
       </KpiGrid>
@@ -411,15 +421,15 @@ function Responsiveness(p: TabProps) {
       <KpiGrid cols={5}>
         <Kpi label="Inbound calls" value={fmtInt(ib.total)} cur={t.answeredIn + t.unansweredIn} prev={pv.answeredIn + pv.unansweredIn} better="none"
           sub={ib.blocked ? `${fmtInt(ib.blocked)} blocked, not counted` : 'Blocked callers excluded'} 
-          onOpen={drillTo(p, 'Inbound calls', fmtInt(ib.total), inboundTotal, { additive: true, daily: perDay((d) => d.inbound) })} />
+          onOpen={drillTo(p, 'Inbound calls', fmtInt(ib.total), inboundTotal, { calls: (c) => isIn(c) && c.outcome !== 'blocked', additive: true, daily: perDay((d) => d.inbound) })} />
         <Kpi label="Answered" value={fmtPct(ib.answered, ib.total)} points cur={pct(t.answeredIn, t.answeredIn + t.unansweredIn)} prev={pct(pv.answeredIn, pv.answeredIn + pv.unansweredIn)}
           sub={`${fmtInt(ib.answered)} calls`} 
-          onOpen={drillTo(p, 'Inbound calls answered', fmtPct(ib.answered, ib.total), answerRate, { note: 'People with fewer than 10 inbound calls are left out of the ranking.', daily: dayRate((d) => d.answeredIn, (d) => d.inbound) })} />
+          onOpen={drillTo(p, 'Inbound calls answered', fmtPct(ib.answered, ib.total), answerRate, { calls: (c) => isIn(c) && c.outcome !== 'blocked', note: 'People with fewer than 10 inbound calls are left out of the ranking.', daily: dayRate((d) => d.answeredIn, (d) => d.inbound) })} />
         <Kpi label="Returned within 24h" value={fmtPct(t.missedReturned, t.missedReturnable)} points cur={pct(t.missedReturned, t.missedReturnable)} prev={pct(pv.missedReturned, pv.missedReturnable)}
           sub={`${fmtInt(t.missedReturned)} of ${fmtInt(t.missedReturnable)} missed`} 
-          onOpen={drillTo(p, 'Missed calls returned within 24h', fmtPct(t.missedReturned, t.missedReturnable), returnRate)} />
+          onOpen={drillTo(p, 'Missed calls returned within 24h', fmtPct(t.missedReturned, t.missedReturnable), returnRate, { calls: isUnanswered })} />
         <Kpi label="Median wait for a callback" value={fmtWait(t.medianCallbackSec)} sub="When the call was returned" 
-          onOpen={drillTo(p, 'Median wait for a callback', fmtWait(t.medianCallbackSec), secs('medianCallbackSec', 'Median wait', fmtWait))} />
+          onOpen={drillTo(p, 'Median wait for a callback', fmtWait(t.medianCallbackSec), secs('medianCallbackSec', 'Median wait', fmtWait), { calls: isUnanswered })} />
         <Kpi label="Voicemails heard" value={fmtPct(t.voicemailsHeard, t.voicemails)} points cur={pct(t.voicemailsHeard, t.voicemails)} prev={pct(pv.voicemailsHeard, pv.voicemails)}
           sub={`${fmtInt(t.voicemails - t.voicemailsHeard)} still unheard`} 
           onOpen={drillTo(p, 'Voicemails heard', fmtPct(t.voicemailsHeard, t.voicemails), heardRate)} />
@@ -495,16 +505,16 @@ function Messaging(p: TabProps) {
     <>
       <KpiGrid cols={5}>
         <Kpi label="Texts sent" value={fmtInt(t.smsSent)} cur={t.smsSent} prev={pv.smsSent} spark={p.data.daily.map((d) => d.smsSent)} sub={`${fmtInt(t.smsReceived)} received`} 
-          onOpen={drillTo(p, 'Texts sent', fmtInt(t.smsSent), count('smsSent', 'Texts sent'), { additive: true, daily: perDay((d) => d.smsSent) })} />
+          onOpen={drillTo(p, 'Texts sent', fmtInt(t.smsSent), count('smsSent', 'Texts sent'), { texts: sentText, additive: true, daily: perDay((d) => d.smsSent) })} />
         <Kpi label="Delivered" value={fmtPct(t.smsDelivered, t.smsSent, 1)} sub={`${fmtInt(t.smsFailed)} failed`} 
-          onOpen={drillTo(p, 'Texts delivered', fmtPct(t.smsDelivered, t.smsSent, 1), deliveredRate)} />
+          onOpen={drillTo(p, 'Texts delivered', fmtPct(t.smsDelivered, t.smsSent, 1), deliveredRate, { texts: sentText })} />
         <Kpi label="Replied within 24h" value={fmtPct(t.smsReplied, t.smsRepliable)} points cur={pct(t.smsReplied, t.smsRepliable)} prev={pct(pv.smsReplied, pv.smsRepliable)}
           sub={`median ${fmtWait(t.medianReplySec)}`} 
-          onOpen={drillTo(p, 'Texts replied to within 24h', fmtPct(t.smsReplied, t.smsRepliable), replyRate)} />
+          onOpen={drillTo(p, 'Texts replied to within 24h', fmtPct(t.smsReplied, t.smsRepliable), replyRate, { texts: receivedText })} />
         <Kpi label="Conversations" value={fmtInt(t.threads)} sub={`${fmtInt(t.mms)} picture messages`} 
-          onOpen={drillTo(p, 'Text conversations', fmtInt(t.threads), count('threads', 'Conversations'), { additive: true })} />
+          onOpen={drillTo(p, 'Text conversations', fmtInt(t.threads), count('threads', 'Conversations'), { texts: anyText, additive: true })} />
         <Kpi label="Billed message parts" value={fmtInt(t.segments)} sub="Estimated from length and characters" 
-          onOpen={drillTo(p, 'Billed message parts', fmtInt(t.segments), count('segments', 'Billed parts'), { additive: true })} />
+          onOpen={drillTo(p, 'Billed message parts', fmtInt(t.segments), count('segments', 'Billed parts'), { texts: sentText, additive: true })} />
       </KpiGrid>
       <div className="rp-grid">
         <Panel title="Texts per day" sub="Eastern time" span={8}
@@ -600,9 +610,9 @@ function Quality(p: TabProps) {
     <>
       <KpiGrid cols={5}>
         <Kpi label="Outbound connected" value={fmtPct(ob.connected, ob.total)} sub={`${fmtInt(ob.connected)} of ${fmtInt(ob.total)}`} 
-          onOpen={drillTo(p, 'Outbound calls connected', fmtPct(ob.connected, ob.total), connectRate)} />
+          onOpen={drillTo(p, 'Outbound calls connected', fmtPct(ob.connected, ob.total), connectRate, { calls: isOut })} />
         <Kpi label="Failed dials" value={fmtInt(t.failedDials)} cur={t.failedDials} prev={null} better="down" sub={`${fmtInt(t.invalidNumbers)} to bad numbers`} 
-          onOpen={drillTo(p, 'Failed dials', fmtInt(t.failedDials), count('failedDials', 'Failed dials'), { additive: true })} />
+          onOpen={drillTo(p, 'Failed dials', fmtInt(t.failedDials), count('failedDials', 'Failed dials'), { calls: isFailedDial, additive: true })} />
         <Kpi label="Likely drops" value={fmtPct(t.likelyDrops, t.connected, 1)} points cur={pct(t.likelyDrops, t.connected)} prev={pct(pv.likelyDrops, pv.connected)} better="down"
           sub={`${fmtInt(t.likelyDrops)} redialed within 2 min`} 
           onOpen={drillTo(p, 'Likely drop rate', fmtPct(t.likelyDrops, t.connected, 1), dropShare, { note: 'Same number called again within 2 minutes of a call that lasted 10 seconds or more. An estimate. People with fewer than 20 connected calls are left out.' })} />
@@ -664,7 +674,7 @@ function Outreach(p: TabProps) {
         <Kpi label="New contacts" value={fmtInt(t.newContacts)} sub={`Not contacted in the previous ${p.data.range.days} days`} 
           onOpen={drillTo(p, 'New contacts', fmtInt(t.newContacts), count('newContacts', 'New contacts'))} />
         <Kpi label="Conversations over 2 min" value={fmtInt(t.conversations)} cur={t.conversations} prev={pv.conversations} 
-          onOpen={drillTo(p, 'Conversations over 2 minutes', fmtInt(t.conversations), count('conversations', 'Over 2 min'), { additive: true })} />
+          onOpen={drillTo(p, 'Conversations over 2 minutes', fmtInt(t.conversations), count('conversations', 'Over 2 min'), { calls: (c) => c.answered && c.talkSec >= 120, additive: true })} />
         <Kpi label="Reached by call and text" value={fmtInt(t.multiTouch)} sub={`${fmtPct(t.multiTouch, t.uniqueReached)} of people reached`} 
           onOpen={drillTo(p, 'Reached by call and text', fmtInt(t.multiTouch), count('multiTouch', 'Call and text'), { additive: true })} />
         <Kpi label="Contacts saved" value={fmtInt(t.favoritesAdded)} sub="Added to favorites" 
@@ -696,9 +706,9 @@ function Cost(p: TabProps) {
         <Kpi label="Total spend" value={fmtMoney(c.total)} cur={c.total} prev={p.data.prevTotals.cost || null} better="none" sub={`${p.data.range.days} days`} 
           onOpen={drillTo(p, 'Spend on calls and texts', fmtMoney(c.voice + c.sms), money('cost', 'Spend'), { additive: true, note: 'Phone line rental isn\'t split by person.' })} />
         <Kpi label="Calls" value={fmtMoney(c.voice)} sub={`${fmtInt(p.data.totals.billedMinutes)} billed minutes`} 
-          onOpen={drillTo(p, 'Spend on calls', fmtMoney(c.voice), money('costVoice', 'Calls'), { additive: true })} />
+          onOpen={drillTo(p, 'Spend on calls', fmtMoney(c.voice), money('costVoice', 'Calls'), { calls: isConnected, additive: true })} />
         <Kpi label="Texts" value={fmtMoney(c.sms)} sub={`${fmtInt(p.data.totals.segments)} parts sent`} 
-          onOpen={drillTo(p, 'Spend on texts', fmtMoney(c.sms), money('costSms', 'Texts'), { additive: true })} />
+          onOpen={drillTo(p, 'Spend on texts', fmtMoney(c.sms), money('costSms', 'Texts'), { texts: anyText, additive: true })} />
         <Kpi label="Phone lines" value={fmtMoney(c.lines)} sub={`${fmtInt(c.ownedLines)} lines`} />
         <Kpi label="Projected monthly" value={fmtMoney(c.projectedMonthly)} sub="At this period's pace" />
       </KpiGrid>
@@ -781,7 +791,7 @@ export const TABS: TabDef[] = [
   { key: 'outreach', label: 'Outreach', render: Outreach, csv: { cols: outreachCols, filename: 'outreach' } },
   { key: 'cost', label: 'Cost', render: Cost, csv: { cols: costCols, filename: 'cost' } },
   { key: 'adoption', label: 'Adoption', render: Adoption, csv: { cols: [], filename: 'adoption' } },
-  { key: 'numbers', label: 'Numbers', render: Numbers, csv: { cols: [], filename: 'call-log' }, personOnly: true },
+  { key: 'activity', label: 'Activity', render: Numbers, csv: { cols: [], filename: 'activity' }, personOnly: true },
 ];
 
 export function csvFor(tab: TabDef, rows: PersonRow[]): { header: string[]; rows: Array<Array<string | number | null>> } {
