@@ -1,10 +1,12 @@
 // Layout pieces shared by every report tab.
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, ChevronUp, X } from 'lucide-react';
+import { ArrowDown, ArrowUp, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, X } from 'lucide-react';
+import { formatPhone } from '../../lib/phone';
+import { RecordRow, Timeline } from './records';
 import { Sparkline } from './charts';
 import { change, fmtDay } from './format';
-import type { DailyPoint, PersonMetrics, PersonRow, PrevMetrics } from './types';
+import type { CallLog, CallLogEntry, DailyPoint, PersonMetrics, PersonRow, PrevMetrics, TextLog, TextLogEntry } from './types';
 
 export type RowLike = PersonMetrics & { prev?: PrevMetrics | null; name?: string };
 
@@ -352,13 +354,21 @@ export interface DrillSpec {
   /** Counts add up across people, so each row can show its share. Rates don't. */
   additive?: boolean;
   daily?: { value: (d: DailyPoint) => number; fmt: (v: number) => string };
+  /** On a person's report: which of their calls make up this number. */
+  calls?: (c: CallLogEntry) => boolean;
+  /** On a person's report: which of their texts make up this number. */
+  texts?: (m: TextLogEntry) => boolean;
   note?: string;
 }
+
+type SheetView = 'people' | 'records' | 'days';
 
 export function DrillSheet({
   spec,
   people,
   daily,
+  callLog,
+  textLog,
   personName,
   rangeLabel,
   onClose,
@@ -368,7 +378,9 @@ export function DrillSheet({
   spec: DrillSpec;
   people: PersonRow[];
   daily: DailyPoint[];
-  /** Set when drilling from one person's report: rows are days, not people. */
+  callLog: CallLog | null;
+  textLog: TextLog | null;
+  /** Set when drilling from one person's report: rows are records or days. */
   personName: string | null;
   rangeLabel: string;
   onClose: () => void;
@@ -377,87 +389,155 @@ export function DrillSheet({
 }) {
   const closeRef = useRef<HTMLButtonElement>(null);
   const [asc, setAsc] = useState(false);
+  const hasRecords = personName != null && !!(spec.calls || spec.texts);
+  const [view, setView] = useState<SheetView>(personName == null ? 'people' : hasRecords ? 'records' : 'days');
+  // Opening a record swaps the list for that number's timeline; Back returns.
+  const [thread, setThread] = useState<{ number: string; name: string | null } | null>(null);
   useEffect(() => {
     closeRef.current?.focus();
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      if (thread) setThread(null);
+      else onClose();
+    };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
+  }, [onClose, thread]);
 
-  const byDay = personName != null && spec.daily;
   const rows = useMemo(() => {
-    if (byDay) return [];
+    if (view !== 'people') return [];
     const withVal = people
       .map((p) => ({ p, v: spec.col.value(p) }))
       .filter((x): x is { p: PersonRow; v: number } => x.v != null && Number.isFinite(x.v) && (!spec.additive || x.v > 0));
     withVal.sort((a, b) => (asc ? a.v - b.v : b.v - a.v) || a.p.name.localeCompare(b.p.name));
     return withVal;
-  }, [people, spec, asc, byDay]);
-  const hidden = byDay ? 0 : people.length - rows.length;
+  }, [people, spec, asc, view]);
+
+  const records = useMemo(() => {
+    if (view !== 'records') return [];
+    const cs = spec.calls && callLog ? callLog.calls.filter(spec.calls).map((c) => ({ kind: 'call' as const, c, at: c.startedAt })) : [];
+    const ts = spec.texts && textLog ? textLog.messages.filter(spec.texts).map((m) => ({ kind: 'text' as const, m, at: m.at })) : [];
+    return [...cs, ...ts].sort((a, b) => b.at.localeCompare(a.at));
+  }, [view, spec, callLog, textLog]);
+  const [shown, setShown] = useState(200);
+
+  const hidden = view === 'people' ? people.length - rows.length : 0;
   const total = rows.reduce((a, r) => a + r.v, 0);
   const max = Math.max(1e-9, ...rows.map((r) => Math.abs(r.v)));
-  const dayRows = byDay ? daily.map((d) => ({ d, v: spec.daily!.value(d) })) : [];
+  const dayRows = view === 'days' && spec.daily ? daily.map((d) => ({ d, v: spec.daily!.value(d) })) : [];
   const dayMax = Math.max(1e-9, ...dayRows.map((r) => r.v));
+  const unit = spec.calls && spec.texts ? 'records' : spec.texts ? 'texts' : 'calls';
 
   return (
     <div className="rp-sheet-backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <aside className="rp-sheet" role="dialog" aria-modal="true" aria-labelledby="rp-sheet-title">
         <header className="rp-sheet-head">
           <div>
-            <div className="rp-eyebrow">{personName ? `${personName} · by day` : 'By person'} · {rangeLabel}</div>
-            <h2 id="rp-sheet-title">{spec.title}</h2>
-            <div className="rp-sheet-value rp-num">{spec.value}</div>
-            {spec.note && <p className="rp-sheet-note">{spec.note}</p>}
+            {thread ? (
+              <>
+                <button type="button" className="rp-crumb" onClick={() => setThread(null)}><ChevronLeft size={16} /> {spec.title}</button>
+                <h2 id="rp-sheet-title">{thread.name ?? formatPhone(thread.number)}</h2>
+                <div className="rp-eyebrow" style={{ marginTop: 4 }}>{thread.name ? `${formatPhone(thread.number)} · ` : ''}{personName} · {rangeLabel}</div>
+              </>
+            ) : (
+              <>
+                <div className="rp-eyebrow">{personName ? personName : 'By person'} · {rangeLabel}</div>
+                <h2 id="rp-sheet-title">{spec.title}</h2>
+                <div className="rp-sheet-value rp-num">{spec.value}</div>
+                {spec.note && view === 'people' && <p className="rp-sheet-note">{spec.note}</p>}
+              </>
+            )}
           </div>
           <button ref={closeRef} type="button" className="rp-icon-btn" onClick={onClose} aria-label="Close">
             <X size={18} />
           </button>
         </header>
-        {!byDay && rows.length > 1 && (
-          <div className="rp-sheet-tools">
-            <span>{rows.length} {rows.length === 1 ? 'person' : 'people'}</span>
-            <button type="button" className="rp-link" onClick={() => setAsc((a) => !a)}>
-              {asc ? 'Lowest first' : 'Highest first'}
-            </button>
+
+        {thread ? (
+          <div className="rp-sheet-scroll">
+            <Timeline number={thread.number} calls={callLog?.calls ?? []} texts={textLog?.messages ?? []} />
           </div>
-        )}
-        <ol className="rp-sheet-list">
-          {byDay
-            ? dayRows.map(({ d, v }) => (
-              <li key={d.date} className="rp-sheet-day">
-                <button type="button" onClick={() => onOpenDay(d.date)}>
-                  <span className="rp-sheet-name">{fmtDay(d.date)}</span>
-                  <span className="rp-sheet-bar"><i style={{ width: `${(v / dayMax) * 100}%` }} /></span>
-                  <b className="rp-num">{spec.daily!.fmt(v)}</b>
-                  <ChevronRight size={15} className="rp-sheet-go" />
+        ) : (
+          <>
+            {personName != null && hasRecords && spec.daily && (
+              <div className="rp-sheet-tools">
+                <div className="rp-seg rp-seg-sm" role="group" aria-label="Show">
+                  <button type="button" aria-pressed={view === 'records'} onClick={() => setView('records')}>Each {unit === 'texts' ? 'text' : 'call'}</button>
+                  <button type="button" aria-pressed={view === 'days'} onClick={() => setView('days')}>By day</button>
+                </div>
+              </div>
+            )}
+            {view === 'people' && rows.length > 1 && (
+              <div className="rp-sheet-tools">
+                <span>{rows.length} {rows.length === 1 ? 'person' : 'people'}</span>
+                <button type="button" className="rp-link" onClick={() => setAsc((a) => !a)}>
+                  {asc ? 'Lowest first' : 'Highest first'}
                 </button>
-              </li>
-            ))
-            : rows.map(({ p, v }, i) => {
-              const prevRow = p.prev ? (p.prev as unknown as RowLike) : null;
-              const pv = prevRow ? spec.col.value(prevRow) : null;
-              const d = pv != null && Number.isFinite(pv) ? change(v, pv) : null;
-              return (
-                <li key={p.userId}>
-                  <button type="button" onClick={() => onOpenPerson(p.userId)}>
-                    <span className="rp-sheet-rank rp-num">{i + 1}</span>
-                    <span className="rp-sheet-name"><Person name={p.name} /></span>
-                    <span className="rp-sheet-bar"><i style={{ width: `${(Math.abs(v) / max) * 100}%` }} /></span>
-                    <b className="rp-num">{spec.col.fmt(v, p)}</b>
-                    <span className="rp-sheet-share rp-num">
-                      {spec.additive && total > 0 ? `${((v / total) * 100).toFixed(v / total < 0.1 ? 1 : 0)}%` : d != null ? `${d > 0 ? '+' : ''}${Math.round(d * 100)}%` : ''}
-                    </span>
-                    <ChevronRight size={15} className="rp-sheet-go" />
-                  </button>
-                </li>
-              );
-            })}
-        </ol>
-        {!byDay && rows.length === 0 && <Empty>Nobody has any for this period.</Empty>}
+              </div>
+            )}
+
+            {view === 'records' && (
+              <ol className="rp-sheet-list rp-rec-list">
+                {records.slice(0, shown).map((r, i) => (
+                  <RecordRow key={i} item={r} onOpen={(number, name) => setThread({ number, name })} />
+                ))}
+                {records.length === 0 && <li><Empty>No {unit} in this period.</Empty></li>}
+                {records.length > shown && (
+                  <li className="rp-more"><button type="button" className="rp-btn" onClick={() => setShown((n) => n + 200)}>Show more</button></li>
+                )}
+              </ol>
+            )}
+
+            {view === 'days' && (
+              <ol className="rp-sheet-list">
+                {dayRows.map(({ d, v }) => (
+                  <li key={d.date} className="rp-sheet-day">
+                    <button type="button" onClick={() => onOpenDay(d.date)}>
+                      <span className="rp-sheet-name">{fmtDay(d.date)}</span>
+                      <span className="rp-sheet-bar"><i style={{ width: `${(v / dayMax) * 100}%` }} /></span>
+                      <b className="rp-num">{spec.daily!.fmt(v)}</b>
+                      <ChevronRight size={15} className="rp-sheet-go" />
+                    </button>
+                  </li>
+                ))}
+              </ol>
+            )}
+
+            {view === 'people' && (
+              <ol className="rp-sheet-list">
+                {rows.map(({ p, v }, i) => {
+                  const prevRow = p.prev ? (p.prev as unknown as RowLike) : null;
+                  const pv = prevRow ? spec.col.value(prevRow) : null;
+                  const d = pv != null && Number.isFinite(pv) ? change(v, pv) : null;
+                  return (
+                    <li key={p.userId}>
+                      <button type="button" onClick={() => onOpenPerson(p.userId)}>
+                        <span className="rp-sheet-rank rp-num">{i + 1}</span>
+                        <span className="rp-sheet-name"><Person name={p.name} /></span>
+                        <span className="rp-sheet-bar"><i style={{ width: `${(Math.abs(v) / max) * 100}%` }} /></span>
+                        <b className="rp-num">{spec.col.fmt(v, p)}</b>
+                        <span className="rp-sheet-share rp-num">
+                          {spec.additive && total > 0 ? `${((v / total) * 100).toFixed(v / total < 0.1 ? 1 : 0)}%` : d != null ? `${d > 0 ? '+' : ''}${Math.round(d * 100)}%` : ''}
+                        </span>
+                        <ChevronRight size={15} className="rp-sheet-go" />
+                      </button>
+                    </li>
+                  );
+                })}
+                {rows.length === 0 && <li><Empty>Nobody has any for this period.</Empty></li>}
+              </ol>
+            )}
+          </>
+        )}
+
         <footer className="rp-sheet-foot">
-          {byDay
-            ? 'Select a day to open the report for just that day.'
-            : `${spec.additive ? 'Right column: share of the total.' : 'Right column: change vs the previous period.'}${hidden ? ` ${hidden} ${hidden === 1 ? 'person has' : 'people have'} none${spec.additive ? '' : ' or too few calls to rate'}.` : ''} Select a person to open their report.`}
+          {thread
+            ? 'Every call and text with this number in the period, in order.'
+            : view === 'records'
+              ? `${records.length.toLocaleString('en-US')} ${unit}, newest first. Select one to see the whole conversation with that number.`
+              : view === 'days'
+                ? 'Select a day to open the report for just that day.'
+                : `${spec.additive ? 'Right column: share of the total.' : 'Right column: change vs the previous period.'}${hidden ? ` ${hidden} ${hidden === 1 ? 'person has' : 'people have'} none${spec.additive ? '' : ' or too few calls to rate'}.` : ''} Select a person to open their report.`}
         </footer>
       </aside>
     </div>

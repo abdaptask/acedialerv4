@@ -24,6 +24,16 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.230',
+    date: 'September 25, 2026',
+    highlight: 'Reports now show each individual call and text.',
+    changes: [
+      { type: 'new', text: 'On a person\'s report, click any call or text number to see each call or text behind it: who, when, how long, and what happened.' },
+      { type: 'new', text: 'Click any call or text to see the whole back-and-forth with that number, in order. Message text is never shown.' },
+      { type: 'improved', text: 'The Numbers tab is now Activity, with a Calls view and a Texts view.' },
+    ],
+  },
+  {
     version: '0.10.229',
     date: 'September 25, 2026',
     highlight: 'A new Reports page, with every number broken down by person.',

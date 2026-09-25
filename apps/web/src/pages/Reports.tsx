@@ -101,9 +101,13 @@ export default function Reports({ user }: { user: User }) {
     if (!data) return;
     const stamp = `${from}_to_${to}`;
     const who = person ? `-${person.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}` : '';
-    if (tab.key === 'numbers' && data.callLog) {
-      downloadCsv(`ace-call-log${who}-${stamp}.csv`, ['When (UTC)', 'Direction', 'Number', 'Contact', 'Outcome', 'Talk seconds', 'Line'],
+    if (tab.key === 'activity' && data.callLog && data.textLog) {
+      // Two files: calls and texts have different columns. Text files carry
+      // records only — there is no message text in the payload to export.
+      downloadCsv(`ace-calls${who}-${stamp}.csv`, ['When (UTC)', 'Direction', 'Number', 'Contact', 'Outcome', 'Talk seconds', 'Line'],
         data.callLog.calls.map((c) => [c.startedAt, c.direction === 'outbound' ? 'Dialled out' : 'Called in', c.number, c.name, c.outcomeLabel, c.talkSec, c.line]));
+      downloadCsv(`ace-texts${who}-${stamp}.csv`, ['When (UTC)', 'Direction', 'Number', 'Contact', 'Type', 'Status', 'Failure reason', 'Billed parts'],
+        data.textLog.messages.map((m) => [m.at, m.direction === 'outbound' ? 'Sent' : 'Received', m.number, m.name, m.hasMedia ? 'Picture' : 'Text', m.statusLabel, m.failReason, m.parts]));
       return;
     }
     if (tab.key === 'adoption') {
@@ -221,6 +225,8 @@ export default function Reports({ user }: { user: User }) {
               spec={drill}
               people={data.people}
               daily={data.daily}
+              callLog={data.callLog}
+              textLog={data.textLog}
               personName={person?.name ?? null}
               rangeLabel={fmtRange(from, to)}
               onClose={() => setDrill(null)}

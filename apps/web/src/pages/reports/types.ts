@@ -158,6 +158,39 @@ export interface ReportsPayload {
   };
   /** Only present on one person's report. */
   callLog: CallLog | null;
+  /** Only present on one person's report. Records only — never message text. */
+  textLog: TextLog | null;
+}
+
+export interface TextLogEntry {
+  at: string;
+  direction: 'inbound' | 'outbound';
+  number: string;
+  name: string | null;
+  status: 'received' | 'delivered' | 'failed' | 'sent';
+  statusLabel: string;
+  failReason: string | null;
+  /** Billed parts (outbound only). */
+  parts: number | null;
+  hasMedia: boolean;
+}
+
+export interface TextThread {
+  number: string;
+  name: string | null;
+  sent: number;
+  received: number;
+  failed: number;
+  firstAt: string;
+  lastAt: string;
+  awaitingReply: boolean;
+}
+
+export interface TextLog {
+  total: number;
+  truncated: boolean;
+  messages: TextLogEntry[];
+  threads: TextThread[];
 }
 
 export interface CallLogEntry {
