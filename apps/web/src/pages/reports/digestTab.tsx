@@ -173,8 +173,15 @@ export function DailyEmail(_p: TabProps) {
           <div><span className="rp-muted">Subject</span> <b>{data.subject}</b></div>
         </div>
         <div className={`rp-mail-frame${loading ? ' rp-stale' : ''}`}>
-          {/* Sandboxed with no permissions: the preview can't run script or navigate. */}
-          <iframe title="Email preview" sandbox="" srcDoc={data.html} />
+          {/* Scripts stay off. Links open in a new tab, like they do from the
+              real email: clicking "Open Reports" inside a script-less frame
+              used to load the whole app there, where it can't start (a
+              blank dark page). */}
+          <iframe
+            title="Email preview"
+            sandbox="allow-popups allow-popups-to-escape-sandbox"
+            srcDoc={data.html.replace('<head>', '<head><base target="_blank">').replace('<html><body', '<html><head><base target="_blank"></head><body')}
+          />
         </div>
       </Panel>
 
