@@ -24,6 +24,14 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.236',
+    date: 'September 25, 2026',
+    changes: [
+      { type: 'fixed', text: 'Clicking a link inside the email preview opened a blank page. Links in the preview now open in a new tab, like in the real email.' },
+      { type: 'improved', text: 'If a Reports tab hits an error, it now says what went wrong instead of showing a blank page.' },
+    ],
+  },
+  {
     version: '0.10.235',
     date: 'September 25, 2026',
     highlight: 'Monday weekly recap, short-call tracking and best practices in the team email.',

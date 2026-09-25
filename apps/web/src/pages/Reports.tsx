@@ -8,7 +8,7 @@
 // their own report — the server enforces that; the UI just doesn't offer
 // the picker.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Component, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { AlertTriangle, ChevronLeft, Download, RefreshCw } from 'lucide-react';
 import { getReports, type User } from '../api';
@@ -213,6 +213,7 @@ export default function Reports({ user }: { user: User }) {
           {/* Rendered as a component, not called as a function: a tab with
               its own state (Numbers) would otherwise put its hooks on this
               page, and switching tabs changes the hook count (React #310). */}
+          <TabBoundary key={`${tab.key}-${personId ?? 'all'}-${from}-${to}`}>
           <TabView
             key={`${tab.key}-${personId ?? 'all'}`}
             data={data}
@@ -224,6 +225,7 @@ export default function Reports({ user }: { user: User }) {
             openDay={(date) => go({ from: date, to: date })}
             openContact={setContact}
           />
+          </TabBoundary>
           {drill && (
             <DrillSheet
               spec={drill}
@@ -316,4 +318,36 @@ function Skeleton() {
       </div>
     </div>
   );
+}
+
+/**
+ * A tab that throws shows its error instead of taking the whole app down
+ * to a blank page — so a report of "it's blank" arrives with the message.
+ */
+class TabBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
+  state = { error: null as Error | null };
+
+  static getDerivedStateFromError(error: Error) {
+    return { error };
+  }
+
+  componentDidCatch(error: Error) {
+    console.error('[reports] tab crashed', error);
+  }
+
+  render() {
+    if (!this.state.error) return this.props.children;
+    return (
+      <div className="rp-error" role="alert">
+        <AlertTriangle size={18} />
+        <div>
+          <b>This tab hit an error</b>
+          <p>{this.state.error.message || 'Unknown error'}. Other tabs still work.</p>
+        </div>
+        <button type="button" className="rp-btn" onClick={() => window.location.reload()}>
+          <RefreshCw size={15} /> Reload
+        </button>
+      </div>
+    );
+  }
 }
