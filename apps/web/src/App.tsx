@@ -14,6 +14,7 @@ import Favorites from './pages/Favorites';
 import Messages from './pages/Messages';
 import Chat from './pages/Chat';
 import Settings from './pages/Settings';
+import Reports from './pages/Reports';
 import type { User } from './api';
 import { getMe, listMyRingtones } from './api';
 import { installSessionGuard, onSessionExpired } from './lib/sessionGuard';
@@ -278,6 +279,8 @@ export default function App() {
         <Route path="voicemail/:id/play" element={<VoicemailPlay />} />
         <Route path="settings" element={<Settings />} />
         <Route path="settings/:section" element={<Settings />} />
+        <Route path="reports" element={<Reports user={user!} />} />
+        <Route path="reports/:tab" element={<Reports user={user!} />} />
       </Route>
       <Route path="*" element={<Navigate to={user ? '/keypad' : '/login'} />} />
     </Routes>

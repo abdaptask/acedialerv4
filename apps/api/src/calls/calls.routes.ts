@@ -27,6 +27,25 @@ interface UpdateCallBody {
   endedAt?: string | null;
   durationSeconds?: number;
   hangupCause?: string | null;
+  /** JsSIP originator: 'local' | 'remote' | 'system'. */
+  hangupSource?: string | null;
+  quality?: {
+    avgJitterMs?: number;
+    avgLossPct?: number;
+    maxLossPct?: number;
+    avgRttMs?: number | null;
+  } | null;
+}
+
+const HANGUP_SOURCES = new Set(['local', 'remote', 'system']);
+
+// Client-reported numbers go straight into reports, so an out-of-range
+// value (a clock jump, a NaN from a bad getStats read) is dropped rather
+// than stored.
+function boundedMetric(v: unknown, max: number): number | undefined {
+  return typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= max
+    ? Math.round(v * 100) / 100
+    : undefined;
 }
 
 /**
@@ -421,6 +440,19 @@ export async function callsRoutes(app: FastifyInstance) {
       data.endedAt = body.endedAt ? new Date(body.endedAt) : null;
     if (body.durationSeconds !== undefined) data.durationSeconds = body.durationSeconds;
     if (body.hangupCause !== undefined) data.hangupCause = body.hangupCause;
+    if (typeof body.hangupSource === 'string' && HANGUP_SOURCES.has(body.hangupSource)) {
+      data.hangupSource = body.hangupSource;
+    }
+    if (body.quality && typeof body.quality === 'object') {
+      const jitter = boundedMetric(body.quality.avgJitterMs, 10_000);
+      const loss = boundedMetric(body.quality.avgLossPct, 100);
+      if (jitter !== undefined && loss !== undefined) {
+        data.avgJitterMs = jitter;
+        data.avgLossPct = loss;
+        data.maxLossPct = boundedMetric(body.quality.maxLossPct, 100) ?? loss;
+        data.avgRttMs = boundedMetric(body.quality.avgRttMs, 60_000) ?? null;
+      }
+    }
 
     const call = await prisma.call.update({
       where: { id: existing.id },

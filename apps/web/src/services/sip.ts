@@ -90,6 +90,17 @@ export interface CallEvent {
   toNumber?: string;
   direction?: 'inbound' | 'outbound';
   hangupCause?: string;
+  /** JsSIP originator of the end: 'local' | 'remote' | 'system'. Set on 'ended'. */
+  hangupOriginator?: string;
+  /** Audio quality averaged over the call's connected time. Set on 'ended' when sampled. */
+  quality?: CallQualitySummary;
+}
+
+export interface CallQualitySummary {
+  avgJitterMs: number;
+  avgLossPct: number;
+  maxLossPct: number;
+  avgRttMs: number | null;
 }
 
 export interface CallQuality {
@@ -270,6 +281,14 @@ export class SipService {
   // never got the caller's audio; packetsSent==0 means our mic never left.
   private lastPacketsSent = 0;
   private qualityPollCount = 0;
+  /**
+   * Running quality totals per call, reported once on hang-up so Reports
+   * can tell a bad-network call from a normal one. The live badge only
+   * ever showed the current 2s sample, which is gone when the call ends.
+   */
+  private qualityTotals: Map<string, {
+    samples: number; jitterMs: number; lossPct: number; maxLossPct: number; rttMs: number; rttSamples: number;
+  }> = new Map();
 
   constructor() {
     this.primaryAudioEl = document.createElement('audio');
@@ -1541,7 +1560,7 @@ export class SipService {
         status: data?.message?.status_code,
         reason: data?.message?.reason_phrase,
       });
-      this.cleanupCall(callId, data?.cause ?? 'normal_clearing');
+      this.cleanupCall(callId, data?.cause ?? 'normal_clearing', data?.originator);
     });
     session.on('failed', (data: { cause?: string; originator?: string; message?: { status_code?: number; reason_phrase?: string } }) => {
       console.warn('[sip] failed', callId, {
@@ -1550,7 +1569,7 @@ export class SipService {
         status: data?.message?.status_code,
         reason: data?.message?.reason_phrase,
       });
-      this.cleanupCall(callId, data?.cause ?? 'failed');
+      this.cleanupCall(callId, data?.cause ?? 'failed', data?.originator);
     });
 
     // ICE candidate trickle — v0.8.10
@@ -1718,7 +1737,7 @@ export class SipService {
     session.on('reinvite', () => console.log('[sip] reinvite', callId));
   }
 
-  private cleanupCall(callId: string, cause: string): void {
+  private cleanupCall(callId: string, cause: string, originator?: string): void {
     const entry = this.calls.get(callId);
     if (!entry) return;
     // v0.10.194 — Cancel the early-media promote timer if it was
@@ -1731,7 +1750,12 @@ export class SipService {
     // Snapshot the 'ended' event BEFORE we mutate state so the receiver can
     // compare e.callId against the post-cleanup activeCallId to decide
     // whether to swap callState to a promoted call.
-    const endedEvent: CallEvent = { ...this.buildEvent(entry, 'ended'), hangupCause: cause };
+    const endedEvent: CallEvent = {
+      ...this.buildEvent(entry, 'ended'),
+      hangupCause: cause,
+      hangupOriginator: originator,
+      quality: this.takeQualitySummary(callId),
+    };
 
     try {
       if (entry.audioEl) {
@@ -3130,7 +3154,34 @@ export class SipService {
     let level: CallQualityLevel = 'good';
     if (jms >= 60 || lossPct >= 5 || (rtt !== null && rttMs >= 500)) level = 'poor';
     else if (jms >= 30 || lossPct >= 1 || (rtt !== null && rttMs >= 300)) level = 'fair';
+    // Only sample while audio is actually arriving — a held leg reads as
+    // zero loss and would dilute the average toward "perfect".
+    if (dRecv > 0) {
+      const t = this.qualityTotals.get(active.id)
+        ?? { samples: 0, jitterMs: 0, lossPct: 0, maxLossPct: 0, rttMs: 0, rttSamples: 0 };
+      t.samples += 1;
+      t.jitterMs += jms;
+      t.lossPct += lossPct;
+      t.maxLossPct = Math.max(t.maxLossPct, lossPct);
+      if (rtt !== null) {
+        t.rttMs += rttMs;
+        t.rttSamples += 1;
+      }
+      this.qualityTotals.set(active.id, t);
+    }
     this.emit<CallQuality>('quality', { level, jitter, loss, rtt });
+  }
+
+  private takeQualitySummary(callId: string): CallQualitySummary | undefined {
+    const t = this.qualityTotals.get(callId);
+    this.qualityTotals.delete(callId);
+    if (!t || t.samples === 0) return undefined;
+    return {
+      avgJitterMs: t.jitterMs / t.samples,
+      avgLossPct: t.lossPct / t.samples,
+      maxLossPct: t.maxLossPct,
+      avgRttMs: t.rttSamples > 0 ? t.rttMs / t.rttSamples : null,
+    };
   }
 
   // ---------- Helpers ----------
