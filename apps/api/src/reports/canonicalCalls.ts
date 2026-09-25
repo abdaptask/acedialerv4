@@ -43,6 +43,11 @@ export interface RawCallRow {
   avgLossPct: number | null;
   maxLossPct: number | null;
   avgRttMs: number | null;
+  rxPackets?: number | null;
+  txPackets?: number | null;
+  sipHangupCause?: string | null;
+  /** Telnyx's inbound (far end → Telnyx) packet count from call_quality_stats. */
+  carrierRxPackets?: number | null;
 }
 
 export interface CallQualitySummary {
@@ -72,6 +77,12 @@ export interface LogicalCall {
   /** 'local' | 'remote' | 'system' from JsSIP, when recorded. */
   clientOriginator: string | null;
   quality: CallQualitySummary | null;
+  /** Audio packets the app received; 0 on a connected call = one-way audio. */
+  rxPackets: number | null;
+  sipCause: string | null;
+  carrierRxPackets: number | null;
+  /** Seconds from dial/ring start to answer, or to hang-up when never answered. */
+  ringSec: number;
   userDidId: number | null;
   /** Every telnyxCallId folded into this call — voicemails join on these. */
   telnyxCallIds: string[];
@@ -113,6 +124,10 @@ function toLogical(r: RawCallRow): LogicalCall {
     clientCause: isClient ? r.hangupCause : null,
     clientOriginator: isClient ? r.hangupSource : null,
     quality: qualityOf(r),
+    rxPackets: isClient ? r.rxPackets ?? null : null,
+    sipCause: r.sipHangupCause ?? null,
+    carrierRxPackets: r.carrierRxPackets ?? null,
+    ringSec: Math.max(0, Math.round((((r.answeredAt ?? r.endedAt) ?? r.startedAt) - r.startedAt) / 1000)),
     userDidId: r.userDidId,
     telnyxCallIds: [r.telnyxCallId],
   };
@@ -192,6 +207,7 @@ export function canonicalizeCalls(rows: RawCallRow[]): LogicalCall[] {
         match.clientCause = client.clientCause;
         match.clientOriginator = client.clientOriginator;
         match.quality = client.quality;
+        match.rxPackets = client.rxPackets;
         match.telnyxCallIds.push(...client.telnyxCallIds);
       } else {
         // No webhook leg — e.g. a user whose Telnyx webhook pointed at the
@@ -280,4 +296,74 @@ export function isPoorQuality(c: LogicalCall): boolean {
   const q = c.quality;
   if (!q) return false;
   return q.avgJitterMs >= 60 || q.avgLossPct >= 5 || (q.avgRttMs != null && q.avgRttMs >= 500);
+}
+
+// ── End reason ────────────────────────────────────────────────────────
+//
+// One plain-language answer to "why did this call end?", from the most
+// specific evidence available: the app's own packet counts and JsSIP
+// originator (client row), then Telnyx's hang-up source/cause.
+
+export type EndReasonKey =
+  | 'no_audio' | 'dropped' | 'you_hung_up' | 'they_hung_up' | 'ended'
+  | 'you_canceled' | 'no_answer' | 'busy' | 'not_found' | 'rejected' | 'failed'
+  | 'caller_hung_up' | 'rang_out' | 'declined' | 'blocked';
+
+export interface EndReason {
+  key: EndReasonKey;
+  label: string;
+  /** Who ended it, when that's known. */
+  by: 'you' | 'them' | 'network' | null;
+}
+
+// A connected call that ran this long with zero packets from the far end is
+// silent, not just short.
+const SILENT_MIN_SEC = 5;
+
+export function isSilent(c: LogicalCall): boolean {
+  if (!c.answered || c.talkSec < SILENT_MIN_SEC) return false;
+  if (c.rxPackets != null) return c.rxPackets === 0;
+  return false;
+}
+
+export function endReason(c: LogicalCall): EndReason {
+  const sip = c.sipCause && /^\d{3}$/.test(c.sipCause) ? ` (SIP ${c.sipCause})` : '';
+  if (c.answered) {
+    if (isSilent(c)) return { key: 'no_audio', label: 'Connected, but no audio came through from their side', by: null };
+    if (isConfirmedDrop(c)) return { key: 'dropped', label: 'Call dropped by the network', by: 'network' };
+    const origin = (c.clientOriginator ?? '').toLowerCase();
+    if (origin === 'local') return { key: 'you_hung_up', label: 'You hung up', by: 'you' };
+    if (origin === 'remote') return { key: 'they_hung_up', label: 'They hung up', by: 'them' };
+    const src = (c.source ?? '').toLowerCase();
+    // Telnyx names the legs from the call's point of view: on an outbound
+    // call we are the caller; on an inbound call they are.
+    const us = c.direction === 'outbound' ? 'caller' : 'callee';
+    const them = c.direction === 'outbound' ? 'callee' : 'caller';
+    if (src === us) return { key: 'you_hung_up', label: 'You hung up', by: 'you' };
+    if (src === them) return { key: 'they_hung_up', label: 'They hung up', by: 'them' };
+    return { key: 'ended', label: 'Call ended', by: null };
+  }
+  // Under 3s the carrier's timestamps say more about signalling than ringing.
+  const ring = c.ringSec >= 3 ? ` after ${c.ringSec}s` : '';
+  if (c.direction === 'outbound') {
+    const o = outboundOutcome(c);
+    const s = c.status;
+    const cause = (c.cause ?? '').toLowerCase();
+    if (o === 'no_answer') {
+      if (s === 'caller_canceled' || cause === 'originator_cancel' || cause === 'canceled') {
+        return { key: 'you_canceled', label: `You hung up before they answered${ring}`, by: 'you' };
+      }
+      return { key: 'no_answer', label: `No answer${ring}`, by: 'them' };
+    }
+    if (o === 'busy') return { key: 'busy', label: `Busy${sip}`, by: 'them' };
+    if (o === 'invalid_number') return { key: 'not_found', label: `Number not in service or not found${sip}`, by: 'network' };
+    if (o === 'rejected') return { key: 'rejected', label: `Declined or blocked by the other side${sip}`, by: 'them' };
+    return { key: 'failed', label: `Couldn't connect${sip || (c.cause ? ` (${c.cause})` : '')}`, by: 'network' };
+  }
+  const o = inboundOutcome(c);
+  if (o === 'blocked') return { key: 'blocked', label: 'Blocked number', by: null };
+  if (o === 'caller_hung_up') return { key: 'caller_hung_up', label: `Caller hung up while it rang${ring}`, by: 'them' };
+  if (o === 'rang_out') return { key: 'rang_out', label: `Nobody answered${ring}`, by: null };
+  if (o === 'declined') return { key: 'declined', label: 'You declined (or were busy)', by: 'you' };
+  return { key: 'failed', label: `Didn't connect${sip}`, by: 'network' };
 }

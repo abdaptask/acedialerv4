@@ -6,6 +6,10 @@ import { formatPhone } from '../../lib/phone';
 import { RecordRow, Timeline } from './records';
 import { Sparkline } from './charts';
 import { change, fmtDay } from './format';
+
+const etKeyFmt = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit' });
+/** ISO timestamp → YYYY-MM-DD in Eastern time. */
+const etDayKey = (iso: string) => etKeyFmt.format(new Date(iso));
 import type { CallLog, CallLogEntry, DailyPoint, PersonMetrics, PersonRow, PrevMetrics, TextLog, TextLogEntry } from './types';
 
 export type RowLike = PersonMetrics & { prev?: PrevMetrics | null; name?: string };
@@ -413,13 +417,43 @@ export function DrillSheet({
     return withVal;
   }, [people, spec, asc, view]);
 
-  const records = useMemo(() => {
-    if (view !== 'records') return [];
+  const recordsAll = useMemo(() => {
+    if (!hasRecords) return [];
     const cs = spec.calls && callLog ? callLog.calls.filter(spec.calls).map((c) => ({ kind: 'call' as const, c, at: c.startedAt })) : [];
     const ts = spec.texts && textLog ? textLog.messages.filter(spec.texts).map((m) => ({ kind: 'text' as const, m, at: m.at })) : [];
     return [...cs, ...ts].sort((a, b) => b.at.localeCompare(a.at));
-  }, [view, spec, callLog, textLog]);
+  }, [hasRecords, spec, callLog, textLog]);
+  const records = view === 'records' ? recordsAll : [];
   const [shown, setShown] = useState(200);
+  const [order, setOrder] = useState<'newest' | 'reason'>('newest');
+  const [openDays, setOpenDays] = useState<Set<string>>(new Set());
+
+  // Records grouped by why they ended (calls) or what happened (texts),
+  // biggest group first. Used by the "By end reason" order and the By-day view.
+  type Rec = (typeof records)[number];
+  const reasonOf = (r: Rec) => (r.kind === 'call' ? r.c.endLabel.replace(/ after \d+s$/, '') : r.m.status === 'delivered' || r.m.direction === 'inbound' ? r.m.statusLabel : (r.m.why ?? r.m.statusLabel));
+  const groupByReason = (rs: Rec[]) => {
+    const g = new Map<string, Rec[]>();
+    for (const r of rs) {
+      const k = reasonOf(r);
+      const l = g.get(k);
+      if (l) l.push(r);
+      else g.set(k, [r]);
+    }
+    return [...g.entries()].sort((a, b) => b[1].length - a[1].length);
+  };
+  const recordDays = useMemo(() => {
+    if (view !== 'days' || !hasRecords) return [];
+    const byDay = new Map<string, Rec[]>();
+    for (const r of recordsAll) {
+      const k = etDayKey(r.at);
+      const l = byDay.get(k);
+      if (l) l.push(r);
+      else byDay.set(k, [r]);
+    }
+    return [...byDay.entries()].sort((a, b) => b[0].localeCompare(a[0]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view, hasRecords, spec, callLog, textLog]);
 
   const hidden = view === 'people' ? people.length - rows.length : 0;
   const total = rows.reduce((a, r) => a + r.v, 0);
@@ -459,12 +493,18 @@ export function DrillSheet({
           </div>
         ) : (
           <>
-            {personName != null && hasRecords && spec.daily && (
+            {personName != null && hasRecords && (
               <div className="rp-sheet-tools">
                 <div className="rp-seg rp-seg-sm" role="group" aria-label="Show">
                   <button type="button" aria-pressed={view === 'records'} onClick={() => setView('records')}>Each {unit === 'texts' ? 'text' : 'call'}</button>
                   <button type="button" aria-pressed={view === 'days'} onClick={() => setView('days')}>By day</button>
                 </div>
+                {view === 'records' && (
+                  <div className="rp-seg rp-seg-sm" role="group" aria-label="Order">
+                    <button type="button" aria-pressed={order === 'newest'} onClick={() => setOrder('newest')}>Newest first</button>
+                    <button type="button" aria-pressed={order === 'reason'} onClick={() => setOrder('reason')}>By {unit === 'texts' ? 'outcome' : 'end reason'}</button>
+                  </div>
+                )}
               </div>
             )}
             {view === 'people' && rows.length > 1 && (
@@ -476,7 +516,19 @@ export function DrillSheet({
               </div>
             )}
 
-            {view === 'records' && (
+            {view === 'records' && order === 'reason' && (
+              <div className="rp-sheet-scroll">
+                {groupByReason(records).map(([reason, rs]) => (
+                  <section key={reason} className="rp-reason-group">
+                    <h4><span>{reason}</span><b className="rp-num">{rs.length}</b></h4>
+                    <ol className="rp-sheet-list rp-rec-list">
+                      {rs.map((r, i) => <RecordRow key={i} item={r} onOpen={(number, name) => setThread({ number, name })} />)}
+                    </ol>
+                  </section>
+                ))}
+              </div>
+            )}
+            {view === 'records' && order === 'newest' && (
               <ol className="rp-sheet-list rp-rec-list">
                 {records.slice(0, shown).map((r, i) => (
                   <RecordRow key={i} item={r} onOpen={(number, name) => setThread({ number, name })} />
@@ -488,7 +540,48 @@ export function DrillSheet({
               </ol>
             )}
 
-            {view === 'days' && (
+            {view === 'days' && hasRecords && (
+              <div className="rp-sheet-scroll">
+                {recordDays.map(([day, rs]) => {
+                  const groups = groupByReason(rs);
+                  const isOpen = openDays.has(day);
+                  return (
+                    <section key={day} className="rp-day-group">
+                      <button
+                        type="button"
+                        className="rp-day-head"
+                        aria-expanded={isOpen}
+                        onClick={() => setOpenDays((s) => { const n = new Set(s); if (n.has(day)) n.delete(day); else n.add(day); return n; })}
+                      >
+                        <span className="rp-day-title">
+                          <ChevronRight size={15} className={`rp-chev${isOpen ? ' open' : ''}`} />
+                          <b>{fmtDay(day)}</b>
+                          <span className="rp-muted">{rs.length} {rs.length === 1 ? unit.replace(/s$/, '') : unit}</span>
+                        </span>
+                        <span className="rp-day-reasons">
+                          {groups.slice(0, 4).map(([reason, g]) => <span key={reason} className="rp-chip"><b className="rp-num">{g.length}</b> {reason}</span>)}
+                          {groups.length > 4 && <span className="rp-chip rp-muted">+{groups.length - 4} more</span>}
+                        </span>
+                      </button>
+                      {isOpen && (
+                        <>
+                          {groups.map(([reason, g]) => (
+                            <div key={reason} className="rp-reason-group">
+                              <h4><span>{reason}</span><b className="rp-num">{g.length}</b></h4>
+                              <ol className="rp-sheet-list rp-rec-list">
+                                {g.map((r, i) => <RecordRow key={i} item={r} onOpen={(number, name) => setThread({ number, name })} />)}
+                              </ol>
+                            </div>
+                          ))}
+                          <div className="rp-day-foot"><button type="button" className="rp-link" onClick={() => onOpenDay(day)}>Open the full report for {fmtDay(day)}</button></div>
+                        </>
+                      )}
+                    </section>
+                  );
+                })}
+              </div>
+            )}
+            {view === 'days' && !hasRecords && (
               <ol className="rp-sheet-list">
                 {dayRows.map(({ d, v }) => (
                   <li key={d.date} className="rp-sheet-day">
@@ -536,7 +629,7 @@ export function DrillSheet({
             : view === 'records'
               ? `${records.length.toLocaleString('en-US')} ${unit}, newest first. Select one to see the whole conversation with that number.`
               : view === 'days'
-                ? 'Select a day to open the report for just that day.'
+                ? hasRecords ? 'Each day grouped by why the call ended (or what happened to the text), biggest group first. Select a day to expand it.' : 'Select a day to open the report for just that day.'
                 : `${spec.additive ? 'Right column: share of the total.' : 'Right column: change vs the previous period.'}${hidden ? ` ${hidden} ${hidden === 1 ? 'person has' : 'people have'} none${spec.additive ? '' : ' or too few calls to rate'}.` : ''} Select a person to open their report.`}
         </footer>
       </aside>

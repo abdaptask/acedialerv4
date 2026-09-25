@@ -12,9 +12,11 @@ import {
   outboundOutcome,
   isConfirmedDrop,
   isPoorQuality,
+  isSilent,
   last10,
 } from './canonicalCalls.js';
 import { etParts, etDateKey } from './etTime.js';
+import { textFailureReason } from './textReasons.js';
 
 export interface MessageRow {
   userId: number;
@@ -127,6 +129,10 @@ export interface PersonMetrics {
   confirmedDrops: number;
   qualityMeasured: number;
   poorQuality: number;
+  /** Connected calls where the app measured audio packets. */
+  audioMeasured: number;
+  /** Connected calls where no audio came through from the other side. */
+  silentCalls: number;
   failedDials: number;
   invalidNumbers: number;
   busyOut: number;
@@ -232,7 +238,7 @@ function emptyPerson(userId: number): PersonMetrics {
     callsOut: 0, uniqueDialled: 0, uniqueConnected: 0, connectedOut: 0, callsIn: 0, answeredIn: 0, unansweredIn: 0, declinedIn: 0,
     callerHungUpIn: 0, rangOutIn: 0, noAnswerOut: 0, rejectedOut: 0, otherFailedOut: 0,
     talkSec: 0, avgTalkSec: 0, medianTalkSec: 0, connected: 0, shortCalls: 0, conversations: 0,
-    likelyDrops: 0, confirmedDrops: 0, qualityMeasured: 0, poorQuality: 0,
+    likelyDrops: 0, confirmedDrops: 0, qualityMeasured: 0, poorQuality: 0, audioMeasured: 0, silentCalls: 0,
     failedDials: 0, invalidNumbers: 0, busyOut: 0,
     missedReturnable: 0, missedReturned: 0, medianCallbackSec: null,
     smsSent: 0, smsReceived: 0, smsDelivered: 0, smsFailed: 0, smsRepliable: 0, smsReplied: 0,
@@ -398,6 +404,10 @@ export function computePeriod(win: Window, data: ReportData, userIds: number[]):
         p.qualityMeasured += 1;
         if (isPoorQuality(c)) p.poorQuality += 1;
       }
+      if (c.rxPackets != null) {
+        p.audioMeasured += 1;
+        if (isSilent(c)) p.silentCalls += 1;
+      }
       if (c.other) {
         noteContact(reachedByUser, c.userId, c.other);
         noteContact(calledByUser, c.userId, c.other);
@@ -554,7 +564,7 @@ export function computePeriod(win: Window, data: ReportData, userIds: number[]):
         if (FAILED_SMS.has(m.status)) {
           p.smsFailed += 1;
           const code = m.errorCode ?? 'unknown';
-          const fr = failureReasons.get(code) ?? { code, title: m.errorTitle ?? 'No reason given', count: 0 };
+          const fr = failureReasons.get(code) ?? { code, title: textFailureReason(m.errorCode, m.errorTitle), count: 0 };
           fr.count += 1;
           failureReasons.set(code, fr);
         }
@@ -700,7 +710,7 @@ export function computePeriod(win: Window, data: ReportData, userIds: number[]):
   const SUM_KEYS: Array<keyof PersonMetrics> = [
     'callsOut', 'connectedOut', 'callsIn', 'answeredIn', 'unansweredIn', 'declinedIn', 'talkSec', 'connected',
     'callerHungUpIn', 'rangOutIn', 'noAnswerOut', 'rejectedOut', 'otherFailedOut',
-    'shortCalls', 'conversations', 'likelyDrops', 'confirmedDrops', 'qualityMeasured', 'poorQuality',
+    'shortCalls', 'conversations', 'likelyDrops', 'confirmedDrops', 'qualityMeasured', 'poorQuality', 'audioMeasured', 'silentCalls',
     'failedDials', 'invalidNumbers', 'busyOut', 'missedReturnable', 'missedReturned',
     'smsSent', 'smsReceived', 'smsDelivered', 'smsFailed', 'smsRepliable', 'smsReplied', 'mms', 'segments', 'threads',
     'scheduledTotal', 'scheduledPending', 'scheduledSent', 'scheduledFailed', 'scheduledCanceled', 'campaigns',

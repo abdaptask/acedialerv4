@@ -29,6 +29,8 @@ export interface PersonMetrics {
   confirmedDrops: number;
   qualityMeasured: number;
   poorQuality: number;
+  audioMeasured: number;
+  silentCalls: number;
   failedDials: number;
   invalidNumbers: number;
   busyOut: number;
@@ -176,6 +178,9 @@ export interface TextLogEntry {
   status: 'received' | 'delivered' | 'failed' | 'sent';
   statusLabel: string;
   failReason: string | null;
+  /** Plain-language explanation of the status (why it failed / wasn't confirmed). */
+  why: string | null;
+  errorCode: string | null;
   /** Billed parts (outbound only). */
   parts: number | null;
   hasMedia: boolean;
@@ -200,6 +205,15 @@ export interface TextLog {
 }
 
 export interface CallLogEntry {
+  /** Why the call ended, e.g. 'they_hung_up', 'no_audio', 'no_answer'. */
+  endReason: string;
+  endLabel: string;
+  endBy: 'you' | 'them' | 'network' | null;
+  /** Seconds it rang before being answered (or before it ended, if never answered). */
+  ringSec: number;
+  /** Connected, but the app received no audio from the other side. */
+  noAudio: boolean;
+  audioMeasured: boolean;
   startedAt: string;
   direction: 'inbound' | 'outbound';
   number: string;

@@ -34,6 +34,8 @@ interface UpdateCallBody {
     avgLossPct?: number;
     maxLossPct?: number;
     avgRttMs?: number | null;
+    rxPackets?: number;
+    txPackets?: number;
   } | null;
 }
 
@@ -444,6 +446,11 @@ export async function callsRoutes(app: FastifyInstance) {
       data.hangupSource = body.hangupSource;
     }
     if (body.quality && typeof body.quality === 'object') {
+      // ~50 packets/s: 4h of audio is well under 1M. Anything bigger is junk.
+      const rx = boundedMetric(body.quality.rxPackets, 1_000_000);
+      const tx = boundedMetric(body.quality.txPackets, 1_000_000);
+      if (rx !== undefined) data.rxPackets = Math.round(rx);
+      if (tx !== undefined) data.txPackets = Math.round(tx);
       const jitter = boundedMetric(body.quality.avgJitterMs, 10_000);
       const loss = boundedMetric(body.quality.avgLossPct, 100);
       if (jitter !== undefined && loss !== undefined) {

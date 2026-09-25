@@ -11,7 +11,8 @@
 
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { prisma } from '@ace/db';
-import { canonicalizeCalls, inboundOutcome, last10, outboundOutcome, type LogicalCall, type RawCallRow } from './canonicalCalls.js';
+import { canonicalizeCalls, endReason, inboundOutcome, last10, outboundOutcome, type LogicalCall, type RawCallRow } from './canonicalCalls.js';
+import { textFailureReason } from './textReasons.js';
 import { optKeyword } from './insights.js';
 
 interface JwtPayload {
@@ -116,7 +117,8 @@ async function loadCallsFor(sinceMs: number, userId: number | null, digitsExact:
       (extract(epoch from started_at) * 1000)::bigint,
       coalesce(((extract(epoch from answered_at) * 1000)::bigint)::text, ''),
       coalesce(((extract(epoch from ended_at) * 1000)::bigint)::text, ''),
-      duration_seconds) AS r
+      duration_seconds, '', '', '', '', coalesce(rx_packets::text, ''), coalesce(sip_hangup_cause, ''),
+      coalesce(carrier_stats->'inbound'->>'packet_count', '')) AS r
     FROM calls
     WHERE started_at >= ${since}
       AND (${userId}::int IS NULL OR user_id = ${userId}::int)
@@ -131,6 +133,7 @@ async function loadCallsFor(sinceMs: number, userId: number | null, digitsExact:
       hangupCause: str(f[5]), hangupSource: str(f[6]), userDidId: num(f[7]), fromNumber: f[8], toNumber: f[9],
       startedAt: Number(f[10]), answeredAt: num(f[11]), endedAt: num(f[12]), durationSeconds: Number(f[13]),
       avgJitterMs: null, avgLossPct: null, maxLossPct: null, avgRttMs: null,
+      rxPackets: num(f[18]), sipHangupCause: str(f[19]), carrierRxPackets: num(f[20]),
     };
   });
 }
@@ -254,10 +257,13 @@ export async function lookupRoutes(app: FastifyInstance) {
       else r.callsIn += 1;
       if (c.answered) { r.connected += 1; r.talkSec += c.talkSec; }
       const o = callOutcome(c);
+      const end = endReason(c);
       events.push({
         at: new Date(c.startedAt).toISOString(), userId: c.userId, kind: 'call', direction: c.direction,
-        label: OUTCOME_LABELS[o] ?? o, tone: c.answered ? 'good' : o === 'invalid_number' || o === 'failed' ? 'crit' : o === 'caller_hung_up' || o === 'rang_out' ? 'warn' : null,
+        label: OUTCOME_LABELS[o] ?? o,
+        tone: end.key === 'no_audio' || end.key === 'dropped' ? 'crit' : c.answered ? 'good' : o === 'invalid_number' || o === 'failed' ? 'crit' : o === 'caller_hung_up' || o === 'rang_out' ? 'warn' : null,
         talkSec: c.answered ? c.talkSec : undefined,
+        detail: end.label,
       });
     }
     for (const m of [...msgs].sort((a, b) => a.created_at.getTime() - b.created_at.getTime())) {
@@ -270,12 +276,16 @@ export async function lookupRoutes(app: FastifyInstance) {
       if (kw === 'stop') r.optedOut = true;
       if (kw === 'start') r.optedOut = false;
       const failed = !inbound && FAILED_TEXT.has((m.status ?? '').toLowerCase());
-      const first = Array.isArray(m.errors) ? (m.errors[0] as { title?: string } | undefined) : undefined;
+      const first = Array.isArray(m.errors) ? (m.errors[0] as { title?: string; code?: string | number } | undefined) : undefined;
       events.push({
         at: m.created_at.toISOString(), userId: m.user_id, kind: 'text', direction: inbound ? 'inbound' : 'outbound',
         label: kw === 'stop' ? 'Opted out (STOP)' : kw === 'start' ? 'Opted back in' : inbound ? 'Received' : failed ? 'Failed' : m.status === 'delivered' ? 'Delivered' : 'Sent, not confirmed',
         tone: kw === 'stop' || failed ? 'crit' : !inbound && m.status === 'delivered' ? 'good' : null,
-        detail: [m.media > 0 ? 'Picture message' : 'Text', failed && first?.title ? first.title : null].filter(Boolean).join(' · '),
+        detail: [
+          m.media > 0 ? 'Picture message' : 'Text',
+          failed ? textFailureReason(first?.code != null ? String(first.code) : null, first?.title ?? null) : null,
+          !inbound && !failed && m.status !== 'delivered' ? 'delivery not confirmed by the carrier' : null,
+        ].filter(Boolean).join(' · '),
       });
     }
     for (const v of vms) {

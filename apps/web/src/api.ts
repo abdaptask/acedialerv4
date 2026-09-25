@@ -483,10 +483,12 @@ export interface UpdateCallInput {
   hangupCause?: string | null;
   hangupSource?: string | null;
   quality?: {
-    avgJitterMs: number;
-    avgLossPct: number;
-    maxLossPct: number;
-    avgRttMs: number | null;
+    avgJitterMs?: number;
+    avgLossPct?: number;
+    maxLossPct?: number;
+    avgRttMs?: number | null;
+    rxPackets?: number;
+    txPackets?: number;
   } | null;
 }
 
