@@ -24,6 +24,16 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.234',
+    date: 'September 25, 2026',
+    highlight: 'The daily email is now one team email with shout-outs up front.',
+    changes: [
+      { type: 'improved', text: 'The daily email goes out as one message: the people in the shout-outs on To, everyone else on BCC.' },
+      { type: 'improved', text: 'Shout-outs are three boxes with an icon, the winner and their number, and the runners-up underneath.' },
+      { type: 'improved', text: 'The email now has team numbers only; the personal section was removed.' },
+    ],
+  },
+  {
     version: '0.10.233',
     date: 'September 25, 2026',
     highlight: 'A daily performance email, sent from Reports.',

@@ -19,7 +19,6 @@ const hourLabel = (h: number) => (h === 12 ? '12:00 PM' : `${h}:00 AM`);
 
 export function DailyEmail(_p: TabProps) {
   const [date, setDate] = useState<string | null>(null);
-  const [as, setAs] = useState<number | null>(null);
   const [data, setData] = useState<DigestPreview | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -34,12 +33,12 @@ export function DailyEmail(_p: TabProps) {
     let live = true;
     setLoading(true);
     setErr(null);
-    getDigestPreview(token(), date ?? undefined, as ?? undefined)
+    getDigestPreview(token(), date ?? undefined)
       .then((d) => { if (live) { setData(d); if (!date) setDate(d.date); } })
       .catch((e: Error) => { if (live) setErr(e.message); })
       .finally(() => { if (live) setLoading(false); });
     return () => { live = false; };
-  }, [date, as, nonce]);
+  }, [date, nonce]);
 
   const send = async (mode: 'test' | 'everyone') => {
     if (!data) return;
@@ -47,12 +46,11 @@ export function DailyEmail(_p: TabProps) {
     setNotice(null);
     try {
       const r = await sendDigest(token(), { date: data.date, mode, expectedCount: data.recipients.length, force });
-      const failed = r.failed.length;
       setNotice({
-        tone: failed ? 'crit' : 'good',
+        tone: 'good',
         text: mode === 'test'
-          ? (r.sent ? `Test sent to ${r.to}. Check your inbox.` : `The test didn't send: ${r.failed[0]?.error ?? 'unknown error'}.`)
-          : `Sent to ${fmtInt(r.sent)} ${r.sent === 1 ? 'person' : 'people'}${failed ? `. ${failed} failed: ${r.failed.slice(0, 3).map((f) => f.email).join(', ')}` : '.'}`,
+          ? `Test sent to ${r.to}. Check your inbox.`
+          : `Sent: one email to ${fmtInt(Number(r.to))} ${Number(r.to) === 1 ? 'person' : 'people'} on To and ${fmtInt(r.bcc ?? 0)} on BCC.`,
       });
       setConfirm(false);
       setForce(false);
@@ -84,19 +82,17 @@ export function DailyEmail(_p: TabProps) {
 
   return (
     <div className="rp-grid">
-      <Panel title="Daily performance email" sub={`Goes to the ${fmtInt(n)} active users who called or texted in the last four weeks. Everyone sees the team section; each person's own numbers and follow-ups are only in their copy`} span={5}>
+      <Panel title="Daily performance email" sub={`One email to the ${fmtInt(n)} active users who called or texted in the last four weeks: the people in the shout-outs on To, everyone else on BCC`} span={5}>
         <div className="rp-digest-form">
           <label className="rp-field" htmlFor="rp-digest-date">
             <span>Day to report on</span>
             <input id="rp-digest-date" type="date" value={date ?? ''} max={yesterday} onChange={(e) => { setDate(e.target.value); setConfirm(false); setNotice(null); }} />
           </label>
-          <label className="rp-field" htmlFor="rp-digest-as">
-            <span>Preview as</span>
-            <select id="rp-digest-as" value={data.previewAs.id} onChange={(e) => setAs(Number(e.target.value))}>
-              {!data.recipients.some((r) => r.id === data.previewAs.id) && <option value={data.previewAs.id}>{data.previewAs.name} (you)</option>}
-              {data.recipients.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
-            </select>
-          </label>
+          <div className="rp-field">
+            <span>To ({fmtInt(data.to.length)}, from the shout-outs)</span>
+            <div className="rp-to">{data.to.length ? data.to.map((r) => <span key={r.id} className="rp-chip">{r.name}</span>) : <span className="rp-muted">No shout-outs this day, so everyone goes on BCC</span>}</div>
+            <span className="rp-muted">BCC: {fmtInt(data.bccCount)} other {data.bccCount === 1 ? 'person' : 'people'}. They won’t see each other’s addresses.</span>
+          </div>
 
           <div className="rp-digest-actions">
             <button type="button" className="rp-btn" disabled={!!busy || loading} onClick={() => void send('test')}>
@@ -112,7 +108,7 @@ export function DailyEmail(_p: TabProps) {
           {confirm && (
             <div className="rp-confirm" role="alertdialog" aria-labelledby="rp-confirm-title">
               <b id="rp-confirm-title">Send the email for {longDay(data.date)} to {fmtInt(n)} people?</b>
-              <p>Each person gets their own copy. This can’t be undone.</p>
+              <p>One email: {fmtInt(data.to.length)} on To, {fmtInt(data.bccCount)} on BCC. This can’t be undone.</p>
               {data.alreadySent && (
                 <label className="rp-check" htmlFor="rp-digest-force">
                   <input id="rp-digest-force" type="checkbox" checked={force} onChange={(e) => setForce(e.target.checked)} />
@@ -160,7 +156,7 @@ export function DailyEmail(_p: TabProps) {
         </div>
       </Panel>
 
-      <Panel title="Preview" sub={`What ${data.previewAs.name} will receive`} span={7} flush>
+      <Panel title="Preview" sub="Everyone receives this same email" span={7} flush>
         <div className="rp-mail-head">
           <div><span className="rp-muted">From</span> ACE Dialer</div>
           <div><span className="rp-muted">Subject</span> <b>{data.subject}</b></div>
@@ -175,15 +171,14 @@ export function DailyEmail(_p: TabProps) {
         {data.history.length === 0 ? <Empty>Nothing sent yet.</Empty> : (
           <div className="rp-table-wrap">
             <table className="rp-table">
-              <thead><tr><th>When</th><th>Day covered</th><th>To</th><th className="rp-r">Delivered to SendGrid</th><th className="rp-r">Failed</th><th>By</th></tr></thead>
+              <thead><tr><th>When</th><th>Day covered</th><th>Sent to</th><th className="rp-r">People</th><th>By</th></tr></thead>
               <tbody>
                 {data.history.map((h, i) => (
                   <tr key={i} className="rp-static">
                     <td className="rp-num">{fmtDateTime(h.at)}</td>
                     <td className="rp-num">{h.date ? longDay(h.date) : '—'}</td>
-                    <td>{h.mode === 'test' ? 'Test to self' : 'Everyone'}</td>
-                    <td className="rp-r rp-num">{fmtInt(h.sent)}</td>
-                    <td className="rp-r rp-num">{h.failed ? <span className="rp-pill rp-pill-crit">{h.failed}</span> : '0'}</td>
+                    <td>{h.mode === 'test' ? 'Test to self' : h.to != null ? `Everyone (${h.to} To, ${h.bcc ?? 0} BCC)` : 'Everyone'}</td>
+                    <td className="rp-r rp-num">{h.failed ? <span className="rp-pill rp-pill-crit">failed</span> : fmtInt(h.sent)}</td>
                     <td>{h.by}</td>
                   </tr>
                 ))}

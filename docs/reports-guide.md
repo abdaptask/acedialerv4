@@ -21,7 +21,7 @@ Reports shows how ApTask calls, texts and follows up with candidates. Recruiters
 | Search a number or name | Your own history | The whole team's history |
 | Insights (best time to call, overlap, opt-outs, failing numbers, movers) | Not shown | Yes |
 | Cost (spend on calls, texts and lines) | Not shown | Yes |
-| Daily email (compose, preview and send) | Not shown; you receive your copy | Yes |
+| Daily email (compose, preview and send) | Not shown; you receive the team email | Yes |
 | Person picker and team scorecard | Not shown | Yes |
 | Export CSV | Your own data | Anything on screen |
 
@@ -108,11 +108,11 @@ Admins see the whole team, can open any person's report, and get three extra tab
 
 ### Daily email
 
-Reports, Daily email (admins only) sends one email per person about a working day. Everyone sees the same team section; each person's own numbers and what's waiting on them are only in their copy.
+Reports, Daily email (admins only) sends one team email about a working day: the people named in the shout-outs are on To, everyone else is on BCC, so nobody sees a long recipient list. It holds team numbers and shout-outs only; no individual's other numbers.
 
-- **What's in it:** team calls, different people called, conversations over 2 minutes and talk time, compared with the same weekday last week; how responsive the team was; shout-outs (top three in three positive categories, never a bottom list); the reader's own day against the team average and what's waiting on them; a tip on the best hour to call the next working day.
+- **What's in it:** three shout-out boxes (most conversations, most people called, fastest callbacks), each with an icon, the winner, their number and the runners-up; team calls, different people called, conversations over 2 minutes and talk time, compared with the same weekday last week; how responsive the team was; a tip on the best hour to call the next working day. Never a bottom list.
 - **Who gets it:** active users who called or texted in the last four weeks. "Show the recipients" lists them.
-- **Sending:** pick the day, preview it as anyone, send a test to yourself, then **Send to everyone** and confirm. A day already sent to everyone can only be sent again deliberately.
+- **Sending:** pick the day, check the preview and the To list, send a test to yourself, then **Send to everyone** and confirm. A day already sent to everyone can only be sent again deliberately.
 - **Automatic:** tick "Send automatically every weekday" and pick a time (5am to noon Eastern). It covers the previous working day, so Monday's covers Friday.
 - **Sent:** the last 20 sends, with how many went out and who sent them.
 
