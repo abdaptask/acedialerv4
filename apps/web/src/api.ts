@@ -3853,9 +3853,16 @@ export function getReportFollowUps(token: string, userId?: number | null) {
 }
 
 // ---------- Reports: daily email (admin) ----------
+export interface DigestPeriod {
+  kind: 'day' | 'week';
+  from: string;
+  to: string;
+}
+
 export interface DigestPreview {
+  period: DigestPeriod;
+  defaultPeriod: DigestPeriod;
   date: string;
-  defaultDate: string;
   subject: string;
   html: string;
   recipients: Array<{ id: number; name: string; email: string }>;
@@ -3864,11 +3871,12 @@ export interface DigestPreview {
   bccCount: number;
   alreadySent: boolean;
   schedule: { enabled: boolean; hour: number; lastSentDate: string | null };
-  history: Array<{ at: string; date: string | null; mode: string | null; sent: number; failed: number; to: number | null; bcc: number | null; by: string }>;
+  history: Array<{ at: string; date: string | null; kind: string; mode: string | null; sent: number; failed: number; to: number | null; bcc: number | null; by: string }>;
 }
 
-export function getDigestPreview(token: string, date?: string) {
+export function getDigestPreview(token: string, kind?: 'day' | 'week', date?: string) {
   const qs = new URLSearchParams();
+  if (kind) qs.set('kind', kind);
   if (date) qs.set('date', date);
   return reportsGet<DigestPreview>(token, `/reports/digest?${qs.toString()}`);
 }
@@ -3884,7 +3892,7 @@ async function reportsSend<T>(token: string, path: string, method: 'POST' | 'PUT
   return json as T;
 }
 
-export function sendDigest(token: string, body: { date: string; mode: 'test' | 'everyone'; expectedCount?: number; force?: boolean }) {
+export function sendDigest(token: string, body: { kind: 'day' | 'week'; date: string; mode: 'test' | 'everyone'; expectedCount?: number; force?: boolean }) {
   return reportsSend<{ ok: true; to: string | number; bcc?: number }>(token, '/reports/digest/send', 'POST', body);
 }
 

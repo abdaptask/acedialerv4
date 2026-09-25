@@ -108,12 +108,12 @@ Admins see the whole team, can open any person's report, and get three extra tab
 
 ### Daily email
 
-Reports, Daily email (admins only) sends one team email about a working day: the people named in the shout-outs are on To, everyone else is on BCC, so nobody sees a long recipient list. It holds team numbers and shout-outs only; no individual's other numbers.
+Reports, Daily email (admins only) sends one team email: Tuesday to Friday about the previous working day, and on Monday a weekly recap of the week before. the people named in the shout-outs are on To, everyone else is on BCC, so nobody sees a long recipient list. It holds team numbers and shout-outs only; no individual's other numbers.
 
-- **What's in it:** three shout-out boxes (most conversations, most people called, fastest callbacks), each with an icon, the winner, their number and the runners-up; team calls, different people called, conversations over 2 minutes and talk time, compared with the same weekday last week; how responsive the team was; a tip on the best hour to call the next working day. Never a bottom list.
+- **What's in it:** shout-out boxes (most conversations, most people called, fastest callbacks, and on Mondays most improved), each with an icon, the winner, their number and the runners-up; team calls, different people called, conversations over 2 minutes and talk time, compared with a week earlier; the month's short-call share against Telnyx's 15% limit; how responsive the team was; and best practices drawn from the period's own numbers (missed calls not returned, the hour with most unanswered calls, unanswered texts, bad numbers, landlines texted, the best hour to call next). Never a bottom list.
 - **Who gets it:** active users who called or texted in the last four weeks. "Show the recipients" lists them.
-- **Sending:** pick the day, check the preview and the To list, send a test to yourself, then **Send to everyone** and confirm. A day already sent to everyone can only be sent again deliberately.
-- **Automatic:** tick "Send automatically every weekday" and pick a time (5am to noon Eastern). It covers the previous working day, so Monday's covers Friday.
+- **Sending:** choose Daily or Weekly recap, pick the day (or any day in the week), check the preview and the To list, send a test to yourself, then **Send to everyone** and confirm. A day already sent to everyone can only be sent again deliberately.
+- **Automatic:** tick "Send automatically every weekday" and pick a time (5am to noon Eastern). Tuesday to Friday it sends the previous day; Monday it sends the weekly recap.
 - **Sent:** the last 20 sends, with how many went out and who sent them.
 
 ### Cost
@@ -140,6 +140,7 @@ Cost estimates spend on calls (billed minutes), texts (billed message parts) and
 | Talk time | From answer to hang-up; ringing isn't included |
 | Average / median call length | Average talk time per connected call; the median is the middle call, which is less skewed by a few long ones |
 | Calls under 10 seconds | Connected calls that lasted less than 10 seconds, usually a voicemail greeting or a wrong number |
+| Calls of 6 seconds or less | Telnyx's "short duration calls". When they pass 15% of answered calls in a month, Telnyx can charge extra for every one of them. Leave a voicemail instead of hanging up, and fix wrong numbers rather than redialing |
 | Conversations over 2 minutes | Connected calls of 2 minutes or more |
 | Answer rate | Inbound calls answered, out of all inbound calls except blocked ones |
 | Returned within 24h | A missed call followed by an outbound call to the same number within 24 hours |

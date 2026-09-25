@@ -375,3 +375,14 @@ test('Telnyx heard them but the app got nothing → "never reached you"', () => 
   ]);
   assert.equal(endReason(c).key, 'no_audio');
 });
+
+test('carrier short calls are answered calls of 6 seconds or less', () => {
+  const calls = canonicalizeCalls([
+    row({ sessionId: 'a', answeredAt: T0 + 1_000, endedAt: T0 + 7_000 }),   // 6s → counts
+    row({ sessionId: 'b', startedAt: T0 + 60_000, answeredAt: T0 + 61_000, endedAt: T0 + 68_000 }), // 7s → doesn't
+    row({ sessionId: 'c', startedAt: T0 + 120_000, status: 'no_answer' }),  // unanswered → doesn't
+  ]);
+  const r = computePeriod(WIN, data({ calls }), [1]);
+  assert.equal(r.totals.carrierShortCalls, 1);
+  assert.equal(r.totals.connected, 2);
+});

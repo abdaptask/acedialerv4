@@ -1,10 +1,13 @@
-// Daily performance email — composed, previewed and sent from the Reports
-// page (admin only), optionally on a weekday schedule.
+// Performance email — composed, previewed and sent from the Reports page
+// (admin only), optionally on a weekday schedule.
 //
-// One message for the whole team: the people featured in the shout-outs on
-// To, everyone else on BCC. Content is team-level only — no individual's
-// numbers beyond the shout-outs, which are top-three, positive measures,
-// never a bottom list.
+// Tuesday–Friday it covers the previous working day. Monday it's a weekly
+// recap of the previous Monday–Friday instead (so Friday is never sent on
+// its own). Either way it's ONE message for the whole team: the people
+// featured in the shout-outs on To, everyone else on BCC. Content is
+// team-level only — the leader rejected per-person sections as "sending
+// everyone my logs". Shout-outs are top-three, positive measures, never a
+// bottom list.
 //
 // Numbers come from computeReport() — the same function behind the Reports
 // page — so the email can never disagree with what people see there.
@@ -14,6 +17,7 @@ import { prisma } from '@ace/db';
 import { sendEmail } from '../email/sendgrid.js';
 import { recordAudit } from '../lib/audit.js';
 import { computeReport } from './reports.routes.js';
+import { CARRIER_SHORT_LIMIT, CARRIER_SHORT_SEC } from './compute.js';
 import { config } from '../config.js';
 import { addDays, dowOfDateKey, etDateKey, etParts, isDateKey } from './etTime.js';
 
@@ -25,8 +29,9 @@ interface JwtPayload {
 
 const SETTING_KEY = 'daily_digest';
 const RECENT_DAYS = 28;
+// Most improved needs a real baseline, or 3 calls → 9 calls wins.
+const IMPROVED_MIN_BASELINE = 50;
 const APP_URL = (process.env.WEB_PUBLIC_URL ?? 'https://dialer.aptask.com').replace(/\/$/, '');
-const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const DAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -34,9 +39,17 @@ type Report = Awaited<ReturnType<typeof computeReport>>;
 
 export interface Schedule {
   enabled: boolean;
-  /** Eastern hour to send (0–23). */
+  /** Eastern hour to send (5–12). */
   hour: number;
   lastSentDate: string | null;
+}
+
+export type DigestKind = 'day' | 'week';
+
+export interface Period {
+  kind: DigestKind;
+  from: string;
+  to: string;
 }
 
 // ── Dates ───────────────────────────────────────────────────────────────
@@ -54,9 +67,44 @@ function nextBusinessDay(day: string): string {
   return d;
 }
 
+/** Monday–Friday of the working week containing `day`. */
+export function weekOf(day: string): { from: string; to: string } {
+  const monday = addDays(day, -(dowOfDateKey(day) - 1));
+  return { from: monday, to: addDays(monday, 4) };
+}
+
+/** What the scheduler (and the tab's default) sends on `today`. */
+export function defaultPeriod(today: string): Period {
+  if (dowOfDateKey(today) === 1) {
+    const w = weekOf(addDays(today, -7));
+    return { kind: 'week', ...w };
+  }
+  const d = previousBusinessDay(today);
+  return { kind: 'day', from: d, to: d };
+}
+
+export function periodFor(kind: DigestKind, date: string): Period {
+  return kind === 'week' ? { kind, ...weekOf(date) } : { kind, from: date, to: date };
+}
+
+/** The audit/dedup key for a period. */
+const periodKey = (p: Period) => (p.kind === 'day' ? p.from : `${p.from}..${p.to}`);
+
 function longDate(key: string): string {
   const [, m, d] = key.split('-').map(Number);
   return `${DAY_NAMES[dowOfDateKey(key) - 1]}, ${MONTHS[m - 1]} ${d}`;
+}
+
+function shortDate(key: string): string {
+  const [, m, d] = key.split('-').map(Number);
+  return `${MONTHS[m - 1]} ${d}`;
+}
+
+function periodTitle(p: Period): string {
+  if (p.kind === 'day') return longDate(p.from);
+  const [, m1] = p.from.split('-').map(Number);
+  const [, m2, d2] = p.to.split('-').map(Number);
+  return m1 === m2 ? `${shortDate(p.from)}–${d2}` : `${shortDate(p.from)} – ${MONTHS[m2 - 1]} ${d2}`;
 }
 
 // ── Formatting ──────────────────────────────────────────────────────────
@@ -66,7 +114,9 @@ const int = (n: number) => Math.round(n).toLocaleString('en-US');
 const pct = (n: number, d: number) => (d ? `${Math.round((n / d) * 100)}%` : '—');
 function talk(sec: number): string {
   const m = Math.round(sec / 60);
-  return m < 60 ? `${m}m` : `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, '0')}m`;
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  return h >= 100 ? `${int(h)} hrs` : `${h}h ${String(m % 60).padStart(2, '0')}m`;
 }
 function wait(sec: number | null): string {
   if (sec == null) return '—';
@@ -75,41 +125,42 @@ function wait(sec: number | null): string {
   return `${(sec / 3600).toFixed(1)} hrs`;
 }
 function hourLabel(h: number): string {
-  if (h === 0) return '12am';
+  if (h === 0 || h === 24) return '12am';
   if (h === 12) return '12pm';
   return h < 12 ? `${h}am` : `${h - 12}pm`;
 }
-function fmtPhone(n: string): string {
-  const d = n.replace(/\D/g, '');
-  const t = d.length === 11 && d.startsWith('1') ? d.slice(1) : d;
-  return t.length === 10 ? `(${t.slice(0, 3)}) ${t.slice(3, 6)}-${t.slice(6)}` : n;
-}
-function change(cur: number, prev: number): { text: string; good: boolean | null } {
+function change(cur: number, prev: number, vs: string): { text: string; good: boolean | null } {
   if (!prev) return { text: '', good: null };
   const d = (cur - prev) / prev;
-  if (Math.abs(d) < 0.005) return { text: 'same as last week', good: null };
-  return { text: `${d > 0 ? '▲' : '▼'} ${Math.abs(Math.round(d * 100))}% vs last week`, good: d > 0 };
+  if (Math.abs(d) < 0.005) return { text: `same as ${vs}`, good: null };
+  return { text: `${d > 0 ? '▲' : '▼'} ${Math.abs(Math.round(d * 100))}% vs ${vs}`, good: d > 0 };
 }
 
 // ── Compose ─────────────────────────────────────────────────────────────
 
 export interface Digest {
-  date: string;
+  period: Period;
   report: Report;
-  lastWeek: Report;
+  /** Same period one week earlier. */
+  before: Report;
+  /** Four weeks ending with the period, for best-time and recipients. */
   recent: Report;
+  /** Month to date (to the period's end), for the carrier short-call limit. */
+  month: Report;
   recipients: Array<{ id: number; name: string; email: string }>;
 }
 
-export async function buildDigest(date: string): Promise<Digest> {
-  const [report, lastWeek, recent] = await Promise.all([
-    computeReport({ from: date, to: date, scopeUserId: null, isAdmin: true }),
-    computeReport({ from: addDays(date, -7), to: addDays(date, -7), scopeUserId: null, isAdmin: true }),
-    computeReport({ from: addDays(date, -(RECENT_DAYS - 1)), to: date, scopeUserId: null, isAdmin: true }),
+export async function buildDigest(period: Period): Promise<Digest> {
+  const monthStart = `${period.to.slice(0, 8)}01`;
+  const [report, before, recent, month] = await Promise.all([
+    computeReport({ from: period.from, to: period.to, scopeUserId: null, isAdmin: true }),
+    computeReport({ from: addDays(period.from, -7), to: addDays(period.to, -7), scopeUserId: null, isAdmin: true }),
+    computeReport({ from: addDays(period.to, -(RECENT_DAYS - 1)), to: period.to, scopeUserId: null, isAdmin: true }),
+    computeReport({ from: monthStart, to: period.to, scopeUserId: null, isAdmin: true }),
   ]);
   // "Users of the system": active accounts that called or texted in the
-  // last four weeks. Dormant accounts don't get a daily email about work
-  // they aren't doing.
+  // last four weeks. Dormant accounts don't get an email about work they
+  // aren't doing.
   const users = await prisma.user.findMany({
     where: { isActive: true, email: { not: { endsWith: '@deleted.ace.local' } } },
     select: { id: true, email: true },
@@ -120,7 +171,7 @@ export async function buildDigest(date: string): Promise<Digest> {
     .filter((u) => active.has(u.id) && u.email.includes('@'))
     .map((u) => ({ id: u.id, email: u.email, name: nameOf.get(u.id) ?? u.email }))
     .sort((a, b) => a.name.localeCompare(b.name));
-  return { date, report, lastWeek, recent, recipients };
+  return { period, report, before, recent, month, recipients };
 }
 
 export interface ShoutOut {
@@ -134,27 +185,40 @@ export interface ShoutOut {
   runnersUp: Array<{ userId: number; name: string; value: string }>;
 }
 
-/** Top three in three positive categories. Nobody is ever listed at the bottom. */
+/** Top three per positive category. Nobody is ever listed at the bottom. */
 export function shoutOuts(d: Digest): ShoutOut[] {
   const people = d.report.people;
   type P = (typeof people)[number];
   const top = (rows: P[], val: (p: P) => number | null) =>
     rows.map((r) => ({ r, v: val(r) })).filter((x): x is { r: P; v: number } => x.v != null && x.v > 0).sort((a, b) => b.v - a.v).slice(0, 3);
-  const build = (key: string, icon: string, tint: string, title: string, unit: string, ranked: Array<{ r: P; v: number }>, show: (r: P) => string): ShoutOut | null => {
+  const build = (key: string, icon: string, tint: string, title: string, unit: string, ranked: Array<{ r: P; v: number }>, show: (r: P, v: number) => string): ShoutOut | null => {
     if (ranked.length === 0) return null;
     const [first, ...rest] = ranked;
     return {
       key, icon, tint, title, unit,
-      winner: { userId: first.r.userId, name: first.r.name, value: show(first.r) },
-      runnersUp: rest.map((x) => ({ userId: x.r.userId, name: x.r.name, value: show(x.r) })),
+      winner: { userId: first.r.userId, name: first.r.name, value: show(first.r, first.v) },
+      runnersUp: rest.map((x) => ({ userId: x.r.userId, name: x.r.name, value: show(x.r, x.v) })),
     };
   };
-  return [
+  const out = [
     build('conversations', '🏆', '#fff4d6', 'Most conversations', 'over 2 minutes', top(people, (p) => p.conversations), (p) => int(p.conversations)),
     build('reach', '📞', '#e3efff', 'Most people called', 'different numbers', top(people, (p) => p.uniqueDialled), (p) => int(p.uniqueDialled)),
     // Fastest needs at least 3 returned calls, or one lucky callback wins.
     build('callbacks', '⚡', '#e6f6ea', 'Fastest callbacks', 'median time to call back', top(people.filter((p) => p.missedReturned >= 3), (p) => (p.medianCallbackSec == null ? null : 1 / (1 + p.medianCallbackSec))), (p) => wait(p.medianCallbackSec)),
-  ].filter((x): x is ShoutOut => x !== null);
+  ];
+  if (d.period.kind === 'week') {
+    const before = new Map(d.before.people.map((p) => [p.userId, p.callsOut]));
+    out.push(build(
+      'improved', '🚀', '#f1e8ff', 'Most improved', 'more calls than the week before',
+      top(people.filter((p) => (before.get(p.userId) ?? 0) >= IMPROVED_MIN_BASELINE), (p) => {
+        const b = before.get(p.userId)!;
+        const g = (p.callsOut - b) / b;
+        return g > 0.1 ? g : null;
+      }),
+      (_p, v) => `+${Math.round(v * 100)}%`,
+    ));
+  }
+  return out.filter((x): x is ShoutOut => x !== null);
 }
 
 /**
@@ -168,6 +232,133 @@ export function addressees(d: Digest, shouts: ShoutOut[]) {
   return { to, bcc };
 }
 
+export interface ShortCalls {
+  /** Month to date, answered calls of ≤6s as a share of answered calls. */
+  monthShare: number | null;
+  monthShort: number;
+  monthAnswered: number;
+  periodShort: number;
+  periodAnswered: number;
+  tone: 'good' | 'warn' | 'bad';
+}
+
+/**
+ * Telnyx flags an account when more than 15% of its answered calls in a
+ * month last 6 seconds or less, and may then surcharge all of them. Shown
+ * as a team figure only — never who made them.
+ */
+export function shortCalls(d: Digest): ShortCalls {
+  const m = d.month.totals;
+  const share = m.connected ? m.carrierShortCalls / m.connected : null;
+  return {
+    monthShare: share,
+    monthShort: m.carrierShortCalls,
+    monthAnswered: m.connected,
+    periodShort: d.report.totals.carrierShortCalls,
+    periodAnswered: d.report.totals.connected,
+    tone: share == null ? 'good' : share > CARRIER_SHORT_LIMIT ? 'bad' : share > CARRIER_SHORT_LIMIT - 0.02 ? 'warn' : 'good',
+  };
+}
+
+export interface Practice {
+  icon: string;
+  title: string;
+  body: string;
+}
+
+// General practices for a period when the numbers don't point at anything
+// specific. Rotated by date so the same one doesn't lead every morning.
+const GENERAL: Practice[] = [
+  { icon: '🎯', title: 'Open with why you’re calling', body: 'Name the role, the company and why you thought of them in the first ten seconds. People stay on the line when they know it’s worth their time.' },
+  { icon: '✅', title: 'Agree the next step before you hang up', body: 'A time for the next call, a resume to send, an interview slot. A call that ends with a date moves the candidate forward; one that ends with “talk soon” usually doesn’t.' },
+  { icon: '📝', title: 'Write notes while it’s fresh', body: 'Put the key points in JobDiva right after the call. The next person who calls this candidate, maybe you, will know exactly where things stand.' },
+  { icon: '🗓️', title: 'Block time for calls', body: 'Put two focused calling blocks on your calendar at the hours when candidates pick up most. Calling in bursts beats fitting calls between everything else.' },
+  { icon: '👋', title: 'Use their name in texts', body: 'Start texts with the candidate’s first name (templates can fill {firstName} for you). A personal first line gets more replies than a generic one.' },
+];
+
+/**
+ * Up to four practices, most relevant first. Each is triggered by the team's
+ * own numbers and quotes them, so the advice changes with what actually
+ * happened; general practices fill in on a quiet period. Short calls have
+ * their own box, so they aren't repeated here.
+ */
+export function bestPractices(d: Digest): Practice[] {
+  const t = d.report.totals;
+  const weekly = d.period.kind === 'week';
+  const when = weekly ? 'Last week' : 'Yesterday';
+  const whenLower = weekly ? 'last week' : 'yesterday';
+  const out: Practice[] = [];
+
+  const returnRate = t.missedReturnable ? t.missedReturned / t.missedReturnable : null;
+  if (t.missedReturnable >= 10 && returnRate != null && returnRate < 0.6) {
+    out.push({
+      icon: '⏱️',
+      title: 'Call back missed calls within the hour',
+      body: `${when} ${int(t.missedReturned)} of ${int(t.missedReturnable)} missed calls got a call back within 24 hours. Someone who calls you is the warmest lead you have; Reports, Follow-ups lists exactly who is waiting.`,
+    });
+  }
+
+  const peak = [...d.report.inbound.byHour].sort((a, b) => b.unanswered - a.unanswered)[0];
+  if (peak && peak.unanswered >= (weekly ? 40 : 10)) {
+    out.push({
+      icon: '🕐',
+      title: `Cover the ${hourLabel(peak.hour)}–${hourLabel(peak.hour + 1)} hour`,
+      body: `${int(peak.unanswered)} inbound calls went unanswered between ${hourLabel(peak.hour)} and ${hourLabel(peak.hour + 1)} Eastern ${whenLower}, the most of any hour. Stagger breaks so someone is always free, or turn on call forwarding.`,
+    });
+  }
+
+  const replyRate = t.smsRepliable ? t.smsReplied / t.smsRepliable : null;
+  if (t.smsRepliable >= 20 && replyRate != null && replyRate < 0.75) {
+    out.push({
+      icon: '💬',
+      title: 'Reply to texts the same day',
+      body: `${int(t.smsRepliable - t.smsReplied)} incoming text conversations didn’t get a reply within 24 hours ${whenLower}. In Reports, Activity, Texts, “Waiting on reply” shows yours.`,
+    });
+  }
+
+  if (d.report.outbound.invalidNumber >= (weekly ? 40 : 10)) {
+    out.push({
+      icon: '🧹',
+      title: 'Fix bad numbers at the source',
+      body: `${int(d.report.outbound.invalidNumber)} calls ${whenLower} went to numbers that aren’t in service. Correct or remove them in JobDiva so nobody dials them again.`,
+    });
+  }
+
+  const landline = d.report.sms.failureReasons.find((f) => f.code === '40001');
+  if (landline && landline.count >= 5) {
+    out.push({
+      icon: '☎️',
+      title: 'Call landlines, don’t text them',
+      body: `${int(landline.count)} texts ${whenLower} failed because the number can’t receive texts, usually a landline. When a text fails, call instead.`,
+    });
+  }
+
+  const picked = out.slice(0, 3);
+
+  // Best hour to call on the next working day, from four weeks of calls.
+  const next = nextBusinessDay(d.period.to);
+  const row = d.recent.insights.bestTime[dowOfDateKey(next) - 1];
+  const cells = row
+    .map((c, h) => ({ h, r: c.attempts >= d.recent.insights.bestTimeMinAttempts ? c.reached / c.attempts : null }))
+    .filter((c): c is { h: number; r: number } => c.r != null && c.h >= 8 && c.h <= 19);
+  if (cells.length >= 3) {
+    const best = [...cells].sort((a, b) => b.r - a.r)[0];
+    const worst = [...cells].sort((a, b) => a.r - b.r)[0];
+    picked.push({
+      icon: '📈',
+      title: `Best time to call ${DAY_NAMES[dowOfDateKey(next) - 1]}: ${hourLabel(best.h)}–${hourLabel(best.h + 1)}`,
+      body: `Over the last four ${DAY_NAMES[dowOfDateKey(next) - 1]}s, calls in that hour reached someone ${Math.round(best.r * 100)}% of the time, against ${Math.round(worst.r * 100)}% between ${hourLabel(worst.h)} and ${hourLabel(worst.h + 1)} Eastern.`,
+    });
+  }
+
+  // Quiet period: top up with general practices, rotated by date.
+  const dayNum = Math.floor(Date.parse(`${d.period.to}T12:00:00Z`) / 86_400_000);
+  for (let i = 0; picked.length < 3 && i < GENERAL.length; i += 1) {
+    picked.push(GENERAL[(dayNum + i) % GENERAL.length]);
+  }
+  return picked;
+}
+
 interface Rendered {
   subject: string;
   html: string;
@@ -175,10 +366,15 @@ interface Rendered {
 }
 
 export function renderDigest(d: Digest, sender: string): Rendered {
+  const p = d.period;
+  const weekly = p.kind === 'week';
   const t = d.report.totals;
-  const w = d.lastWeek.totals;
-  const dayWorked = t.callsOut + t.callsIn > 0;
+  const w = d.before.totals;
+  const worked = t.callsOut + t.callsIn > 0;
   const shouts = shoutOuts(d);
+  const sc = shortCalls(d);
+  const practices = bestPractices(d);
+  const vs = weekly ? 'the week before' : 'last week';
 
   const tiles: Array<{ label: string; value: string; cur: number; prev: number }> = [
     { label: 'Calls made', value: int(t.callsOut), cur: t.callsOut, prev: w.callsOut },
@@ -192,33 +388,41 @@ export function renderDigest(d: Digest, sender: string): Rendered {
     { label: 'Texts replied to', value: pct(t.smsReplied, t.smsRepliable), note: `median ${wait(t.medianReplySec)}` },
   ];
 
-  // Tip: the best hour to call on the next working day, from four weeks of calls.
-  const next = nextBusinessDay(d.date);
-  const row = d.recent.insights.bestTime[dowOfDateKey(next) - 1];
-  let tip: string | null = null;
-  const cells = row
-    .map((c, h) => ({ h, r: c.attempts >= d.recent.insights.bestTimeMinAttempts ? c.reached / c.attempts : null }))
-    .filter((c): c is { h: number; r: number } => c.r != null && c.h >= 8 && c.h <= 19);
-  if (cells.length >= 3) {
-    const best = [...cells].sort((a, b) => b.r - a.r)[0];
-    const worst = [...cells].sort((a, b) => a.r - b.r)[0];
-    tip = `Over the last four ${DAY_NAMES[dowOfDateKey(next) - 1]}s, calls between ${hourLabel(best.h)} and ${hourLabel(best.h + 1)} Eastern reached someone ${Math.round(best.r * 100)}% of the time, against ${Math.round(worst.r * 100)}% between ${hourLabel(worst.h)} and ${hourLabel(worst.h + 1)}.`;
-  }
-
-  const subject = dayWorked
-    ? `ACE daily · ${longDate(d.date)}: ${int(t.callsOut)} calls, ${int(t.conversations)} real conversations`
-    : `ACE daily · ${longDate(d.date)}`;
+  const kicker = weekly ? 'ACE Dialer · Weekly recap' : 'ACE Dialer · Daily';
+  const title = weekly ? `Week of ${periodTitle(p)}` : periodTitle(p);
+  const greeting = !worked
+    ? (weekly ? 'No calls were made that week.' : 'No calls were made on this day.')
+    : weekly ? 'Good morning, team. Here’s last week, and the people who led it.' : 'Good morning, team. Here’s how we did.';
+  const subject = !worked
+    ? `${weekly ? 'ACE weekly' : 'ACE daily'} · ${periodTitle(p)}`
+    : `${weekly ? 'ACE weekly' : 'ACE daily'} · ${periodTitle(p)}: ${int(t.callsOut)} calls, ${int(t.conversations)} real conversations`;
 
   // ── HTML (table layout + inline styles: email clients ignore <style>) ──
-  const C = { ink: '#1c1c1e', dim: '#545458', muted: '#8e8e93', line: '#e5e5ea', bg: '#f2f2f7', card: '#ffffff', accent: '#0a7aff', good: '#1f8a47', bad: '#c9342a' };
+  const C = { ink: '#1c1c1e', dim: '#545458', muted: '#8e8e93', line: '#e5e5ea', bg: '#f2f2f7', card: '#ffffff', accent: '#0a7aff', good: '#1f8a47', warn: '#b26a00', bad: '#c9342a' };
   const font = "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif";
-  const section = (title: string, inner: string) => `
+  const section = (heading: string, inner: string) => `
     <tr><td style="padding:24px 28px 0">
-      <div style="font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:${C.muted};margin:0 0 10px">${esc(title)}</div>
+      <div style="font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:${C.muted};margin:0 0 10px">${esc(heading)}</div>
       ${inner}
     </td></tr>`;
+
+  // Shout-out boxes: rows of three (two per row when there are four).
+  const perRow = shouts.length === 4 ? 2 : 3;
+  const box = (s: ShoutOut) => `<td width="${Math.floor(100 / perRow)}%" valign="top" style="background:${s.tint};border-radius:14px;padding:16px 14px;text-align:center">
+      <div style="font-size:30px;line-height:1">${s.icon}</div>
+      <div style="font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:${C.dim};margin-top:8px">${esc(s.title)}</div>
+      <div style="font-size:30px;font-weight:800;color:${C.ink};margin-top:8px;line-height:1.1">${esc(s.winner.value)}</div>
+      <div style="font-size:11px;color:${C.muted}">${esc(s.unit)}</div>
+      <div style="font-size:15px;font-weight:700;color:${C.ink};margin-top:8px">${esc(s.winner.name)}</div>
+      ${s.runnersUp.length ? `<div style="font-size:11px;color:${C.dim};margin-top:8px;line-height:1.5">${s.runnersUp.map((r, i) => `${i + 2}. ${esc(r.name)} · ${esc(r.value)}`).join('<br>')}</div>` : ''}
+    </td>`;
+  const rows: ShoutOut[][] = [];
+  for (let i = 0; i < shouts.length; i += perRow) rows.push(shouts.slice(i, i + perRow));
+  const shoutHtml = rows.map((r) => `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:separate;border-spacing:8px 8px;margin:-8px -8px 0">
+      <tr>${r.map(box).join('')}</tr></table>`).join('');
+
   const tileHtml = tiles.map((x) => {
-    const ch = change(x.cur, x.prev);
+    const ch = change(x.cur, x.prev, vs);
     return `<td width="25%" valign="top" style="padding:12px 10px 12px 0">
       <div style="font-size:12px;color:${C.dim}">${esc(x.label)}</div>
       <div style="font-size:24px;font-weight:700;color:${C.ink};margin-top:2px">${esc(x.value)}</div>
@@ -230,19 +434,44 @@ export function renderDigest(d: Digest, sender: string): Rendered {
       <div style="font-size:20px;font-weight:700;color:${C.ink}">${esc(x.value)}</div>
       <div style="font-size:11px;color:${C.muted}">${esc(x.note)}</div>
     </td>`).join('');
-  // Three boxes, one per category: icon, category, winner, their number,
-  // runners-up underneath so second and third get named too.
-  const w3 = Math.floor(100 / Math.max(1, shouts.length));
-  const shoutHtml = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:separate;border-spacing:8px 0;margin:0 -8px"><tr>
-    ${shouts.map((s) => `<td width="${w3}%" valign="top" style="background:${s.tint};border-radius:14px;padding:16px 14px;text-align:center">
-      <div style="font-size:30px;line-height:1">${s.icon}</div>
-      <div style="font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:${C.dim};margin-top:8px">${esc(s.title)}</div>
-      <div style="font-size:30px;font-weight:800;color:${C.ink};margin-top:8px;line-height:1.1">${esc(s.winner.value)}</div>
-      <div style="font-size:11px;color:${C.muted}">${esc(s.unit)}</div>
-      <div style="font-size:15px;font-weight:700;color:${C.ink};margin-top:8px">${esc(s.winner.name)}</div>
-      ${s.runnersUp.length ? `<div style="font-size:11px;color:${C.dim};margin-top:8px;line-height:1.5">${s.runnersUp.map((r, i) => `${i + 2}. ${esc(r.name)} · ${esc(r.value)}`).join('<br>')}</div>` : ''}
-    </td>`).join('')}
-  </tr></table>`;
+
+  // Short calls: the carrier's 15% limit, month to date.
+  const scColor = sc.tone === 'bad' ? C.bad : sc.tone === 'warn' ? C.warn : C.good;
+  const scBg = sc.tone === 'bad' ? '#fdecea' : sc.tone === 'warn' ? '#fff4e0' : '#e6f6ea';
+  const scShare = sc.monthShare == null ? '—' : `${(sc.monthShare * 100).toFixed(1)}%`;
+  const scHeadline = sc.tone === 'bad'
+    ? 'We’re over the carrier’s limit this month'
+    : sc.tone === 'warn' ? 'We’re close to the carrier’s limit this month' : 'We’re under the carrier’s limit this month';
+  const scHtml = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:${scBg};border-radius:14px;border-collapse:separate">
+    <tr>
+      <td width="120" valign="middle" align="center" style="padding:16px 8px 16px 16px">
+        <div style="font-size:28px;line-height:1">✂️</div>
+        <div style="font-size:26px;font-weight:800;color:${scColor};margin-top:6px">${esc(scShare)}</div>
+        <div style="font-size:11px;color:${C.dim}">limit ${Math.round(CARRIER_SHORT_LIMIT * 100)}%</div>
+      </td>
+      <td valign="middle" style="padding:16px 16px 16px 8px">
+        <div style="font-size:14px;font-weight:700;color:${C.ink}">${esc(scHeadline)}</div>
+        <div style="font-size:13px;color:${C.dim};line-height:1.5;margin-top:4px">
+          Calls that connect and end within ${CARRIER_SHORT_SEC} seconds don’t help anyone. Our carrier, Telnyx, flags us when they pass ${Math.round(CARRIER_SHORT_LIMIT * 100)}% of answered calls in a month, and can then charge extra for every one of them. This month so far: ${int(sc.monthShort)} of ${int(sc.monthAnswered)} answered calls. ${weekly ? 'Last week' : 'Yesterday'}: ${int(sc.periodShort)} of ${int(sc.periodAnswered)}.
+        </div>
+        <div style="font-size:13px;color:${C.ink};line-height:1.5;margin-top:6px">
+          <b>Instead:</b> if you reach voicemail, leave a short message rather than hanging up; if it’s a wrong number, fix it in JobDiva instead of redialing; and give a screening service a couple of seconds to finish before you speak.
+        </div>
+      </td>
+    </tr>
+  </table>`;
+
+  const practiceHtml = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse">
+    ${practices.map((x, i) => `<tr>
+      <td width="44" valign="top" style="padding:12px 12px 12px 0;${i ? `border-top:1px solid ${C.line};` : ''}">
+        <div style="width:36px;height:36px;border-radius:18px;background:${C.bg};text-align:center;line-height:36px;font-size:18px">${x.icon}</div>
+      </td>
+      <td valign="top" style="padding:12px 0;${i ? `border-top:1px solid ${C.line};` : ''}">
+        <div style="font-size:14px;font-weight:700;color:${C.ink}">${esc(x.title)}</div>
+        <div style="font-size:13px;color:${C.dim};line-height:1.5;margin-top:2px">${esc(x.body)}</div>
+      </td>
+    </tr>`).join('')}
+  </table>`;
   const button = (href: string, label: string) => `<a href="${esc(href)}" style="display:inline-block;background:${C.accent};color:#ffffff;text-decoration:none;font-size:14px;font-weight:600;padding:10px 18px;border-radius:10px">${esc(label)}</a>`;
 
   const html = `<!doctype html><html><body style="margin:0;padding:0;background:${C.bg}">
@@ -250,15 +479,16 @@ export function renderDigest(d: Digest, sender: string): Rendered {
 <tr><td align="center" style="padding:24px 12px">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:640px;background:${C.card};border-radius:16px;border-collapse:separate">
   <tr><td style="padding:28px 28px 0">
-    <div style="font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:${C.accent}">ACE Dialer · Daily</div>
-    <div style="font-size:24px;font-weight:700;color:${C.ink};margin-top:6px">${esc(longDate(d.date))}</div>
-    <div style="font-size:14px;color:${C.dim};margin-top:4px">${dayWorked ? 'Good morning, team. Here’s how we did.' : 'No calls were made on this day.'}</div>
+    <div style="font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:${C.accent}">${esc(kicker)}</div>
+    <div style="font-size:24px;font-weight:700;color:${C.ink};margin-top:6px">${esc(title)}</div>
+    <div style="font-size:14px;color:${C.dim};margin-top:4px">${esc(greeting)}</div>
   </td></tr>
-  ${shouts.length ? section('Shout-outs 🎉', shoutHtml) : ''}
-  ${dayWorked ? section('The team', `<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>${tileHtml}</tr></table>
-      <div style="font-size:11px;color:${C.muted}">Compared with ${esc(longDate(addDays(d.date, -7)))}.</div>`) : ''}
-  ${dayWorked ? section('How responsive we were', `<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>${respHtml}</tr></table>`) : ''}
-  ${tip ? section(`Tip for ${DAY_NAMES[dowOfDateKey(next) - 1]}`, `<div style="font-size:13px;color:${C.ink};line-height:1.5">${esc(tip)}</div>`) : ''}
+  ${shouts.length ? section(weekly ? 'This week’s shout-outs 🎉' : 'Shout-outs 🎉', shoutHtml) : ''}
+  ${worked ? section('The team', `<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>${tileHtml}</tr></table>
+      <div style="font-size:11px;color:${C.muted}">Compared with ${esc(weekly ? `the week of ${periodTitle({ kind: 'week', from: addDays(p.from, -7), to: addDays(p.to, -7) })}` : longDate(addDays(p.from, -7)))}.</div>`) : ''}
+  ${sc.monthAnswered ? section('Short calls', scHtml) : ''}
+  ${worked ? section('How responsive we were', `<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>${respHtml}</tr></table>`) : ''}
+  ${practices.length ? section('Best practices 💡', practiceHtml) : ''}
   <tr><td style="padding:24px 28px 28px">
     ${button(`${APP_URL}/reports/overview`, 'Open Reports')}
     <div style="font-size:11px;color:${C.muted};line-height:1.5;margin-top:18px">Sent by ${esc(sender)} to ACE Dialer users. Each call counts once; talk time excludes ringing; times are Eastern.</div>
@@ -267,21 +497,34 @@ export function renderDigest(d: Digest, sender: string): Rendered {
 </td></tr></table></body></html>`;
 
   // ── Plain text ──
-  const lines: string[] = [`ACE Dialer · Daily — ${longDate(d.date)}`, '', dayWorked ? 'Good morning, team. Here’s how we did.' : 'No calls were made on this day.'];
+  const lines: string[] = [`${kicker} — ${title}`, '', greeting];
   if (shouts.length) {
-    lines.push('', 'SHOUT-OUTS');
+    lines.push('', weekly ? 'THIS WEEK’S SHOUT-OUTS' : 'SHOUT-OUTS');
     for (const s of shouts) {
       lines.push(`  ${s.icon} ${s.title}: ${s.winner.name} — ${s.winner.value} ${s.unit}`);
       s.runnersUp.forEach((r, i) => lines.push(`     ${i + 2}. ${r.name} — ${r.value}`));
     }
   }
-  if (dayWorked) {
+  if (worked) {
     lines.push('', 'THE TEAM');
-    for (const x of tiles) lines.push(`  ${x.label}: ${x.value}${change(x.cur, x.prev).text ? ` (${change(x.cur, x.prev).text})` : ''}`);
+    for (const x of tiles) {
+      const ch = change(x.cur, x.prev, vs);
+      lines.push(`  ${x.label}: ${x.value}${ch.text ? ` (${ch.text})` : ''}`);
+    }
+  }
+  if (sc.monthAnswered) {
+    lines.push('', 'SHORT CALLS');
+    lines.push(`  ${scHeadline}: ${scShare} of answered calls lasted ${CARRIER_SHORT_SEC}s or less (limit ${Math.round(CARRIER_SHORT_LIMIT * 100)}%).`);
+    lines.push('  Telnyx can charge extra for every short call once we pass the limit. Leave a voicemail instead of hanging up, fix wrong numbers in JobDiva, and give screening services a moment.');
+  }
+  if (worked) {
     lines.push('', 'HOW RESPONSIVE WE WERE');
     for (const x of resp) lines.push(`  ${x.label}: ${x.value} (${x.note})`);
   }
-  if (tip) lines.push('', `TIP: ${tip}`);
+  if (practices.length) {
+    lines.push('', 'BEST PRACTICES');
+    for (const x of practices) lines.push(`  ${x.icon} ${x.title}`, `     ${x.body}`);
+  }
   lines.push('', `Open Reports: ${APP_URL}/reports`, `Sent by ${sender} to ACE Dialer users.`);
 
   return { subject, html, text: lines.join('\n') };
@@ -297,8 +540,8 @@ async function sendDigestEmail(d: Digest, sender: string, testTo?: { email: stri
     return { ok: res.ok, to: 1, bcc: 0, error: res.ok ? null : typeof res.error === 'string' ? res.error : `HTTP ${res.status}` };
   }
   const { to, bcc } = addressees(d, shoutOuts(d));
-  // No shout-outs (a day nobody called) → nobody to feature on To: address
-  // it to our own sending address and keep the whole team on BCC.
+  // No shout-outs (a period nobody called) → nobody to feature on To:
+  // address it to our own sending address and keep the whole team on BCC.
   const visible = to.length > 0 ? to : [{ id: 0, email: config.sendGridFromEmail ?? 'noreply@aptask.com', name: 'ACE Dialer' }];
   const hidden = to.length > 0 ? bcc : d.recipients;
   const [first, ...rest] = visible;
@@ -333,10 +576,11 @@ async function history() {
     select: { createdAt: true, metadata: true, actor: { select: { firstName: true, lastName: true, email: true } } },
   });
   return rows.map((r) => {
-    const m = (r.metadata ?? {}) as { date?: string; mode?: string; sent?: number; failed?: number; to?: number; bcc?: number };
+    const m = (r.metadata ?? {}) as { date?: string; kind?: string; mode?: string; sent?: number; failed?: number; to?: number; bcc?: number };
     return {
       at: r.createdAt.toISOString(),
       date: m.date ?? null,
+      kind: m.kind ?? 'day',
       mode: m.mode ?? null,
       sent: m.sent ?? ((m.to ?? 0) + (m.bcc ?? 0)),
       failed: m.failed ?? 0,
@@ -347,9 +591,9 @@ async function history() {
   });
 }
 
-async function alreadySentToEveryone(date: string): Promise<boolean> {
+async function alreadySentToEveryone(p: Period): Promise<boolean> {
   const n = await prisma.auditLog.count({
-    where: { action: 'reports.digest_sent', metadata: { path: ['date'], equals: date }, AND: { metadata: { path: ['mode'], equals: 'everyone' } } },
+    where: { action: 'reports.digest_sent', metadata: { path: ['date'], equals: periodKey(p) }, AND: { metadata: { path: ['mode'], equals: 'everyone' } } },
   });
   return n > 0;
 }
@@ -366,49 +610,68 @@ async function requireAdmin(request: FastifyRequest, reply: FastifyReply) {
   if (!(request.user as JwtPayload | undefined)?.isAdmin) return reply.code(403).send({ error: 'Admin access required' });
 }
 
+/** Validate a requested period: it must be fully in the past. */
+function resolvePeriod(kind: unknown, date: unknown, today: string): Period | string {
+  const k: DigestKind = kind === 'week' ? 'week' : 'day';
+  if (date === undefined) {
+    const def = defaultPeriod(today);
+    if (k === def.kind) return def;
+    return k === 'week' ? { kind: 'week', ...weekOf(addDays(today, -7)) } : { kind: 'day', from: previousBusinessDay(today), to: previousBusinessDay(today) };
+  }
+  if (!isDateKey(date)) return 'Dates must be in YYYY-MM-DD format.';
+  const p = periodFor(k, date);
+  if (p.to >= today) return k === 'week' ? 'Pick a week that has finished.' : 'Pick a day before today.';
+  return p;
+}
+
 export async function digestRoutes(app: FastifyInstance) {
-  app.get<{ Querystring: { date?: string } }>(
+  app.get<{ Querystring: { date?: string; kind?: string } }>(
     '/reports/digest',
     { onRequest: [app.authenticate, requireAdmin] },
     async (request, reply) => {
       const me = request.user as JwtPayload;
       const today = etDateKey(Date.now());
-      const date = request.query.date ?? previousBusinessDay(today);
-      if (!isDateKey(date) || date >= today) return reply.code(400).send({ error: 'Pick a day before today.' });
-      const d = await buildDigest(date);
+      const kind = request.query.kind ?? defaultPeriod(today).kind;
+      const period = resolvePeriod(kind, request.query.date, today);
+      if (typeof period === 'string') return reply.code(400).send({ error: period });
+      const d = await buildDigest(period);
       const out = renderDigest(d, await senderName(me.sub));
       const { to, bcc } = addressees(d, shoutOuts(d));
       return {
-        date,
+        period,
+        date: period.from,
         subject: out.subject,
         html: out.html,
         recipients: d.recipients,
         to,
         bccCount: bcc.length,
-        alreadySent: await alreadySentToEveryone(date),
+        alreadySent: await alreadySentToEveryone(period),
         schedule: await readSchedule(),
         history: await history(),
-        defaultDate: previousBusinessDay(today),
+        defaultPeriod: defaultPeriod(today),
       };
     },
   );
 
-  app.post<{ Body: { date?: string; mode?: string; expectedCount?: number; force?: boolean } }>(
+  app.post<{ Body: { date?: string; kind?: string; mode?: string; expectedCount?: number; force?: boolean } }>(
     '/reports/digest/send',
     { onRequest: [app.authenticate, requireAdmin] },
     async (request, reply) => {
       const me = request.user as JwtPayload;
-      const { date, mode, expectedCount, force } = request.body ?? {};
+      const { date, kind, mode, expectedCount, force } = request.body ?? {};
       const today = etDateKey(Date.now());
-      if (!isDateKey(date) || date >= today) return reply.code(400).send({ error: 'Pick a day before today.' });
+      if (date === undefined) return reply.code(400).send({ error: 'Pick a day or a week.' });
+      const period = resolvePeriod(kind, date, today);
+      if (typeof period === 'string') return reply.code(400).send({ error: period });
       if (mode !== 'test' && mode !== 'everyone') return reply.code(400).send({ error: 'mode must be test or everyone.' });
-      const d = await buildDigest(date);
+      const d = await buildDigest(period);
       const sender = await senderName(me.sub);
+      const meta = { date: periodKey(period), kind: period.kind };
       if (mode === 'test') {
         const self = await prisma.user.findUnique({ where: { id: me.sub }, select: { id: true, email: true } });
         if (!self) return reply.code(404).send({ error: 'Your account was not found.' });
         const res = await sendDigestEmail(d, sender, { email: self.email, name: sender });
-        await recordAudit(me.sub, 'reports.digest_sent', null, { date, mode, sent: res.ok ? 1 : 0, failed: res.ok ? 0 : 1 });
+        await recordAudit(me.sub, 'reports.digest_sent', null, { ...meta, mode, sent: res.ok ? 1 : 0, failed: res.ok ? 0 : 1 });
         if (!res.ok) return reply.code(502).send({ error: `The test didn't send: ${res.error}` });
         return { ok: true, to: self.email };
       }
@@ -417,16 +680,16 @@ export async function digestRoutes(app: FastifyInstance) {
       if (expectedCount !== d.recipients.length) {
         return reply.code(409).send({ error: `The recipient list changed to ${d.recipients.length} people. Review it and send again.`, recipients: d.recipients.length });
       }
-      if (!force && (await alreadySentToEveryone(date))) {
-        return reply.code(409).send({ error: `The email for ${longDate(date)} was already sent to everyone.`, alreadySent: true });
+      if (!force && (await alreadySentToEveryone(period))) {
+        return reply.code(409).send({ error: `This ${period.kind === 'week' ? 'weekly recap' : 'day'} was already sent to everyone.`, alreadySent: true });
       }
       const res = await sendDigestEmail(d, sender);
       if (!res.ok) {
-        request.log.error({ date, error: res.error }, '[digest] send failed');
+        request.log.error({ period, error: res.error }, '[digest] send failed');
         return reply.code(502).send({ error: `SendGrid refused the email: ${res.error}. Nothing was sent.` });
       }
-      await recordAudit(me.sub, 'reports.digest_sent', null, { date, mode, to: res.to, bcc: res.bcc, recipients: d.recipients.length });
-      request.log.info({ date, to: res.to, bcc: res.bcc }, '[digest] sent to everyone');
+      await recordAudit(me.sub, 'reports.digest_sent', null, { ...meta, mode, to: res.to, bcc: res.bcc, recipients: d.recipients.length });
+      request.log.info({ period, to: res.to, bcc: res.bcc }, '[digest] sent to everyone');
       return { ok: true, to: res.to, bcc: res.bcc };
     },
   );
@@ -456,7 +719,9 @@ export async function digestRoutes(app: FastifyInstance) {
 /**
  * Checks every 5 minutes. On a weekday at or after the chosen Eastern hour,
  * claims today in the setting row with a compare-and-set before sending, so
- * a restart or a second process can never send the same day twice.
+ * a restart or a second process can never send the same day twice. Monday
+ * sends the weekly recap; Tuesday–Friday the previous day. A failed send
+ * gives the day back so the next tick retries.
  */
 export function startDigestScheduler(log: { info: (o: object, m: string) => void; error: (o: object, m: string) => void }) {
   const tick = async () => {
@@ -468,25 +733,21 @@ export function startDigestScheduler(log: { info: (o: object, m: string) => void
       if (!row) return;
       const s = { enabled: false, hour: 8, lastSentDate: null, ...(JSON.parse(row.value) as Partial<Schedule>) } as Schedule;
       if (!s.enabled || et.hour < s.hour || s.lastSentDate === et.date) return;
-      const claimed = await prisma.systemSetting.updateMany({
-        where: { key: SETTING_KEY, value: row.value },
-        data: { value: JSON.stringify({ ...s, lastSentDate: et.date }) },
-      });
-      if (claimed.count === 0) return;
       const claimedValue = JSON.stringify({ ...s, lastSentDate: et.date });
-      // Give the day back if we don't finish, so the next tick retries.
+      const claimed = await prisma.systemSetting.updateMany({ where: { key: SETTING_KEY, value: row.value }, data: { value: claimedValue } });
+      if (claimed.count === 0) return;
       const release = () => prisma.systemSetting.updateMany({ where: { key: SETTING_KEY, value: claimedValue }, data: { value: row.value } });
-      const date = previousBusinessDay(et.date);
-      if (await alreadySentToEveryone(date)) return;
-      const d = await buildDigest(date);
+      const period = defaultPeriod(et.date);
+      if (await alreadySentToEveryone(period)) return;
+      const d = await buildDigest(period);
       const res = await sendDigestEmail(d, 'ACE Dialer');
       if (!res.ok) {
-        log.error({ date, error: res.error }, '[digest] automatic send failed; will retry');
+        log.error({ period, error: res.error }, '[digest] automatic send failed; will retry');
         await release();
         return;
       }
-      await recordAudit(null, 'reports.digest_sent', null, { date, mode: 'everyone', to: res.to, bcc: res.bcc, recipients: d.recipients.length, automatic: true });
-      log.info({ date, to: res.to, bcc: res.bcc }, '[digest] automatic send');
+      await recordAudit(null, 'reports.digest_sent', null, { date: periodKey(period), kind: period.kind, mode: 'everyone', to: res.to, bcc: res.bcc, recipients: d.recipients.length, automatic: true });
+      log.info({ period, to: res.to, bcc: res.bcc }, '[digest] automatic send');
     } catch (e) {
       log.error({ err: e instanceof Error ? e.message : String(e) }, '[digest] scheduler tick failed');
     }

@@ -24,6 +24,17 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.235',
+    date: 'September 25, 2026',
+    highlight: 'Monday weekly recap, short-call tracking and best practices in the team email.',
+    changes: [
+      { type: 'new', text: 'On Mondays the team email is a weekly recap of the week before, with a Most improved shout-out.' },
+      { type: 'new', text: 'The email tracks calls of 6 seconds or less against our carrier\'s 15% monthly limit, and says what to do instead.' },
+      { type: 'new', text: 'Best practices in every email, drawn from the team\'s own numbers.' },
+      { type: 'new', text: 'Reports, Calls shows the share of calls of 6 seconds or less, per person and for the team.' },
+    ],
+  },
+  {
     version: '0.10.234',
     date: 'September 25, 2026',
     highlight: 'The daily email is now one team email with shout-outs up front.',

@@ -353,6 +353,10 @@ const callCols: Col[] = [
   secs('medianTalkSec', 'Median', fmtClockDuration, { better: 'up' }),
   count('shortCalls', 'Calls <10s', { better: 'down' }),
   shortShare,
+  ratio('carrierShare', '6s or less', (r) => r.carrierShortCalls, (r) => r.connected, {
+    // Telnyx surcharges past 15% of answered calls in a month.
+    better: 'down', minDen: 20, flag: (v) => (v != null && v > 0.15 ? 'crit' : v != null && v > 0.13 ? 'warn' : null),
+  }),
   count('conversations', 'Over 2 min', { better: 'up' }),
   secs('talkSec', 'Talk time', fmtTalk, { better: 'up', csv: (v) => (v == null ? '' : Math.round(v / 60)) }),
   count('activeDays', 'Active days', { better: 'up' }),
@@ -375,7 +379,7 @@ function Calls(p: TabProps) {
         <Kpi label="Average length" value={fmtClockDuration(t.avgTalkSec)} cur={t.avgTalkSec} prev={pv.avgTalkSec} sub={`Median ${fmtClockDuration(t.medianTalkSec)}`} 
           onOpen={drillTo(p, 'Average call length', fmtClockDuration(t.avgTalkSec), avgLenCol, { calls: isConnected })} />
         <Kpi label="Calls under 10 seconds" value={fmtPct(t.shortCalls, t.connected)} points cur={pct(t.shortCalls, t.connected)} prev={pct(pv.shortCalls, pv.connected)} better="down"
-          sub={`${fmtInt(t.shortCalls)} calls`} 
+          sub={`${fmtPct(t.carrierShortCalls, t.connected, 1)} lasted 6s or less · carrier limit 15%`} 
           onOpen={drillTo(p, 'Calls under 10 seconds', fmtPct(t.shortCalls, t.connected), shortShare, { calls: (c) => c.answered && c.talkSec < 10, note: 'Share of each person\'s connected calls. People with fewer than 20 connected calls are left out.' })} />
         <Kpi label="Conversations over 2 min" value={fmtInt(t.conversations)} cur={t.conversations} prev={pv.conversations}
           sub={`${fmtPct(t.conversations, t.connected)} of connected`} 
