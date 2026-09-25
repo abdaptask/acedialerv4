@@ -21,6 +21,7 @@ Reports shows how ApTask calls, texts and follows up with candidates. Recruiters
 | Search a number or name | Your own history | The whole team's history |
 | Insights (best time to call, overlap, opt-outs, failing numbers, movers) | Not shown | Yes |
 | Cost (spend on calls, texts and lines) | Not shown | Yes |
+| Daily email (compose, preview and send) | Not shown; you receive your copy | Yes |
 | Person picker and team scorecard | Not shown | Yes |
 | Export CSV | Your own data | Anything on screen |
 
@@ -78,7 +79,7 @@ Type a phone number (four or more digits) or a saved name in the search box at t
 
 ## For admins and leadership
 
-Admins see the whole team, can open any person's report, and get two extra tabs: Insights and Cost. Use the person picker (top right) or click any name to drill in; "Everyone" at the top left takes you back.
+Admins see the whole team, can open any person's report, and get three extra tabs: Insights, Daily email and Cost. Use the person picker (top right) or click any name to drill in; "Everyone" at the top left takes you back.
 
 ### A weekly review in ten minutes
 
@@ -104,6 +105,16 @@ Admins see the whole team, can open any person's report, and get two extra tabs:
 | Candidates contacted by more than one person | Numbers two or more recruiters called or texted | Spot duplicated effort. A number dialled by a dozen people is usually a client switchboard, not poaching |
 | Opt-outs (STOP) | People who texted STOP, and any texts sent to them afterwards | Any number above 0 in "Texts after" is a compliance issue to follow up the same day |
 | Numbers that keep failing | Numbers "not found" two or more times | Fix the record in JobDiva |
+
+### Daily email
+
+Reports, Daily email (admins only) sends one email per person about a working day. Everyone sees the same team section; each person's own numbers and what's waiting on them are only in their copy.
+
+- **What's in it:** team calls, different people called, conversations over 2 minutes and talk time, compared with the same weekday last week; how responsive the team was; shout-outs (top three in three positive categories, never a bottom list); the reader's own day against the team average and what's waiting on them; a tip on the best hour to call the next working day.
+- **Who gets it:** active users who called or texted in the last four weeks. "Show the recipients" lists them.
+- **Sending:** pick the day, preview it as anyone, send a test to yourself, then **Send to everyone** and confirm. A day already sent to everyone can only be sent again deliberately.
+- **Automatic:** tick "Send automatically every weekday" and pick a time (5am to noon Eastern). It covers the previous working day, so Monday's covers Friday.
+- **Sent:** the last 20 sends, with how many went out and who sent them.
 
 ### Cost
 

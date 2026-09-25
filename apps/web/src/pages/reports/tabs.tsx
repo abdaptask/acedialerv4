@@ -7,6 +7,7 @@ import { formatPhone } from '../../lib/phone';
 import { Numbers } from './numbers';
 import { FollowUps } from './followups';
 import { Insights } from './insightsTab';
+import { DailyEmail } from './digestTab';
 import {
   BarList, Columns, Heatmap, HeatLegend, Meter, StackedColumns, toneFor,
 } from './charts';
@@ -45,6 +46,10 @@ export interface TabDef {
   personOnly?: boolean;
   /** Only offered to admins (spend, leadership insights). */
   adminOnly?: boolean;
+  /** Only on the team view, not inside one person's report. */
+  teamOnly?: boolean;
+  /** No table to export. */
+  noCsv?: boolean;
 }
 
 const S1 = 'var(--rp-s1)';
@@ -813,6 +818,7 @@ export const TABS: TabDef[] = [
   { key: 'quality', label: 'Call quality', render: Quality, csv: { cols: qualityCols, filename: 'call-quality' } },
   { key: 'outreach', label: 'Outreach', render: Outreach, csv: { cols: outreachCols, filename: 'outreach' } },
   { key: 'insights', label: 'Insights', render: Insights, csv: { cols: [], filename: 'insights' }, adminOnly: true },
+  { key: 'daily-email', label: 'Daily email', render: DailyEmail, csv: { cols: [], filename: 'daily-email' }, adminOnly: true, teamOnly: true, noCsv: true },
   { key: 'cost', label: 'Cost', render: Cost, csv: { cols: costCols, filename: 'cost' }, adminOnly: true },
   { key: 'adoption', label: 'Adoption', render: Adoption, csv: { cols: [], filename: 'adoption' } },
   { key: 'activity', label: 'Activity', render: Numbers, csv: { cols: [], filename: 'activity' }, personOnly: true },
