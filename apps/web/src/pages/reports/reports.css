@@ -711,3 +711,4 @@
 .rp-mail-head .rp-muted { display: inline-block; width: 64px; }
 .rp-mail-frame { background: #f2f2f7; border-top: 1px solid var(--rp-line); }
 .rp-mail-frame iframe { display: block; width: 100%; height: 1320px; border: 0; }
+.rp-to { display: flex; flex-wrap: wrap; gap: 6px; }

@@ -29,6 +29,10 @@ export interface SendGridResult {
 export interface SendOptions {
   toEmail: string;
   toName?: string;
+  /** Extra visible recipients (one message, several To addresses). */
+  alsoTo?: Array<{ email: string; name?: string }>;
+  /** Blind copies — recipients don't see each other. */
+  bcc?: Array<{ email: string; name?: string }>;
   subject: string;
   html: string;
   text: string;                  // plaintext fallback for clients that don't render HTML
@@ -50,7 +54,13 @@ async function send(opts: SendOptions): Promise<SendGridResult> {
   }
   const body = {
     personalizations: [{
-      to: [{ email: opts.toEmail, ...(opts.toName ? { name: opts.toName } : {}) }],
+      to: [
+        { email: opts.toEmail, ...(opts.toName ? { name: opts.toName } : {}) },
+        ...(opts.alsoTo ?? []).map((r) => ({ email: r.email, ...(r.name ? { name: r.name } : {}) })),
+      ],
+      ...(opts.bcc && opts.bcc.length > 0
+        ? { bcc: opts.bcc.map((r) => ({ email: r.email, ...(r.name ? { name: r.name } : {}) })) }
+        : {}),
       subject: opts.subject,
     }],
     from: {

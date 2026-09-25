@@ -1,10 +1,10 @@
 // Daily performance email — composed, previewed and sent from the Reports
 // page (admin only), optionally on a weekday schedule.
 //
-// Everyone gets the same team picture plus a private section: their own
-// numbers against the team average and what's waiting on them. Recognition
-// is top-three only, by name; nobody is ever listed at the bottom. A person's
-// follow-up list goes to that person alone.
+// One message for the whole team: the people featured in the shout-outs on
+// To, everyone else on BCC. Content is team-level only — no individual's
+// numbers beyond the shout-outs, which are top-three, positive measures,
+// never a bottom list.
 //
 // Numbers come from computeReport() — the same function behind the Reports
 // page — so the email can never disagree with what people see there.
@@ -14,7 +14,7 @@ import { prisma } from '@ace/db';
 import { sendEmail } from '../email/sendgrid.js';
 import { recordAudit } from '../lib/audit.js';
 import { computeReport } from './reports.routes.js';
-import { computeFollowUps } from './lookup.js';
+import { config } from '../config.js';
 import { addDays, dowOfDateKey, etDateKey, etParts, isDateKey } from './etTime.js';
 
 interface JwtPayload {
@@ -31,7 +31,6 @@ const DAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Satu
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 type Report = Awaited<ReturnType<typeof computeReport>>;
-type FollowUps = Awaited<ReturnType<typeof computeFollowUps>>;
 
 export interface Schedule {
   enabled: boolean;
@@ -99,16 +98,14 @@ export interface Digest {
   report: Report;
   lastWeek: Report;
   recent: Report;
-  followUps: FollowUps;
   recipients: Array<{ id: number; name: string; email: string }>;
 }
 
 export async function buildDigest(date: string): Promise<Digest> {
-  const [report, lastWeek, recent, followUps] = await Promise.all([
+  const [report, lastWeek, recent] = await Promise.all([
     computeReport({ from: date, to: date, scopeUserId: null, isAdmin: true }),
     computeReport({ from: addDays(date, -7), to: addDays(date, -7), scopeUserId: null, isAdmin: true }),
     computeReport({ from: addDays(date, -(RECENT_DAYS - 1)), to: date, scopeUserId: null, isAdmin: true }),
-    computeFollowUps(null),
   ]);
   // "Users of the system": active accounts that called or texted in the
   // last four weeks. Dormant accounts don't get a daily email about work
@@ -123,7 +120,52 @@ export async function buildDigest(date: string): Promise<Digest> {
     .filter((u) => active.has(u.id) && u.email.includes('@'))
     .map((u) => ({ id: u.id, email: u.email, name: nameOf.get(u.id) ?? u.email }))
     .sort((a, b) => a.name.localeCompare(b.name));
-  return { date, report, lastWeek, recent, followUps, recipients };
+  return { date, report, lastWeek, recent, recipients };
+}
+
+export interface ShoutOut {
+  key: string;
+  /** Emoji: the one "icon" every mail client (Outlook included) renders. */
+  icon: string;
+  tint: string;
+  title: string;
+  unit: string;
+  winner: { userId: number; name: string; value: string };
+  runnersUp: Array<{ userId: number; name: string; value: string }>;
+}
+
+/** Top three in three positive categories. Nobody is ever listed at the bottom. */
+export function shoutOuts(d: Digest): ShoutOut[] {
+  const people = d.report.people;
+  type P = (typeof people)[number];
+  const top = (rows: P[], val: (p: P) => number | null) =>
+    rows.map((r) => ({ r, v: val(r) })).filter((x): x is { r: P; v: number } => x.v != null && x.v > 0).sort((a, b) => b.v - a.v).slice(0, 3);
+  const build = (key: string, icon: string, tint: string, title: string, unit: string, ranked: Array<{ r: P; v: number }>, show: (r: P) => string): ShoutOut | null => {
+    if (ranked.length === 0) return null;
+    const [first, ...rest] = ranked;
+    return {
+      key, icon, tint, title, unit,
+      winner: { userId: first.r.userId, name: first.r.name, value: show(first.r) },
+      runnersUp: rest.map((x) => ({ userId: x.r.userId, name: x.r.name, value: show(x.r) })),
+    };
+  };
+  return [
+    build('conversations', '🏆', '#fff4d6', 'Most conversations', 'over 2 minutes', top(people, (p) => p.conversations), (p) => int(p.conversations)),
+    build('reach', '📞', '#e3efff', 'Most people called', 'different numbers', top(people, (p) => p.uniqueDialled), (p) => int(p.uniqueDialled)),
+    // Fastest needs at least 3 returned calls, or one lucky callback wins.
+    build('callbacks', '⚡', '#e6f6ea', 'Fastest callbacks', 'median time to call back', top(people.filter((p) => p.missedReturned >= 3), (p) => (p.medianCallbackSec == null ? null : 1 / (1 + p.medianCallbackSec))), (p) => wait(p.medianCallbackSec)),
+  ].filter((x): x is ShoutOut => x !== null);
+}
+
+/**
+ * One message for everyone: the people named in the shout-outs on To, the
+ * rest of the team on BCC, so nobody sees a 78-name recipient list.
+ */
+export function addressees(d: Digest, shouts: ShoutOut[]) {
+  const named = new Set(shouts.flatMap((s) => [s.winner.userId, ...s.runnersUp.map((r) => r.userId)]));
+  const to = d.recipients.filter((r) => named.has(r.id));
+  const bcc = d.recipients.filter((r) => !named.has(r.id));
+  return { to, bcc };
 }
 
 interface Rendered {
@@ -132,13 +174,12 @@ interface Rendered {
   text: string;
 }
 
-export function renderDigest(d: Digest, recipient: { id: number; name: string } | null, sender: string): Rendered {
+export function renderDigest(d: Digest, sender: string): Rendered {
   const t = d.report.totals;
   const w = d.lastWeek.totals;
-  const people = d.report.people;
   const dayWorked = t.callsOut + t.callsIn > 0;
+  const shouts = shoutOuts(d);
 
-  // Team tiles.
   const tiles: Array<{ label: string; value: string; cur: number; prev: number }> = [
     { label: 'Calls made', value: int(t.callsOut), cur: t.callsOut, prev: w.callsOut },
     { label: 'Different people called', value: int(t.uniqueDialled), cur: t.uniqueDialled, prev: w.uniqueDialled },
@@ -151,39 +192,13 @@ export function renderDigest(d: Digest, recipient: { id: number; name: string } 
     { label: 'Texts replied to', value: pct(t.smsReplied, t.smsRepliable), note: `median ${wait(t.medianReplySec)}` },
   ];
 
-  // Shout-outs: top three, only positive measures, only people above zero.
-  const top = <T,>(rows: T[], val: (r: T) => number | null, n = 3) =>
-    rows.map((r) => ({ r, v: val(r) })).filter((x): x is { r: T; v: number } => x.v != null && x.v > 0).sort((a, b) => b.v - a.v).slice(0, n);
-  const shout = [
-    { title: 'Most conversations over 2 minutes', rows: top(people, (p) => p.conversations).map((x) => [x.r.name, int(x.v)] as const) },
-    { title: 'Most different people called', rows: top(people, (p) => p.uniqueDialled).map((x) => [x.r.name, int(x.v)] as const) },
-    { title: 'Fastest to return missed calls', rows: top(people.filter((p) => p.missedReturned >= 3), (p) => (p.medianCallbackSec == null ? null : 1 / (1 + p.medianCallbackSec))).map((x) => [x.r.name, wait(x.r.medianCallbackSec)] as const) },
-  ].filter((s) => s.rows.length > 0);
-
-  // Personal section.
-  const me = recipient ? people.find((p) => p.userId === recipient.id) : undefined;
-  const callers = people.filter((p) => p.callsOut > 0);
-  const avg = (f: (p: (typeof people)[number]) => number) => (callers.length ? callers.reduce((a, p) => a + f(p), 0) / callers.length : 0);
-  const mine = me ? [
-    { label: 'Calls made', you: int(me.callsOut), team: int(avg((p) => p.callsOut)) },
-    { label: 'Different people called', you: int(me.uniqueDialled), team: int(avg((p) => p.uniqueDialled)) },
-    { label: 'Conversations over 2 min', you: int(me.conversations), team: int(avg((p) => p.conversations)) },
-    { label: 'Talk time', you: talk(me.talkSec), team: talk(avg((p) => p.talkSec)) },
-  ] : [];
-  const fu = recipient ? d.followUps.items.filter((i) => i.userId === recipient.id) : [];
-  const fuCounts = {
-    missed: fu.filter((i) => i.kind === 'missed_call').length,
-    texts: fu.filter((i) => i.kind === 'text').length,
-    vms: fu.filter((i) => i.kind === 'voicemail').length,
-  };
-
   // Tip: the best hour to call on the next working day, from four weeks of calls.
   const next = nextBusinessDay(d.date);
   const row = d.recent.insights.bestTime[dowOfDateKey(next) - 1];
   let tip: string | null = null;
   const cells = row
-    .map((c, h) => ({ h, n: c.attempts, r: c.attempts >= d.recent.insights.bestTimeMinAttempts ? c.reached / c.attempts : null }))
-    .filter((c): c is { h: number; n: number; r: number } => c.r != null && c.h >= 8 && c.h <= 19);
+    .map((c, h) => ({ h, r: c.attempts >= d.recent.insights.bestTimeMinAttempts ? c.reached / c.attempts : null }))
+    .filter((c): c is { h: number; r: number } => c.r != null && c.h >= 8 && c.h <= 19);
   if (cells.length >= 3) {
     const best = [...cells].sort((a, b) => b.r - a.r)[0];
     const worst = [...cells].sort((a, b) => a.r - b.r)[0];
@@ -215,70 +230,56 @@ export function renderDigest(d: Digest, recipient: { id: number; name: string } 
       <div style="font-size:20px;font-weight:700;color:${C.ink}">${esc(x.value)}</div>
       <div style="font-size:11px;color:${C.muted}">${esc(x.note)}</div>
     </td>`).join('');
-  const shoutHtml = shout.map((s) => `
-      <div style="font-size:13px;font-weight:600;color:${C.ink};margin:12px 0 4px">${esc(s.title)}</div>
-      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse">
-        ${s.rows.map(([n, v], i) => `<tr><td style="padding:5px 0;border-top:1px solid ${C.line};font-size:13px;color:${C.ink}">${i + 1}. ${esc(n)}</td><td align="right" style="padding:5px 0;border-top:1px solid ${C.line};font-size:13px;color:${C.dim}">${esc(v)}</td></tr>`).join('')}
-      </table>`).join('');
-  const mineHtml = me ? `
-      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse">
-        <tr><td style="font-size:11px;color:${C.muted};padding-bottom:4px"></td><td align="right" style="font-size:11px;color:${C.muted};padding-bottom:4px">You</td><td align="right" style="font-size:11px;color:${C.muted};padding-bottom:4px">Team average</td></tr>
-        ${mine.map((m) => `<tr><td style="padding:6px 0;border-top:1px solid ${C.line};font-size:13px;color:${C.ink}">${esc(m.label)}</td><td align="right" style="padding:6px 0;border-top:1px solid ${C.line};font-size:14px;font-weight:600;color:${C.ink}">${esc(m.you)}</td><td align="right" style="padding:6px 0;border-top:1px solid ${C.line};font-size:13px;color:${C.dim}">${esc(m.team)}</td></tr>`).join('')}
-      </table>` : `<div style="font-size:13px;color:${C.dim}">No calls from you on ${esc(longDate(d.date))}.</div>`;
-  const fuHtml = fu.length === 0
-    ? `<div style="font-size:13px;color:${C.good};margin-top:14px">Nothing waiting on you. Nice work.</div>`
-    : `<div style="font-size:13px;color:${C.ink};margin-top:14px"><b>Waiting on you:</b> ${[
-        fuCounts.missed ? `${fuCounts.missed} missed ${fuCounts.missed === 1 ? 'call' : 'calls'} not returned` : '',
-        fuCounts.texts ? `${fuCounts.texts} ${fuCounts.texts === 1 ? 'text' : 'texts'} awaiting a reply` : '',
-        fuCounts.vms ? `${fuCounts.vms} ${fuCounts.vms === 1 ? 'voicemail' : 'voicemails'} not returned` : '',
-      ].filter(Boolean).join(', ')}.</div>
-      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin-top:6px">
-        ${fu.slice(0, 3).map((i) => `<tr><td style="padding:5px 0;border-top:1px solid ${C.line};font-size:12px;color:${C.ink}">${esc(i.name ?? fmtPhone(i.number))}</td><td align="right" style="padding:5px 0;border-top:1px solid ${C.line};font-size:12px;color:${C.dim}">${i.kind === 'missed_call' ? 'Missed call' : i.kind === 'text' ? 'Text waiting' : 'Voicemail'} · since ${esc(longDate(etDateKey(Date.parse(i.since))).replace(/^\w+, /, ''))}</td></tr>`).join('')}
-      </table>`;
+  // Three boxes, one per category: icon, category, winner, their number,
+  // runners-up underneath so second and third get named too.
+  const w3 = Math.floor(100 / Math.max(1, shouts.length));
+  const shoutHtml = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:separate;border-spacing:8px 0;margin:0 -8px"><tr>
+    ${shouts.map((s) => `<td width="${w3}%" valign="top" style="background:${s.tint};border-radius:14px;padding:16px 14px;text-align:center">
+      <div style="font-size:30px;line-height:1">${s.icon}</div>
+      <div style="font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:${C.dim};margin-top:8px">${esc(s.title)}</div>
+      <div style="font-size:30px;font-weight:800;color:${C.ink};margin-top:8px;line-height:1.1">${esc(s.winner.value)}</div>
+      <div style="font-size:11px;color:${C.muted}">${esc(s.unit)}</div>
+      <div style="font-size:15px;font-weight:700;color:${C.ink};margin-top:8px">${esc(s.winner.name)}</div>
+      ${s.runnersUp.length ? `<div style="font-size:11px;color:${C.dim};margin-top:8px;line-height:1.5">${s.runnersUp.map((r, i) => `${i + 2}. ${esc(r.name)} · ${esc(r.value)}`).join('<br>')}</div>` : ''}
+    </td>`).join('')}
+  </tr></table>`;
   const button = (href: string, label: string) => `<a href="${esc(href)}" style="display:inline-block;background:${C.accent};color:#ffffff;text-decoration:none;font-size:14px;font-weight:600;padding:10px 18px;border-radius:10px">${esc(label)}</a>`;
 
   const html = `<!doctype html><html><body style="margin:0;padding:0;background:${C.bg}">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:${C.bg};font-family:${font}">
 <tr><td align="center" style="padding:24px 12px">
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;background:${C.card};border-radius:16px;border-collapse:separate">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:640px;background:${C.card};border-radius:16px;border-collapse:separate">
   <tr><td style="padding:28px 28px 0">
     <div style="font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:${C.accent}">ACE Dialer · Daily</div>
     <div style="font-size:24px;font-weight:700;color:${C.ink};margin-top:6px">${esc(longDate(d.date))}</div>
-    <div style="font-size:14px;color:${C.dim};margin-top:4px">${recipient ? `Good morning, ${esc(recipient.name.split(' ')[0])}. ` : ''}${dayWorked ? `Here's how the team did, and your own numbers.` : 'No calls were made on this day.'}</div>
+    <div style="font-size:14px;color:${C.dim};margin-top:4px">${dayWorked ? 'Good morning, team. Here’s how we did.' : 'No calls were made on this day.'}</div>
   </td></tr>
+  ${shouts.length ? section('Shout-outs 🎉', shoutHtml) : ''}
   ${dayWorked ? section('The team', `<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>${tileHtml}</tr></table>
       <div style="font-size:11px;color:${C.muted}">Compared with ${esc(longDate(addDays(d.date, -7)))}.</div>`) : ''}
   ${dayWorked ? section('How responsive we were', `<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>${respHtml}</tr></table>`) : ''}
-  ${shout.length ? section('Shout-outs', shoutHtml) : ''}
-  ${recipient ? section('Your day', mineHtml + fuHtml) : ''}
   ${tip ? section(`Tip for ${DAY_NAMES[dowOfDateKey(next) - 1]}`, `<div style="font-size:13px;color:${C.ink};line-height:1.5">${esc(tip)}</div>`) : ''}
   <tr><td style="padding:24px 28px 28px">
-    ${button(`${APP_URL}/reports/${recipient && fu.length ? 'follow-ups' : 'overview'}`, recipient && fu.length ? 'See what’s waiting on you' : 'Open Reports')}
-    <div style="font-size:11px;color:${C.muted};line-height:1.5;margin-top:18px">Sent by ${esc(sender)} to ACE Dialer users. Each call counts once; talk time excludes ringing; times are Eastern. Your own section is only in your copy.</div>
+    ${button(`${APP_URL}/reports/overview`, 'Open Reports')}
+    <div style="font-size:11px;color:${C.muted};line-height:1.5;margin-top:18px">Sent by ${esc(sender)} to ACE Dialer users. Each call counts once; talk time excludes ringing; times are Eastern.</div>
   </td></tr>
 </table>
 </td></tr></table></body></html>`;
 
   // ── Plain text ──
-  const lines: string[] = [`ACE Dialer · Daily — ${longDate(d.date)}`, ''];
+  const lines: string[] = [`ACE Dialer · Daily — ${longDate(d.date)}`, '', dayWorked ? 'Good morning, team. Here’s how we did.' : 'No calls were made on this day.'];
+  if (shouts.length) {
+    lines.push('', 'SHOUT-OUTS');
+    for (const s of shouts) {
+      lines.push(`  ${s.icon} ${s.title}: ${s.winner.name} — ${s.winner.value} ${s.unit}`);
+      s.runnersUp.forEach((r, i) => lines.push(`     ${i + 2}. ${r.name} — ${r.value}`));
+    }
+  }
   if (dayWorked) {
-    lines.push('THE TEAM');
+    lines.push('', 'THE TEAM');
     for (const x of tiles) lines.push(`  ${x.label}: ${x.value}${change(x.cur, x.prev).text ? ` (${change(x.cur, x.prev).text})` : ''}`);
     lines.push('', 'HOW RESPONSIVE WE WERE');
     for (const x of resp) lines.push(`  ${x.label}: ${x.value} (${x.note})`);
-  }
-  if (shout.length) {
-    lines.push('', 'SHOUT-OUTS');
-    for (const s of shout) {
-      lines.push(`  ${s.title}`);
-      s.rows.forEach(([n, v], i) => lines.push(`    ${i + 1}. ${n} — ${v}`));
-    }
-  }
-  if (recipient) {
-    lines.push('', 'YOUR DAY');
-    if (me) for (const m of mine) lines.push(`  ${m.label}: ${m.you} (team average ${m.team})`);
-    else lines.push('  No calls from you on this day.');
-    lines.push(fu.length ? `  Waiting on you: ${fuCounts.missed} missed calls, ${fuCounts.texts} texts, ${fuCounts.vms} voicemails.` : '  Nothing waiting on you.');
   }
   if (tip) lines.push('', `TIP: ${tip}`);
   lines.push('', `Open Reports: ${APP_URL}/reports`, `Sent by ${sender} to ACE Dialer users.`);
@@ -288,24 +289,29 @@ export function renderDigest(d: Digest, recipient: { id: number; name: string } 
 
 // ── Sending ─────────────────────────────────────────────────────────────
 
-async function sendAll(d: Digest, sender: string, onlyTo?: { id: number; name: string; email: string }) {
-  const targets = onlyTo ? [onlyTo] : d.recipients;
-  let sent = 0;
-  const failed: Array<{ email: string; error: string }> = [];
-  // Five at a time: fast enough for ~80 people, gentle on SendGrid.
-  for (let i = 0; i < targets.length; i += 5) {
-    const batch = targets.slice(i, i + 5);
-    const results = await Promise.all(batch.map(async (r) => {
-      const me = d.recipients.find((x) => x.id === r.id) ?? r;
-      const out = renderDigest(d, me, sender);
-      return { r, res: await sendEmail({ toEmail: r.email, toName: r.name, subject: onlyTo ? `[Test] ${out.subject}` : out.subject, html: out.html, text: out.text }) };
-    }));
-    for (const { r, res } of results) {
-      if (res.ok) sent += 1;
-      else failed.push({ email: r.email, error: typeof res.error === 'string' ? res.error : `HTTP ${res.status}` });
-    }
+/** One SendGrid message. Test mode goes to the sender alone. */
+async function sendDigestEmail(d: Digest, sender: string, testTo?: { email: string; name: string }) {
+  const out = renderDigest(d, sender);
+  if (testTo) {
+    const res = await sendEmail({ toEmail: testTo.email, toName: testTo.name, subject: `[Test] ${out.subject}`, html: out.html, text: out.text });
+    return { ok: res.ok, to: 1, bcc: 0, error: res.ok ? null : typeof res.error === 'string' ? res.error : `HTTP ${res.status}` };
   }
-  return { sent, failed };
+  const { to, bcc } = addressees(d, shoutOuts(d));
+  // No shout-outs (a day nobody called) → nobody to feature on To: address
+  // it to our own sending address and keep the whole team on BCC.
+  const visible = to.length > 0 ? to : [{ id: 0, email: config.sendGridFromEmail ?? 'noreply@aptask.com', name: 'ACE Dialer' }];
+  const hidden = to.length > 0 ? bcc : d.recipients;
+  const [first, ...rest] = visible;
+  const res = await sendEmail({
+    toEmail: first.email,
+    toName: first.name,
+    alsoTo: rest.map((r) => ({ email: r.email, name: r.name })),
+    bcc: hidden.map((r) => ({ email: r.email, name: r.name })),
+    subject: out.subject,
+    html: out.html,
+    text: out.text,
+  });
+  return { ok: res.ok, to: to.length, bcc: hidden.length, error: res.ok ? null : typeof res.error === 'string' ? res.error : `HTTP ${res.status}` };
 }
 
 async function readSchedule(): Promise<Schedule> {
@@ -327,13 +333,15 @@ async function history() {
     select: { createdAt: true, metadata: true, actor: { select: { firstName: true, lastName: true, email: true } } },
   });
   return rows.map((r) => {
-    const m = (r.metadata ?? {}) as { date?: string; mode?: string; sent?: number; failed?: number };
+    const m = (r.metadata ?? {}) as { date?: string; mode?: string; sent?: number; failed?: number; to?: number; bcc?: number };
     return {
       at: r.createdAt.toISOString(),
       date: m.date ?? null,
       mode: m.mode ?? null,
-      sent: m.sent ?? 0,
+      sent: m.sent ?? ((m.to ?? 0) + (m.bcc ?? 0)),
       failed: m.failed ?? 0,
+      to: m.to ?? null,
+      bcc: m.bcc ?? null,
       by: r.actor ? (`${r.actor.firstName ?? ''} ${r.actor.lastName ?? ''}`.trim() || r.actor.email) : 'Automatic',
     };
   });
@@ -359,7 +367,7 @@ async function requireAdmin(request: FastifyRequest, reply: FastifyReply) {
 }
 
 export async function digestRoutes(app: FastifyInstance) {
-  app.get<{ Querystring: { date?: string; as?: string } }>(
+  app.get<{ Querystring: { date?: string } }>(
     '/reports/digest',
     { onRequest: [app.authenticate, requireAdmin] },
     async (request, reply) => {
@@ -368,15 +376,15 @@ export async function digestRoutes(app: FastifyInstance) {
       const date = request.query.date ?? previousBusinessDay(today);
       if (!isDateKey(date) || date >= today) return reply.code(400).send({ error: 'Pick a day before today.' });
       const d = await buildDigest(date);
-      const asId = request.query.as ? Number(request.query.as) : me.sub;
-      const as = d.recipients.find((r) => r.id === asId) ?? { id: asId, name: (await senderName(asId)), email: '' };
-      const out = renderDigest(d, as, await senderName(me.sub));
+      const out = renderDigest(d, await senderName(me.sub));
+      const { to, bcc } = addressees(d, shoutOuts(d));
       return {
         date,
         subject: out.subject,
         html: out.html,
         recipients: d.recipients,
-        previewAs: { id: as.id, name: as.name },
+        to,
+        bccCount: bcc.length,
         alreadySent: await alreadySentToEveryone(date),
         schedule: await readSchedule(),
         history: await history(),
@@ -399,9 +407,10 @@ export async function digestRoutes(app: FastifyInstance) {
       if (mode === 'test') {
         const self = await prisma.user.findUnique({ where: { id: me.sub }, select: { id: true, email: true } });
         if (!self) return reply.code(404).send({ error: 'Your account was not found.' });
-        const res = await sendAll(d, sender, { id: self.id, email: self.email, name: sender });
-        await recordAudit(me.sub, 'reports.digest_sent', null, { date, mode, sent: res.sent, failed: res.failed.length });
-        return { ...res, to: self.email };
+        const res = await sendDigestEmail(d, sender, { email: self.email, name: sender });
+        await recordAudit(me.sub, 'reports.digest_sent', null, { date, mode, sent: res.ok ? 1 : 0, failed: res.ok ? 0 : 1 });
+        if (!res.ok) return reply.code(502).send({ error: `The test didn't send: ${res.error}` });
+        return { ok: true, to: self.email };
       }
       // Sending to everyone is irreversible, so the client must state how
       // many people it expects — a stale page can't mail a different list.
@@ -411,10 +420,14 @@ export async function digestRoutes(app: FastifyInstance) {
       if (!force && (await alreadySentToEveryone(date))) {
         return reply.code(409).send({ error: `The email for ${longDate(date)} was already sent to everyone.`, alreadySent: true });
       }
-      const res = await sendAll(d, sender);
-      await recordAudit(me.sub, 'reports.digest_sent', null, { date, mode, sent: res.sent, failed: res.failed.length, recipients: d.recipients.length });
-      request.log.info({ date, sent: res.sent, failed: res.failed.length }, '[digest] sent to everyone');
-      return res;
+      const res = await sendDigestEmail(d, sender);
+      if (!res.ok) {
+        request.log.error({ date, error: res.error }, '[digest] send failed');
+        return reply.code(502).send({ error: `SendGrid refused the email: ${res.error}. Nothing was sent.` });
+      }
+      await recordAudit(me.sub, 'reports.digest_sent', null, { date, mode, to: res.to, bcc: res.bcc, recipients: d.recipients.length });
+      request.log.info({ date, to: res.to, bcc: res.bcc }, '[digest] sent to everyone');
+      return { ok: true, to: res.to, bcc: res.bcc };
     },
   );
 
@@ -460,12 +473,20 @@ export function startDigestScheduler(log: { info: (o: object, m: string) => void
         data: { value: JSON.stringify({ ...s, lastSentDate: et.date }) },
       });
       if (claimed.count === 0) return;
+      const claimedValue = JSON.stringify({ ...s, lastSentDate: et.date });
+      // Give the day back if we don't finish, so the next tick retries.
+      const release = () => prisma.systemSetting.updateMany({ where: { key: SETTING_KEY, value: claimedValue }, data: { value: row.value } });
       const date = previousBusinessDay(et.date);
       if (await alreadySentToEveryone(date)) return;
       const d = await buildDigest(date);
-      const res = await sendAll(d, 'ACE Dialer');
-      await recordAudit(null, 'reports.digest_sent', null, { date, mode: 'everyone', sent: res.sent, failed: res.failed.length, recipients: d.recipients.length, automatic: true });
-      log.info({ date, sent: res.sent, failed: res.failed.length }, '[digest] automatic send');
+      const res = await sendDigestEmail(d, 'ACE Dialer');
+      if (!res.ok) {
+        log.error({ date, error: res.error }, '[digest] automatic send failed; will retry');
+        await release();
+        return;
+      }
+      await recordAudit(null, 'reports.digest_sent', null, { date, mode: 'everyone', to: res.to, bcc: res.bcc, recipients: d.recipients.length, automatic: true });
+      log.info({ date, to: res.to, bcc: res.bcc }, '[digest] automatic send');
     } catch (e) {
       log.error({ err: e instanceof Error ? e.message : String(e) }, '[digest] scheduler tick failed');
     }
