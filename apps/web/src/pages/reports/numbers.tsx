@@ -75,7 +75,9 @@ function CallsView({ p, onOpen }: { p: TabProps; onOpen: Opener }) {
     if (dir === 'outbound' && c.direction !== 'outbound') return false;
     if (dir === 'inbound' && c.direction !== 'inbound') return false;
     if (dir === 'unanswered' && (c.direction !== 'inbound' || c.answered || c.outcome === 'blocked')) return false;
-    if (reason && c.endReason !== reason) return false;
+    // 'silent' covers both kinds of silence: the far end sent nothing, or
+    // their audio never reached the app.
+    if (reason === 'silent' ? !c.noAudio : reason && c.endReason !== reason) return false;
     return matches(q, c.number, c.name);
   }), [log, dir, q, reason]);
   // Reasons present in this log, most common first, for the filter.
@@ -130,6 +132,7 @@ function CallsView({ p, onOpen }: { p: TabProps; onOpen: Opener }) {
                 <span className="rp-sr">Why it ended</span>
                 <select id="rp-reason" value={reason} onChange={(e) => { setReason(e.target.value); setShown(PAGE); }}>
                   <option value="">Any end reason</option>
+                  {silent > 0 && <option value="silent">Any call with no audio ({silent})</option>}
                   {reasons.map(([k, r]) => <option key={k} value={k}>{r.label} ({r.n})</option>)}
                 </select>
               </label>
@@ -138,8 +141,8 @@ function CallsView({ p, onOpen }: { p: TabProps; onOpen: Opener }) {
           </header>
           {silent > 0 && (
             <p className="rp-alert">
-              {silent} connected {silent === 1 ? 'call' : 'calls'} had no audio from the other side, which is what a caller hearing nothing looks like.{' '}
-              <button type="button" className="rp-link" onClick={() => setReason('no_audio')}>Show them</button>
+              {silent} connected {silent === 1 ? 'call' : 'calls'} had no audio from the other side, which is what "the call connected but I heard nothing" looks like.{' '}
+              <button type="button" className="rp-link" onClick={() => setReason('silent')}>Show them</button>
             </p>
           )}
           {calls.length === 0 ? <Empty>No calls match.</Empty> : (

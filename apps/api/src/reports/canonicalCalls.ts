@@ -48,6 +48,8 @@ export interface RawCallRow {
   sipHangupCause?: string | null;
   /** Telnyx's inbound (far end → Telnyx) packet count from call_quality_stats. */
   carrierRxPackets?: number | null;
+  /** Telnyx's MOS for audio arriving from the far end (1–5). */
+  carrierMos?: number | null;
 }
 
 export interface CallQualitySummary {
@@ -81,6 +83,7 @@ export interface LogicalCall {
   rxPackets: number | null;
   sipCause: string | null;
   carrierRxPackets: number | null;
+  carrierMos: number | null;
   /** Seconds from dial/ring start to answer, or to hang-up when never answered. */
   ringSec: number;
   userDidId: number | null;
@@ -127,6 +130,7 @@ function toLogical(r: RawCallRow): LogicalCall {
     rxPackets: isClient ? r.rxPackets ?? null : null,
     sipCause: r.sipHangupCause ?? null,
     carrierRxPackets: r.carrierRxPackets ?? null,
+    carrierMos: r.carrierMos ?? null,
     ringSec: Math.max(0, Math.round((((r.answeredAt ?? r.endedAt) ?? r.startedAt) - r.startedAt) / 1000)),
     userDidId: r.userDidId,
     telnyxCallIds: [r.telnyxCallId],
@@ -293,6 +297,8 @@ export function isConfirmedDrop(c: LogicalCall): boolean {
 
 /** Same thresholds as the in-call quality badge (sip.ts pollQualityOnce). */
 export function isPoorQuality(c: LogicalCall): boolean {
+  // Telnyx MOS under 3.5 is where listeners start to complain.
+  if (c.carrierMos != null && c.carrierMos > 0 && c.carrierMos < 3.5) return true;
   const q = c.quality;
   if (!q) return false;
   return q.avgJitterMs >= 60 || q.avgLossPct >= 5 || (q.avgRttMs != null && q.avgRttMs >= 500);
@@ -305,7 +311,7 @@ export function isPoorQuality(c: LogicalCall): boolean {
 // originator (client row), then Telnyx's hang-up source/cause.
 
 export type EndReasonKey =
-  | 'no_audio' | 'dropped' | 'you_hung_up' | 'they_hung_up' | 'ended'
+  | 'no_audio' | 'no_audio_far' | 'dropped' | 'you_hung_up' | 'they_hung_up' | 'ended'
   | 'you_canceled' | 'no_answer' | 'busy' | 'not_found' | 'rejected' | 'failed'
   | 'caller_hung_up' | 'rang_out' | 'declined' | 'blocked';
 
@@ -320,16 +326,35 @@ export interface EndReason {
 // silent, not just short.
 const SILENT_MIN_SEC = 5;
 
+/**
+ * Silence has two different causes, and they need different fixes:
+ *  - far: Telnyx itself received nothing from the other side (their phone,
+ *    their carrier, a screener that never spoke) — measured on every call.
+ *  - near: Telnyx did get audio but the app received none — our media path
+ *    (NAT/TURN), measured only on app 0.10.232+.
+ */
+export function silence(c: LogicalCall): 'far' | 'near' | null {
+  if (!c.answered || c.talkSec < SILENT_MIN_SEC) return null;
+  if (c.carrierRxPackets === 0) return 'far';
+  if (c.rxPackets === 0) return 'near';
+  return null;
+}
+
 export function isSilent(c: LogicalCall): boolean {
-  if (!c.answered || c.talkSec < SILENT_MIN_SEC) return false;
-  if (c.rxPackets != null) return c.rxPackets === 0;
-  return false;
+  return silence(c) !== null;
+}
+
+/** Audio was measured on this call by the app or by Telnyx. */
+export function audioMeasured(c: LogicalCall): boolean {
+  return c.rxPackets != null || c.carrierRxPackets != null;
 }
 
 export function endReason(c: LogicalCall): EndReason {
   const sip = c.sipCause && /^\d{3}$/.test(c.sipCause) ? ` (SIP ${c.sipCause})` : '';
   if (c.answered) {
-    if (isSilent(c)) return { key: 'no_audio', label: 'Connected, but no audio came through from their side', by: null };
+    const quiet = silence(c);
+    if (quiet === 'far') return { key: 'no_audio_far', label: 'Connected, but the other side sent no audio', by: null };
+    if (quiet === 'near') return { key: 'no_audio', label: 'Connected, but their audio never reached you', by: null };
     if (isConfirmedDrop(c)) return { key: 'dropped', label: 'Call dropped by the network', by: 'network' };
     const origin = (c.clientOriginator ?? '').toLowerCase();
     if (origin === 'local') return { key: 'you_hung_up', label: 'You hung up', by: 'you' };

@@ -13,6 +13,7 @@ import {
   isConfirmedDrop,
   isPoorQuality,
   isSilent,
+  audioMeasured,
   last10,
 } from './canonicalCalls.js';
 import { etParts, etDateKey } from './etTime.js';
@@ -400,11 +401,11 @@ export function computePeriod(win: Window, data: ReportData, userIds: number[]):
       if (c.talkSec < SHORT_CALL_SEC) p.shortCalls += 1;
       if (c.talkSec >= CONVERSATION_SEC) p.conversations += 1;
       if (isConfirmedDrop(c)) p.confirmedDrops += 1;
-      if (c.quality) {
+      if (c.quality || c.carrierMos != null) {
         p.qualityMeasured += 1;
         if (isPoorQuality(c)) p.poorQuality += 1;
       }
-      if (c.rxPackets != null) {
+      if (audioMeasured(c)) {
         p.audioMeasured += 1;
         if (isSilent(c)) p.silentCalls += 1;
       }

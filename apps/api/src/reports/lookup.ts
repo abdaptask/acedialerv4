@@ -118,7 +118,8 @@ async function loadCallsFor(sinceMs: number, userId: number | null, digitsExact:
       coalesce(((extract(epoch from answered_at) * 1000)::bigint)::text, ''),
       coalesce(((extract(epoch from ended_at) * 1000)::bigint)::text, ''),
       duration_seconds, '', '', '', '', coalesce(rx_packets::text, ''), coalesce(sip_hangup_cause, ''),
-      coalesce(carrier_stats->'inbound'->>'packet_count', '')) AS r
+      coalesce(carrier_stats->'inbound'->>'packet_count', ''),
+          coalesce(carrier_stats->'inbound'->>'mos', '')) AS r
     FROM calls
     WHERE started_at >= ${since}
       AND (${userId}::int IS NULL OR user_id = ${userId}::int)
@@ -133,7 +134,7 @@ async function loadCallsFor(sinceMs: number, userId: number | null, digitsExact:
       hangupCause: str(f[5]), hangupSource: str(f[6]), userDidId: num(f[7]), fromNumber: f[8], toNumber: f[9],
       startedAt: Number(f[10]), answeredAt: num(f[11]), endedAt: num(f[12]), durationSeconds: Number(f[13]),
       avgJitterMs: null, avgLossPct: null, maxLossPct: null, avgRttMs: null,
-      rxPackets: num(f[18]), sipHangupCause: str(f[19]), carrierRxPackets: num(f[20]),
+      rxPackets: num(f[18]), sipHangupCause: str(f[19]), carrierRxPackets: num(f[20]), carrierMos: num(f[21]),
     };
   });
 }
@@ -261,7 +262,7 @@ export async function lookupRoutes(app: FastifyInstance) {
       events.push({
         at: new Date(c.startedAt).toISOString(), userId: c.userId, kind: 'call', direction: c.direction,
         label: OUTCOME_LABELS[o] ?? o,
-        tone: end.key === 'no_audio' || end.key === 'dropped' ? 'crit' : c.answered ? 'good' : o === 'invalid_number' || o === 'failed' ? 'crit' : o === 'caller_hung_up' || o === 'rang_out' ? 'warn' : null,
+        tone: end.key === 'no_audio' || end.key === 'no_audio_far' || end.key === 'dropped' ? 'crit' : c.answered ? 'good' : o === 'invalid_number' || o === 'failed' ? 'crit' : o === 'caller_hung_up' || o === 'rang_out' ? 'warn' : null,
         talkSec: c.answered ? c.talkSec : undefined,
         detail: end.label,
       });

@@ -12,7 +12,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { prisma } from '@ace/db';
 import {
-  canonicalizeCalls, endReason, inboundOutcome, isSilent, last10, outboundOutcome, type LogicalCall, type RawCallRow,
+  audioMeasured, canonicalizeCalls, endReason, inboundOutcome, isSilent, last10, outboundOutcome, type LogicalCall, type RawCallRow,
 } from './canonicalCalls.js';
 import {
   computePeriod,
@@ -89,7 +89,8 @@ async function loadCalls(since: Date, until: Date, userId: number | null): Promi
           coalesce(avg_jitter_ms::text, ''), coalesce(avg_loss_pct::text, ''),
           coalesce(max_loss_pct::text, ''), coalesce(avg_rtt_ms::text, ''),
           coalesce(rx_packets::text, ''), coalesce(sip_hangup_cause, ''),
-          coalesce(carrier_stats->'inbound'->>'packet_count', '')) AS r
+          coalesce(carrier_stats->'inbound'->>'packet_count', ''),
+          coalesce(carrier_stats->'inbound'->>'mos', '')) AS r
         FROM calls
         WHERE started_at >= ${since} AND started_at < ${until} AND user_id = ${userId}`
     : await prisma.$queryRaw<Array<{ r: string }>>`
@@ -103,7 +104,8 @@ async function loadCalls(since: Date, until: Date, userId: number | null): Promi
           coalesce(avg_jitter_ms::text, ''), coalesce(avg_loss_pct::text, ''),
           coalesce(max_loss_pct::text, ''), coalesce(avg_rtt_ms::text, ''),
           coalesce(rx_packets::text, ''), coalesce(sip_hangup_cause, ''),
-          coalesce(carrier_stats->'inbound'->>'packet_count', '')) AS r
+          coalesce(carrier_stats->'inbound'->>'packet_count', ''),
+          coalesce(carrier_stats->'inbound'->>'mos', '')) AS r
         FROM calls
         WHERE started_at >= ${since} AND started_at < ${until}`;
   const str = (v: string) => (v === '' ? null : v);
@@ -132,6 +134,7 @@ async function loadCalls(since: Date, until: Date, userId: number | null): Promi
       rxPackets: num(f[18]),
       sipHangupCause: str(f[19]),
       carrierRxPackets: num(f[20]),
+      carrierMos: num(f[21]),
     };
   });
 }
@@ -510,7 +513,7 @@ function buildCallLog(
         endBy: end.by,
         ringSec: c.ringSec,
         noAudio: isSilent(c),
-        audioMeasured: c.rxPackets != null,
+        audioMeasured: audioMeasured(c),
         startedAt: new Date(c.startedAt).toISOString(),
         direction: c.direction,
         number: c.number,

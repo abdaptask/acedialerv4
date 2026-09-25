@@ -362,3 +362,16 @@ test('a SIP code is shown on a failed call when Telnyx sent one', () => {
   assert.equal(endReason(c).key, 'not_found');
   assert.match(endReason(c).label, /SIP 404/);
 });
+
+test('Telnyx getting no audio from the far end is "the other side sent no audio"', () => {
+  const [c] = canonicalizeCalls([row({ sessionId: 's', answeredAt: T0 + 2_000, endedAt: T0 + 32_000, carrierRxPackets: 0, carrierMos: 0 })]);
+  assert.equal(endReason(c).key, 'no_audio_far');
+});
+
+test('Telnyx heard them but the app got nothing → "never reached you"', () => {
+  const [c] = canonicalizeCalls([
+    row({ sessionId: 's', answeredAt: T0 + 2_000, endedAt: T0 + 32_000, carrierRxPackets: 1400, carrierMos: 4.4 }),
+    row({ startedAt: T0 + 500, answeredAt: T0 + 2_000, endedAt: T0 + 32_000, rxPackets: 0 }),
+  ]);
+  assert.equal(endReason(c).key, 'no_audio');
+});
