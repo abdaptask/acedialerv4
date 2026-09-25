@@ -265,3 +265,57 @@ test('segments: GSM 160/153, UCS-2 70/67', () => {
   assert.equal(estimateSegments(71, false), 2);
   assert.equal(estimateSegments(135, false), 3);
 });
+
+// ── Insights ────────────────────────────────────────────────────────────
+
+import { computeInsights, optKeyword } from './insights.js';
+
+test('opt-out keywords match a bare word only', () => {
+  assert.equal(optKeyword('STOP'), 'stop');
+  assert.equal(optKeyword('  stop. '), 'stop');
+  assert.equal(optKeyword('Unsubscribe'), 'stop');
+  assert.equal(optKeyword('Stop by at 3?'), null);
+  assert.equal(optKeyword('please stop texting me'), null, 'conservative on purpose: whole-message keywords only');
+  assert.equal(optKeyword('START'), 'start');
+  assert.equal(optKeyword('yes'), null, '"yes" is ordinary candidate chat, not an opt-in');
+});
+
+test('texts sent after STOP and before START are flagged', () => {
+  const m = (direction: string, min: number, keyword: 'stop' | 'start' | null = null) => ({
+    userId: 1, threadKey: '+12125550199', direction, status: direction === 'inbound' ? 'received' : 'delivered',
+    bodyLength: 4, isGsm: true, hasMedia: false, createdAt: T0 + min * 60_000, errorCode: null, errorTitle: null, keyword,
+  });
+  const r = computeInsights(WIN, [], [m('outbound', 0), m('inbound', 1, 'stop'), m('outbound', 2), m('outbound', 3), m('inbound', 4, 'start'), m('outbound', 5)], [1]);
+  assert.equal(r.optOutTotals.optOuts, 1);
+  assert.equal(r.optOuts[0].sentAfter, 2, 'the text after START is allowed');
+});
+
+test('a number contacted by two people is a shared contact', () => {
+  const calls = canonicalizeCalls([row({ userId: 1, sessionId: 'a' }), row({ userId: 2, sessionId: 'b', startedAt: T0 + 3_600_000 })]);
+  const r = computeInsights(WIN, calls, [], [1, 2]);
+  assert.equal(r.sharedContactsTotal, 1);
+  assert.deepEqual(r.sharedContacts[0].userIds.sort(), [1, 2]);
+});
+
+test('best time counts a call as reaching someone only past 30 seconds', () => {
+  const calls = canonicalizeCalls([
+    row({ sessionId: 'a', answeredAt: T0 + 1_000, endedAt: T0 + 10_000 }),
+    row({ sessionId: 'b', startedAt: T0 + 60_000, answeredAt: T0 + 61_000, endedAt: T0 + 120_000 }),
+  ]);
+  const r = computeInsights(WIN, calls, [], [1]);
+  assert.deepEqual(r.bestTime[1][10], { attempts: 2, reached: 1 });
+});
+
+test('unique numbers dialled counts each number once per person, and once team-wide', () => {
+  const calls = canonicalizeCalls([
+    row({ userId: 1, sessionId: 'a', toNumber: '+12125550101' }),
+    row({ userId: 1, sessionId: 'b', toNumber: '+12125550101', startedAt: T0 + 60_000, answeredAt: T0 + 61_000, endedAt: T0 + 90_000 }),
+    row({ userId: 1, sessionId: 'c', toNumber: '+12125550102', startedAt: T0 + 120_000 }),
+    row({ userId: 2, sessionId: 'd', toNumber: '+12125550101', startedAt: T0 + 180_000 }),
+  ]);
+  const r = computePeriod(WIN, data({ calls }), [1, 2]);
+  assert.equal(r.people.get(1)!.callsOut, 3);
+  assert.equal(r.people.get(1)!.uniqueDialled, 2);
+  assert.equal(r.people.get(1)!.uniqueConnected, 1);
+  assert.equal(r.totals.uniqueDialled, 2, 'team-wide, the shared number counts once');
+});

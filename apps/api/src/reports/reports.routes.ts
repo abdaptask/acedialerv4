@@ -22,6 +22,7 @@ import {
   type Pricing,
   type ReportData,
 } from './compute.js';
+import { computeInsights, optKeyword } from './insights.js';
 import { REPORT_TZ, addDays, daySpan, etDateKey, etMidnightUtc, isDateKey } from './etTime.js';
 
 interface JwtPayload {
@@ -152,7 +153,7 @@ function compareVersions(a: string, b: string): number {
 }
 
 const PREV_KEYS = [
-  'callsOut', 'connected', 'talkSec', 'avgTalkSec', 'shortCalls', 'likelyDrops', 'confirmedDrops',
+  'callsOut', 'uniqueDialled', 'connected', 'talkSec', 'avgTalkSec', 'shortCalls', 'likelyDrops', 'confirmedDrops',
   'callsIn', 'answeredIn', 'unansweredIn', 'missedReturnable', 'missedReturned',
   'smsSent', 'smsReceived', 'smsFailed', 'smsReplied', 'smsRepliable', 'voicemails', 'voicemailsHeard',
   'uniqueReached', 'conversations', 'cost',
@@ -288,6 +289,8 @@ export async function reportsRoutes(app: FastifyInstance) {
           createdAt: m.createdAt.getTime(),
           errorCode: err.code,
           errorTitle: err.title,
+          // Only a short inbound text can be a bare STOP/START; skip the regex otherwise.
+          keyword: m.direction === 'inbound' && (m.body ?? '').length <= 24 ? optKeyword(m.body ?? '') : null,
         };
       });
 
@@ -327,6 +330,7 @@ export async function reportsRoutes(app: FastifyInstance) {
       const cur = computePeriod({ startMs, endMs, days }, data, userIds);
       const prev = computePeriod({ startMs: loadStart, endMs: startMs, days }, data, userIds);
 
+      const insights = computeInsights({ startMs, endMs, days }, data.calls, msgRows, userIds);
       lap('compute');
       const hasActivity = (p: PersonMetrics) =>
         p.callsOut + p.callsIn + p.smsSent + p.smsReceived + p.voicemails + p.scheduledTotal > 0;
@@ -392,7 +396,11 @@ export async function reportsRoutes(app: FastifyInstance) {
         adoption,
         callLog,
         textLog,
+        insights,
       };
+      // Spend is for admins. Recruiters don't see what their calls cost —
+      // removed from the payload, not just hidden in the UI.
+      if (!me.isAdmin) stripCost(payload);
 
       if (cache.size > 50) cache.clear();
       cache.set(cacheKey, { at: now, payload });
@@ -564,6 +572,19 @@ function buildTextLog(messages: MessageRow[], names: Map<string, string>) {
         awaitingReply: t.lastDirection === 'inbound',
       })),
   };
+}
+
+const COST_KEYS = ['billedMinutes', 'costVoice', 'costSms', 'cost', 'segments'] as const;
+
+function stripCost(payload: { cost: unknown; totals: object; prevTotals: object; people: Array<object & { prev: object | null }> }) {
+  payload.cost = null;
+  const scrub = (o: object | null) => {
+    if (!o) return;
+    for (const k of COST_KEYS) delete (o as Record<string, unknown>)[k];
+  };
+  scrub(payload.totals);
+  scrub(payload.prevTotals);
+  for (const p of payload.people) { scrub(p); scrub(p.prev); }
 }
 
 async function loadAdoption(

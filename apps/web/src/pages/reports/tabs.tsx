@@ -5,6 +5,8 @@
 import type { ReactNode } from 'react';
 import { formatPhone } from '../../lib/phone';
 import { Numbers } from './numbers';
+import { FollowUps } from './followups';
+import { Insights } from './insightsTab';
 import {
   BarList, Columns, Heatmap, HeatLegend, Meter, StackedColumns, toneFor,
 } from './charts';
@@ -29,6 +31,8 @@ export interface TabProps {
   drill: (spec: DrillSpec) => void;
   /** Re-open the report for a single day. */
   openDay: (date: string) => void;
+  /** Open everything the team (or this person) has had with a number. */
+  openContact: (number: string) => void;
 }
 
 export interface TabDef {
@@ -39,6 +43,8 @@ export interface TabDef {
   csv: { cols: Col[]; filename: string };
   /** Only offered on one person's report (e.g. their call log). */
   personOnly?: boolean;
+  /** Only offered to admins (spend, leadership insights). */
+  adminOnly?: boolean;
 }
 
 const S1 = 'var(--rp-s1)';
@@ -238,6 +244,7 @@ function personCell(p: TabProps, userId: number): ReactNode {
 
 const overviewCols: Col[] = [
   count('callsOut', 'Calls out', { bar: true, better: 'up' }),
+  count('uniqueDialled', 'Unique numbers', { better: 'up' }),
   count('connectedOut', 'Connected', { better: 'up' }),
   secs('talkSec', 'Talk time', fmtTalk, { better: 'up', csv: (v) => (v == null ? '' : Math.round(v / 60)) }),
   secs('avgTalkSec', 'Avg length', fmtClockDuration, { better: 'up' }),
@@ -261,7 +268,7 @@ function Overview(p: TabProps) {
     <>
       <KpiGrid>
         <Kpi label="Outbound calls" value={fmtInt(t.callsOut)} cur={t.callsOut} prev={pv.callsOut} spark={spark((d) => d.outbound)}
-          sub={`${fmtInt(t.connectedOut)} connected`} 
+          sub={`${fmtInt(t.uniqueDialled)} different numbers · ${fmtInt(t.connectedOut)} connected`} 
           onOpen={drillTo(p, 'Outbound calls', fmtInt(t.callsOut), count('callsOut', 'Calls out'), { calls: isOut, additive: true, daily: perDay((d) => d.outbound) })} />
         <Kpi label="Talk time" value={fmtTalk(t.talkSec)} cur={t.talkSec} prev={pv.talkSec} spark={spark((d) => d.talkSec)}
           sub="All connected calls" 
@@ -334,6 +341,8 @@ function CallLengthChart({ data }: { data: ReportsPayload }) {
 // ── Calls ───────────────────────────────────────────────────────────────
 
 const callCols: Col[] = [
+  count('callsOut', 'Calls out', { better: 'up' }),
+  count('uniqueDialled', 'Unique numbers', { better: 'up' }),
   count('connected', 'Connected (in + out)', { bar: true, better: 'up' }),
   secs('avgTalkSec', 'Avg length', fmtClockDuration, { better: 'up' }),
   secs('medianTalkSec', 'Median', fmtClockDuration, { better: 'up' }),
@@ -352,7 +361,10 @@ function Calls(p: TabProps) {
   const idle = p.person ? [] : p.data.people.filter((r) => r.isActive && r.callsOut + r.callsIn + r.smsSent === 0);
   return (
     <>
-      <KpiGrid cols={5}>
+      <KpiGrid cols={6}>
+        <Kpi label="Unique numbers dialled" value={fmtInt(t.uniqueDialled)} cur={t.uniqueDialled} prev={pv.uniqueDialled}
+          sub={`from ${fmtInt(t.callsOut)} outbound calls · ${fmtInt(t.uniqueConnected)} picked up`}
+          onOpen={drillTo(p, 'Unique numbers dialled', fmtInt(t.uniqueDialled), count('uniqueDialled', 'Unique numbers'), { calls: isOut, note: 'Different phone numbers each person dialled. Team-wide, a number two people dialled counts once, so these add up to more than the team total.' })} />
         <Kpi label="Connected calls" value={fmtInt(t.connected)} cur={t.connected} prev={pv.connected} 
           onOpen={drillTo(p, 'Connected calls', fmtInt(t.connected), allConnected, { calls: isConnected, additive: true, daily: perDay((d) => d.connected + d.answeredIn) })} />
         <Kpi label="Average length" value={fmtClockDuration(t.avgTalkSec)} cur={t.avgTalkSec} prev={pv.avgTalkSec} sub={`Median ${fmtClockDuration(t.medianTalkSec)}`} 
@@ -466,7 +478,10 @@ function Responsiveness(p: TabProps) {
           <List
             head={['Caller', 'Trying to reach', 'Attempts', 'Last attempt']}
             empty="Nobody called repeatedly without getting through."
-            rows={ib.repeatUnreached.map((u) => [formatPhone(u.number), personCell(p, u.userId), fmtInt(u.attempts), fmtDateTime(u.lastAt)])}
+            rows={ib.repeatUnreached.map((u) => [
+              <button key="n" type="button" className="rp-link" onClick={() => p.openContact(u.number)}>{formatPhone(u.number)}</button>,
+              personCell(p, u.userId), fmtInt(u.attempts), fmtDateTime(u.lastAt),
+            ])}
           />
         </Panel>
       </div>
@@ -513,8 +528,8 @@ function Messaging(p: TabProps) {
           onOpen={drillTo(p, 'Texts replied to within 24h', fmtPct(t.smsReplied, t.smsRepliable), replyRate, { texts: receivedText })} />
         <Kpi label="Conversations" value={fmtInt(t.threads)} sub={`${fmtInt(t.mms)} picture messages`} 
           onOpen={drillTo(p, 'Text conversations', fmtInt(t.threads), count('threads', 'Conversations'), { texts: anyText, additive: true })} />
-        <Kpi label="Billed message parts" value={fmtInt(t.segments)} sub="Estimated from length and characters" 
-          onOpen={drillTo(p, 'Billed message parts', fmtInt(t.segments), count('segments', 'Billed parts'), { texts: sentText, additive: true })} />
+        {p.data.scope.isAdmin && <Kpi label="Billed message parts" value={fmtInt(t.segments)} sub="Estimated from length and characters" 
+          onOpen={drillTo(p, 'Billed message parts', fmtInt(t.segments), count('segments', 'Billed parts'), { texts: sentText, additive: true })} />}
       </KpiGrid>
       <div className="rp-grid">
         <Panel title="Texts per day" sub="Eastern time" span={8}
@@ -532,7 +547,7 @@ function Messaging(p: TabProps) {
               items={p.data.sms.failureReasons.slice(0, 6).map((f) => ({ label: f.title, value: f.count, hint: `Carrier code ${f.code}` }))} />
           )}
         </Panel>
-        <Scope p={p} cols={smsCols} defaultSort="smsSent" title="Texting by person"
+        <Scope p={p} cols={p.data.scope.isAdmin ? smsCols : smsCols.filter((c) => c.key !== 'segments')} defaultSort="smsSent" title="Texting by person"
           sub="A reply counts once per incoming run of texts" delta={{ key: 'smsSent', label: 'Sent vs prior' }} />
         {(p.person ? p.person.scheduledTotal + p.person.campaigns > 0 : schedPeople.length > 0) ? (
           p.person
@@ -654,6 +669,7 @@ function Quality(p: TabProps) {
 // ── Outreach ────────────────────────────────────────────────────────────
 
 const outreachCols: Col[] = [
+  count('uniqueDialled', 'Unique numbers', { better: 'up' }),
   count('uniqueReached', 'People reached', { bar: true, better: 'up' }),
   count('newContacts', 'New contacts', { better: 'up' }),
   count('conversations', 'Over 2 min', { better: 'up' }),
@@ -698,7 +714,9 @@ const costCols: Col[] = [
 ];
 
 function Cost(p: TabProps) {
-  const c = p.data.cost;
+  const cost = p.data.cost;
+  if (!cost) return <Empty>Spend is only shown to admins.</Empty>;
+  const c = cost;
   const pr = c.pricing;
   return (
     <>
@@ -784,12 +802,14 @@ function Adoption(p: TabProps) {
 
 export const TABS: TabDef[] = [
   { key: 'overview', label: 'Overview', render: Overview, csv: { cols: overviewCols, filename: 'scorecard' } },
-  { key: 'calls', label: 'Calls', render: Calls, csv: { cols: callCols, filename: 'call-length' } },
+  { key: 'follow-ups', label: 'Follow-ups', render: FollowUps, csv: { cols: [], filename: 'follow-ups' } },
+  { key: 'calls', label: 'Calls', render: Calls, csv: { cols: callCols, filename: 'calls' } },
   { key: 'responsiveness', label: 'Missed & voicemail', render: Responsiveness, csv: { cols: respCols, filename: 'missed-calls-voicemail' } },
   { key: 'messaging', label: 'Texts', render: Messaging, csv: { cols: [...smsCols, ...schedCols], filename: 'texts' } },
   { key: 'quality', label: 'Call quality', render: Quality, csv: { cols: qualityCols, filename: 'call-quality' } },
   { key: 'outreach', label: 'Outreach', render: Outreach, csv: { cols: outreachCols, filename: 'outreach' } },
-  { key: 'cost', label: 'Cost', render: Cost, csv: { cols: costCols, filename: 'cost' } },
+  { key: 'insights', label: 'Insights', render: Insights, csv: { cols: [], filename: 'insights' }, adminOnly: true },
+  { key: 'cost', label: 'Cost', render: Cost, csv: { cols: costCols, filename: 'cost' }, adminOnly: true },
   { key: 'adoption', label: 'Adoption', render: Adoption, csv: { cols: [], filename: 'adoption' } },
   { key: 'activity', label: 'Activity', render: Numbers, csv: { cols: [], filename: 'activity' }, personOnly: true },
 ];

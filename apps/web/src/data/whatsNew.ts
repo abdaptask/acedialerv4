@@ -24,6 +24,18 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.231',
+    date: 'September 25, 2026',
+    highlight: 'Search any number in Reports, and see what still needs a follow-up.',
+    changes: [
+      { type: 'new', text: 'Reports search: type a phone number or a candidate\'s name to see every call and text with them, and (for admins) who on the team was in touch.' },
+      { type: 'new', text: 'Follow-ups: missed calls nobody returned, texts waiting on a reply and unreturned voicemails, oldest first. Each clears as soon as you call or text back.' },
+      { type: 'new', text: 'Unique numbers dialled, alongside total calls, for every person.' },
+      { type: 'new', text: 'Insights for admins: best time to reach candidates, candidates contacted by more than one person, opt-outs, numbers that keep failing, and the biggest changes in calling.' },
+      { type: 'improved', text: 'Spend figures are now shown to admins only.' },
+    ],
+  },
+  {
     version: '0.10.230',
     date: 'September 25, 2026',
     highlight: 'Reports now show each individual call and text.',

@@ -14,6 +14,7 @@ import { AlertTriangle, ChevronLeft, Download, RefreshCw } from 'lucide-react';
 import { getReports, type User } from '../api';
 import { TABS, csvFor, Person } from './reports/tabs';
 import { DrillSheet, type DrillSpec } from './reports/parts';
+import { ContactSearch, ContactSheet } from './reports/contact';
 import {
   PRESETS, downloadCsv, fmtAgo, fmtRange, matchPreset, presetRange, todayEt, addDays, type PresetKey,
 } from './reports/format';
@@ -35,7 +36,7 @@ export default function Reports({ user }: { user: User }) {
   const to = search.get('to') ?? def.to;
   const userParam = search.get('user');
   const personId = user.isAdmin ? (userParam ? Number(userParam) : null) : user.id;
-  const tabs = TABS.filter((t) => !t.personOnly || personId != null);
+  const tabs = TABS.filter((t) => (!t.personOnly || personId != null) && (!t.adminOnly || user.isAdmin));
   const tab = tabs.find((t) => t.key === tabParam) ?? tabs[0];
   const TabView = tab.render;
 
@@ -45,6 +46,7 @@ export default function Reports({ user }: { user: User }) {
   const [error, setError] = useState<string | null>(null);
   const [nonce, setNonce] = useState(0);
   const [drill, setDrill] = useState<DrillSpec | null>(null);
+  const [contact, setContact] = useState<string | null>(null);
   // A sheet belongs to the view it was opened from; any navigation closes it.
   useEffect(() => setDrill(null), [from, to, personId, tab.key]);
   const reqId = useRef(0);
@@ -145,6 +147,7 @@ export default function Reports({ user }: { user: User }) {
           </p>
         </div>
         <div className="rp-controls">
+          <ContactSearch isAdmin={user.isAdmin} onPick={setContact} />
           {user.isAdmin && pickerUsers.length > 0 && (
             <label className="rp-select">
               <span className="rp-sr">Person</span>
@@ -219,6 +222,7 @@ export default function Reports({ user }: { user: User }) {
             nameOf={nameOf}
             drill={setDrill}
             openDay={(date) => go({ from: date, to: date })}
+            openContact={setContact}
           />
           {drill && (
             <DrillSheet
@@ -239,6 +243,14 @@ export default function Reports({ user }: { user: User }) {
             <span>Each call counts once, however many records the carrier sends. Message text is never shown.</span>
           </footer>
         </div>
+      )}
+      {contact && (
+        <ContactSheet
+          number={contact}
+          isAdmin={user.isAdmin}
+          onClose={() => setContact(null)}
+          onOpenPerson={(id) => { setContact(null); go({ user: id }); }}
+        />
       )}
     </div>
   );

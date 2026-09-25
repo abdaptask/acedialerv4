@@ -29,6 +29,7 @@ import { ringtonesRoutes } from './ringtones/ringtones.routes.js';
 import { tipsRoutes, seedDefaultTipsIfEmpty } from './tips/tips.routes.js';
 import { voicemailsRoutes } from './voicemails/voicemails.routes.js';
 import { reportsRoutes } from './reports/reports.routes.js';
+import { lookupRoutes } from './reports/lookup.js';
 import { voicemailGreetingRoutes } from './voicemailGreeting/voicemailGreeting.routes.js';
 import { jobDivaRoutes } from './jobdiva/jobdiva.routes.js';
 import { contactsRoutes } from './contacts/contacts.routes.js';
@@ -135,6 +136,7 @@ void seedDefaultTipsIfEmpty().catch((e) =>
 );
 await app.register(voicemailsRoutes);
 await app.register(reportsRoutes);
+await app.register(lookupRoutes);
 await app.register(voicemailGreetingRoutes);
 await app.register(jobDivaRoutes);
 await app.register(contactsRoutes);
