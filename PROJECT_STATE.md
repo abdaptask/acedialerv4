@@ -1,6 +1,6 @@
 # ACE Dialer — Project State
 
-**Last updated:** September 25, 2026 (**0.10.229 Reports suite — web + API LIVE, desktop tagged**; 0.10.228 audio-output picker contrast fix; 0.10.227 personal SMS templates given a Settings home — web LIVE; 0.10.226 conference self-mute fix — released, on 38 devices)
+**Last updated:** September 25, 2026 (**0.10.230 per-person call/text records — web + API LIVE, desktop tagged**; 0.10.229 Reports suite; 0.10.228 audio-output picker contrast fix; 0.10.227 personal SMS templates given a Settings home — web LIVE; 0.10.226 conference self-mute fix — released, on 38 devices)
 **Maintained by:** Claude (update at end of every working session)
 
 This file is a living snapshot of where the project stands. New Claude
@@ -26,7 +26,8 @@ If you're a fresh Claude session opening this project:
 
 | Stream | Version | Status | Where |
 |---|---|---|---|
-| Latest released | **v0.10.229** | Reports suite (`/reports`) with per-person drill-down + client call-quality capture. Feature `0c84c8b`, merge `15cd915`, tagged `v0.10.229`, **web + API live Sep 25**; desktop installers building in CI | `main` |
+| Latest released | **v0.10.230** | Per-person call + text records and number timelines on the Reports page. `6727e05`, merge `d505029`, tagged `v0.10.230`, **web + API live Sep 25**. The v0.10.229 desktop draft was never published; publish 0.10.230 instead | `main` |
+| Previously released | v0.10.229 | Reports suite (`/reports`) with per-person drill-down + client call-quality capture. Feature `0c84c8b`, merge `15cd915`, tagged `v0.10.229`, **web + API live Sep 25**; desktop installers building in CI | `main` |
 | Previously released | v0.10.228 | Audio-output picker was dark-on-dark in light mode. Fix `c583aec`, release `948d5db`, tagged `v0.10.228`, **web live Sep 17**; desktop installers built by CI (see the Sep 17 entry — macOS signing is failing) | `main` |
 | Previously released | v0.10.227 | Personal SMS templates given a Settings home. Merged `56efaa5`, tagged `v0.10.227`, web live (Aug 27) | `main` |
 | Previously released | v0.10.226 | Conference self-mute muted the mix instead of the mic. Merged `682b270`, tagged `v0.10.226`, **published with 12 assets 2026-08-26T13:36Z — on 38 devices within a day** | `main` |
@@ -40,6 +41,8 @@ If you're a fresh Claude session opening this project:
 | Backend — `ace-socket` | v0.10.224 (7-day uptime) | Stub service ([[29-realtime-socket]]); nothing to sync | `pm2 list` |
 | Web SPA (`ace-web`) | **v0.10.227 live** | `apps/web/dist` rebuilt Aug 27 15:40 — absolute `/assets/` base verified. Serves off disk, so a build IS a deploy — see §5 | `pm2 list` |
 | Auto-update status | distributing | 0.10.224 reached 64 devices and 0.10.225 is now published, so current releases satisfy the v0.10.143 signing gate. The old "LOCKED on v0.10.132" line no longer described reality and has been removed; `docs/ev-cert-procurement.md` keeps the history | GitHub Releases |
+
+**September 25, 2026 — v0.10.230: individual call/text records.** Clicking a call/text KPI on a person's report lists the records behind it; any record opens a timeline with that number. Numbers tab → Activity (Calls/Texts). `textLog` is metadata only. **Desktop publishing is a manual step:** electron-builder `--publish always` creates a DRAFT release; drafts are invisible to the auto-update feed (`latest.yml` stays on the previous version) until someone presses Publish on GitHub (`gh` isn't authed in Claude's shell — the user must do it).
 
 **September 25, 2026 — v0.10.229 released: Reports suite (see CLAUDE.md §31)**
 
