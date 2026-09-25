@@ -685,3 +685,29 @@
 .rp-chip { font-size: 12px; padding: 2px 8px; border-radius: 999px; background: var(--surface); color: var(--text-dim); }
 .rp-chip b { color: var(--text); font-weight: 600; }
 .rp-day-foot { padding: 10px 22px 14px; }
+
+/* ── Daily email ────────────────────────────────────────── */
+.rp-digest-form { display: flex; flex-direction: column; gap: 16px; }
+.rp-field { display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: var(--text-dim); }
+.rp-field input, .rp-field select {
+  font: inherit; font-size: 14px; color: var(--text); background: var(--bg);
+  border: 1px solid var(--border-strong); border-radius: 10px; padding: 0 12px; min-height: 44px;
+  color-scheme: dark;
+}
+[data-theme="light"] .rp-field input, [data-theme="light"] .rp-field select { color-scheme: light; }
+.rp-field-inline { flex-direction: row; align-items: center; gap: 8px; }
+.rp-digest-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+.rp-confirm { border: 1px solid var(--rp-crit); background: var(--rp-crit-soft); border-radius: 12px; padding: 14px 16px; display: flex; flex-direction: column; gap: 8px; }
+.rp-confirm p { margin: 0; font-size: 13px; color: var(--text-dim); }
+.rp-check { display: flex; align-items: center; gap: 10px; font-size: 13.5px; color: var(--text); min-height: 32px; cursor: pointer; }
+.rp-check input { width: 18px; height: 18px; accent-color: var(--accent); }
+.rp-notice { margin: 0; padding: 10px 14px; border-radius: 10px; font-size: 13px; }
+.rp-notice.good { background: var(--rp-good-soft); color: var(--text); }
+.rp-notice.crit { background: var(--rp-crit-soft); color: var(--text); }
+.rp-digest-schedule { border-top: 1px solid var(--rp-line); padding-top: 14px; display: flex; flex-direction: column; gap: 8px; }
+.rp-recipients { list-style: none; margin: 0; padding: 0; max-height: 280px; overflow-y: auto; font-size: 13px; }
+.rp-recipients li { display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; border-bottom: 1px solid var(--rp-line); }
+.rp-mail-head { padding: 0 20px 12px; display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.rp-mail-head .rp-muted { display: inline-block; width: 64px; }
+.rp-mail-frame { background: #f2f2f7; border-top: 1px solid var(--rp-line); }
+.rp-mail-frame iframe { display: block; width: 100%; height: 1320px; border: 0; }

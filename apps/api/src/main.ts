@@ -30,6 +30,7 @@ import { tipsRoutes, seedDefaultTipsIfEmpty } from './tips/tips.routes.js';
 import { voicemailsRoutes } from './voicemails/voicemails.routes.js';
 import { reportsRoutes } from './reports/reports.routes.js';
 import { lookupRoutes } from './reports/lookup.js';
+import { digestRoutes, startDigestScheduler } from './reports/digest.js';
 import { voicemailGreetingRoutes } from './voicemailGreeting/voicemailGreeting.routes.js';
 import { jobDivaRoutes } from './jobdiva/jobdiva.routes.js';
 import { contactsRoutes } from './contacts/contacts.routes.js';
@@ -137,6 +138,7 @@ void seedDefaultTipsIfEmpty().catch((e) =>
 await app.register(voicemailsRoutes);
 await app.register(reportsRoutes);
 await app.register(lookupRoutes);
+await app.register(digestRoutes);
 await app.register(voicemailGreetingRoutes);
 await app.register(jobDivaRoutes);
 await app.register(contactsRoutes);
@@ -151,6 +153,7 @@ try {
   // is listening, so a slow boot doesn't queue up duplicate ticks before
   // the API is ready to serve health checks.
   startScheduledMessageWorker(app.log);
+  startDigestScheduler(app.log);
   // v0.10.216 — nudge the DGX to load the rewrite model into VRAM. A cold
   // load was measured at ~47s, which the first user of the day would
   // otherwise absorb. Fire-and-forget and after listen(), so a slow or

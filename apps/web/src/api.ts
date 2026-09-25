@@ -3851,3 +3851,42 @@ export function getReportFollowUps(token: string, userId?: number | null) {
   const qs = userId != null ? `?userId=${userId}` : '';
   return reportsGet<import('./pages/reports/types').FollowUps>(token, `/reports/follow-ups${qs}`);
 }
+
+// ---------- Reports: daily email (admin) ----------
+export interface DigestPreview {
+  date: string;
+  defaultDate: string;
+  subject: string;
+  html: string;
+  recipients: Array<{ id: number; name: string; email: string }>;
+  previewAs: { id: number; name: string };
+  alreadySent: boolean;
+  schedule: { enabled: boolean; hour: number; lastSentDate: string | null };
+  history: Array<{ at: string; date: string | null; mode: string | null; sent: number; failed: number; by: string }>;
+}
+
+export function getDigestPreview(token: string, date?: string, as?: number) {
+  const qs = new URLSearchParams();
+  if (date) qs.set('date', date);
+  if (as != null) qs.set('as', String(as));
+  return reportsGet<DigestPreview>(token, `/reports/digest?${qs.toString()}`);
+}
+
+async function reportsSend<T>(token: string, path: string, method: 'POST' | 'PUT', body: unknown): Promise<T> {
+  const res = await fetch(`${API_URL}${path}`, {
+    method,
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify(body),
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw Object.assign(new Error((json as { error?: string }).error ?? `HTTP ${res.status}`), { status: res.status, body: json });
+  return json as T;
+}
+
+export function sendDigest(token: string, body: { date: string; mode: 'test' | 'everyone'; expectedCount?: number; force?: boolean }) {
+  return reportsSend<{ sent: number; failed: Array<{ email: string; error: string }>; to?: string }>(token, '/reports/digest/send', 'POST', body);
+}
+
+export function saveDigestSchedule(token: string, body: { enabled: boolean; hour: number }) {
+  return reportsSend<{ enabled: boolean; hour: number; lastSentDate: string | null }>(token, '/reports/digest/schedule', 'PUT', body);
+}

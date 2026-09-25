@@ -24,6 +24,15 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.233',
+    date: 'September 25, 2026',
+    highlight: 'A daily performance email, sent from Reports.',
+    changes: [
+      { type: 'new', text: 'Daily email: admins can preview, test and send a daily team summary from Reports, or have it go out automatically every weekday morning.' },
+      { type: 'new', text: 'Each person\'s copy includes their own numbers against the team average and what\'s waiting on them.' },
+    ],
+  },
+  {
     version: '0.10.232',
     date: 'September 25, 2026',
     highlight: 'Every call and text in Reports now says why it ended or failed.',

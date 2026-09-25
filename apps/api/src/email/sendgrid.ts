@@ -26,7 +26,7 @@ export interface SendGridResult {
   error?: unknown;
 }
 
-interface SendOptions {
+export interface SendOptions {
   toEmail: string;
   toName?: string;
   subject: string;
@@ -483,4 +483,9 @@ function escapeHtml(s: string): string {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
+}
+
+/** Generic send for other features (the daily Reports email). Same guarantees as above: never throws. */
+export function sendEmail(opts: SendOptions): Promise<SendGridResult> {
+  return send(opts);
 }

@@ -36,7 +36,7 @@ export default function Reports({ user }: { user: User }) {
   const to = search.get('to') ?? def.to;
   const userParam = search.get('user');
   const personId = user.isAdmin ? (userParam ? Number(userParam) : null) : user.id;
-  const tabs = TABS.filter((t) => (!t.personOnly || personId != null) && (!t.adminOnly || user.isAdmin));
+  const tabs = TABS.filter((t) => (!t.personOnly || personId != null) && (!t.teamOnly || personId == null) && (!t.adminOnly || user.isAdmin));
   const tab = tabs.find((t) => t.key === tabParam) ?? tabs[0];
   const TabView = tab.render;
 
@@ -166,7 +166,7 @@ export default function Reports({ user }: { user: User }) {
               </select>
             </label>
           )}
-          <button type="button" className="rp-btn" onClick={exportCsv} disabled={!data}>
+          <button type="button" className="rp-btn" onClick={exportCsv} disabled={!data || !!tab.noCsv}>
             <Download size={15} /> Export CSV
           </button>
         </div>

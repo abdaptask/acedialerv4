@@ -9,7 +9,8 @@
 import { prisma } from '@ace/db';
 
 export async function recordAudit(
-  actorUserId: number,
+  // null = the system did it (a scheduled job) — CLAUDE.md §28.4: never fake a system user.
+  actorUserId: number | null,
   action: string,
   targetUserId: number | null,
   metadata: Record<string, unknown> | null,

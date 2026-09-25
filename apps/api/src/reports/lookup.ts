@@ -143,6 +143,125 @@ function callOutcome(c: LogicalCall): string {
   return c.direction === 'inbound' ? inboundOutcome(c) : outboundOutcome(c);
 }
 
+/** What's waiting on someone right now (null scope = everyone). Used by the
+ *  Follow-ups tab and the daily email. */
+export async function computeFollowUps(scope: number | null) {
+  const now = Date.now();
+  const sinceMs = now - FOLLOW_UP_DAYS * DAY;
+
+  const [rawCalls, msgs, vms, names, people] = await Promise.all([
+    loadCallsFor(sinceMs, scope, null),
+    prisma.message.findMany({
+      where: { createdAt: { gte: new Date(sinceMs) }, ...(scope !== null ? { userId: scope } : {}) },
+      select: { userId: true, threadKey: true, direction: true, body: true, createdAt: true },
+      orderBy: { createdAt: 'asc' },
+    }),
+    prisma.voicemail.findMany({
+      where: { receivedAt: { gte: new Date(sinceMs) }, listenedAt: null, ...(scope !== null ? { userId: scope } : {}) },
+      select: { userId: true, fromNumber: true, receivedAt: true, durationSeconds: true },
+    }),
+    loadNames(scope !== null ? [scope] : null),
+    userNames(),
+  ]);
+  const calls = canonicalizeCalls(rawCalls);
+
+  // Anything we did toward a number after time t counts as following up.
+  const lastTouch = new Map<string, number>();
+  const touch = (userId: number, num: string, at: number) => {
+    const k = `${userId}|${last10(num)}`;
+    lastTouch.set(k, Math.max(lastTouch.get(k) ?? 0, at));
+  };
+  for (const c of calls) if (c.direction === 'outbound' || c.answered) touch(c.userId, c.number, c.startedAt);
+  for (const m of msgs) if (m.direction === 'outbound') touch(m.userId, m.threadKey, m.createdAt.getTime());
+
+  const missed = new Map<string, { userId: number; number: string; attempts: number; firstAt: number; lastAt: number }>();
+  for (const c of calls) {
+    if (c.direction !== 'inbound' || c.answered || !c.other) continue;
+    const o = inboundOutcome(c);
+    if (o === 'blocked') continue;
+    const k = `${c.userId}|${c.other}`;
+    if ((lastTouch.get(k) ?? 0) > c.startedAt) continue;
+    const m = missed.get(k) ?? { userId: c.userId, number: c.number, attempts: 0, firstAt: c.startedAt, lastAt: c.startedAt };
+    m.attempts += 1;
+    m.firstAt = Math.min(m.firstAt, c.startedAt);
+    m.lastAt = Math.max(m.lastAt, c.startedAt);
+    missed.set(k, m);
+  }
+  // A missed call is only open if nothing happened after its LAST attempt.
+  for (const [k, m] of missed) if ((lastTouch.get(k) ?? 0) > m.lastAt) missed.delete(k);
+
+  const threads = new Map<string, { userId: number; number: string; waiting: number; since: number; lastAt: number; optedOut: boolean }>();
+  for (const m of msgs) {
+    const k = `${m.userId}|${m.threadKey}`;
+    const t = threads.get(k) ?? { userId: m.userId, number: m.threadKey, waiting: 0, since: 0, lastAt: 0, optedOut: false };
+    if (m.direction === 'inbound') {
+      const kw = optKeyword(m.body ?? '');
+      if (kw === 'stop') t.optedOut = true;
+      if (kw === 'start') t.optedOut = false;
+      if (t.waiting === 0) t.since = m.createdAt.getTime();
+      t.waiting += 1;
+    } else {
+      t.waiting = 0;
+    }
+    t.lastAt = m.createdAt.getTime();
+    threads.set(k, t);
+  }
+
+  const label = (userId: number, num: string) => names.forUser(userId, num);
+  // A caller who rang out and left a voicemail is ONE thing to follow up
+  // on, not two — fold the voicemail into the missed-call item.
+  const openVms = vms.filter((v) => (lastTouch.get(`${v.userId}|${last10(v.fromNumber)}`) ?? 0) <= v.receivedAt.getTime());
+  const vmByKey = new Map<string, number>();
+  for (const v of openVms) {
+    const k = `${v.userId}|${last10(v.fromNumber)}`;
+    vmByKey.set(k, (vmByKey.get(k) ?? 0) + 1);
+  }
+  const items = [
+    ...[...missed.entries()].map(([k, m]) => ({
+      kind: 'missed_call' as const, userId: m.userId, number: m.number, name: label(m.userId, m.number),
+      count: m.attempts, since: new Date(m.firstAt).toISOString(), lastAt: new Date(m.lastAt).toISOString(),
+      voicemails: vmByKey.get(k) ?? 0,
+    })),
+    ...[...threads.values()]
+      // A STOP is an answer, not a question — replying to it is the opposite of what's wanted.
+      .filter((t) => t.waiting > 0 && !t.optedOut)
+      .map((t) => ({
+        kind: 'text' as const, userId: t.userId, number: t.number, name: label(t.userId, t.number),
+        count: t.waiting, since: new Date(t.since).toISOString(), lastAt: new Date(t.lastAt).toISOString(),
+      })),
+    // A voicemail is open only if nobody has called or texted the caller
+    // since. "Heard" alone isn't reliable (listening from a Teams card or
+    // email may not set listenedAt), and a returned call is what matters.
+    ...openVms
+      .filter((v) => !missed.has(`${v.userId}|${last10(v.fromNumber)}`))
+      .map((v) => ({
+        kind: 'voicemail' as const, userId: v.userId, number: v.fromNumber, name: label(v.userId, v.fromNumber),
+        count: 1, since: v.receivedAt.toISOString(), lastAt: v.receivedAt.toISOString(),
+      })),
+  ].sort((a, b) => a.since.localeCompare(b.since));
+
+  const byPerson = new Map<number, { userId: number; name: string; missedCalls: number; texts: number; voicemails: number; oldest: string }>();
+  for (const it of items) {
+    const p = byPerson.get(it.userId) ?? { userId: it.userId, name: people.get(it.userId) ?? 'Unknown', missedCalls: 0, texts: 0, voicemails: 0, oldest: it.since };
+    if (it.kind === 'missed_call') p.missedCalls += 1;
+    else if (it.kind === 'text') p.texts += 1;
+    else p.voicemails += 1;
+    if (it.since < p.oldest) p.oldest = it.since;
+    byPerson.set(it.userId, p);
+  }
+  return {
+    generatedAt: new Date(now).toISOString(),
+    days: FOLLOW_UP_DAYS,
+    totals: {
+      missedCalls: items.filter((i) => i.kind === 'missed_call').length,
+      texts: items.filter((i) => i.kind === 'text').length,
+      voicemails: items.filter((i) => i.kind === 'voicemail').length,
+    },
+    people: [...byPerson.values()].sort((a, b) => b.missedCalls + b.texts + b.voicemails - (a.missedCalls + a.texts + a.voicemails)),
+    items: items.slice(0, 3000).map((it) => ({ ...it, personName: people.get(it.userId) ?? 'Unknown' })),
+  };
+}
+
 export async function lookupRoutes(app: FastifyInstance) {
   // ── Search ──────────────────────────────────────────────────────────
   app.get<{ Querystring: { q?: string } }>('/reports/contact/search', { onRequest: [app.authenticate] }, async (request, reply) => {
@@ -322,119 +441,6 @@ export async function lookupRoutes(app: FastifyInstance) {
   app.get<{ Querystring: { userId?: string } }>('/reports/follow-ups', { onRequest: [app.authenticate] }, async (request, reply) => {
     const scope = scopeOf(request, reply, request.query.userId);
     if (scope === undefined) return;
-    const now = Date.now();
-    const sinceMs = now - FOLLOW_UP_DAYS * DAY;
-
-    const [rawCalls, msgs, vms, names, people] = await Promise.all([
-      loadCallsFor(sinceMs, scope, null),
-      prisma.message.findMany({
-        where: { createdAt: { gte: new Date(sinceMs) }, ...(scope !== null ? { userId: scope } : {}) },
-        select: { userId: true, threadKey: true, direction: true, body: true, createdAt: true },
-        orderBy: { createdAt: 'asc' },
-      }),
-      prisma.voicemail.findMany({
-        where: { receivedAt: { gte: new Date(sinceMs) }, listenedAt: null, ...(scope !== null ? { userId: scope } : {}) },
-        select: { userId: true, fromNumber: true, receivedAt: true, durationSeconds: true },
-      }),
-      loadNames(scope !== null ? [scope] : null),
-      userNames(),
-    ]);
-    const calls = canonicalizeCalls(rawCalls);
-
-    // Anything we did toward a number after time t counts as following up.
-    const lastTouch = new Map<string, number>();
-    const touch = (userId: number, num: string, at: number) => {
-      const k = `${userId}|${last10(num)}`;
-      lastTouch.set(k, Math.max(lastTouch.get(k) ?? 0, at));
-    };
-    for (const c of calls) if (c.direction === 'outbound' || c.answered) touch(c.userId, c.number, c.startedAt);
-    for (const m of msgs) if (m.direction === 'outbound') touch(m.userId, m.threadKey, m.createdAt.getTime());
-
-    const missed = new Map<string, { userId: number; number: string; attempts: number; firstAt: number; lastAt: number }>();
-    for (const c of calls) {
-      if (c.direction !== 'inbound' || c.answered || !c.other) continue;
-      const o = inboundOutcome(c);
-      if (o === 'blocked') continue;
-      const k = `${c.userId}|${c.other}`;
-      if ((lastTouch.get(k) ?? 0) > c.startedAt) continue;
-      const m = missed.get(k) ?? { userId: c.userId, number: c.number, attempts: 0, firstAt: c.startedAt, lastAt: c.startedAt };
-      m.attempts += 1;
-      m.firstAt = Math.min(m.firstAt, c.startedAt);
-      m.lastAt = Math.max(m.lastAt, c.startedAt);
-      missed.set(k, m);
-    }
-    // A missed call is only open if nothing happened after its LAST attempt.
-    for (const [k, m] of missed) if ((lastTouch.get(k) ?? 0) > m.lastAt) missed.delete(k);
-
-    const threads = new Map<string, { userId: number; number: string; waiting: number; since: number; lastAt: number; optedOut: boolean }>();
-    for (const m of msgs) {
-      const k = `${m.userId}|${m.threadKey}`;
-      const t = threads.get(k) ?? { userId: m.userId, number: m.threadKey, waiting: 0, since: 0, lastAt: 0, optedOut: false };
-      if (m.direction === 'inbound') {
-        const kw = optKeyword(m.body ?? '');
-        if (kw === 'stop') t.optedOut = true;
-        if (kw === 'start') t.optedOut = false;
-        if (t.waiting === 0) t.since = m.createdAt.getTime();
-        t.waiting += 1;
-      } else {
-        t.waiting = 0;
-      }
-      t.lastAt = m.createdAt.getTime();
-      threads.set(k, t);
-    }
-
-    const label = (userId: number, num: string) => names.forUser(userId, num);
-    // A caller who rang out and left a voicemail is ONE thing to follow up
-    // on, not two — fold the voicemail into the missed-call item.
-    const openVms = vms.filter((v) => (lastTouch.get(`${v.userId}|${last10(v.fromNumber)}`) ?? 0) <= v.receivedAt.getTime());
-    const vmByKey = new Map<string, number>();
-    for (const v of openVms) {
-      const k = `${v.userId}|${last10(v.fromNumber)}`;
-      vmByKey.set(k, (vmByKey.get(k) ?? 0) + 1);
-    }
-    const items = [
-      ...[...missed.entries()].map(([k, m]) => ({
-        kind: 'missed_call' as const, userId: m.userId, number: m.number, name: label(m.userId, m.number),
-        count: m.attempts, since: new Date(m.firstAt).toISOString(), lastAt: new Date(m.lastAt).toISOString(),
-        voicemails: vmByKey.get(k) ?? 0,
-      })),
-      ...[...threads.values()]
-        // A STOP is an answer, not a question — replying to it is the opposite of what's wanted.
-        .filter((t) => t.waiting > 0 && !t.optedOut)
-        .map((t) => ({
-          kind: 'text' as const, userId: t.userId, number: t.number, name: label(t.userId, t.number),
-          count: t.waiting, since: new Date(t.since).toISOString(), lastAt: new Date(t.lastAt).toISOString(),
-        })),
-      // A voicemail is open only if nobody has called or texted the caller
-      // since. "Heard" alone isn't reliable (listening from a Teams card or
-      // email may not set listenedAt), and a returned call is what matters.
-      ...openVms
-        .filter((v) => !missed.has(`${v.userId}|${last10(v.fromNumber)}`))
-        .map((v) => ({
-          kind: 'voicemail' as const, userId: v.userId, number: v.fromNumber, name: label(v.userId, v.fromNumber),
-          count: 1, since: v.receivedAt.toISOString(), lastAt: v.receivedAt.toISOString(),
-        })),
-    ].sort((a, b) => a.since.localeCompare(b.since));
-
-    const byPerson = new Map<number, { userId: number; name: string; missedCalls: number; texts: number; voicemails: number; oldest: string }>();
-    for (const it of items) {
-      const p = byPerson.get(it.userId) ?? { userId: it.userId, name: people.get(it.userId) ?? 'Unknown', missedCalls: 0, texts: 0, voicemails: 0, oldest: it.since };
-      if (it.kind === 'missed_call') p.missedCalls += 1;
-      else if (it.kind === 'text') p.texts += 1;
-      else p.voicemails += 1;
-      if (it.since < p.oldest) p.oldest = it.since;
-      byPerson.set(it.userId, p);
-    }
-    return {
-      generatedAt: new Date(now).toISOString(),
-      days: FOLLOW_UP_DAYS,
-      totals: {
-        missedCalls: items.filter((i) => i.kind === 'missed_call').length,
-        texts: items.filter((i) => i.kind === 'text').length,
-        voicemails: items.filter((i) => i.kind === 'voicemail').length,
-      },
-      people: [...byPerson.values()].sort((a, b) => b.missedCalls + b.texts + b.voicemails - (a.missedCalls + a.texts + a.voicemails)),
-      items: items.slice(0, 3000).map((it) => ({ ...it, personName: people.get(it.userId) ?? 'Unknown' })),
-    };
+    return computeFollowUps(scope);
   });
 }

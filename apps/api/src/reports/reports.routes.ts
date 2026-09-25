@@ -46,7 +46,6 @@ const MAX_SPAN_DAYS = 92;
 // it caches for an hour; one that includes today refreshes every 2 minutes.
 const CACHE_TTL_LIVE_MS = 2 * 60_000;
 const CACHE_TTL_PAST_MS = 60 * 60_000;
-const cache = new Map<string, { at: number; payload: unknown }>();
 
 // GSM-7 basic set plus the extension table. Anything outside it forces the
 // whole message into UCS-2 and cuts a segment from 160 to 70 characters.
@@ -177,6 +176,246 @@ function prevSubset(p: PersonMetrics | undefined): Record<string, number> | null
   return o;
 }
 
+
+export class ReportNotFoundError extends Error {}
+
+/**
+ * The whole /reports computation for one (range, scope). Used by the route
+ * and by the daily email, so both always show the same numbers. Cached.
+ */
+async function computeReportUncached(opts: {
+  from: string;
+  to: string;
+  scopeUserId: number | null;
+  isAdmin: boolean;
+  log?: { info: (obj: object, msg: string) => void };
+}) {
+  const { from, to, scopeUserId, isAdmin, log } = opts;
+  const now = Date.now();
+  const today = etDateKey(now);
+  const days = daySpan(from, to);
+
+  const timings: Record<string, number> = {};
+  let mark = Date.now();
+  const lap = (k: string) => { const t = Date.now(); timings[k] = t - mark; mark = t; };
+  const startMs = etMidnightUtc(from);
+  const endMs = etMidnightUtc(addDays(to, 1));
+  const prevFrom = addDays(from, -days);
+  const prevTo = addDays(from, -1);
+  const loadStart = etMidnightUtc(prevFrom);
+  const loadEnd = new Date(Math.min(now, endMs + DAY));
+  const loadStartDate = new Date(loadStart);
+
+  const userRows = await prisma.user.findMany({
+    where: {
+      email: { not: { endsWith: '@deleted.ace.local' } },
+      ...(scopeUserId !== null ? { id: scopeUserId } : {}),
+    },
+    select: {
+      id: true, email: true, firstName: true, lastName: true, isActive: true, lastLoginAt: true,
+      forwardingEnabled: true, voicemailGreetingUrl: true, voicemailGreetingText: true,
+    },
+  });
+  if (scopeUserId !== null && userRows.length === 0) {
+    throw new ReportNotFoundError();
+  }
+  const userIds = userRows.map((u) => u.id);
+  const userFilter = scopeUserId !== null ? { userId: scopeUserId } : { userId: { in: userIds } };
+
+  const [calls, messages, voicemails, scheduled, campaigns, lines, favorites] = await Promise.all([
+    loadCalls(loadStartDate, loadEnd, scopeUserId),
+    prisma.message.findMany({
+      where: { ...userFilter, createdAt: { gte: loadStartDate, lt: loadEnd } },
+      select: {
+        userId: true, threadKey: true, direction: true, status: true, body: true,
+        mediaUrls: true, createdAt: true, errors: true,
+      },
+    }),
+    prisma.voicemail.findMany({
+      where: { ...userFilter, receivedAt: { gte: loadStartDate, lt: loadEnd } },
+      select: {
+        userId: true, fromNumber: true, telnyxCallId: true, durationSeconds: true,
+        receivedAt: true, listenedAt: true,
+      },
+    }),
+    prisma.scheduledMessage.findMany({
+      where: {
+        ...userFilter,
+        OR: [
+          { scheduledFor: { gte: loadStartDate, lt: loadEnd } },
+          { status: { in: ['pending', 'sending'] } },
+        ],
+      },
+      select: {
+        id: true, userId: true, toNumber: true, status: true, scheduledFor: true,
+        sentAt: true, campaignId: true,
+      },
+    }),
+    prisma.smsCampaign.findMany({
+      where: { ...userFilter, createdAt: { gte: new Date(startMs), lt: new Date(endMs) } },
+      select: { id: true, userId: true, createdAt: true, totalCount: true, skipped: true },
+    }),
+    prisma.userDid.findMany({
+      where: scopeUserId !== null ? { userId: scopeUserId } : {},
+      select: { id: true, userId: true, didNumber: true, label: true },
+    }),
+    prisma.favorite.findMany({
+      where: { ...userFilter, addedAt: { gte: new Date(startMs), lt: new Date(endMs) } },
+      select: { userId: true, addedAt: true },
+    }),
+  ]);
+
+  lap('load');
+  const msgRows: MessageRow[] = messages.map((m) => {
+    const err = firstError(m.errors);
+    return {
+      userId: m.userId,
+      threadKey: m.threadKey,
+      direction: m.direction,
+      status: (m.status ?? '').toLowerCase(),
+      bodyLength: [...(m.body ?? '')].length,
+      isGsm: GSM_RE.test(m.body ?? ''),
+      hasMedia: (m.mediaUrls?.length ?? 0) > 0,
+      createdAt: m.createdAt.getTime(),
+      errorCode: err.code,
+      errorTitle: err.title,
+      // Only a short inbound text can be a bare STOP/START; skip the regex otherwise.
+      keyword: m.direction === 'inbound' && (m.body ?? '').length <= 24 ? optKeyword(m.body ?? '') : null,
+    };
+  });
+
+  const data: ReportData = {
+    calls: canonicalizeCalls(calls),
+    messages: msgRows,
+    voicemails: voicemails.map((v) => ({
+      userId: v.userId,
+      fromNumber: v.fromNumber,
+      telnyxCallId: v.telnyxCallId,
+      durationSeconds: v.durationSeconds,
+      receivedAt: v.receivedAt.getTime(),
+      listenedAt: v.listenedAt ? v.listenedAt.getTime() : null,
+    })),
+    scheduled: scheduled.map((s) => ({
+      id: s.id,
+      userId: s.userId,
+      toNumber: s.toNumber,
+      status: s.status,
+      scheduledFor: s.scheduledFor.getTime(),
+      sentAt: s.sentAt ? s.sentAt.getTime() : null,
+      campaignId: s.campaignId,
+    })),
+    campaigns: campaigns.map((c) => ({
+      id: c.id,
+      userId: c.userId,
+      createdAt: c.createdAt.getTime(),
+      totalCount: c.totalCount,
+      skippedCount: Array.isArray(c.skipped) ? c.skipped.length : 0,
+    })),
+    lines,
+    favoritesAdded: favorites.map((f) => ({ userId: f.userId, addedAt: f.addedAt.getTime() })),
+    pricing: pricing(),
+  };
+
+  lap('prepare');
+  const cur = computePeriod({ startMs, endMs, days }, data, userIds);
+  const prev = computePeriod({ startMs: loadStart, endMs: startMs, days }, data, userIds);
+
+  const insights = computeInsights({ startMs, endMs, days }, data.calls, msgRows, userIds);
+  lap('compute');
+  const hasActivity = (p: PersonMetrics) =>
+    p.callsOut + p.callsIn + p.smsSent + p.smsReceived + p.voicemails + p.scheduledTotal > 0;
+  const shown = userRows.filter((u) => u.isActive || hasActivity(cur.people.get(u.id)!));
+
+  // Call log + numbers — only for one person's report. A team-wide list
+  // of every candidate's number is exactly what "aggregates only" rules
+  // out; one person's own log (or an admin looking at one person) is the
+  // same thing Recents already shows them.
+  const names = scopeUserId !== null ? await loadContactNames(scopeUserId) : null;
+  const callLog = names
+    ? buildCallLog(data.calls.filter((c) => c.startedAt >= startMs && c.startedAt < endMs), lines, names)
+    : null;
+  // Same rule for texts: records only (when, who, direction, delivery,
+  // billed parts) — the message text itself never leaves this route.
+  const textLog = names
+    ? buildTextLog(msgRows.filter((m) => m.createdAt >= startMs && m.createdAt < endMs), names)
+    : null;
+
+  const adoption = await loadAdoption(shown.map((u) => u.id), userRows, startMs, endMs);
+
+  lap('adoption');
+  log?.info({ from, to, scopeUserId, timings }, '[reports] computed');
+  const payload = {
+    range: { from, to, days, prevFrom, prevTo, tz: REPORT_TZ },
+    generatedAt: new Date(now).toISOString(),
+    scope: { userId: scopeUserId, isAdmin },
+    users: shown
+      .map((u) => ({ id: u.id, name: displayName(u), email: u.email, isActive: u.isActive }))
+      .sort((a, b) => a.name.localeCompare(b.name)),
+    totals: cur.totals,
+    prevTotals: prev.totals,
+    people: shown.map((u) => ({
+      ...cur.people.get(u.id)!,
+      name: displayName(u),
+      email: u.email,
+      isActive: u.isActive,
+      prev: prevSubset(prev.people.get(u.id)),
+    })),
+    daily: cur.daily,
+    heatmap: cur.heatmap,
+    callLength: cur.callLength,
+    longestCalls: cur.longestCalls,
+    inbound: cur.inbound,
+    outbound: cur.outbound,
+    quality: {
+      endReasons: cur.quality.endReasons,
+      measuredCalls: cur.totals.qualityMeasured,
+    },
+    sms: cur.sms,
+    scheduledUpcoming: cur.scheduledUpcoming,
+    campaigns: cur.campaigns,
+    cost: {
+      pricing: data.pricing,
+      voice: cur.totals.costVoice,
+      sms: cur.totals.costSms,
+      lines: cur.didCost,
+      total: cur.totals.cost,
+      ownedLines: cur.ownedLines,
+      projectedMonthly: Math.round((cur.totals.cost / days) * 30 * 100) / 100,
+      byLine: cur.lines,
+    },
+    adoption,
+    callLog,
+    textLog,
+    insights,
+  };
+  // Spend is for admins. Recruiters don't see what their calls cost —
+  // removed from the payload, not just hidden in the UI.
+  if (!isAdmin) stripCost(payload);
+
+  return payload;
+}
+
+type ReportPayload = Awaited<ReturnType<typeof computeReportUncached>>;
+const reportCache = new Map<string, { at: number; payload: ReportPayload }>();
+
+/**
+ * The whole /reports computation for one (range, scope). Used by the route
+ * and by the daily email, so both always show the same numbers.
+ */
+export async function computeReport(opts: Parameters<typeof computeReportUncached>[0]): Promise<ReportPayload> {
+  const now = Date.now();
+  // isAdmin is part of the key: a non-admin payload has cost stripped,
+  // and an admin opening the same person must not get that copy.
+  const key = `${opts.from}|${opts.to}|${opts.scopeUserId ?? 'all'}|${opts.isAdmin ? 'a' : 'u'}`;
+  const ttl = opts.to >= etDateKey(now) ? CACHE_TTL_LIVE_MS : CACHE_TTL_PAST_MS;
+  const hit = reportCache.get(key);
+  if (hit && now - hit.at < ttl) return hit.payload;
+  const payload = await computeReportUncached(opts);
+  if (reportCache.size > 50) reportCache.clear();
+  reportCache.set(key, { at: now, payload });
+  return payload;
+}
+
 export async function reportsRoutes(app: FastifyInstance) {
   app.get<{ Querystring: ReportsQuery }>(
     '/reports',
@@ -211,211 +450,12 @@ export async function reportsRoutes(app: FastifyInstance) {
         scopeUserId = me.sub;
       }
 
-      const cacheKey = `${from}|${to}|${scopeUserId ?? 'all'}`;
-      const ttl = to >= today ? CACHE_TTL_LIVE_MS : CACHE_TTL_PAST_MS;
-      const hit = cache.get(cacheKey);
-      if (hit && now - hit.at < ttl) return hit.payload;
-
-      const timings: Record<string, number> = {};
-      let mark = Date.now();
-      const lap = (k: string) => { const t = Date.now(); timings[k] = t - mark; mark = t; };
-      const startMs = etMidnightUtc(from);
-      const endMs = etMidnightUtc(addDays(to, 1));
-      const prevFrom = addDays(from, -days);
-      const prevTo = addDays(from, -1);
-      const loadStart = etMidnightUtc(prevFrom);
-      const loadEnd = new Date(Math.min(now, endMs + DAY));
-      const loadStartDate = new Date(loadStart);
-
-      const userRows = await prisma.user.findMany({
-        where: {
-          email: { not: { endsWith: '@deleted.ace.local' } },
-          ...(scopeUserId !== null ? { id: scopeUserId } : {}),
-        },
-        select: {
-          id: true, email: true, firstName: true, lastName: true, isActive: true, lastLoginAt: true,
-          forwardingEnabled: true, voicemailGreetingUrl: true, voicemailGreetingText: true,
-        },
-      });
-      if (scopeUserId !== null && userRows.length === 0) {
-        return reply.code(404).send({ error: 'That person was not found.' });
+      try {
+        return await computeReport({ from, to, scopeUserId, isAdmin: me.isAdmin, log: request.log });
+      } catch (e) {
+        if (e instanceof ReportNotFoundError) return reply.code(404).send({ error: 'That person was not found.' });
+        throw e;
       }
-      const userIds = userRows.map((u) => u.id);
-      const userFilter = scopeUserId !== null ? { userId: scopeUserId } : { userId: { in: userIds } };
-
-      const [calls, messages, voicemails, scheduled, campaigns, lines, favorites] = await Promise.all([
-        loadCalls(loadStartDate, loadEnd, scopeUserId),
-        prisma.message.findMany({
-          where: { ...userFilter, createdAt: { gte: loadStartDate, lt: loadEnd } },
-          select: {
-            userId: true, threadKey: true, direction: true, status: true, body: true,
-            mediaUrls: true, createdAt: true, errors: true,
-          },
-        }),
-        prisma.voicemail.findMany({
-          where: { ...userFilter, receivedAt: { gte: loadStartDate, lt: loadEnd } },
-          select: {
-            userId: true, fromNumber: true, telnyxCallId: true, durationSeconds: true,
-            receivedAt: true, listenedAt: true,
-          },
-        }),
-        prisma.scheduledMessage.findMany({
-          where: {
-            ...userFilter,
-            OR: [
-              { scheduledFor: { gte: loadStartDate, lt: loadEnd } },
-              { status: { in: ['pending', 'sending'] } },
-            ],
-          },
-          select: {
-            id: true, userId: true, toNumber: true, status: true, scheduledFor: true,
-            sentAt: true, campaignId: true,
-          },
-        }),
-        prisma.smsCampaign.findMany({
-          where: { ...userFilter, createdAt: { gte: new Date(startMs), lt: new Date(endMs) } },
-          select: { id: true, userId: true, createdAt: true, totalCount: true, skipped: true },
-        }),
-        prisma.userDid.findMany({
-          where: scopeUserId !== null ? { userId: scopeUserId } : {},
-          select: { id: true, userId: true, didNumber: true, label: true },
-        }),
-        prisma.favorite.findMany({
-          where: { ...userFilter, addedAt: { gte: new Date(startMs), lt: new Date(endMs) } },
-          select: { userId: true, addedAt: true },
-        }),
-      ]);
-
-      lap('load');
-      const msgRows: MessageRow[] = messages.map((m) => {
-        const err = firstError(m.errors);
-        return {
-          userId: m.userId,
-          threadKey: m.threadKey,
-          direction: m.direction,
-          status: (m.status ?? '').toLowerCase(),
-          bodyLength: [...(m.body ?? '')].length,
-          isGsm: GSM_RE.test(m.body ?? ''),
-          hasMedia: (m.mediaUrls?.length ?? 0) > 0,
-          createdAt: m.createdAt.getTime(),
-          errorCode: err.code,
-          errorTitle: err.title,
-          // Only a short inbound text can be a bare STOP/START; skip the regex otherwise.
-          keyword: m.direction === 'inbound' && (m.body ?? '').length <= 24 ? optKeyword(m.body ?? '') : null,
-        };
-      });
-
-      const data: ReportData = {
-        calls: canonicalizeCalls(calls),
-        messages: msgRows,
-        voicemails: voicemails.map((v) => ({
-          userId: v.userId,
-          fromNumber: v.fromNumber,
-          telnyxCallId: v.telnyxCallId,
-          durationSeconds: v.durationSeconds,
-          receivedAt: v.receivedAt.getTime(),
-          listenedAt: v.listenedAt ? v.listenedAt.getTime() : null,
-        })),
-        scheduled: scheduled.map((s) => ({
-          id: s.id,
-          userId: s.userId,
-          toNumber: s.toNumber,
-          status: s.status,
-          scheduledFor: s.scheduledFor.getTime(),
-          sentAt: s.sentAt ? s.sentAt.getTime() : null,
-          campaignId: s.campaignId,
-        })),
-        campaigns: campaigns.map((c) => ({
-          id: c.id,
-          userId: c.userId,
-          createdAt: c.createdAt.getTime(),
-          totalCount: c.totalCount,
-          skippedCount: Array.isArray(c.skipped) ? c.skipped.length : 0,
-        })),
-        lines,
-        favoritesAdded: favorites.map((f) => ({ userId: f.userId, addedAt: f.addedAt.getTime() })),
-        pricing: pricing(),
-      };
-
-      lap('prepare');
-      const cur = computePeriod({ startMs, endMs, days }, data, userIds);
-      const prev = computePeriod({ startMs: loadStart, endMs: startMs, days }, data, userIds);
-
-      const insights = computeInsights({ startMs, endMs, days }, data.calls, msgRows, userIds);
-      lap('compute');
-      const hasActivity = (p: PersonMetrics) =>
-        p.callsOut + p.callsIn + p.smsSent + p.smsReceived + p.voicemails + p.scheduledTotal > 0;
-      const shown = userRows.filter((u) => u.isActive || hasActivity(cur.people.get(u.id)!));
-
-      // Call log + numbers — only for one person's report. A team-wide list
-      // of every candidate's number is exactly what "aggregates only" rules
-      // out; one person's own log (or an admin looking at one person) is the
-      // same thing Recents already shows them.
-      const names = scopeUserId !== null ? await loadContactNames(scopeUserId) : null;
-      const callLog = names
-        ? buildCallLog(data.calls.filter((c) => c.startedAt >= startMs && c.startedAt < endMs), lines, names)
-        : null;
-      // Same rule for texts: records only (when, who, direction, delivery,
-      // billed parts) — the message text itself never leaves this route.
-      const textLog = names
-        ? buildTextLog(msgRows.filter((m) => m.createdAt >= startMs && m.createdAt < endMs), names)
-        : null;
-
-      const adoption = await loadAdoption(shown.map((u) => u.id), userRows, startMs, endMs);
-
-      lap('adoption');
-      request.log.info({ from, to, scopeUserId, timings }, '[reports] computed');
-      const payload = {
-        range: { from, to, days, prevFrom, prevTo, tz: REPORT_TZ },
-        generatedAt: new Date(now).toISOString(),
-        scope: { userId: scopeUserId, isAdmin: me.isAdmin },
-        users: shown
-          .map((u) => ({ id: u.id, name: displayName(u), email: u.email, isActive: u.isActive }))
-          .sort((a, b) => a.name.localeCompare(b.name)),
-        totals: cur.totals,
-        prevTotals: prev.totals,
-        people: shown.map((u) => ({
-          ...cur.people.get(u.id)!,
-          name: displayName(u),
-          email: u.email,
-          isActive: u.isActive,
-          prev: prevSubset(prev.people.get(u.id)),
-        })),
-        daily: cur.daily,
-        heatmap: cur.heatmap,
-        callLength: cur.callLength,
-        longestCalls: cur.longestCalls,
-        inbound: cur.inbound,
-        outbound: cur.outbound,
-        quality: {
-          endReasons: cur.quality.endReasons,
-          measuredCalls: cur.totals.qualityMeasured,
-        },
-        sms: cur.sms,
-        scheduledUpcoming: cur.scheduledUpcoming,
-        campaigns: cur.campaigns,
-        cost: {
-          pricing: data.pricing,
-          voice: cur.totals.costVoice,
-          sms: cur.totals.costSms,
-          lines: cur.didCost,
-          total: cur.totals.cost,
-          ownedLines: cur.ownedLines,
-          projectedMonthly: Math.round((cur.totals.cost / days) * 30 * 100) / 100,
-          byLine: cur.lines,
-        },
-        adoption,
-        callLog,
-        textLog,
-        insights,
-      };
-      // Spend is for admins. Recruiters don't see what their calls cost —
-      // removed from the payload, not just hidden in the UI.
-      if (!me.isAdmin) stripCost(payload);
-
-      if (cache.size > 50) cache.clear();
-      cache.set(cacheKey, { at: now, payload });
-      return payload;
     },
   );
 }
