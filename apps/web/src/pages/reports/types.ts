@@ -5,6 +5,10 @@
 export interface PersonMetrics {
   userId: number;
   callsOut: number;
+  /** Different numbers dialled ("unique calls"). */
+  uniqueDialled: number;
+  /** Different numbers dialled that picked up. */
+  uniqueConnected: number;
   connectedOut: number;
   callsIn: number;
   answeredIn: number;
@@ -66,7 +70,7 @@ export interface PersonMetrics {
 
 export type PrevMetrics = Pick<
   PersonMetrics,
-  | 'callsOut' | 'connected' | 'talkSec' | 'avgTalkSec' | 'shortCalls' | 'likelyDrops' | 'confirmedDrops'
+  | 'callsOut' | 'uniqueDialled' | 'connected' | 'talkSec' | 'avgTalkSec' | 'shortCalls' | 'likelyDrops' | 'confirmedDrops'
   | 'callsIn' | 'answeredIn' | 'unansweredIn' | 'missedReturnable' | 'missedReturned'
   | 'smsSent' | 'smsReceived' | 'smsFailed' | 'smsReplied' | 'smsRepliable' | 'voicemails' | 'voicemailsHeard'
   | 'uniqueReached' | 'conversations' | 'cost'
@@ -131,7 +135,8 @@ export interface ReportsPayload {
     id: number; userId: number; createdAt: string; total: number; sent: number; failed: number;
     pending: number; canceled: number; skipped: number;
   }>;
-  cost: {
+  /** Null for non-admins: spend is admin-only. */
+  cost: null | {
     pricing: { inboundPerMin: number; outboundPerMin: number; perSms: number; didMonthly: number };
     voice: number;
     sms: number;
@@ -160,6 +165,7 @@ export interface ReportsPayload {
   callLog: CallLog | null;
   /** Only present on one person's report. Records only — never message text. */
   textLog: TextLog | null;
+  insights: Insights;
 }
 
 export interface TextLogEntry {
@@ -222,4 +228,56 @@ export interface CallLog {
   calls: CallLogEntry[];
   numbers: CallLogNumber[];
   distinctNumbers: number;
+}
+
+export interface Insights {
+  bestTime: Array<Array<{ attempts: number; reached: number }>>;
+  bestTimeMinAttempts: number;
+  sharedContacts: Array<{ number: string; userIds: number[]; calls: number; texts: number; lastAt: string }>;
+  sharedContactsTotal: number;
+  optOuts: Array<{ userId: number; number: string; at: string; sentAfter: number; lastSentAfter: string | null }>;
+  optOutTotals: { optOuts: number; withTextsAfter: number; textsAfter: number };
+  badNumbers: Array<{ number: string; userIds: number[]; attempts: number; lastAt: string }>;
+}
+
+export interface ContactSearchResult {
+  query: string;
+  results: Array<{ number: string; name: string | null; calls: number; texts: number; people: number; lastAt: string }>;
+}
+
+export interface ContactDetail {
+  number: string;
+  name: string | null;
+  lookbackDays: number;
+  people: Array<{
+    userId: number; name: string; savedAs: string | null;
+    callsOut: number; callsIn: number; connected: number; talkSec: number;
+    textsSent: number; textsReceived: number; voicemails: number;
+    firstAt: string; lastAt: string; optedOut: boolean;
+  }>;
+  events: Array<{
+    at: string; userId: number; kind: 'call' | 'text' | 'voicemail'; direction: 'inbound' | 'outbound';
+    label: string; tone: 'good' | 'warn' | 'crit' | null; talkSec?: number; detail?: string;
+  }>;
+  totalEvents: number;
+}
+
+export interface FollowUpItem {
+  kind: 'missed_call' | 'text' | 'voicemail';
+  userId: number;
+  personName: string;
+  number: string;
+  name: string | null;
+  count: number;
+  since: string;
+  lastAt: string;
+  voicemails?: number;
+}
+
+export interface FollowUps {
+  generatedAt: string;
+  days: number;
+  totals: { missedCalls: number; texts: number; voicemails: number };
+  people: Array<{ userId: number; name: string; missedCalls: number; texts: number; voicemails: number; oldest: string }>;
+  items: FollowUpItem[];
 }

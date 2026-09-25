@@ -3822,3 +3822,30 @@ export async function getReports(
   }
   return res.json();
 }
+
+// ---------- Reports: contact lookup + follow-ups ----------
+async function reportsGet<T>(token: string, path: string): Promise<T> {
+  const res = await fetch(`${API_URL}${path}`, { headers: { Authorization: `Bearer ${token}` } });
+  if (!res.ok) {
+    let message = `Couldn't load (HTTP ${res.status}).`;
+    try {
+      const body = (await res.json()) as { error?: string };
+      if (body.error) message = body.error;
+    } catch { /* non-JSON error body */ }
+    throw new Error(message);
+  }
+  return res.json();
+}
+
+export function searchReportContacts(token: string, q: string) {
+  return reportsGet<import('./pages/reports/types').ContactSearchResult>(token, `/reports/contact/search?q=${encodeURIComponent(q)}`);
+}
+
+export function getReportContact(token: string, number: string) {
+  return reportsGet<import('./pages/reports/types').ContactDetail>(token, `/reports/contact?number=${encodeURIComponent(number)}`);
+}
+
+export function getReportFollowUps(token: string, userId?: number | null) {
+  const qs = userId != null ? `?userId=${userId}` : '';
+  return reportsGet<import('./pages/reports/types').FollowUps>(token, `/reports/follow-ups${qs}`);
+}

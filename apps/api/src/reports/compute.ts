@@ -27,6 +27,8 @@ export interface MessageRow {
   createdAt: number;
   errorCode: string | null;
   errorTitle: string | null;
+  /** Carrier opt-out / opt-in keyword, detected server-side from the body. */
+  keyword?: 'stop' | 'start' | null;
 }
 
 export interface VoicemailRow {
@@ -101,6 +103,10 @@ const REDIAL_MIN_TALK_SEC = 10;
 export interface PersonMetrics {
   userId: number;
   callsOut: number;
+  /** Different numbers dialled — "unique calls". */
+  uniqueDialled: number;
+  /** Different numbers dialled that picked up. */
+  uniqueConnected: number;
   connectedOut: number;
   callsIn: number;
   answeredIn: number;
@@ -223,7 +229,7 @@ function median(xs: number[]): number | null {
 function emptyPerson(userId: number): PersonMetrics {
   return {
     userId,
-    callsOut: 0, connectedOut: 0, callsIn: 0, answeredIn: 0, unansweredIn: 0, declinedIn: 0,
+    callsOut: 0, uniqueDialled: 0, uniqueConnected: 0, connectedOut: 0, callsIn: 0, answeredIn: 0, unansweredIn: 0, declinedIn: 0,
     callerHungUpIn: 0, rangOutIn: 0, noAnswerOut: 0, rejectedOut: 0, otherFailedOut: 0,
     talkSec: 0, avgTalkSec: 0, medianTalkSec: 0, connected: 0, shortCalls: 0, conversations: 0,
     likelyDrops: 0, confirmedDrops: 0, qualityMeasured: 0, poorQuality: 0,
@@ -340,6 +346,8 @@ export function computePeriod(win: Window, data: ReportData, userIds: number[]):
   const activeDaysByUser = new Map<number, Set<string>>();
   const dayFirstLast = new Map<string, { userId: number; first: number; last: number }>();
   const reachedByUser = new Map<number, Set<string>>();
+  const dialledByUser = new Map<number, Set<string>>();
+  const dialledConnectedByUser = new Map<number, Set<string>>();
   const calledByUser = new Map<number, Set<string>>();
   const textedByUser = new Map<number, Set<string>>();
   const vmCallIds = new Set<string>();
@@ -432,6 +440,10 @@ export function computePeriod(win: Window, data: ReportData, userIds: number[]):
     if (c.direction === 'outbound') {
       p.callsOut += 1;
       day.outbound += 1;
+      if (c.other) {
+        noteContact(dialledByUser, c.userId, c.other);
+        if (c.answered) noteContact(dialledConnectedByUser, c.userId, c.other);
+      }
       outbound.total += 1;
       const o = outboundOutcome(c);
       if (o === 'connected') {
@@ -662,6 +674,8 @@ export function computePeriod(win: Window, data: ReportData, userIds: number[]):
     p.medianReplySec = median(replyByUser.get(p.userId) ?? []);
     p.medianListenSec = median(listenByUser.get(p.userId) ?? []);
     p.threads = threadsByUser.get(p.userId)?.size ?? 0;
+    p.uniqueDialled = dialledByUser.get(p.userId)?.size ?? 0;
+    p.uniqueConnected = dialledConnectedByUser.get(p.userId)?.size ?? 0;
     p.activeDays = activeDaysByUser.get(p.userId)?.size ?? 0;
     p.firstCallMin = median(firstByUser.get(p.userId) ?? []);
     p.lastCallMin = median(lastByUser.get(p.userId) ?? []);
@@ -701,6 +715,8 @@ export function computePeriod(win: Window, data: ReportData, userIds: number[]):
   totals.medianReplySec = median(teamReply);
   totals.medianListenSec = median(teamListen);
   totals.uniqueReached = teamReached.size;
+  totals.uniqueDialled = new Set([...dialledByUser.values()].flatMap((x) => [...x])).size;
+  totals.uniqueConnected = new Set([...dialledConnectedByUser.values()].flatMap((x) => [...x])).size;
   // Team-wide, a number two recruiters both reached is one person, and it
   // is only "new" if nobody on the team contacted it last period.
   totals.newContacts = [...teamReached].filter((n) => !teamPrior.has(n)).length;

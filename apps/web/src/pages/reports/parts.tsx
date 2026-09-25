@@ -86,7 +86,7 @@ export function Kpi({
   );
 }
 
-export function KpiGrid({ children, cols = 4 }: { children: ReactNode; cols?: number }) {
+export function KpiGrid({ children, cols = 4 }: { children: ReactNode; cols?: 4 | 5 | 6 }) {
   return <div className={`rp-kpis rp-kpis-${cols}`}>{children}</div>;
 }
 
