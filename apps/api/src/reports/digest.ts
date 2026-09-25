@@ -266,21 +266,37 @@ export interface Practice {
   body: string;
 }
 
-// General practices for a period when the numbers don't point at anything
-// specific. Rotated by date so the same one doesn't lead every morning.
+// General practices: one appears in every email, rotated by date, so the
+// advice keeps changing even when the numbers look the same day to day.
+// About 20 of them: each comes back roughly once a month.
 const GENERAL: Practice[] = [
   { icon: '🎯', title: 'Open with why you’re calling', body: 'Name the role, the company and why you thought of them in the first ten seconds. People stay on the line when they know it’s worth their time.' },
   { icon: '✅', title: 'Agree the next step before you hang up', body: 'A time for the next call, a resume to send, an interview slot. A call that ends with a date moves the candidate forward; one that ends with “talk soon” usually doesn’t.' },
   { icon: '📝', title: 'Write notes while it’s fresh', body: 'Put the key points in JobDiva right after the call. The next person who calls this candidate, maybe you, will know exactly where things stand.' },
   { icon: '🗓️', title: 'Block time for calls', body: 'Put two focused calling blocks on your calendar at the hours when candidates pick up most. Calling in bursts beats fitting calls between everything else.' },
   { icon: '👋', title: 'Use their name in texts', body: 'Start texts with the candidate’s first name (templates can fill {firstName} for you). A personal first line gets more replies than a generic one.' },
+  { icon: '🎙️', title: 'Leave a voicemail worth returning', body: 'Twenty seconds: your name, the role in one line, your number said slowly twice. Then send a short text so they can reply without calling.' },
+  { icon: '👂', title: 'Ask, then listen', body: 'Ask what would make them move and let them talk. Candidates tell you exactly how to place them if you give them the room.' },
+  { icon: '🔁', title: 'Follow up within a day', body: 'After a good call, send a quick text or email the same day recapping the next step. It shows you were listening and keeps you top of mind.' },
+  { icon: '🙂', title: 'Smile when you dial', body: 'It sounds small, but it carries in your voice. Stand up or sit up for important calls; energy is audible.' },
+  { icon: '⏳', title: 'Respect their time', body: 'Ask “is now a good time?” in the first sentence. If it isn’t, book a specific slot instead of pushing through a rushed call.' },
+  { icon: '📍', title: 'Confirm the basics early', body: 'Location, work authorization, availability and pay range in the first few minutes saves both of you a longer call that can’t go anywhere.' },
+  { icon: '💡', title: 'Sell the role, not just the job title', body: 'Tell them what the team does, who they’d work with and why the role is open. Specifics beat a list of requirements.' },
+  { icon: '📵', title: 'Don’t text after hours', body: 'Keep candidate texts to their local business hours. A late-night text can feel intrusive and gets fewer replies the next morning.' },
+  { icon: '✍️', title: 'Keep texts short', body: 'One idea per text, under two lines. Long texts get skimmed; a clear question gets answered.' },
+  { icon: '🛑', title: 'Honor STOP right away', body: 'If someone replies STOP, don’t text them again. Call instead if you still need to reach them, and note it in JobDiva.' },
+  { icon: '🤝', title: 'Close the loop with every candidate', body: 'A quick “we’ve moved forward with someone else” keeps your reputation strong. Candidates remember who got back to them.' },
+  { icon: '🔎', title: 'Search before you dial', body: 'Use the search box in Reports to see if a colleague already spoke to this candidate this week, so you can coordinate instead of doubling up.' },
+  { icon: '📞', title: 'Pick up on the first rings', body: 'An inbound call is a candidate reaching out to you. Answering in the first three rings beats calling back later every time.' },
+  { icon: '🧭', title: 'Plan tomorrow’s first calls tonight', body: 'Pick your first five calls before you log off. Starting the day with a list gets you dialing in minutes, not after your inbox.' },
+  { icon: '📊', title: 'Check your own numbers', body: 'Open Reports once a week and compare yourself with the team average. Small changes in talk time or callbacks add up quickly.' },
 ];
 
 /**
- * Up to four practices, most relevant first. Each is triggered by the team's
- * own numbers and quotes them, so the advice changes with what actually
- * happened; general practices fill in on a quiet period. Short calls have
- * their own box, so they aren't repeated here.
+ * Up to four practices: two data-triggered tips (quoting the period's own
+ * numbers, rotated when several apply), the best hour to call next, and a
+ * general practice from a ~20-item rotation. Short calls have their own
+ * box, so they aren't repeated here.
  */
 export function bestPractices(d: Digest): Practice[] {
   const t = d.report.totals;
@@ -333,7 +349,12 @@ export function bestPractices(d: Digest): Practice[] {
     });
   }
 
-  const picked = out.slice(0, 3);
+  // Two of the relevant data tips, rotated by date: when the same problem
+  // persists (returned calls below 60% most days) it still shows up often,
+  // but not at the top of every single email.
+  const dayNum = Math.floor(Date.parse(`${d.period.to}T12:00:00Z`) / 86_400_000);
+  const picked: Practice[] = [];
+  for (let i = 0; i < Math.min(2, out.length); i += 1) picked.push(out[(dayNum + i) % out.length]);
 
   // Best hour to call on the next working day, from four weeks of calls.
   const next = nextBusinessDay(d.period.to);
@@ -351,11 +372,9 @@ export function bestPractices(d: Digest): Practice[] {
     });
   }
 
-  // Quiet period: top up with general practices, rotated by date.
-  const dayNum = Math.floor(Date.parse(`${d.period.to}T12:00:00Z`) / 86_400_000);
-  for (let i = 0; picked.length < 3 && i < GENERAL.length; i += 1) {
-    picked.push(GENERAL[(dayNum + i) % GENERAL.length]);
-  }
+  // Always one general practice (two on a quiet day), rotated by date.
+  const general = picked.length >= 3 ? 1 : 2;
+  for (let i = 0; i < general; i += 1) picked.push(GENERAL[(dayNum * 7 + i) % GENERAL.length]);
   return picked;
 }
 
