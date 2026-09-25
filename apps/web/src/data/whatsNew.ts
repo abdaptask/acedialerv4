@@ -24,6 +24,17 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.229',
+    date: 'September 25, 2026',
+    highlight: 'A new Reports page, with every number broken down by person.',
+    changes: [
+      { type: 'new', text: 'Reports: calls, texts, missed calls and voicemail, call quality, outreach, cost and app adoption, for any date range (open it from your name menu).' },
+      { type: 'new', text: 'Click any number in a report to see who is behind it, and any person to open their own report, including every number they dialled and every number that called them.' },
+      { type: 'improved', text: 'Report figures now count each call once and use Eastern time, so totals match what actually happened.' },
+      { type: 'improved', text: 'The app now records call quality when a call ends, so dropped calls can be reported accurately.' },
+    ],
+  },
+  {
     version: '0.10.228',
     date: 'September 17, 2026',
     highlight: 'The audio output list is readable again in light mode.',

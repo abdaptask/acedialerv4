@@ -481,6 +481,13 @@ export interface UpdateCallInput {
   endedAt?: string | null;
   durationSeconds?: number;
   hangupCause?: string | null;
+  hangupSource?: string | null;
+  quality?: {
+    avgJitterMs: number;
+    avgLossPct: number;
+    maxLossPct: number;
+    avgRttMs: number | null;
+  } | null;
 }
 
 export async function updateCall(
@@ -3790,4 +3797,28 @@ export async function cancelSmsCampaign(
   });
   if (!res.ok) return { ok: false };
   return (await res.json()) as { ok: boolean; canceled?: number };
+}
+
+// ---------- Reports suite (GET /reports) ----------
+// One payload per (range, person) — the page slices it per tab. The server
+// forces non-admins to their own numbers, so userId is only meaningful for
+// admins.
+export async function getReports(
+  token: string,
+  params: { from: string; to: string; userId?: number | null },
+): Promise<import('./pages/reports/types').ReportsPayload> {
+  const qs = new URLSearchParams({ from: params.from, to: params.to });
+  if (params.userId != null) qs.set('userId', String(params.userId));
+  const res = await fetch(`${API_URL}/reports?${qs.toString()}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) {
+    let message = `The report couldn't load (HTTP ${res.status}).`;
+    try {
+      const body = (await res.json()) as { error?: string };
+      if (body.error) message = body.error;
+    } catch { /* non-JSON error body */ }
+    throw new Error(message);
+  }
+  return res.json();
 }

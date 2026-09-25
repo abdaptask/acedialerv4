@@ -11,6 +11,7 @@ import {
   Voicemail,
   LogOut,
   Settings as SettingsIcon,
+  BarChart3,
   Download as DownloadIcon,
   Phone,
   ChevronDown,
@@ -397,6 +398,17 @@ export default function Layout({ user, onLogout }: Props) {
                 }}
               >
                 <SettingsIcon size={16} /> Settings
+              </button>
+              <button
+                type="button"
+                className="user-menu-item"
+                role="menuitem"
+                onClick={() => {
+                  setMenuOpen(false);
+                  navigate('/reports');
+                }}
+              >
+                <BarChart3 size={16} /> Reports
               </button>
               {/* Manual "Check for updates" — only meaningful in Electron.
                   Auto-update should handle this, but the manual button is a

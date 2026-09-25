@@ -709,6 +709,8 @@ async function logCallEvent(
           endedAt: new Date(endedAt).toISOString(),
           durationSeconds,
           hangupCause: event.hangupCause ?? null,
+          hangupSource: event.hangupOriginator ?? null,
+          quality: event.quality ?? null,
         });
       } catch (e) {
         console.warn('[call-log] updateCall(ended) failed', e);

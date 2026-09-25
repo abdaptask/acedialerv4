@@ -424,6 +424,14 @@ model Call {
   hangupCause     String?   @map("hangup_cause")
   hangupSource    String?   @map("hangup_source")
   recordingUrl    String?   @map("recording_url")
+  // Client-side audio quality averaged over the connected portion of the
+  // call, written by the renderer on hang-up. Null on webhook legs and on
+  // calls from app versions that predate it — reports treat null as
+  // "not measured", never as "good".
+  avgJitterMs     Float?    @map("avg_jitter_ms")
+  avgLossPct      Float?    @map("avg_loss_pct")
+  maxLossPct      Float?    @map("max_loss_pct")
+  avgRttMs        Float?    @map("avg_rtt_ms")
   /// v0.10.0 — Which of the user's DIDs this call landed on (inbound)
   /// or was placed from (outbound). NULL for legacy rows pre-backfill
   /// or for users that don't yet have any UserDid rows. Drives the line

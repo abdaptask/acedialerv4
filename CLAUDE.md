@@ -67,6 +67,7 @@ These are non-negotiable across modules. Repeat them in module-specific guardrai
 | 28 | Audit Log | Shipped |
 | 29 | Realtime Socket Service | Planned (Stub) |
 | 30 | Outbound Notifications (Teams Cards + Email) | Shipped |
+| 31 | Reports Suite (Team + Per-Person) | In-Progress |
 
 ---
 
@@ -254,7 +255,7 @@ scripts/      One-off ops helpers (dedupe call legs, fix favorite names, etc.)
 |---|---|
 | Root `<App>` | `apps/web/src/App.tsx` |
 | Authenticated shell | `apps/web/src/pages/Layout.tsx` |
-| Routes (authenticated) | `/keypad`, `/in-call`, `/favorites`, `/messages`, `/chat`, `/recents`, `/contacts`, `/voicemail`, `/settings`, `/settings/:section` |
+| Routes (authenticated) | `/keypad`, `/in-call`, `/favorites`, `/messages`, `/chat`, `/recents`, `/contacts`, `/voicemail`, `/settings`, `/settings/:section`, `/reports`, `/reports/:tab` |
 | Routes (unauthenticated) | `/login`, `/auth/microsoft/callback` |
 | Badge polling | `Layout.tsx` 15s timer + `ace:tabVisited` event hook |
 | Theme | `<html data-theme="dark"|"light">` driven by `userPrefs.applyTheme()` + system preference |
@@ -1072,6 +1073,48 @@ scripts/      One-off ops helpers (dedupe call legs, fix favorite names, etc.)
 - **A voicemail supersedes its missed call.** `notifyMissedCall` bails out if a `Voicemail` row exists for the same `telnyxCallId` — the voicemail card carries the same information plus a transcript.
 
 ---
+
+---
+
+# Section L — Reporting
+
+## 31. Reports Suite (Team + Per-Person)
+
+### 31.1 Capabilities & Scope
+- One Reports page (`/reports/:tab?from&to&user`) with eight tabs: Overview (scorecard), Calls (length, heatmap, first/last call, idle accounts), Missed & voicemail (answer rate, callbacks, callers who never got through), Texts (volume, delivery failures, reply rate, scheduled texts, bulk sends), Call quality (failed dials, likely + confirmed drops, audio quality), Outreach, Cost, Adoption.
+- Every tab drills down to one person: the same measures render as "this person / team average / previous period". Every name in every table opens that view. The URL is the state, so any view is a shareable link.
+- **Numbers tab (person view only):** every number the person dialled or that called them, with the contact's name (their favorites first, then a coworker's line, mirroring `apps/webhooks/src/contactName.ts`), and the full call log with direction/unanswered filters, search and CSV. The server builds `callLog` only when the request is scoped to one person.
+- **Every number drills down.** A KPI tile or outcome bar opens a sheet (`DrillSheet` in `parts.tsx`) ranking that number by person; on a person's report the same click breaks it down by day, and a daily-chart bar opens that single day. Drill specs reuse the tables' `Col` definitions, so a breakdown always sums to the number clicked.
+- Admins see everyone; everyone else sees only their own report.
+
+### 31.2 Current State & Truth
+**Status:** In-Progress (branch `feat/reports-suite`, not deployed).
+
+| Concern | Implementation |
+|---|---|
+| Endpoint | `GET /reports?from=YYYY-MM-DD&to=YYYY-MM-DD&userId=` → `apps/api/src/reports/reports.routes.ts` |
+| Call dedupe | `apps/api/src/reports/canonicalCalls.ts` — `canonicalizeCalls()` |
+| Metrics | `apps/api/src/reports/compute.ts` — pure, no Prisma; tests in `reports.test.ts` |
+| Eastern-time bucketing | `apps/api/src/reports/etTime.ts` |
+| Page | `apps/web/src/pages/Reports.tsx` + `pages/reports/{tabs,parts,charts,format,types}.ts(x)`, styles in `pages/reports/reports.css` |
+| Quality capture | `sip.ts` accumulates getStats samples per call (`qualityTotals`), sends `quality` + `hangupSource` (JsSIP originator) on the ended PATCH; stored in `Call.avgJitterMs / avgLossPct / maxLossPct / avgRttMs` |
+| Superseded | Settings → Usage / Quality / Cost / Recruiter sections removed (Settings keeps a link). `/admin/reports/{usage,quality,cost,recruiter}` + `/me/reports/usage` still exist for older desktop builds; Live ops, Presence, Alerts unchanged |
+
+### 31.3 Execution Context
+- **One logical call per physical call.** Webhook rows (sessionId set) are authoritative; rows sharing a sessionId collapse to the answered leg. A client row (sessionId null) merges only INTO a webhook row for the same user, direction and other-party last-10 within 60s, contributing its JsSIP cause, originator and quality. Unmatched client rows are kept (users whose Telnyx webhook is misconfigured have no webhook legs).
+- **Talk time is `endedAt − answeredAt`, never `durationSeconds`.** Webhook `durationSeconds` counts from call start, so it includes ringing — a caller who hangs up while it rings gets ~20s of "duration".
+- **Definitions:** answered = `answeredAt` set. Unanswered inbound = caller hung up while ringing + rang out + declined (486 → Telnyx `busy`); blocked is excluded. Returned = outbound call to the same number within 24h. Likely drop = same number dialed again within 2 min of a connected call that lasted ≥10s (estimate). Confirmed drop = connected call ending with a network cause (JsSIP `Connection Error`/`RTP Timeout`/…, or Telnyx `unspecified`/`media_timeout`/…). A text reply counts once per inbound run. New contact = reached this period, not contacted in the previous equal-length period.
+- **Load path:** calls load via one raw query that packs each row into a single delimited text cell (Prisma costs ~15µs per result cell; `findMany` of 137k rows took 5.7s). Results cache in-process: 2 min when the range includes today, 1h otherwise. Max range 92 days. A team 30-day report is ~3.5s cold.
+- Cost uses `TELNYX_COST_*` env with defaults; the host `.env` declares those keys EMPTY, so `envRate()` treats blank as unset (the old `/admin/reports/cost` got NaN from `parseFloat('')` and showed null costs).
+
+### 31.4 Architectural Guardrails
+- **Never count call rows directly.** Always go through `canonicalizeCalls()`. The pre-Reports admin endpoints did, and showed 52,789 outbound calls for 26,658 real ones.
+- **Don't merge two webhook rows by proximity.** That swallows a genuine redial, which is the whole signal behind "likely drops". `dedupeCallLegs()` (Recents) does this and is fine for display, wrong for counting.
+- **Aggregates only on the team view.** Full numbers appear only in a one-person response (`callLog`), which an admin or that person already sees in Recents. The endpoint reads message bodies to estimate billed segments; bodies, transcripts and recordings never leave the route. Lists that show a number (callers who never got through, waiting-to-send) are admin- or self-scoped; "longest conversations" shows last four digits only.
+- **Scope is enforced server-side.** A non-admin passing another `userId` gets a 403; the UI hiding the picker is not the control.
+- **Every day/hour boundary is Eastern.** UTC midnight is 8pm ET and moves evening calls to the wrong day.
+- **Rates need a minimum sample per person** (`minDen`: 20 connected calls for short-call and drop rates, 10 for answer/return rates) or someone with 2 calls tops the table.
+- **Null quality means "not measured", never "good".** Quality data exists only for calls made on a build that includes the capture; confirmed drops and audio figures grow as people update.
 
 # Glossary
 
