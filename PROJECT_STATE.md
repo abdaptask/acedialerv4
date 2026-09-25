@@ -1,6 +1,6 @@
 # ACE Dialer — Project State
 
-**Last updated:** September 25, 2026 (**0.10.231 contact search, follow-ups, insights — web + API LIVE, desktop tagged**; 0.10.230 per-person records; 0.10.229 Reports suite; 0.10.228 audio-output picker contrast fix; 0.10.227 personal SMS templates given a Settings home — web LIVE; 0.10.226 conference self-mute fix — released, on 38 devices)
+**Last updated:** September 25, 2026 (**0.10.232 end reasons + no-audio detection — web + API + webhooks LIVE, desktop tagged**; 0.10.231 search/follow-ups/insights; 0.10.230 per-person records; 0.10.229 Reports suite; 0.10.228 audio-output picker contrast fix; 0.10.227 personal SMS templates given a Settings home — web LIVE; 0.10.226 conference self-mute fix — released, on 38 devices)
 **Maintained by:** Claude (update at end of every working session)
 
 This file is a living snapshot of where the project stands. New Claude
@@ -26,7 +26,8 @@ If you're a fresh Claude session opening this project:
 
 | Stream | Version | Status | Where |
 |---|---|---|---|
-| Latest released | **v0.10.231** | Contact search, Follow-ups tab, admin Insights tab, unique numbers dialled, spend hidden from non-admins. `509086e`, merge `26f82f7`, tagged `v0.10.231`, **web + API live Sep 25**. Drafts for 0.10.229/0.10.230 were never published; publish 0.10.231 | `main` |
+| Latest released | **v0.10.232** | Per-call end reasons, per-text failure reasons, no-audio (one-way) detection, Telnyx sip_hangup_cause + call_quality_stats stored. `d59535c`, merge `685dd1c`, **web + API + webhooks live Sep 25**. Desktop drafts 0.10.229–0.10.231 never published — **publish 0.10.232**; until then NO desktop user sends quality/packet data | `main` |
+| Previously released | v0.10.231 | Contact search, Follow-ups tab, admin Insights tab, unique numbers dialled, spend hidden from non-admins. `509086e`, merge `26f82f7`, tagged `v0.10.231`, **web + API live Sep 25**. Drafts for 0.10.229/0.10.230 were never published; publish 0.10.231 | `main` |
 | Previously released | v0.10.230 | Per-person call + text records and number timelines on the Reports page. `6727e05`, merge `d505029`, tagged `v0.10.230`, **web + API live Sep 25**. The v0.10.229 desktop draft was never published; publish 0.10.230 instead | `main` |
 | Previously released | v0.10.229 | Reports suite (`/reports`) with per-person drill-down + client call-quality capture. Feature `0c84c8b`, merge `15cd915`, tagged `v0.10.229`, **web + API live Sep 25**; desktop installers building in CI | `main` |
 | Previously released | v0.10.228 | Audio-output picker was dark-on-dark in light mode. Fix `c583aec`, release `948d5db`, tagged `v0.10.228`, **web live Sep 17**; desktop installers built by CI (see the Sep 17 entry — macOS signing is failing) | `main` |
@@ -42,6 +43,8 @@ If you're a fresh Claude session opening this project:
 | Backend — `ace-socket` | v0.10.224 (7-day uptime) | Stub service ([[29-realtime-socket]]); nothing to sync | `pm2 list` |
 | Web SPA (`ace-web`) | **v0.10.227 live** | `apps/web/dist` rebuilt Aug 27 15:40 — absolute `/assets/` base verified. Serves off disk, so a build IS a deploy — see §5 | `pm2 list` |
 | Auto-update status | distributing | 0.10.224 reached 64 devices and 0.10.225 is now published, so current releases satisfy the v0.10.143 signing gate. The old "LOCKED on v0.10.132" line no longer described reality and has been removed; `docs/ev-cert-procurement.md` keeps the history | GitHub Releases |
+
+**September 25, 2026 — v0.10.232: why calls end.** Trigger: Roshni Sahani's 3 calls to (240) 421-2248 "connected but blank". Records: far end answered in ~2s every time (a call screener: "please state the purpose of your call"), she hung up ~30s later; no other dialer user ever called that number (the colleague who heard the prompt likely used a mobile). Consistent with one-way inbound audio (see memory: turn-relay-inbound-oneway-audio), but UNPROVABLE retroactively: she runs 0.10.228, and even the 0.10.229 capture only sampled when packets arrived — so a fully silent call left no trace. 0.10.232 records rx/tx packet totals on every connected call; `rxPackets = 0` → "no audio". The Telnyx `GET /v2/call_events?filter[call_session_id]=` lookup returned unrelated events (filter ignored) — don't rely on it.
 
 **September 25, 2026 — v0.10.231: search, follow-ups, insights.** Real numbers at release (Aug 26 – Sep 24): 48% of outbound calls reach someone for 30s+; best slot Thu 6pm (55%), worst Tue 6pm (34%); 1,626 candidates contacted by 2+ recruiters; 4 opt-outs, none texted after (16 STOPs in 90 days, all clean). Follow-ups (last 14 days): 955 unreturned missed calls, 327 texts waiting. Some numbers were dialled by 12+ recruiters — likely client switchboards; worth checking before anyone reads "shared contacts" as poaching.
 
