@@ -1103,6 +1103,7 @@ scripts/      One-off ops helpers (dedupe call legs, fix favorite names, etc.)
 | Metrics | `apps/api/src/reports/compute.ts` — pure, no Prisma; tests in `reports.test.ts` |
 | Eastern-time bucketing | `apps/api/src/reports/etTime.ts` |
 | Page | `apps/web/src/pages/Reports.tsx` + `pages/reports/{tabs,parts,charts,format,types}.ts(x)`, styles in `pages/reports/reports.css` |
+| User guide | `docs/reports-guide.md` (per-entitlement how-to; mirror of the shared Claude doc linked at its top). Update it in the same change as any tab, measure, end reason or entitlement |
 | Quality capture | `sip.ts` accumulates getStats samples per call (`qualityTotals`), sends `quality` + `hangupSource` (JsSIP originator) on the ended PATCH; stored in `Call.avgJitterMs / avgLossPct / maxLossPct / avgRttMs` |
 | Superseded | Settings → Usage / Quality / Cost / Recruiter sections removed (Settings keeps a link). `/admin/reports/{usage,quality,cost,recruiter}` + `/me/reports/usage` still exist for older desktop builds; Live ops, Presence, Alerts unchanged |
 
