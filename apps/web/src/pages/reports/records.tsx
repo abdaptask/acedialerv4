@@ -64,6 +64,12 @@ export function RecordRow({ item, onOpen }: {
             {out ? (item.kind === 'call' ? 'Dialled out' : 'Sent') : (item.kind === 'call' ? 'Called in' : 'Received')}
             {item.kind === 'text' ? ` · ${textKind(item.m)}` : ''}
           </span>
+          {item.kind === 'call' && (
+            <span className={`rp-rec-why${item.c.noAudio || item.c.endReason === 'dropped' ? ' bad' : ''}`}>{item.c.endLabel}</span>
+          )}
+          {item.kind === 'text' && item.m.status !== 'delivered' && item.m.why && (
+            <span className={`rp-rec-why${item.m.status === 'failed' ? ' bad' : ''}`}>{item.m.why}</span>
+          )}
         </span>
         <span className="rp-rec-when rp-num">{fmtDateTime(when)}</span>
         <span className="rp-rec-out">
@@ -113,8 +119,8 @@ export function Timeline({ number, calls, texts }: { number: string; calls: Call
                       : <>{e.m!.hasMedia ? <ImageIcon size={13} /> : <MessageSquare size={13} />} {textKind(e.m!)}</>}
                   </span>
                   <span className="rp-tl-meta">
-                    {time} · {e.kind === 'call' ? e.c!.outcomeLabel : e.m!.statusLabel}
-                    {e.kind === 'text' && e.m!.failReason ? ` (${e.m!.failReason})` : ''}
+                    {time} · {e.kind === 'call' ? e.c!.endLabel : e.m!.statusLabel}
+                    {e.kind === 'text' && e.m!.status !== 'delivered' && e.m!.why ? ` · ${e.m!.why}` : ''}
                   </span>
                 </div>
               </div>

@@ -65,6 +65,7 @@ type Opener = (number: string, name: string | null) => void;
 function CallsView({ p, onOpen }: { p: TabProps; onOpen: Opener }) {
   const log = p.data.callLog!;
   const [dir, setDir] = useState<CallFilter>('all');
+  const [reason, setReason] = useState<string>('');
   const [q, setQ] = useState('');
   const [numQ, setNumQ] = useState('');
   const [numSort, setNumSort] = useState<'total' | 'out' | 'in' | 'unanswered' | 'talkSec' | 'lastAt'>('total');
@@ -74,8 +75,20 @@ function CallsView({ p, onOpen }: { p: TabProps; onOpen: Opener }) {
     if (dir === 'outbound' && c.direction !== 'outbound') return false;
     if (dir === 'inbound' && c.direction !== 'inbound') return false;
     if (dir === 'unanswered' && (c.direction !== 'inbound' || c.answered || c.outcome === 'blocked')) return false;
+    if (reason && c.endReason !== reason) return false;
     return matches(q, c.number, c.name);
-  }), [log, dir, q]);
+  }), [log, dir, q, reason]);
+  // Reasons present in this log, most common first, for the filter.
+  const reasons = useMemo(() => {
+    const m = new Map<string, { label: string; n: number }>();
+    for (const c of log.calls) {
+      const r = m.get(c.endReason) ?? { label: c.endLabel.replace(/ after \d+s$/, ''), n: 0 };
+      r.n += 1;
+      m.set(c.endReason, r);
+    }
+    return [...m.entries()].sort((a, b) => b[1].n - a[1].n);
+  }, [log]);
+  const silent = log.calls.filter((c) => c.noAudio).length;
 
   const numbers = useMemo(() => {
     const val = (n: CallLogNumber) => (numSort === 'total' ? n.out + n.in : numSort === 'lastAt' ? Date.parse(n.lastAt) : n[numSort]);
@@ -113,14 +126,27 @@ function CallsView({ p, onOpen }: { p: TabProps; onOpen: Opener }) {
                   <button key={k} type="button" aria-pressed={dir === k} onClick={() => { setDir(k); setShown(PAGE); }}>{l}</button>
                 ))}
               </div>
+              <label className="rp-select">
+                <span className="rp-sr">Why it ended</span>
+                <select id="rp-reason" value={reason} onChange={(e) => { setReason(e.target.value); setShown(PAGE); }}>
+                  <option value="">Any end reason</option>
+                  {reasons.map(([k, r]) => <option key={k} value={k}>{r.label} ({r.n})</option>)}
+                </select>
+              </label>
               <SearchBox id="rp-log-search" value={q} onChange={(v) => { setQ(v); setShown(PAGE); }} placeholder="Filter by number or name" />
             </div>
           </header>
+          {silent > 0 && (
+            <p className="rp-alert">
+              {silent} connected {silent === 1 ? 'call' : 'calls'} had no audio from the other side, which is what a caller hearing nothing looks like.{' '}
+              <button type="button" className="rp-link" onClick={() => setReason('no_audio')}>Show them</button>
+            </p>
+          )}
           {calls.length === 0 ? <Empty>No calls match.</Empty> : (
             <div className="rp-table-wrap">
               <table className="rp-table">
                 <thead>
-                  <tr><th>When</th><th>Direction</th><th>Number</th><th>Contact</th><th>Outcome</th><th className="rp-r">Talk time</th><th>Line</th></tr>
+                  <tr><th>When</th><th>Direction</th><th>Number</th><th>Contact</th><th>Outcome</th><th>Why it ended</th><th className="rp-r">Rang</th><th className="rp-r">Talk time</th><th>Line</th></tr>
                 </thead>
                 <tbody>
                   {calls.slice(0, shown).map((c, i) => (
@@ -135,6 +161,8 @@ function CallsView({ p, onOpen }: { p: TabProps; onOpen: Opener }) {
                       <td className="rp-num">{formatPhone(c.number)}</td>
                       <td className={c.name ? undefined : 'rp-muted'}>{c.name ?? '—'}</td>
                       <td><Outcome label={c.outcomeLabel} tone={callTone(c)} /></td>
+                      <td className={`rp-wrap rp-why${c.noAudio || c.endReason === 'dropped' ? ' bad' : ''}`}>{c.endLabel.replace(/ after \d+s$/, '')}</td>
+                      <td className="rp-r rp-num">{c.ringSec ? `${c.ringSec}s` : '—'}</td>
                       <td className="rp-r rp-num">{c.answered ? fmtClockDuration(c.talkSec) : '—'}</td>
                       <td className="rp-muted">{c.line ?? '—'}</td>
                     </tr>
@@ -277,7 +305,7 @@ function TextsView({ p, onOpen }: { p: TabProps; onOpen: Opener }) {
             <div className="rp-table-wrap">
               <table className="rp-table">
                 <thead>
-                  <tr><th>When</th><th>Direction</th><th>Number</th><th>Contact</th><th>Type</th><th>Status</th></tr>
+                  <tr><th>When</th><th>Direction</th><th>Number</th><th>Contact</th><th>Type</th><th>Status</th><th>Why</th></tr>
                 </thead>
                 <tbody>
                   {messages.slice(0, shown).map((m, i) => (
@@ -289,8 +317,8 @@ function TextsView({ p, onOpen }: { p: TabProps; onOpen: Opener }) {
                       <td className="rp-muted">{textKind(m)}</td>
                       <td>
                         <Outcome label={m.statusLabel} tone={textTone(m)} />
-                        {m.failReason && <span className="rp-muted rp-reason"> {m.failReason}</span>}
                       </td>
+                      <td className={`rp-wrap rp-why${m.status === 'failed' ? ' bad' : ''}`}>{m.status === 'delivered' || m.direction === 'inbound' ? (m.why ?? '—') : m.why}{m.errorCode ? <span className="rp-muted"> · code {m.errorCode}</span> : null}</td>
                     </tr>
                   ))}
                 </tbody>

@@ -432,6 +432,15 @@ model Call {
   avgLossPct      Float?    @map("avg_loss_pct")
   maxLossPct      Float?    @map("max_loss_pct")
   avgRttMs        Float?    @map("avg_rtt_ms")
+  // Audio packets the app received / sent while connected. rxPackets = 0 on
+  // a connected call means the other side's audio never arrived (one-way
+  // audio) — the "connected but blank" report. Null = not measured.
+  rxPackets       Int?      @map("rx_packets")
+  txPackets       Int?      @map("tx_packets")
+  // Telnyx's own view from the call.hangup webhook: SIP-level hang-up cause
+  // and call_quality_stats (packet counts, MOS) when Telnyx sends them.
+  sipHangupCause  String?   @map("sip_hangup_cause")
+  carrierStats    Json?     @map("carrier_stats")
   /// v0.10.0 — Which of the user's DIDs this call landed on (inbound)
   /// or was placed from (outbound). NULL for legacy rows pre-backfill
   /// or for users that don't yet have any UserDid rows. Drives the line

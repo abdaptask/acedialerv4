@@ -97,10 +97,14 @@ export interface CallEvent {
 }
 
 export interface CallQualitySummary {
-  avgJitterMs: number;
-  avgLossPct: number;
-  maxLossPct: number;
-  avgRttMs: number | null;
+  /** Averages exist only if audio arrived at least once. */
+  avgJitterMs?: number;
+  avgLossPct?: number;
+  maxLossPct?: number;
+  avgRttMs?: number | null;
+  /** Audio packets received / sent over the call. rxPackets 0 = one-way audio. */
+  rxPackets: number;
+  txPackets: number;
 }
 
 export interface CallQuality {
@@ -288,6 +292,7 @@ export class SipService {
    */
   private qualityTotals: Map<string, {
     samples: number; jitterMs: number; lossPct: number; maxLossPct: number; rttMs: number; rttSamples: number;
+    rxPackets: number; txPackets: number;
   }> = new Map();
 
   constructor() {
@@ -3154,11 +3159,17 @@ export class SipService {
     let level: CallQualityLevel = 'good';
     if (jms >= 60 || lossPct >= 5 || (rtt !== null && rttMs >= 500)) level = 'poor';
     else if (jms >= 30 || lossPct >= 1 || (rtt !== null && rttMs >= 300)) level = 'fair';
-    // Only sample while audio is actually arriving — a held leg reads as
-    // zero loss and would dilute the average toward "perfect".
+    // Packet totals are recorded on EVERY poll, including when nothing is
+    // arriving: a connected call that never receives a packet is exactly
+    // the "connected but I heard nothing" case Reports needs to show.
+    const t = this.qualityTotals.get(active.id)
+      ?? { samples: 0, jitterMs: 0, lossPct: 0, maxLossPct: 0, rttMs: 0, rttSamples: 0, rxPackets: 0, txPackets: 0 };
+    t.rxPackets = Math.max(t.rxPackets, packetsReceived);
+    t.txPackets = Math.max(t.txPackets, packetsSent);
+    this.qualityTotals.set(active.id, t);
+    // Averages only while audio is actually arriving — a held leg reads as
+    // zero loss and would dilute them toward "perfect".
     if (dRecv > 0) {
-      const t = this.qualityTotals.get(active.id)
-        ?? { samples: 0, jitterMs: 0, lossPct: 0, maxLossPct: 0, rttMs: 0, rttSamples: 0 };
       t.samples += 1;
       t.jitterMs += jms;
       t.lossPct += lossPct;
@@ -3167,7 +3178,6 @@ export class SipService {
         t.rttMs += rttMs;
         t.rttSamples += 1;
       }
-      this.qualityTotals.set(active.id, t);
     }
     this.emit<CallQuality>('quality', { level, jitter, loss, rtt });
   }
@@ -3175,8 +3185,11 @@ export class SipService {
   private takeQualitySummary(callId: string): CallQualitySummary | undefined {
     const t = this.qualityTotals.get(callId);
     this.qualityTotals.delete(callId);
-    if (!t || t.samples === 0) return undefined;
+    if (!t) return undefined;
+    const counts = { rxPackets: t.rxPackets, txPackets: t.txPackets };
+    if (t.samples === 0) return counts;
     return {
+      ...counts,
       avgJitterMs: t.jitterMs / t.samples,
       avgLossPct: t.lossPct / t.samples,
       maxLossPct: t.maxLossPct,

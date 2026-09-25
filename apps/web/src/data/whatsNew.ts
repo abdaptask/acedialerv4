@@ -24,6 +24,17 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.232',
+    date: 'September 25, 2026',
+    highlight: 'Every call and text in Reports now says why it ended or failed.',
+    changes: [
+      { type: 'new', text: 'Each call shows why it ended: who hung up, no answer, busy, number not in service, declined, or dropped by the network.' },
+      { type: 'new', text: 'Calls that connected but carried no sound from the other side are flagged, so "I couldn\'t hear them" can be checked.' },
+      { type: 'new', text: 'Each text that didn\'t go through says why, in plain words (for example, a landline that can\'t receive texts).' },
+      { type: 'improved', text: 'The By day view groups each day\'s calls by why they ended, biggest group first.' },
+    ],
+  },
+  {
     version: '0.10.231',
     date: 'September 25, 2026',
     highlight: 'Search any number in Reports, and see what still needs a follow-up.',

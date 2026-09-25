@@ -12,7 +12,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { prisma } from '@ace/db';
 import {
-  canonicalizeCalls, inboundOutcome, last10, outboundOutcome, type LogicalCall, type RawCallRow,
+  canonicalizeCalls, endReason, inboundOutcome, isSilent, last10, outboundOutcome, type LogicalCall, type RawCallRow,
 } from './canonicalCalls.js';
 import {
   computePeriod,
@@ -23,6 +23,7 @@ import {
   type ReportData,
 } from './compute.js';
 import { computeInsights, optKeyword } from './insights.js';
+import { textFailureReason } from './textReasons.js';
 import { REPORT_TZ, addDays, daySpan, etDateKey, etMidnightUtc, isDateKey } from './etTime.js';
 
 interface JwtPayload {
@@ -86,7 +87,9 @@ async function loadCalls(since: Date, until: Date, userId: number | null): Promi
           coalesce(((extract(epoch from ended_at) * 1000)::bigint)::text, ''),
           duration_seconds,
           coalesce(avg_jitter_ms::text, ''), coalesce(avg_loss_pct::text, ''),
-          coalesce(max_loss_pct::text, ''), coalesce(avg_rtt_ms::text, '')) AS r
+          coalesce(max_loss_pct::text, ''), coalesce(avg_rtt_ms::text, ''),
+          coalesce(rx_packets::text, ''), coalesce(sip_hangup_cause, ''),
+          coalesce(carrier_stats->'inbound'->>'packet_count', '')) AS r
         FROM calls
         WHERE started_at >= ${since} AND started_at < ${until} AND user_id = ${userId}`
     : await prisma.$queryRaw<Array<{ r: string }>>`
@@ -98,7 +101,9 @@ async function loadCalls(since: Date, until: Date, userId: number | null): Promi
           coalesce(((extract(epoch from ended_at) * 1000)::bigint)::text, ''),
           duration_seconds,
           coalesce(avg_jitter_ms::text, ''), coalesce(avg_loss_pct::text, ''),
-          coalesce(max_loss_pct::text, ''), coalesce(avg_rtt_ms::text, '')) AS r
+          coalesce(max_loss_pct::text, ''), coalesce(avg_rtt_ms::text, ''),
+          coalesce(rx_packets::text, ''), coalesce(sip_hangup_cause, ''),
+          coalesce(carrier_stats->'inbound'->>'packet_count', '')) AS r
         FROM calls
         WHERE started_at >= ${since} AND started_at < ${until}`;
   const str = (v: string) => (v === '' ? null : v);
@@ -124,6 +129,9 @@ async function loadCalls(since: Date, until: Date, userId: number | null): Promi
       avgLossPct: num(f[15]),
       maxLossPct: num(f[16]),
       avgRttMs: num(f[17]),
+      rxPackets: num(f[18]),
+      sipHangupCause: str(f[19]),
+      carrierRxPackets: num(f[20]),
     };
   });
 }
@@ -495,7 +503,14 @@ function buildCallLog(
     calls: newest.slice(0, CALL_LOG_LIMIT).map((c) => {
       const outcome = c.direction === 'inbound' ? inboundOutcome(c) : outboundOutcome(c);
       const line = c.userDidId != null ? lineById.get(c.userDidId) : undefined;
+      const end = endReason(c);
       return {
+        endReason: end.key,
+        endLabel: end.label,
+        endBy: end.by,
+        ringSec: c.ringSec,
+        noAudio: isSilent(c),
+        audioMeasured: c.rxPackets != null,
         startedAt: new Date(c.startedAt).toISOString(),
         direction: c.direction,
         number: c.number,
@@ -517,11 +532,15 @@ function buildCallLog(
 
 const FAILED_TEXT = new Set(['delivery_failed', 'failed', 'undelivered', 'sending_failed']);
 
-function textStatus(m: MessageRow): { key: 'received' | 'delivered' | 'failed' | 'sent'; label: string } {
-  if (m.direction === 'inbound') return { key: 'received', label: 'Received' };
-  if (m.status === 'delivered') return { key: 'delivered', label: 'Delivered' };
-  if (FAILED_TEXT.has(m.status)) return { key: 'failed', label: 'Failed' };
-  return { key: 'sent', label: 'Sent, not confirmed' };
+function textStatus(m: MessageRow): { key: 'received' | 'delivered' | 'failed' | 'sent'; label: string; why: string | null } {
+  if (m.direction === 'inbound') {
+    if (m.keyword === 'stop') return { key: 'received', label: 'Received', why: 'They opted out (STOP)' };
+    return { key: 'received', label: 'Received', why: null };
+  }
+  if (m.status === 'delivered') return { key: 'delivered', label: 'Delivered', why: 'The carrier confirmed it reached the phone' };
+  if (FAILED_TEXT.has(m.status)) return { key: 'failed', label: 'Not delivered', why: textFailureReason(m.errorCode, m.errorTitle) };
+  if (m.status === 'queued' || m.status === 'sending') return { key: 'sent', label: 'Sending', why: 'Still with the carrier' };
+  return { key: 'sent', label: 'Sent, not confirmed', why: 'The carrier accepted it but never confirmed delivery to the phone' };
 }
 
 function buildTextLog(messages: MessageRow[], names: Map<string, string>) {
@@ -557,7 +576,9 @@ function buildTextLog(messages: MessageRow[], names: Map<string, string>) {
         name: k ? names.get(k) ?? null : null,
         status: st.key,
         statusLabel: st.label,
-        failReason: st.key === 'failed' ? m.errorTitle : null,
+        failReason: st.key === 'failed' ? st.why : null,
+        why: st.why,
+        errorCode: st.key === 'failed' ? m.errorCode : null,
         parts: m.direction === 'outbound' ? estimateSegments(m.bodyLength, m.isGsm) : null,
         hasMedia: m.hasMedia,
       };

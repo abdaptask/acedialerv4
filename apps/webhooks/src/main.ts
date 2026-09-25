@@ -708,6 +708,13 @@ app.post('/telnyx/calls', async (request) => {
         }
         const hangupCause: string = payload.hangup_cause ?? 'unknown';
         const hangupSource: string = payload.hangup_source ?? '';
+        // Telnyx's own diagnostics, kept for Reports: the SIP-level cause
+        // (e.g. "404", "486") and, when Telnyx includes it, per-direction
+        // packet counts / MOS. That second part is what tells a
+        // "connected but blank" call apart from a normal one without
+        // depending on which app version the recruiter runs.
+        const sipHangupCause: string | null = payload.sip_hangup_cause != null ? String(payload.sip_hangup_cause) : null;
+        const carrierStats = payload.call_quality_stats ?? null;
         // Classify the call's final status. The previous logic defaulted
         // anything unfamiliar to "failed", which mis-labelled forwarded
         // calls (Telnyx uses cause codes like "redirected" / "transferred"
@@ -792,6 +799,8 @@ app.post('/telnyx/calls', async (request) => {
             durationSeconds: duration,
             hangupCause,
             hangupSource: payload.hangup_source ?? null,
+            sipHangupCause,
+            ...(carrierStats ? { carrierStats } : {}),
           },
         });
         if (updated.count === 0 && startedAt) {
@@ -832,6 +841,8 @@ app.post('/telnyx/calls', async (request) => {
                 durationSeconds: duration,
                 hangupCause,
                 hangupSource: payload.hangup_source ?? null,
+                sipHangupCause,
+                ...(carrierStats ? { carrierStats } : {}),
               },
             });
           }

@@ -237,7 +237,7 @@ test('delivery_failed is a failure (the old Quality report missed these)', () =>
     }],
   }), [1]);
   assert.equal(r.totals.smsFailed, 1);
-  assert.deepEqual(r.sms.failureReasons, [{ code: '40010', title: 'Not 10DLC registered', count: 1 }]);
+  assert.deepEqual(r.sms.failureReasons, [{ code: '40010', title: 'Our sending number isn’t registered for business texting (10DLC)', count: 1 }]);
 });
 
 test('people outside the scope never leak into totals', () => {
@@ -318,4 +318,47 @@ test('unique numbers dialled counts each number once per person, and once team-w
   assert.equal(r.people.get(1)!.uniqueDialled, 2);
   assert.equal(r.people.get(1)!.uniqueConnected, 1);
   assert.equal(r.totals.uniqueDialled, 2, 'team-wide, the shared number counts once');
+});
+
+// ── End reasons ─────────────────────────────────────────────────────────
+
+import { endReason, isSilent } from './canonicalCalls.js';
+
+test('a connected call where no audio arrived is "no audio", not "you hung up"', () => {
+  // Roshni's case: answered in 2s by a call screener, 30s of silence, she hangs up.
+  const [c] = canonicalizeCalls([
+    row({ sessionId: 's', startedAt: T0, answeredAt: T0 + 2_000, endedAt: T0 + 32_000, hangupCause: 'normal_clearing', hangupSource: 'caller' }),
+    row({ startedAt: T0 + 1_000, answeredAt: T0 + 2_000, endedAt: T0 + 32_000, hangupCause: 'Terminated', hangupSource: 'local', rxPackets: 0 }),
+  ]);
+  assert.equal(isSilent(c), true);
+  assert.equal(endReason(c).key, 'no_audio');
+});
+
+test('who hung up follows Telnyx leg naming by direction', () => {
+  const [out] = canonicalizeCalls([row({ sessionId: 'a', answeredAt: T0 + 1_000, endedAt: T0 + 60_000, hangupSource: 'callee' })]);
+  const [inn] = canonicalizeCalls([row({ sessionId: 'b', direction: 'inbound', fromNumber: '+12125550199', answeredAt: T0 + 1_000, endedAt: T0 + 60_000, hangupSource: 'callee' })]);
+  assert.equal(endReason(out).key, 'they_hung_up');
+  assert.equal(endReason(inn).key, 'you_hung_up');
+});
+
+test('the app\'s own originator beats Telnyx\'s when both exist', () => {
+  const [c] = canonicalizeCalls([
+    row({ sessionId: 's', answeredAt: T0 + 1_000, endedAt: T0 + 60_000, hangupSource: 'caller' }),
+    row({ startedAt: T0 + 500, answeredAt: T0 + 1_000, endedAt: T0 + 60_000, hangupSource: 'remote', rxPackets: 2400 }),
+  ]);
+  assert.equal(endReason(c).key, 'they_hung_up');
+});
+
+test('unanswered outbound: cancelled by us vs rang out, with ring time', () => {
+  const [cancel] = canonicalizeCalls([row({ sessionId: 'a', status: 'caller_canceled', hangupCause: 'originator_cancel', endedAt: T0 + 18_000 })]);
+  const [nope] = canonicalizeCalls([row({ sessionId: 'b', status: 'no_answer', endedAt: T0 + 45_000 })]);
+  assert.equal(endReason(cancel).key, 'you_canceled');
+  assert.match(endReason(cancel).label, /after 18s/);
+  assert.equal(endReason(nope).key, 'no_answer');
+});
+
+test('a SIP code is shown on a failed call when Telnyx sent one', () => {
+  const [c] = canonicalizeCalls([row({ sessionId: 'a', status: 'failed', hangupCause: 'not_found', sipHangupCause: '404' })]);
+  assert.equal(endReason(c).key, 'not_found');
+  assert.match(endReason(c).label, /SIP 404/);
 });

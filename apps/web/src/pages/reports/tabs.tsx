@@ -612,6 +612,7 @@ const qualityCols: Col[] = [
   count('likelyDrops', 'Likely drops', { better: 'down' }),
   dropShare,
   count('confirmedDrops', 'Confirmed drops', { better: 'down' }),
+  { key: 'silentCalls', label: 'No audio', value: (r) => (r.audioMeasured ? r.silentCalls : null), fmt: (v, r) => (v == null ? dash : `${fmtInt(v)} of ${fmtInt(r.audioMeasured)}`), csv: (v) => v, better: 'down', flag: (v) => (v ? 'crit' : null) },
   { key: 'poorQuality', label: 'Poor audio', value: (r) => (r.qualityMeasured ? r.poorQuality : null), fmt: (v, r) => (v == null ? dash : `${fmtInt(v)} of ${fmtInt(r.qualityMeasured)}`), csv: (v) => v, better: 'down' },
 ];
 
@@ -623,7 +624,7 @@ function Quality(p: TabProps) {
   for (const r of p.data.quality.endReasons) merged.set(endLabel(r.reason), (merged.get(endLabel(r.reason)) ?? 0) + r.count);
   return (
     <>
-      <KpiGrid cols={5}>
+      <KpiGrid cols={6}>
         <Kpi label="Outbound connected" value={fmtPct(ob.connected, ob.total)} sub={`${fmtInt(ob.connected)} of ${fmtInt(ob.total)}`} 
           onOpen={drillTo(p, 'Outbound calls connected', fmtPct(ob.connected, ob.total), connectRate, { calls: isOut })} />
         <Kpi label="Failed dials" value={fmtInt(t.failedDials)} cur={t.failedDials} prev={null} better="down" sub={`${fmtInt(t.invalidNumbers)} to bad numbers`} 
@@ -631,10 +632,13 @@ function Quality(p: TabProps) {
         <Kpi label="Likely drops" value={fmtPct(t.likelyDrops, t.connected, 1)} points cur={pct(t.likelyDrops, t.connected)} prev={pct(pv.likelyDrops, pv.connected)} better="down"
           sub={`${fmtInt(t.likelyDrops)} redialed within 2 min`} 
           onOpen={drillTo(p, 'Likely drop rate', fmtPct(t.likelyDrops, t.connected, 1), dropShare, { note: 'Same number called again within 2 minutes of a call that lasted 10 seconds or more. An estimate. People with fewer than 20 connected calls are left out.' })} />
+        <Kpi label="Connected, no audio" value={t.audioMeasured ? fmtInt(t.silentCalls) : dash}
+          sub={t.audioMeasured ? `of ${fmtInt(t.audioMeasured)} measured calls: the other side's audio never arrived` : 'Measured from app 0.10.232'}
+          onOpen={t.audioMeasured ? drillTo(p, 'Connected, but no audio', fmtInt(t.silentCalls), count('silentCalls', 'No audio'), { additive: true, calls: (c) => c.noAudio }) : undefined} />
         <Kpi label="Confirmed drops" value={fmtInt(t.confirmedDrops)} cur={t.confirmedDrops} prev={pv.confirmedDrops} better="down" sub="Ended by a network fault" 
           onOpen={drillTo(p, 'Confirmed drops', fmtInt(t.confirmedDrops), count('confirmedDrops', 'Confirmed drops'), { additive: true })} />
         <Kpi label="Poor audio" value={t.qualityMeasured ? fmtPct(t.poorQuality, t.qualityMeasured) : dash}
-          sub={t.qualityMeasured ? `of ${fmtInt(t.qualityMeasured)} measured calls` : 'Measured from app 0.10.229'} 
+          sub={t.qualityMeasured ? `of ${fmtInt(t.qualityMeasured)} measured calls` : 'Measured from app 0.10.232'} 
           onOpen={drillTo(p, 'Calls with poor audio', fmtInt(t.poorQuality), count('poorQuality', 'Poor audio'), { additive: true })} />
       </KpiGrid>
       <div className="rp-grid">
@@ -660,7 +664,7 @@ function Quality(p: TabProps) {
           sub="A likely drop is the same number called again within 2 minutes of a call that lasted 10 seconds or more. It's an estimate" />
       </div>
       <p className="rp-footnote rp-footnote-block">
-        Confirmed drops and audio quality come from the app. Calls made on versions before 0.10.229 show here as hung up normally, so these figures grow as people update.
+        Confirmed drops and audio quality come from the app. Calls made on versions before 0.10.232 show here as hung up normally, so these figures grow as people update.
       </p>
     </>
   );
