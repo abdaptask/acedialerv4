@@ -163,7 +163,7 @@ function compareVersions(a: string, b: string): number {
 }
 
 const PREV_KEYS = [
-  'callsOut', 'uniqueDialled', 'connected', 'talkSec', 'avgTalkSec', 'shortCalls', 'likelyDrops', 'confirmedDrops',
+  'callsOut', 'uniqueDialled', 'connected', 'talkSec', 'avgTalkSec', 'shortCalls', 'carrierShortCalls', 'likelyDrops', 'confirmedDrops',
   'callsIn', 'answeredIn', 'unansweredIn', 'missedReturnable', 'missedReturned',
   'smsSent', 'smsReceived', 'smsFailed', 'smsReplied', 'smsRepliable', 'voicemails', 'voicemailsHeard',
   'uniqueReached', 'conversations', 'cost',

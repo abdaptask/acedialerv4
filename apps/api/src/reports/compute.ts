@@ -97,6 +97,11 @@ const FOLLOW_UP_MS = DAY;
 // Under this, a connected call is almost always a voicemail greeting or a
 // wrong number — the "shortest calls" ranking counts these.
 export const SHORT_CALL_SEC = 10;
+// Telnyx's "short duration call": answered, 6 seconds or less. Above 15% of
+// answered calls in a month they may surcharge every one of them. Measured
+// this way our August figure was 15.51% against Telnyx's notice of 15.48%.
+export const CARRIER_SHORT_SEC = 6;
+export const CARRIER_SHORT_LIMIT = 0.15;
 export const CONVERSATION_SEC = 120;
 // Redialing the same number this soon after a real call ended is the
 // behavioural fingerprint of a drop.
@@ -125,6 +130,8 @@ export interface PersonMetrics {
   medianTalkSec: number;
   connected: number;
   shortCalls: number;
+  /** Answered calls of 6 seconds or less — Telnyx's short-duration measure. */
+  carrierShortCalls: number;
   conversations: number;
   likelyDrops: number;
   confirmedDrops: number;
@@ -238,7 +245,7 @@ function emptyPerson(userId: number): PersonMetrics {
     userId,
     callsOut: 0, uniqueDialled: 0, uniqueConnected: 0, connectedOut: 0, callsIn: 0, answeredIn: 0, unansweredIn: 0, declinedIn: 0,
     callerHungUpIn: 0, rangOutIn: 0, noAnswerOut: 0, rejectedOut: 0, otherFailedOut: 0,
-    talkSec: 0, avgTalkSec: 0, medianTalkSec: 0, connected: 0, shortCalls: 0, conversations: 0,
+    talkSec: 0, avgTalkSec: 0, medianTalkSec: 0, connected: 0, shortCalls: 0, carrierShortCalls: 0, conversations: 0,
     likelyDrops: 0, confirmedDrops: 0, qualityMeasured: 0, poorQuality: 0, audioMeasured: 0, silentCalls: 0,
     failedDials: 0, invalidNumbers: 0, busyOut: 0,
     missedReturnable: 0, missedReturned: 0, medianCallbackSec: null,
@@ -399,6 +406,7 @@ export function computePeriod(win: Window, data: ReportData, userIds: number[]):
         lengthCounts[b] += 1;
       }
       if (c.talkSec < SHORT_CALL_SEC) p.shortCalls += 1;
+      if (c.talkSec <= CARRIER_SHORT_SEC) p.carrierShortCalls += 1;
       if (c.talkSec >= CONVERSATION_SEC) p.conversations += 1;
       if (isConfirmedDrop(c)) p.confirmedDrops += 1;
       if (c.quality || c.carrierMos != null) {
@@ -711,7 +719,7 @@ export function computePeriod(win: Window, data: ReportData, userIds: number[]):
   const SUM_KEYS: Array<keyof PersonMetrics> = [
     'callsOut', 'connectedOut', 'callsIn', 'answeredIn', 'unansweredIn', 'declinedIn', 'talkSec', 'connected',
     'callerHungUpIn', 'rangOutIn', 'noAnswerOut', 'rejectedOut', 'otherFailedOut',
-    'shortCalls', 'conversations', 'likelyDrops', 'confirmedDrops', 'qualityMeasured', 'poorQuality', 'audioMeasured', 'silentCalls',
+    'shortCalls', 'carrierShortCalls', 'conversations', 'likelyDrops', 'confirmedDrops', 'qualityMeasured', 'poorQuality', 'audioMeasured', 'silentCalls',
     'failedDials', 'invalidNumbers', 'busyOut', 'missedReturnable', 'missedReturned',
     'smsSent', 'smsReceived', 'smsDelivered', 'smsFailed', 'smsRepliable', 'smsReplied', 'mms', 'segments', 'threads',
     'scheduledTotal', 'scheduledPending', 'scheduledSent', 'scheduledFailed', 'scheduledCanceled', 'campaigns',
