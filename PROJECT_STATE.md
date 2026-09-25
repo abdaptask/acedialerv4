@@ -1,6 +1,6 @@
 # ACE Dialer — Project State
 
-**Last updated:** September 17, 2026 (**0.10.228 audio-output picker contrast fix — web LIVE, desktop tagged**; 0.10.227 personal SMS templates given a Settings home — web LIVE; 0.10.226 conference self-mute fix — released, on 38 devices)
+**Last updated:** September 25, 2026 (**0.10.229 Reports suite — web + API LIVE, desktop tagged**; 0.10.228 audio-output picker contrast fix; 0.10.227 personal SMS templates given a Settings home — web LIVE; 0.10.226 conference self-mute fix — released, on 38 devices)
 **Maintained by:** Claude (update at end of every working session)
 
 This file is a living snapshot of where the project stands. New Claude
@@ -26,7 +26,8 @@ If you're a fresh Claude session opening this project:
 
 | Stream | Version | Status | Where |
 |---|---|---|---|
-| Latest released | **v0.10.228** | Audio-output picker was dark-on-dark in light mode. Fix `c583aec`, release `948d5db`, tagged `v0.10.228`, **web live Sep 17**; desktop installers built by CI (see the Sep 17 entry — macOS signing is failing) | `main` |
+| Latest released | **v0.10.229** | Reports suite (`/reports`) with per-person drill-down + client call-quality capture. Feature `0c84c8b`, merge `15cd915`, tagged `v0.10.229`, **web + API live Sep 25**; desktop installers building in CI | `main` |
+| Previously released | v0.10.228 | Audio-output picker was dark-on-dark in light mode. Fix `c583aec`, release `948d5db`, tagged `v0.10.228`, **web live Sep 17**; desktop installers built by CI (see the Sep 17 entry — macOS signing is failing) | `main` |
 | Previously released | v0.10.227 | Personal SMS templates given a Settings home. Merged `56efaa5`, tagged `v0.10.227`, web live (Aug 27) | `main` |
 | Previously released | v0.10.226 | Conference self-mute muted the mix instead of the mic. Merged `682b270`, tagged `v0.10.226`, **published with 12 assets 2026-08-26T13:36Z — on 38 devices within a day** | `main` |
 | Previously released | v0.10.225 | Silent ringer for a call arriving mid-call + ACE Bot caller names. Merged via PR #91, tagged `v0.10.225`, released to all users (Aug 26) | `main` |
@@ -39,6 +40,17 @@ If you're a fresh Claude session opening this project:
 | Backend — `ace-socket` | v0.10.224 (7-day uptime) | Stub service ([[29-realtime-socket]]); nothing to sync | `pm2 list` |
 | Web SPA (`ace-web`) | **v0.10.227 live** | `apps/web/dist` rebuilt Aug 27 15:40 — absolute `/assets/` base verified. Serves off disk, so a build IS a deploy — see §5 | `pm2 list` |
 | Auto-update status | distributing | 0.10.224 reached 64 devices and 0.10.225 is now published, so current releases satisfy the v0.10.143 signing gate. The old "LOCKED on v0.10.132" line no longer described reality and has been removed; `docs/ev-cert-procurement.md` keeps the history | GitHub Releases |
+
+**September 25, 2026 — v0.10.229 released: Reports suite (see CLAUDE.md §31)**
+
+- **Scope:** `/reports` page, 8 tabs + a person-only Numbers tab (dialled/incoming numbers + call log). Every KPI, outcome bar and daily bar drills down (by person on the team view, by day on a person's view). One endpoint `GET /reports` computes everything; admins see everyone, others only themselves (server-enforced).
+- **The old admin reports were wrong in four ways**, all fixed in the new engine: (1) every outbound call counted twice — app row + Telnyx row, 52,789 rows vs 26,658 calls in 30 days; (2) talk time used webhook `durationSeconds`, which includes ringing (a caller who hangs up while it rings got ~20s); (3) days split at UTC midnight (8pm ET); (4) the Quality report looked for SMS status `failed`, but real failures are `delivery_failed`, so it saw none. Also: the host `.env` has `TELNYX_COST_*` keys set EMPTY, so `parseFloat('')` = NaN blanked every cost in `/admin/reports/cost`.
+- **Real numbers leadership will ask about (Aug 26 – Sep 24):** 43% of inbound calls answered; 31% of missed calls returned within 24h (median 9 min); 74% of text conversations replied within 24h; 27% of voicemails heard (median 14.8h). Many people show 0% voicemails heard — NOT yet verified whether listening from the Teams card/email marks `listenedAt`; check before anyone acts on that column.
+- **Schema:** four nullable `calls` columns (`avg_jitter_ms`, `avg_loss_pct`, `max_loss_pct`, `avg_rtt_ms`), applied by hand as the exact `prisma migrate diff` SQL (additive only) BEFORE `prisma generate`, so a pm2 restart could never run a client that expects missing columns. The client also now sends JsSIP's originator as `hangupSource` on its own rows. Confirmed-drop and audio-quality figures only exist for calls made on ≥0.10.229.
+- **Performance:** a team 30-day report loads ~137k call rows across two periods. Prisma costs ~15µs per result cell (`findMany` 5.7s); calls load through one raw query packing each row into a single delimited text cell (~1.4s). Cold team report ~3.5s; cached 2 min (range includes today) / 1h (past ranges). One person ~0.3s.
+- **Visual verification without a display:** Electron won't start here (missing GTK libs, no sudo). What worked: `npx @puppeteer/browsers install chrome-headless-shell@stable`, then `apt-get download` the missing `.so` packages (libatk, libgbm, libxcomposite, libxdamage, libxfixes, libxrandr, libasound, libatspi, libxrender, libxi…), `dpkg -x` them into scratch and run with `LD_LIBRARY_PATH`. Render a page in isolation with a temporary Vite entry + a Fastify stub that registers only the route under test (never boot `apps/api/src/main.ts` locally: its workers would send real scheduled texts).
+- **Bug caught only by rendering:** the page called `tab.render(props)` as a plain function, so the Numbers tab's hooks attached to the page and switching tabs threw React #310. Tabs are now rendered as components.
+- **Leadership proposal page:** https://claude.ai/artifact/DwQiuDgSruNVvqZuy2Eaqf (private; real names and figures, click-to-drill).
 
 **September 17, 2026 — v0.10.228 released: in-call audio-output picker unreadable in light mode**
 
