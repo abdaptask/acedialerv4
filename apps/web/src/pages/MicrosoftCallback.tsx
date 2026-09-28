@@ -9,7 +9,8 @@
 //   3. POST { code, redirectUri, codeVerifier } to the backend's
 //      /auth/microsoft/exchange — backend validates the auth code with
 //      Microsoft and returns our own JWT.
-//   4. On success, hand the JWT + user to App.tsx and navigate to /keypad.
+//   4. On success, hand the JWT + user to App.tsx, which returns the user to
+//      the page they were sent from (or /keypad).
 //   5. On failure, stash the error and bounce back to /login where it
 //      displays.
 //
@@ -70,10 +71,11 @@ export default function MicrosoftCallback({ onSuccess }: Props) {
 
     void exchangeMicrosoftCode(code, redirectUri, codeVerifier)
       .then(({ token, user }) => {
+        // onSuccess owns the post-login navigation: it honours ace_return_to
+        // (the deep link that sent the user to /login). A navigate('/keypad')
+        // here ran straight after it and overrode that, so the team email's
+        // "Open Reports" button — and every Teams-card link — landed on Keypad.
         onSuccess(token, user);
-        // Use navigate (SPA) instead of window.location so we don't lose
-        // the JWT we just set in App state.
-        navigate('/keypad');
       })
       .catch((err: Error & { code?: string }) => {
         // Friendly message for the "not invited" case.

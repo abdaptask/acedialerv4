@@ -31,6 +31,10 @@ Nobody sees the text of a message anywhere in Reports: texts appear as records o
 
 Open Reports from your name menu (top right), or from Settings, then Reports. It works in the desktop app from version 0.10.232 and at dialer.aptask.com in any browser.
 
+**From the team email.** The **Open Reports** button opens dialer.aptask.com in your web browser, not the desktop app. The browser keeps its own sign-in, so the first time you'll see the sign-in page: choose **Sign in with Microsoft** and Reports opens. Your calls keep ringing in the desktop app while you do this.
+
+**Don't see Reports in your name menu?** Your desktop app is older than 0.10.232. Open your name menu, choose **Check for updates**, and restart when it asks. Until then, use dialer.aptask.com in a browser.
+
 1. **Pick a date range.** Today, Yesterday, 7 days, 30 days, This month, Last month, or Custom (up to 92 days). Days and hours are Eastern time.
 2. **Pick a tab.** Overview is the summary; each other tab goes deeper into one area.
 3. **Click any number.** Every tile, bar and row opens what's behind it. On the team view it opens a ranking by person; on one person's report it opens the individual calls or texts.
