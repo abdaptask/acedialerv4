@@ -274,6 +274,8 @@ export interface ContactDetail {
   events: Array<{
     at: string; userId: number; kind: 'call' | 'text' | 'voicemail'; direction: 'inbound' | 'outbound';
     label: string; tone: 'good' | 'warn' | 'crit' | null; talkSec?: number; detail?: string;
+    /** Message text, or the voicemail transcript when there is one. */
+    body?: string; mediaUrls?: string[];
   }>;
   totalEvents: number;
 }
