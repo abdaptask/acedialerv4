@@ -24,6 +24,13 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.239',
+    date: 'October 9, 2026',
+    changes: [
+      { type: 'improved', text: 'Cleaner number search and contact panel in Reports: a single focus outline on the search box, a clearer "No contact in N days" banner, and tidier per-person cards.' },
+    ],
+  },
+  {
     version: '0.10.238',
     date: 'October 9, 2026',
     highlight: 'Read the whole conversation with a number from Reports, and see at a glance when it went cold.',
