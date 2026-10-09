@@ -1130,7 +1130,7 @@ scripts/      One-off ops helpers (dedupe call legs, fix favorite names, etc.)
 ## 32. Phone-Number Type Detection
 
 ### 32.1 Capabilities & Scope
-- Annotates a number with Mobile / Landline / Landline or VoIP / VoIP / Toll-free / Premium-rate / Unknown, plus an "Invalid number" state, on the Dialpad (under the field, for typed, pasted, click-to-dial and `?to=` prefills alike) and on the in-call screen (header and the active pill in two-call mode). Contacts, Favorites, Recents, Messages and Voicemail dial directly, so they're covered by the in-call surface.
+- Annotates a number with Mobile / Landline / Landline or VoIP / VoIP / Toll-free / Premium-rate / Unknown, plus an "Invalid number" state, in Messages (thread header + New message box), on the Dialpad (under the field, for typed, pasted, click-to-dial and `?to=` prefills alike) and on the in-call screen (header and the active pill in two-call mode). Contacts, Favorites, Recents, Messages and Voicemail dial directly, so they're covered by the in-call surface.
 - Two sources, always distinguished in the UI: **inferred** from the numbering plan (free, instant; plain text) and **verified** by a carrier lookup (check-badge icon; tooltip names the carrier and whether the number is ported).
 - Limitations and spend: `docs/phone-type-detection.md`.
 
@@ -1144,7 +1144,7 @@ scripts/      One-off ops helpers (dedupe call legs, fix favorite names, etc.)
 | Badge | `apps/web/src/components/PhoneTypeBadge.tsx` + `.css` |
 | Endpoint | `GET /phone-type?number=<E.164>` → `apps/api/src/phoneType/phoneType.routes.ts` |
 | Providers | `apps/api/src/phoneType/providers.ts` (`telnyx`); response mapping in `classify.ts` |
-| Cache | `PhoneTypeLookup` → `phone_type_lookups`, shared across users, `PHONE_LOOKUP_TTL_DAYS` (30) |
+| Identified-number list | `PhoneTypeLookup` → `phone_type_lookups`, shared across users, **permanent by default** (`PHONE_LOOKUP_TTL_DAYS=0`); each number is bought once |
 | Env | `PHONE_LOOKUP_PROVIDER`, `PHONE_LOOKUP_DAILY_LIMIT` (2000), `PHONE_LOOKUP_TTL_DAYS` |
 
 ### 32.3 Execution Context
@@ -1157,6 +1157,7 @@ scripts/      One-off ops helpers (dedupe call legs, fix favorite names, etc.)
 - **Telnyx "fixed line" is `landline_or_voip`, never `landline`.** Telnyx reports the number block's registration, and VoIP providers hold wireline blocks — our own Telnyx DID returns "fixed line" (measured Oct 9 2026, bare and `type=carrier`). Plain `landline` is reserved for a provider that can actually see VoIP.
 - **Never turn an ambiguous answer into a concrete one.** `FIXED_LINE_OR_MOBILE` and "fixed line or mobile" stay Unknown. For US/CA geographic numbers the plan can't know, and porting means no prefix table could either.
 - **Inferred and verified must stay visibly different.** A plan-level "Mobile" and a carrier-dip "Mobile" are different claims; the icon and tooltip are the contract.
+- **No badge on list views** (Messages thread list, Recents rows). Each row would be a paid lookup on every page view. Headers and single-number surfaces only.
 - **Paid lookups are gated server-side.** The client gate saves round trips; the server gate (`lookupEligibility`, daily cap, shared cache) is what bounds spend. Only successful answers are cached — a provider error must not pin a number to Unknown for 30 days.
 - **Widen regions on both sides together:** `LOOKUP_REGIONS` (web) and `lookupEligibility` (api).
 

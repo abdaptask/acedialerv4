@@ -90,9 +90,11 @@ export const config = {
   // a burst of new numbers can't run up an unbounded carrier bill. Cache hits
   // don't count. Blank = default (the host .env declares keys empty).
   phoneLookupDailyLimit: Number(optional('PHONE_LOOKUP_DAILY_LIMIT') || '2000'),
-  // How long a verified answer is trusted. Numbers get ported between
-  // landline, mobile and VoIP carriers, so a type is not forever.
-  phoneLookupTtlDays: Number(optional('PHONE_LOOKUP_TTL_DAYS') || '30'),
+  // How long a verified answer is trusted before it's bought again. Default 0
+  // = keep forever: once a number is identified it is never paid for twice
+  // (a deliberate cost choice — a number ported since its lookup keeps its
+  // old type). Set e.g. 180 to refresh periodically.
+  phoneLookupTtlDays: Number(optional('PHONE_LOOKUP_TTL_DAYS') || '0'),
 
   // Microsoft Entra ID SSO (Phase 7 — replacing email/password login).
   // - msClientId / msTenantId come from the App Registration in Azure Portal.

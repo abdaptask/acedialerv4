@@ -56,6 +56,15 @@
 .in-call-phone-type {
   margin-top: 4px;
 }
+/* Messages: thread header sits left-aligned beside the history badges. */
+.thread-phone-type {
+  justify-content: flex-start;
+}
+.compose-phone-type {
+  display: flex;
+  min-height: 18px;
+  margin: 6px 2px 0;
+}
 .call-pill-type {
   justify-content: flex-start;
   font-size: 12px;
