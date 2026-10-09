@@ -1249,7 +1249,7 @@ export async function lookupJobDivaContact(
 export type PhoneTypeApiResult =
   | {
       status: 'verified';
-      lineType: 'mobile' | 'landline' | 'voip' | 'toll_free' | 'premium_rate' | 'unknown';
+      lineType: 'mobile' | 'landline' | 'landline_or_voip' | 'voip' | 'toll_free' | 'premium_rate' | 'unknown';
       carrier: string | null;
       ported: boolean | null;
       checkedAt: string;

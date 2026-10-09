@@ -26,6 +26,9 @@ import {
 export type LineType =
   | 'mobile'
   | 'landline'
+  /** Carrier said "fixed line", which can't distinguish VoIP (see the API's
+   *  parseTelnyxLookup). Only ever comes from a verified lookup. */
+  | 'landline_or_voip'
   | 'voip'
   | 'toll_free'
   | 'premium_rate'
@@ -34,6 +37,7 @@ export type LineType =
 export const LINE_TYPE_LABEL: Record<LineType, string> = {
   mobile: 'Mobile',
   landline: 'Landline',
+  landline_or_voip: 'Landline or VoIP',
   voip: 'VoIP',
   toll_free: 'Toll-free',
   premium_rate: 'Premium-rate',

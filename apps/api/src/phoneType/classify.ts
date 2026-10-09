@@ -4,6 +4,9 @@
 export type LineType =
   | 'mobile'
   | 'landline'
+  /** A "fixed line" answer from a source that can't see VoIP — see
+   *  parseTelnyxLookup. */
+  | 'landline_or_voip'
   | 'voip'
   | 'toll_free'
   | 'premium_rate'
@@ -75,8 +78,15 @@ export function parseTelnyxLookup(body: unknown): LookupResult | null {
   const portability = (data.portability ?? {}) as Record<string, unknown>;
 
   const fromPortability = normalizeLineType(portability.line_type);
-  const lineType =
+  let lineType =
     fromPortability !== 'unknown' ? fromPortability : normalizeLineType(carrier.type);
+  // Telnyx's "fixed line" means the number BLOCK is registered to a wireline
+  // carrier, and interconnected-VoIP providers (Telnyx itself, Bandwidth,
+  // RingCentral, Google Voice…) hold wireline blocks. Measured Oct 9 2026: our
+  // own Telnyx DID comes back "fixed line" from both the bare and the
+  // type=carrier lookup. Saying "Landline" with a verified badge would be a
+  // confident wrong answer for every such number, so we say what we know.
+  if (lineType === 'landline') lineType = 'landline_or_voip';
 
   const name =
     (typeof portability.spid_carrier_name === 'string' && portability.spid_carrier_name) ||

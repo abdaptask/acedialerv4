@@ -66,6 +66,18 @@ test('parses the documented Telnyx response', () => {
   });
 });
 
+test('Telnyx "fixed line" is reported as landline-or-VoIP, never plain landline', () => {
+  // Real response for our own Telnyx DID (a VoIP number), Oct 9 2026.
+  const r = parseTelnyxLookup({
+    data: {
+      carrier: null,
+      portability: { line_type: 'fixed line', ported_status: '', spid_carrier_name: 'TELNYX, LLC', ocn: '073H' },
+      valid_number: true,
+    },
+  });
+  assert.deepEqual(r, { lineType: 'landline_or_voip', carrier: 'TELNYX, LLC', ported: null });
+});
+
 test('portability (current carrier) wins over the carrier block (original holder)', () => {
   // A landline ported to a VoIP provider: the case this feature exists for.
   const r = parseTelnyxLookup({

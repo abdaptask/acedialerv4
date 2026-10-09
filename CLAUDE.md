@@ -68,7 +68,7 @@ These are non-negotiable across modules. Repeat them in module-specific guardrai
 | 29 | Realtime Socket Service | Planned (Stub) |
 | 30 | Outbound Notifications (Teams Cards + Email) | Shipped |
 | 31 | Reports Suite (Team + Per-Person) | In-Progress |
-| 32 | Phone-Number Type Detection | In-Progress |
+| 32 | Phone-Number Type Detection | Shipped (web) |
 
 ---
 
@@ -1130,12 +1130,12 @@ scripts/      One-off ops helpers (dedupe call legs, fix favorite names, etc.)
 ## 32. Phone-Number Type Detection
 
 ### 32.1 Capabilities & Scope
-- Annotates a number with Mobile / Landline / VoIP / Toll-free / Premium-rate / Unknown, plus an "Invalid number" state, on the Dialpad (under the field, for typed, pasted, click-to-dial and `?to=` prefills alike) and on the in-call screen (header and the active pill in two-call mode). Contacts, Favorites, Recents, Messages and Voicemail dial directly, so they're covered by the in-call surface.
+- Annotates a number with Mobile / Landline / Landline or VoIP / VoIP / Toll-free / Premium-rate / Unknown, plus an "Invalid number" state, on the Dialpad (under the field, for typed, pasted, click-to-dial and `?to=` prefills alike) and on the in-call screen (header and the active pill in two-call mode). Contacts, Favorites, Recents, Messages and Voicemail dial directly, so they're covered by the in-call surface.
 - Two sources, always distinguished in the UI: **inferred** from the numbering plan (free, instant; plain text) and **verified** by a carrier lookup (check-badge icon; tooltip names the carrier and whether the number is ported).
 - Limitations and spend: `docs/phone-type-detection.md`.
 
 ### 32.2 Current State & Truth
-**Status:** In-Progress (branch `feat/phone-type-detection`, not deployed). Verified lookups are off by default (`PHONE_LOOKUP_PROVIDER=none`).
+**Status:** Shipped to web Oct 9 2026; desktop with the next release. Verified lookups are on in production (`PHONE_LOOKUP_PROVIDER=telnyx`); the code default is `none`.
 
 | Concern | Implementation |
 |---|---|
@@ -1154,6 +1154,7 @@ scripts/      One-off ops helpers (dedupe call legs, fix favorite names, etc.)
 
 ### 32.4 Architectural Guardrails
 - **The badge never touches the dial path.** `handleCall` and `call()` don't read it, and nothing awaits a lookup. If you ever want to *act* on a type (warn before dialling premium-rate), do it as a separate, synchronous inference check, never as a wait on the server.
+- **Telnyx "fixed line" is `landline_or_voip`, never `landline`.** Telnyx reports the number block's registration, and VoIP providers hold wireline blocks — our own Telnyx DID returns "fixed line" (measured Oct 9 2026, bare and `type=carrier`). Plain `landline` is reserved for a provider that can actually see VoIP.
 - **Never turn an ambiguous answer into a concrete one.** `FIXED_LINE_OR_MOBILE` and "fixed line or mobile" stay Unknown. For US/CA geographic numbers the plan can't know, and porting means no prefix table could either.
 - **Inferred and verified must stay visibly different.** A plan-level "Mobile" and a carrier-dip "Mobile" are different claims; the icon and tooltip are the contract.
 - **Paid lookups are gated server-side.** The client gate saves round trips; the server gate (`lookupEligibility`, daily cap, shared cache) is what bounds spend. Only successful answers are cached — a provider error must not pin a number to Unknown for 30 days.
