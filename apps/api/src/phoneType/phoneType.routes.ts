@@ -65,10 +65,11 @@ async function resolve(app: FastifyInstance, e164: string): Promise<PhoneTypeRes
   const provider = activeProvider();
   if (!provider) return { status: 'unavailable', reason: 'not_configured' };
 
+  // TTL 0 = the stored answer never expires, so each number is paid for once.
   const ttlMs = config.phoneLookupTtlDays * 24 * 60 * 60 * 1000;
   try {
     const row = await prisma.phoneTypeLookup.findUnique({ where: { e164 } });
-    if (row && Date.now() - row.checkedAt.getTime() < ttlMs) {
+    if (row && (ttlMs <= 0 || Date.now() - row.checkedAt.getTime() < ttlMs)) {
       return verified(
         { lineType: row.lineType as LineType, carrier: row.carrierName, ported: row.ported },
         row.checkedAt,

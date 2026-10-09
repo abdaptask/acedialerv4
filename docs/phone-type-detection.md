@@ -1,6 +1,7 @@
 # Phone-number type detection
 
-The Dialpad and the in-call screen show what kind of line a number is:
+The Dialpad, the in-call screen and Messages (conversation header and the
+New message box) show what kind of line a number is:
 
     (732) 555-1234 · Mobile        ← carrier-verified (check-badge icon)
     (800) 555-1234 · Toll-free     ← inferred from the number format (plain text)
@@ -44,7 +45,7 @@ Set on the API host and `pm2 reload ace-api`:
 
     PHONE_LOOKUP_PROVIDER=telnyx      # default: none (free inference only)
     PHONE_LOOKUP_DAILY_LIMIT=2000     # paid lookups per process per UTC day
-    PHONE_LOOKUP_TTL_DAYS=30          # how long an answer is trusted
+    PHONE_LOOKUP_TTL_DAYS=0           # 0 (default) = keep forever
 
 It reuses `TELNYX_API_KEY`. The provider calls `GET /v2/number_lookup/{e164}`
 with no `type` parameter, which returns the portability (LRN) block, so
@@ -65,7 +66,13 @@ volume), which would be another provider here.
 Cost controls:
 - Only valid geographic US/CA numbers are looked up. Toll-free, premium,
   invalid, incomplete and international numbers never reach Telnyx.
-- One shared answer per number per TTL, across all users (`phone_type_lookups`).
+- **Every identified number is kept permanently** in `phone_type_lookups`
+  and shared across all users, so a number is paid for once, ever. The
+  trade-off: a number ported after its lookup keeps its old type. Set
+  `PHONE_LOOKUP_TTL_DAYS` (e.g. 180) to re-buy stale answers, or delete a
+  row to force a fresh lookup of one number.
+- The Messages thread *list* deliberately shows no badge; it would buy a
+  lookup for every conversation each time someone opened Messages.
 - 350 ms debounce, plus in-flight dedupe on both client and server.
 - Daily cap per process. Once it's hit, numbers show "Unknown" until UTC midnight.
 
@@ -77,9 +84,10 @@ Cost controls:
 | Distinct numbers over 30 days | 16,445 |
 | Numbers new in the last 30 days (unseen in the prior 90) | 12,345 |
 
-With the 30-day shared cache at $0.0015: **~$25/month, about $1.10–1.45 per
-weekday.** Day one costs about $1.45, and the daily figure falls as the cache
-fills. Without a cache (one lookup per call) it would be about $2.40 per
+With the permanent shared list at $0.0015, the first month costs about $25
+($1.10–1.45 per weekday). After that we pay only for numbers we've never
+seen: about 12,300 a month, roughly **$18/month**, and that keeps falling as
+the list grows. Without a cache (one lookup per call) it would be about $2.40 per
 weekday. If Telnyx bills the bare lookup at the $0.0025 tier, the cached
 figure becomes about $41/month. The daily cap bounds the worst case at $3 per
 process per day.

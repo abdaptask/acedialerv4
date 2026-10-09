@@ -80,6 +80,7 @@ import {
 } from '../lib/userPrefs';
 import { formatPhone } from '../lib/phone';
 import LineBadge from '../components/LineBadge';
+import PhoneTypeBadge from '../components/PhoneTypeBadge';
 
 // v0.10.191 — Outbound bubble status mapping. Telnyx event flow:
 //   message.queued / message.sent      → status='sent'
@@ -497,6 +498,9 @@ export default function Messages() {
               onChange={(e) => setComposeTo(e.target.value)}
               autoFocus
             />
+            <div className="compose-phone-type">
+              <PhoneTypeBadge number={composeTo} />
+            </div>
             <div className="ict-actions">
               <button className="ict-cancel" onClick={() => { setShowCompose(false); setComposeTo(''); }}>
                 Cancel
@@ -1139,9 +1143,13 @@ function ThreadDetail({ number, onBack }: ThreadDetailProps) {
             )}
           </div>
           <div className="thread-header-line2">
-            {displayName !== formatNumber(number) && (
-              <span className="thread-header-sub-v2">{formatNumber(number)}</span>
-            )}
+            {/* Line type matters most here: a landline usually can't
+                receive a text, and that's worth knowing before typing one. */}
+            <PhoneTypeBadge
+              number={number}
+              label={displayName !== formatNumber(number) ? formatNumber(number) : undefined}
+              className="thread-header-sub-v2 thread-phone-type"
+            />
             {history && (
               <span className="thread-header-badges">
                 {history.summary.messageCount > 0 && (
