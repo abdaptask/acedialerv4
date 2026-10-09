@@ -1241,6 +1241,42 @@ export async function lookupJobDivaContact(
 }
 
 // ===========================================================================
+// Phone-number type — verified carrier lookup (see lib/phoneType.ts).
+// The server answers 200 for every soft failure; a non-2xx or network error
+// is folded into the same 'unavailable' shape so callers have one path.
+// ===========================================================================
+
+export type PhoneTypeApiResult =
+  | {
+      status: 'verified';
+      lineType: 'mobile' | 'landline' | 'voip' | 'toll_free' | 'premium_rate' | 'unknown';
+      carrier: string | null;
+      ported: boolean | null;
+      checkedAt: string;
+      cached: boolean;
+    }
+  | { status: 'invalid' }
+  | { status: 'unavailable'; reason: string };
+
+export async function lookupPhoneTypeApi(
+  token: string,
+  e164: string,
+  signal?: AbortSignal,
+): Promise<PhoneTypeApiResult> {
+  try {
+    const res = await fetch(`${API_URL}/phone-type?number=${encodeURIComponent(e164)}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      signal,
+    });
+    if (!res.ok) return { status: 'unavailable', reason: `http_${res.status}` };
+    const json = (await res.json().catch(() => null)) as PhoneTypeApiResult | null;
+    return json?.status ? json : { status: 'unavailable', reason: 'bad_response' };
+  } catch {
+    return { status: 'unavailable', reason: 'network' };
+  }
+}
+
+// ===========================================================================
 // Phase 6.8 — Number blocking
 //
 // Per-user blocklist of inbound phone numbers. Calls from blocked numbers

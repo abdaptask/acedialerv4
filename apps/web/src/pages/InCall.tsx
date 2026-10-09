@@ -26,6 +26,7 @@ import { getFavoriteName } from '../lib/userPrefs';
 import { ringtone } from '../services/ringtone';
 import { useJobDivaContact } from '../hooks/useJobDivaContact';
 import { formatPhone } from '../lib/phone';
+import PhoneTypeBadge from '../components/PhoneTypeBadge';
 import type { CallQuality } from '../services/sip';
 
 function formatDuration(seconds: number): string {
@@ -358,6 +359,7 @@ export default function InCall() {
             <div className="call-pill-info">
               <span className="call-pill-tag">Active</span>
               <span className="call-pill-num">{callerLabel}</span>
+              <PhoneTypeBadge number={otherNumber} className="call-pill-type" />
               <span className="call-pill-status">
                 {subtitle}
                 {isConnected && callQuality.level !== 'unknown' && (
@@ -409,6 +411,13 @@ export default function InCall() {
       ) : (
         <div className="in-call-header">
           <div className="in-call-name">{callerLabel}</div>
+          {/* When the headline is a saved/JobDiva name, the number itself
+              isn't on screen — print it alongside the type. */}
+          <PhoneTypeBadge
+            number={otherNumber}
+            label={callerLabel !== formatNumber(otherNumber) ? formatNumber(otherNumber) : undefined}
+            className="in-call-phone-type"
+          />
           <div className="in-call-time">
             {subtitle}
             {isConnected && callQuality.level !== 'unknown' && (

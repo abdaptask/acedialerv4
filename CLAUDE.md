@@ -68,6 +68,7 @@ These are non-negotiable across modules. Repeat them in module-specific guardrai
 | 29 | Realtime Socket Service | Planned (Stub) |
 | 30 | Outbound Notifications (Teams Cards + Email) | Shipped |
 | 31 | Reports Suite (Team + Per-Person) | In-Progress |
+| 32 | Phone-Number Type Detection | In-Progress |
 
 ---
 
@@ -1123,6 +1124,42 @@ scripts/      One-off ops helpers (dedupe call legs, fix favorite names, etc.)
 - **Every day/hour boundary is Eastern.** UTC midnight is 8pm ET and moves evening calls to the wrong day.
 - **Rates need a minimum sample per person** (`minDen`: 20 connected calls for short-call and drop rates, 10 for answer/return rates) or someone with 2 calls tops the table.
 - **Null quality means "not measured", never "good".** Quality data exists only for calls made on a build that includes the capture; confirmed drops and audio figures grow as people update.
+
+# Section M — Number Intelligence
+
+## 32. Phone-Number Type Detection
+
+### 32.1 Capabilities & Scope
+- Annotates a number with Mobile / Landline / VoIP / Toll-free / Premium-rate / Unknown, plus an "Invalid number" state, on the Dialpad (under the field, for typed, pasted, click-to-dial and `?to=` prefills alike) and on the in-call screen (header and the active pill in two-call mode). Contacts, Favorites, Recents, Messages and Voicemail dial directly, so they're covered by the in-call surface.
+- Two sources, always distinguished in the UI: **inferred** from the numbering plan (free, instant; plain text) and **verified** by a carrier lookup (check-badge icon; tooltip names the carrier and whether the number is ported).
+- Limitations and spend: `docs/phone-type-detection.md`.
+
+### 32.2 Current State & Truth
+**Status:** In-Progress (branch `feat/phone-type-detection`, not deployed). Verified lookups are off by default (`PHONE_LOOKUP_PROVIDER=none`).
+
+| Concern | Implementation |
+|---|---|
+| Inference + display merge | `apps/web/src/lib/phoneType.ts` (pure; tests in `phoneType.test.ts`) |
+| Hook | `apps/web/src/hooks/usePhoneType.ts` — debounce, client cache, in-flight dedupe |
+| Badge | `apps/web/src/components/PhoneTypeBadge.tsx` + `.css` |
+| Endpoint | `GET /phone-type?number=<E.164>` → `apps/api/src/phoneType/phoneType.routes.ts` |
+| Providers | `apps/api/src/phoneType/providers.ts` (`telnyx`); response mapping in `classify.ts` |
+| Cache | `PhoneTypeLookup` → `phone_type_lookups`, shared across users, `PHONE_LOOKUP_TTL_DAYS` (30) |
+| Env | `PHONE_LOOKUP_PROVIDER`, `PHONE_LOOKUP_DAILY_LIMIT` (2000), `PHONE_LOOKUP_TTL_DAYS` |
+
+### 32.3 Execution Context
+- `inferPhoneType()` uses the bundled `libphonenumber-js/min` metadata synchronously. When a valid international number comes back typeless (e.g. India), `refineWithFullMetadata()` dynamic-imports `libphonenumber-js/max` (~160 kB lazy chunk; `vite.config.ts` keeps it out of the eager `phone` chunk).
+- A lookup is requested only for valid geographic US/CA numbers (`shouldLookUp` on the client, `lookupEligibility` on the server). Telnyx is called with a bare `GET /v2/number_lookup/{e164}`; `portability.line_type` wins over `carrier.type`.
+- Every soft failure returns 200 `{ status: 'unavailable', reason }` (`not_configured`, `provider_error`, `limit_reached`, `unsupported_region`, `not_needed`), and the client falls back to its inference.
+
+### 32.4 Architectural Guardrails
+- **The badge never touches the dial path.** `handleCall` and `call()` don't read it, and nothing awaits a lookup. If you ever want to *act* on a type (warn before dialling premium-rate), do it as a separate, synchronous inference check, never as a wait on the server.
+- **Never turn an ambiguous answer into a concrete one.** `FIXED_LINE_OR_MOBILE` and "fixed line or mobile" stay Unknown. For US/CA geographic numbers the plan can't know, and porting means no prefix table could either.
+- **Inferred and verified must stay visibly different.** A plan-level "Mobile" and a carrier-dip "Mobile" are different claims; the icon and tooltip are the contract.
+- **Paid lookups are gated server-side.** The client gate saves round trips; the server gate (`lookupEligibility`, daily cap, shared cache) is what bounds spend. Only successful answers are cached — a provider error must not pin a number to Unknown for 30 days.
+- **Widen regions on both sides together:** `LOOKUP_REGIONS` (web) and `lookupEligibility` (api).
+
+---
 
 # Glossary
 

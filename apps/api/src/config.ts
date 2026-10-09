@@ -81,6 +81,19 @@ export const config = {
   jobDivaPassword: optional('JOBDIVA_PASSWORD'),
   jobDivaClientId: optional('JOBDIVA_CLIENT_ID'),
 
+  // Phone-number type detection (GET /phone-type). 'none' = no carrier
+  // lookups and no spend; the dialer then shows only the free numbering-plan
+  // inference, which for US/CA geographic numbers is "Unknown". 'telnyx'
+  // uses Telnyx Number Lookup with TELNYX_API_KEY (paid per lookup).
+  phoneLookupProvider: optional('PHONE_LOOKUP_PROVIDER', 'none').trim().toLowerCase() || 'none',
+  // Hard ceiling on PAID lookups per process per UTC day, so a client bug or
+  // a burst of new numbers can't run up an unbounded carrier bill. Cache hits
+  // don't count. Blank = default (the host .env declares keys empty).
+  phoneLookupDailyLimit: Number(optional('PHONE_LOOKUP_DAILY_LIMIT') || '2000'),
+  // How long a verified answer is trusted. Numbers get ported between
+  // landline, mobile and VoIP carriers, so a type is not forever.
+  phoneLookupTtlDays: Number(optional('PHONE_LOOKUP_TTL_DAYS') || '30'),
+
   // Microsoft Entra ID SSO (Phase 7 — replacing email/password login).
   // - msClientId / msTenantId come from the App Registration in Azure Portal.
   // - msClientSecret is the "Value" of the client secret (NOT the Secret ID).
