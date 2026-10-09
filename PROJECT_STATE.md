@@ -1,6 +1,6 @@
 # ACE Dialer — Project State
 
-**Last updated:** October 9, 2026 (**0.10.239 contact panel visual polish — web live**; **0.10.238 Reports contact panel: read the conversation + 30-day stale banner — web + API live**; **0.10.237 phone-number type badge — web + API live, desktop needs its draft release published**; **0.10.232 end reasons + no-audio detection — web + API + webhooks LIVE, desktop tagged**; 0.10.231 search/follow-ups/insights; 0.10.230 per-person records; 0.10.229 Reports suite; 0.10.228 audio-output picker contrast fix; 0.10.227 personal SMS templates given a Settings home — web LIVE; 0.10.226 conference self-mute fix — released, on 38 devices)
+**Last updated:** October 9, 2026 (**0.10.240 Reports number-search dropdown no longer clipped — web live**; **0.10.239 contact panel visual polish — web live**; **0.10.238 Reports contact panel: read the conversation + 30-day stale banner — web + API live**; **0.10.237 phone-number type badge — web + API live, desktop needs its draft release published**; **0.10.232 end reasons + no-audio detection — web + API + webhooks LIVE, desktop tagged**; 0.10.231 search/follow-ups/insights; 0.10.230 per-person records; 0.10.229 Reports suite; 0.10.228 audio-output picker contrast fix; 0.10.227 personal SMS templates given a Settings home — web LIVE; 0.10.226 conference self-mute fix — released, on 38 devices)
 **Maintained by:** Claude (update at end of every working session)
 
 This file is a living snapshot of where the project stands. New Claude
