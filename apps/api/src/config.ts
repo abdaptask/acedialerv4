@@ -179,11 +179,13 @@ export const config = {
   //     force-set true, so any accidental demotion / direct-DB drift / stale
   //     flag self-heals on their next sign-in.
   //   - The admin panel refuses to demote or deactivate them.
-  // Comma-separated, case-insensitive. Defaults to the four founding admins so
-  // the guarantee holds even if the env var is never set.
+  // Comma-separated, case-insensitive. Defaults to the founding admins so the
+  // guarantee holds even if the env var is never set. When one of them leaves,
+  // remove them HERE first: the login self-heal would otherwise reactivate a
+  // deactivated account, and the admin panel refuses to deactivate them.
   protectedAdminEmails: optional(
     'PROTECTED_ADMIN_EMAILS',
-    'abdulla@aptask.com,nileshd@aptask.com,ravindra@aptask.com,brijeshb@aptask.com',
+    'abdulla@aptask.com,nileshd@aptask.com,ravindra@aptask.com',
   )
     .split(',')
     .map((s) => s.trim().toLowerCase())
