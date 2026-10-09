@@ -1,0 +1,62 @@
+/* Number-type annotation. Deliberately quiet: secondary text weight, no
+   fill, no colour coding by type — the dialer's colour budget is red for
+   hang-up and green for answer (CLAUDE.md §27). The one accent is the
+   verified check, because "verified" is the one thing worth noticing. */
+.phone-type {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  font-size: 13px;
+  line-height: 18px;
+  min-height: 18px;
+  color: var(--text-dim);
+  letter-spacing: 0.01em;
+}
+.phone-type.is-inferred,
+.phone-type.is-unknown {
+  color: var(--text-muted);
+}
+.phone-type.is-verified svg {
+  color: var(--accent);
+  flex: 0 0 auto;
+}
+.phone-type.is-invalid {
+  color: #ff9f0a;
+}
+.phone-type-number {
+  font-variant-numeric: tabular-nums;
+}
+.phone-type-sep {
+  opacity: 0.6;
+}
+.phone-type-checking {
+  animation: phone-type-pulse 1.2s ease-out infinite alternate;
+}
+@keyframes phone-type-pulse {
+  from { opacity: 1; }
+  to { opacity: 0.45; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .phone-type-checking { animation: none; }
+}
+[data-theme="light"] .phone-type.is-invalid {
+  color: #b25000;
+}
+
+/* Dialpad: sits directly under the number field. Reserve the line so the
+   keypad doesn't jump when the badge appears mid-typing. */
+.dial-phone-type {
+  display: flex;
+  justify-content: center;
+  min-height: 18px;
+  margin-top: -2px;
+  margin-bottom: 4px;
+}
+.in-call-phone-type {
+  margin-top: 4px;
+}
+.call-pill-type {
+  justify-content: flex-start;
+  font-size: 12px;
+}

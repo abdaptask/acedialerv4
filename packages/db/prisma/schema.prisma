@@ -1069,3 +1069,24 @@ model WebhookDedup {
   @@index([sentAt])
   @@map("webhook_dedup")
 }
+
+/// Carrier line-type answers for GET /phone-type, shared across users.
+///
+/// Not user-scoped on purpose: a number's line type is a fact about the
+/// number, not about who looked it up, and sharing the cache is what keeps a
+/// paid lookup to once per number per TTL across the whole team. Holds no
+/// caller name and nothing tying it to an ACE user. Only successful lookups
+/// are stored — a provider error must not pin a number to "Unknown".
+model PhoneTypeLookup {
+  /// E.164, e.g. +17325551234.
+  e164        String   @id
+  /// mobile | landline | voip | toll_free | premium_rate | unknown
+  lineType    String   @map("line_type")
+  carrierName String?  @map("carrier_name")
+  ported      Boolean?
+  /// Which provider answered (telnyx, …).
+  provider    String
+  checkedAt   DateTime @default(now()) @map("checked_at")
+
+  @@map("phone_type_lookups")
+}

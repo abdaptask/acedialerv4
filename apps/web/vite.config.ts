@@ -51,6 +51,11 @@ export default defineConfig({
         manualChunks(id) {
           if (!id.includes('node_modules')) return undefined;
           if (id.includes('jssip')) return 'sip';
+          // The full `max` metadata (~140 kB) is dynamic-imported by
+          // lib/phoneType.ts only once someone enters an international number.
+          // Pinning it into the eager 'phone' chunk would ship it to every
+          // user on load, so let Rollup give it its own lazy chunk.
+          if (/libphonenumber-js[\\/](max|metadata\.max)/.test(id)) return undefined;
           if (id.includes('libphonenumber')) return 'phone';
           if (id.includes('lucide-react')) return 'icons';
           if (/[\\/]node_modules[\\/](react|react-dom|react-router|react-router-dom|@remix-run|scheduler)[\\/]/.test(id)) {

@@ -9,6 +9,7 @@ import { AsYouType, parsePhoneNumberFromString, getCountryCallingCode } from 'li
 import type { CountryCode } from 'libphonenumber-js/min';
 import { useSip } from '../contexts/SipContext';
 import { parseSelectedNumber } from '../lib/phone';
+import PhoneTypeBadge from '../components/PhoneTypeBadge';
 
 interface DialpadLocationState {
   addCall?: boolean;
@@ -613,6 +614,14 @@ export default function Dialpad() {
           </div>
         );
       })()}
+
+      {/* Number type (Mobile / Landline / VoIP / …). Annotation only —
+          handleCall never reads it, so a slow or failed lookup can't delay
+          or block a call. Covers typed, pasted, click-to-dial and Teams /
+          JobDiva ?to= prefills alike, since they all land in `number`. */}
+      <div className="dial-phone-type">
+        <PhoneTypeBadge number={number} />
+      </div>
 
       <div className="keypad">
         {KEYS.map(({ digit, letters }) => (
