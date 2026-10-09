@@ -624,8 +624,11 @@
 .rp-csearch { position: relative; }
 .rp-search-wide input { width: 280px; }
 .rp-csearch-pop {
-  position: absolute; right: 0; top: calc(100% + 6px); z-index: 50;
-  width: min(460px, 90vw);
+  /* Anchored to the box's LEFT edge: when the header wraps on a narrower
+     window the search box sits at the far left, and a right-anchored popup
+     grew out of the window and was clipped. */
+  position: absolute; left: 0; top: calc(100% + 6px); z-index: 50;
+  width: max(100%, 400px); max-width: calc(100vw - 32px);
   background: var(--bg-elevated); border: 1px solid var(--border-strong); border-radius: 12px;
   box-shadow: var(--shadow-strong); overflow: hidden;
 }
