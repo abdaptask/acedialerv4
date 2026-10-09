@@ -562,7 +562,9 @@
   background: var(--bg); border: 1px solid var(--border-strong); border-radius: 10px;
   color: var(--text-muted);
 }
-.rp-search:focus-within { border-color: var(--accent); }
+.rp-search:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent); }
+.rp-root .rp-search input:focus-visible { outline: none; }
+.rp-search input::-webkit-search-cancel-button { -webkit-appearance: none; appearance: none; }
 .rp-search input {
   font: inherit; font-size: 13.5px; color: var(--text);
   background: none; border: 0; outline: none; width: 200px;
@@ -614,7 +616,7 @@
 }
 .rp-tl-row.out .rp-tl-bubble { background: color-mix(in srgb, var(--rp-s1) 22%, var(--bg-elevated)); border-bottom-right-radius: 4px; }
 .rp-tl-row.in .rp-tl-bubble { background: var(--surface-strong); border-bottom-left-radius: 4px; }
-.rp-tl-bubble.call { border: 1px dashed var(--border-strong); }
+.rp-tl-bubble.call, .rp-tl-bubble.rp-tl-call { border: 1px dashed var(--border-strong); }
 .rp-tl-kind { display: inline-flex; align-items: center; gap: 6px; font-weight: 500; }
 .rp-tl-meta { font-size: 11.5px; color: var(--text-muted); }
 
@@ -643,12 +645,16 @@
 .rp-contact-people { list-style: none; margin: 0; padding: 4px 14px 10px; display: flex; flex-direction: column; gap: 6px; }
 .rp-contact-people li { display: flex; align-items: center; gap: 8px; border: 1px solid var(--rp-line); border-radius: 12px; padding-right: 12px; }
 .rp-contact-people li.active { border-color: var(--accent); }
-.rp-contact-people li > button:first-child {
-  flex: 1; display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;
+.rp-cperson {
+  flex: 1; min-width: 0;
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "who when" "stats when";
+  column-gap: 16px; row-gap: 4px; align-items: center;
   font: inherit; color: inherit; text-align: left; background: none; border: 0; padding: 10px 12px; cursor: pointer; border-radius: 12px;
 }
-.rp-contact-people li > button:first-child:hover { background: var(--rp-row-hover); }
-.rp-contact-stats { display: flex; flex-direction: column; align-items: flex-end; gap: 1px; font-size: 12.5px; }
+.rp-cperson:hover { background: var(--rp-row-hover); }
+.rp-cperson .rp-person { grid-area: who; }
+.rp-cperson-stats { grid-area: stats; display: flex; flex-direction: column; gap: 1px; padding-left: 38px; font-size: 12.5px; color: var(--text-dim); }
+.rp-cperson-when { grid-area: when; display: flex; flex-direction: column; align-items: flex-end; gap: 1px; font-size: 12.5px; white-space: nowrap; }
 .rp-contact-open { font-size: 12.5px; white-space: nowrap; }
 .rp-cevents { list-style: none; margin: 0; padding: 4px 22px 20px; }
 .rp-cevent { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; gap: 12px; align-items: center; min-height: 50px; border-bottom: 1px solid var(--rp-line); }
@@ -657,6 +663,8 @@
   background: none; border: 0; border-bottom: 1px solid var(--rp-line); cursor: pointer;
 }
 .rp-cevent-btn:hover, .rp-cevent-btn:focus-visible { background: var(--rp-row-hover); outline: none; }
+.rp-cevent .rp-rec-out .rp-muted { font-size: 12.5px; white-space: nowrap; }
+.rp-cevent .rp-rec-who { font-size: 14px; }
 .rp-cevent-body {
   font-size: 12.5px; color: var(--text-dim); line-height: 1.35;
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
@@ -665,22 +673,24 @@
 .rp-conv-back { display: inline-flex; align-items: center; gap: 2px; }
 .rp-tl-text { font-size: 13.5px; line-height: 1.4; white-space: pre-wrap; overflow-wrap: anywhere; }
 .rp-tl-media { display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; color: var(--accent); }
-.rp-tl-bubble.focused { box-shadow: 0 0 0 2px var(--accent); }
+.rp-tl-bubble.focused { box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 65%, transparent); }
+.rp-sheet:focus { outline: none; }
 .rp-recent {
   display: flex; align-items: center; gap: 8px;
-  margin: 12px 22px 0; padding: 10px 14px; border-radius: 12px;
+  margin: 14px 22px 0; padding: 10px 14px; border-radius: 12px;
   background: var(--surface-strong); font-size: 13px; color: var(--text-dim);
 }
 .rp-recent b { color: var(--text); font-weight: 600; }
-.rp-stale {
+/* Named rp-cold, not rp-stale: .rp-stale is the dimmed loading state. */
+.rp-cold {
   display: flex; align-items: center; gap: 14px;
-  margin: 12px 22px 0; padding: 16px 18px; border-radius: 14px;
+  margin: 14px 22px 0; padding: 16px 18px; border-radius: 14px;
   background: var(--rp-crit); color: #fff;
 }
-.rp-stale div { display: flex; flex-direction: column; gap: 3px; }
-.rp-stale b { font-size: 20px; font-weight: 700; letter-spacing: -0.01em; }
-.rp-stale span { font-size: 13px; opacity: 0.92; }
-.rp-stale-ago { font-weight: 600; }
+.rp-cold div { display: flex; flex-direction: column; gap: 2px; }
+.rp-cold b { font-size: 19px; font-weight: 700; letter-spacing: -0.01em; color: #fff; }
+.rp-cold span { font-size: 12.5px; color: rgba(255, 255, 255, 0.88); }
+.rp-cold-text { color: var(--rp-crit); font-weight: 600; }
 .rp-age { font-weight: 500; }
 .rp-age.old { color: var(--rp-crit); }
 .rp-footnote-top { margin: -6px 0 14px; }
