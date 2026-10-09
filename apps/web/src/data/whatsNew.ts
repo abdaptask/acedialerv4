@@ -24,6 +24,15 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.238',
+    date: 'October 9, 2026',
+    highlight: 'Read the whole conversation with a number from Reports, and see at a glance when it went cold.',
+    changes: [
+      { type: 'new', text: 'In Reports, search a number and select any text or voicemail to read the full conversation: every text, voicemail transcript and call, in order.' },
+      { type: 'new', text: 'The number panel shows when the number was last contacted, with a red "No contact in N days" banner once it has been more than 30 days.' },
+    ],
+  },
+  {
     version: '0.10.237',
     date: 'October 9, 2026',
     highlight: 'See whether a number is a mobile, landline or VoIP line before you call or text it.',
