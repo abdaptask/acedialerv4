@@ -24,6 +24,13 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.240',
+    date: 'October 9, 2026',
+    changes: [
+      { type: 'fixed', text: 'In Reports, the number search results no longer get cut off at the left edge of the window.' },
+    ],
+  },
+  {
     version: '0.10.239',
     date: 'October 9, 2026',
     changes: [
