@@ -24,6 +24,17 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.237',
+    date: 'October 9, 2026',
+    highlight: 'See whether a number is a mobile, landline or VoIP line before you call or text it.',
+    changes: [
+      { type: 'new', text: 'The keypad, the call screen and Messages now show what kind of line a number is: Mobile, Landline or VoIP, Toll-free and so on. A check mark means it was confirmed with the phone carrier; without one, it was worked out from the number itself.' },
+      { type: 'new', text: 'Messages shows the line type in the conversation header and in the New message box, so you can spot a landline before texting it.' },
+      { type: 'improved', text: 'The team email rotates its best-practice tips, so the same advice doesn\'t lead every day.' },
+      { type: 'fixed', text: 'Signing in with Microsoft in the browser now returns you to the page you asked for.' },
+    ],
+  },
+  {
     version: '0.10.236',
     date: 'September 25, 2026',
     changes: [
