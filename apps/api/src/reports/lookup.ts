@@ -6,14 +6,16 @@
 //   GET /reports/follow-ups?userId=  → what's waiting on someone right now
 //
 // Same scope rule as /reports: admins see everyone, anyone else only their
-// own history. Texts are records only; bodies are read solely to spot STOP /
-// START and never leave this file.
+// own history. The contact panel carries message text and voicemail
+// transcripts so a conversation can be read in place; search and follow-ups
+// read bodies only to spot STOP / START and never return them.
 
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { prisma } from '@ace/db';
 import { canonicalizeCalls, endReason, inboundOutcome, last10, outboundOutcome, type LogicalCall, type RawCallRow } from './canonicalCalls.js';
 import { textFailureReason } from './textReasons.js';
 import { optKeyword } from './insights.js';
+import { recordAudit } from '../lib/audit.js';
 
 interface JwtPayload {
   sub: number;
@@ -338,13 +340,13 @@ export async function lookupRoutes(app: FastifyInstance) {
 
     const [rawCalls, msgs, vms, names, people] = await Promise.all([
       loadCallsFor(sinceMs, scope, key),
-      prisma.$queryRaw<Array<{ user_id: number; direction: string; status: string; body: string; media: number; created_at: Date; errors: unknown }>>`
-        SELECT user_id, direction, status, body, cardinality(media_urls) AS media, created_at, errors
+      prisma.$queryRaw<Array<{ user_id: number; direction: string; status: string; body: string; media_urls: string[]; created_at: Date; errors: unknown }>>`
+        SELECT user_id, direction, status, body, media_urls, created_at, errors
         FROM messages
         WHERE created_at >= ${new Date(sinceMs)} AND (${scope}::int IS NULL OR user_id = ${scope}::int)
           AND right(regexp_replace(thread_key, '\\D', '', 'g'), 10) = ${key}`,
-      prisma.$queryRaw<Array<{ user_id: number; received_at: Date; listened_at: Date | null; duration_seconds: number }>>`
-        SELECT user_id, received_at, listened_at, duration_seconds FROM voicemails
+      prisma.$queryRaw<Array<{ user_id: number; received_at: Date; listened_at: Date | null; duration_seconds: number; transcription: string | null }>>`
+        SELECT user_id, received_at, listened_at, duration_seconds, transcription FROM voicemails
         WHERE received_at >= ${new Date(sinceMs)} AND (${scope}::int IS NULL OR user_id = ${scope}::int)
           AND right(regexp_replace(from_number, '\\D', '', 'g'), 10) = ${key}`,
       loadNames(scope !== null ? [scope] : null),
@@ -355,6 +357,8 @@ export async function lookupRoutes(app: FastifyInstance) {
     type Ev = {
       at: string; userId: number; kind: 'call' | 'text' | 'voicemail'; direction: 'inbound' | 'outbound';
       label: string; tone: 'good' | 'warn' | 'crit' | null; talkSec?: number; detail?: string;
+      /** Message text, or the voicemail transcript. */
+      body?: string; mediaUrls?: string[];
     };
     const events: Ev[] = [];
     const per = new Map<number, {
@@ -402,10 +406,12 @@ export async function lookupRoutes(app: FastifyInstance) {
         label: kw === 'stop' ? 'Opted out (STOP)' : kw === 'start' ? 'Opted back in' : inbound ? 'Received' : failed ? 'Failed' : m.status === 'delivered' ? 'Delivered' : 'Sent, not confirmed',
         tone: kw === 'stop' || failed ? 'crit' : !inbound && m.status === 'delivered' ? 'good' : null,
         detail: [
-          m.media > 0 ? 'Picture message' : 'Text',
+          m.media_urls.length > 0 ? 'Picture message' : 'Text',
           failed ? textFailureReason(first?.code != null ? String(first.code) : null, first?.title ?? null) : null,
           !inbound && !failed && m.status !== 'delivered' ? 'delivery not confirmed by the carrier' : null,
         ].filter(Boolean).join(' · '),
+        body: m.body ?? '',
+        mediaUrls: m.media_urls.length > 0 ? m.media_urls : undefined,
       });
     }
     for (const v of vms) {
@@ -415,9 +421,18 @@ export async function lookupRoutes(app: FastifyInstance) {
         at: v.received_at.toISOString(), userId: v.user_id, kind: 'voicemail', direction: 'inbound',
         label: v.listened_at ? 'Voicemail, heard' : 'Voicemail, not heard', tone: v.listened_at ? null : 'warn',
         detail: `${Math.round(v.duration_seconds)}s`,
+        body: v.transcription?.trim() || undefined,
       });
     }
     events.sort((a, b) => b.at.localeCompare(a.at));
+
+    // Reading someone else's texts is a different act from reading your own;
+    // leave a trail when an admin's view includes other people's messages.
+    const me = request.user as JwtPayload;
+    const others = [...per.keys()].filter((id) => id !== me.sub);
+    if (others.length > 0) {
+      void recordAudit(me.sub, 'reports.contact_viewed', scope, { numberLast4: key.slice(-4), people: others.length });
+    }
 
     return {
       number: `+1${key}`,

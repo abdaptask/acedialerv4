@@ -73,6 +73,10 @@ Start each day on **Follow-ups**: it's the list of people waiting on you. Everyt
 
 Type a phone number (four or more digits) or a saved name in the search box at the top. You'll see every call, text and voicemail you've had with that number in the last 12 months, and whether they opted out of texts.
 
+The top of the panel shows when the number was last contacted. If that was more than 30 days ago it turns into a red "No contact in N days" banner.
+
+Select any text or voicemail to read the whole conversation: every text (with its message), voicemail transcript and call between that recruiter and the number, oldest first, scrolled to the one you picked. Esc or "All activity" takes you back.
+
 ### Using your numbers to improve
 
 - **Lots of calls under 10 seconds?** You're mostly reaching voicemail greetings or wrong numbers. Check the numbers on those records, or try the times on the Calls heatmap when you connect most.
@@ -184,7 +188,7 @@ Cost estimates spend on calls (billed minutes), texts (billed message parts) and
 
 ## Privacy and common questions
 
-**Can anyone read my texts?** No. Reports never shows message text: it doesn't reach the page at all, so it can't appear on screen or in a CSV. Short incoming texts are checked on the server only to spot STOP and START.
+**Can anyone read my texts?** Admins can, from the number search panel (above): it shows the conversation between a recruiter and that number, including message text and voicemail transcripts. Each time an admin opens a number that includes someone else's messages, it's recorded in the Audit Log. Everyone else sees only their own conversations. The rest of Reports (tables, Activity, CSV exports) never shows message text.
 
 **Who can see my numbers?** You and the admins. Other recruiters can't open your report.
 
