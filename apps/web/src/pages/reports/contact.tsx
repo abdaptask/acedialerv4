@@ -17,6 +17,9 @@ const DAY_MS = 86_400_000;
 /** Past this, a contact has gone cold and the panel says so loudly. */
 const STALE_DAYS = 30;
 const daysSince = (iso: string) => Math.floor((Date.now() - new Date(iso).getTime()) / DAY_MS);
+const dayOf = (iso: string) => fmtDateTime(iso).replace(/,? \d+:\d+.*$/, '');
+// The row title already says "Text sent"/"Text received"; keep only what it doesn't.
+const rowDetail = (e: { kind: string; detail?: string }) => (e.kind === 'text' ? e.detail?.replace(/^Text( · |$)/, '') : e.detail);
 const agoText = (d: number) => (d <= 0 ? 'today' : d === 1 ? 'yesterday' : `${d} days ago`);
 
 export function ContactSearch({ onPick, isAdmin }: { onPick: (number: string) => void; isAdmin: boolean }) {
@@ -112,7 +115,7 @@ export function ContactSheet({ number, onClose, onOpenPerson, isAdmin }: {
   const [who, setWho] = useState<number | null>(null);
   // The conversation being read: whose, and which message was clicked.
   const [conv, setConv] = useState<{ userId: number; at: string } | null>(null);
-  const closeRef = useRef<HTMLButtonElement>(null);
+  const sheetRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
     let live = true;
@@ -123,7 +126,9 @@ export function ContactSheet({ number, onClose, onOpenPerson, isAdmin }: {
     return () => { live = false; };
   }, [number]);
   useEffect(() => {
-    closeRef.current?.focus();
+    // Focus the dialog, not the close button: the panel usually opens from
+    // Enter in the search box, which makes a focused X draw a keyboard ring.
+    sheetRef.current?.focus();
   }, []);
   useEffect(() => {
     // Escape steps back out of a conversation before it closes the sheet.
@@ -142,14 +147,14 @@ export function ContactSheet({ number, onClose, onOpenPerson, isAdmin }: {
 
   return (
     <div className="rp-sheet-backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <aside className="rp-sheet rp-sheet-wide" role="dialog" aria-modal="true" aria-labelledby="rp-contact-title">
+      <aside ref={sheetRef} tabIndex={-1} className="rp-sheet rp-sheet-wide" role="dialog" aria-modal="true" aria-labelledby="rp-contact-title">
         <header className="rp-sheet-head">
           <div>
             <div className="rp-eyebrow">{isAdmin ? 'Everyone on the team' : 'Your history'} · last 12 months</div>
             <h2 id="rp-contact-title">{data?.name ?? formatPhone(number)}</h2>
             {data?.name && <div className="rp-sheet-note">{formatPhone(data.number)}</div>}
           </div>
-          <button ref={closeRef} type="button" className="rp-icon-btn" onClick={onClose} aria-label="Close"><X size={18} /></button>
+          <button type="button" className="rp-icon-btn" onClick={onClose} aria-label="Close"><X size={18} /></button>
         </header>
         {data && data.events.length > 0 && <LastContact event={data.events[0]} who={isAdmin ? nameOf(data.events[0].userId) : null} />}
         <div className="rp-sheet-scroll">
@@ -176,22 +181,25 @@ export function ContactSheet({ number, onClose, onOpenPerson, isAdmin }: {
                 {data.people.some((p) => p.optedOut) && <span className="rp-pill rp-pill-crit">Opted out of texts</span>}
               </div>
               <ul className="rp-contact-people">
-                {data.people.map((p) => (
-                  <li key={p.userId} className={who === p.userId ? 'active' : undefined}>
-                    <button type="button" onClick={() => setWho((w) => (w === p.userId ? null : p.userId))} aria-pressed={who === p.userId}>
-                      <Person name={p.name} sub={p.savedAs ? `Saved as “${p.savedAs}”` : undefined} />
-                      <span className="rp-contact-stats rp-num">
-                        <span>{fmtInt(p.callsOut)} out · {fmtInt(p.callsIn)} in{p.connected ? ` · ${fmtTalk(p.talkSec)} talk` : ''}</span>
-                        <span>{fmtInt(p.textsSent)} texts sent · {fmtInt(p.textsReceived)} received{p.voicemails ? ` · ${p.voicemails} voicemail${p.voicemails === 1 ? '' : 's'}` : ''}</span>
-                        <span className="rp-muted">
-                          First {fmtDateTime(p.firstAt)} · last {fmtDateTime(p.lastAt)}
-                          {' · '}<span className={daysSince(p.lastAt) > STALE_DAYS ? 'rp-crit-text rp-stale-ago' : undefined}>{agoText(daysSince(p.lastAt))}</span>
+                {data.people.map((p) => {
+                  const d = daysSince(p.lastAt);
+                  return (
+                    <li key={p.userId} className={who === p.userId ? 'active' : undefined}>
+                      <button type="button" className="rp-cperson" onClick={() => setWho((w) => (w === p.userId ? null : p.userId))} aria-pressed={who === p.userId}>
+                        <Person name={p.name} sub={p.savedAs ? `Saved as “${p.savedAs}”` : undefined} />
+                        <span className="rp-cperson-stats rp-num">
+                          <span>{fmtInt(p.callsOut)} calls out · {fmtInt(p.callsIn)} in{p.connected ? ` · ${fmtTalk(p.talkSec)} talk` : ''}</span>
+                          <span>{fmtInt(p.textsSent)} texts sent · {fmtInt(p.textsReceived)} received{p.voicemails ? ` · ${p.voicemails} voicemail${p.voicemails === 1 ? '' : 's'}` : ''}</span>
                         </span>
-                      </span>
-                    </button>
-                    {isAdmin && <button type="button" className="rp-link rp-contact-open" onClick={() => onOpenPerson(p.userId)}>Open report</button>}
-                  </li>
-                ))}
+                        <span className="rp-cperson-when">
+                          <span className={d > STALE_DAYS ? 'rp-cold-text' : undefined}>{agoText(d).replace(/^./, (c) => c.toUpperCase())}</span>
+                          <span className="rp-muted">since {dayOf(p.firstAt)}</span>
+                        </span>
+                      </button>
+                      {isAdmin && <button type="button" className="rp-link rp-contact-open" onClick={() => onOpenPerson(p.userId)}>Open report</button>}
+                    </li>
+                  );
+                })}
               </ul>
               <div className="rp-sheet-tools">
                 <span>{who == null ? `Everything, newest first (${fmtInt(data.totalEvents)})` : `Only ${nameOf(who)} · `}{who != null && <button type="button" className="rp-link" onClick={() => setWho(null)}>Show everyone</button>}</span>
@@ -199,7 +207,7 @@ export function ContactSheet({ number, onClose, onOpenPerson, isAdmin }: {
               </div>
               <ol className="rp-cevents">
                 {events.map((e, i) => {
-                  const day = fmtDateTime(e.at).replace(/,? \d+:\d+.*$/, '');
+                  const day = dayOf(e.at);
                   const sep = day !== lastDay;
                   lastDay = day;
                   const Icon = e.kind === 'call' ? Phone : e.kind === 'voicemail' ? Voicemail : e.detail?.startsWith('Picture') ? ImageIcon : MessageSquare;
@@ -218,7 +226,7 @@ export function ContactSheet({ number, onClose, onOpenPerson, isAdmin }: {
                             {e.kind === 'call' ? (e.direction === 'outbound' ? 'Call out' : 'Call in') : e.kind === 'voicemail' ? 'Voicemail' : e.direction === 'outbound' ? 'Text sent' : 'Text received'}
                             {e.talkSec != null ? ` · ${fmtClockDuration(e.talkSec)}` : ''}
                           </span>
-                          <span className="rp-rec-sub">{isAdmin ? `${nameOf(e.userId)} · ` : ''}{fmtDateTime(e.at).replace(/^.*?, /, '')}{e.detail ? ` · ${e.detail}` : ''}</span>
+                          <span className="rp-rec-sub">{isAdmin ? `${nameOf(e.userId)} · ` : ''}{fmtDateTime(e.at).replace(/^.*?, /, '')}{rowDetail(e) ? ` · ${rowDetail(e)}` : ''}</span>
                           {readable && (e.body
                             ? <span className="rp-cevent-body">{e.body}</span>
                             : e.kind === 'voicemail' && <span className="rp-cevent-body rp-muted">No transcript</span>)}
@@ -265,7 +273,7 @@ function Conversation({ events, focusAt, personName, contactName, onBack }: {
       </div>
       <ol className="rp-timeline">
         {ordered.map((e, i) => {
-          const day = fmtDateTime(e.at).replace(/,? \d+:\d+.*$/, '');
+          const day = dayOf(e.at);
           const sep = day !== lastDay;
           lastDay = day;
           const time = fmtDateTime(e.at).replace(/^.*?, /, '');
@@ -275,7 +283,7 @@ function Conversation({ events, focusAt, personName, contactName, onBack }: {
             <li key={i} ref={focused ? focusRef : undefined}>
               {sep && <div className="rp-tl-day">{day}</div>}
               <div className={`rp-tl-row ${out ? 'out' : 'in'}`}>
-                <div className={`rp-tl-bubble ${e.kind}${focused ? ' focused' : ''}`}>
+                <div className={`rp-tl-bubble rp-tl-${e.kind}${focused ? ' focused' : ''}`}>
                   {e.kind === 'call' && (
                     <span className="rp-tl-kind"><Phone size={13} /> {out ? 'Call out' : 'Call in'}{e.talkSec != null ? ` · ${fmtClockDuration(e.talkSec)}` : ''}</span>
                   )}
@@ -311,8 +319,8 @@ function LastContact({ event, who }: { event: ContactEvent; who: string | null }
   const line = `${fmtDateTime(event.at)} · ${what}${who ? ` · ${who}` : ''}`;
   if (d > STALE_DAYS) {
     return (
-      <div className="rp-stale" role="alert">
-        <AlertTriangle size={26} aria-hidden="true" />
+      <div className="rp-cold" role="status">
+        <AlertTriangle size={24} aria-hidden="true" />
         <div>
           <b>No contact in {d} days</b>
           <span>Last contact {line}</span>
