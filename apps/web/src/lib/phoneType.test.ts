@@ -98,6 +98,15 @@ test('verified lookup wins and is labelled as verified', () => {
   assert.match(d.state === 'shown' ? d.detail : '', /Verified by carrier lookup · T-Mobile · ported/);
 });
 
+test('a carrier "fixed line" answer is shown as Landline or VoIP, verified', () => {
+  const d = describePhoneType(us, {
+    status: 'verified',
+    result: { lineType: 'landline_or_voip', carrier: 'TELNYX, LLC', ported: null },
+  });
+  assert.equal(d.state === 'shown' && d.label, 'Landline or VoIP');
+  assert.equal(d.state === 'shown' && d.source, 'verified');
+});
+
 test('a failed or unconfigured lookup falls back to Unknown and never blocks', () => {
   for (const reason of ['not_configured', 'provider_error', 'network', 'limit_reached']) {
     const d = describePhoneType(us, { status: 'unavailable', reason });

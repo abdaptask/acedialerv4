@@ -51,6 +51,17 @@ with no `type` parameter, which returns the portability (LRN) block, so
 `line_type` reflects porting. Published price (Oct 2026): **LRN $0.0015 per
 query**. `type=carrier` (MCC/MNC, $0.0025) and CNAM ($0.003) are not used.
 
+**Telnyx cannot see VoIP on most US numbers.** Its `line_type` describes the
+number *block*, and interconnected-VoIP providers (Telnyx, Bandwidth,
+RingCentral, Google Voice…) hold blocks registered as wireline. Our own Telnyx
+DID, (732) 200-1305, came back `"fixed line"` from both the bare and the
+`type=carrier` lookup (Oct 9, 2026). So a Telnyx "fixed line" shows as
+**Landline or VoIP**, never plain Landline. Mobile is reliable, because
+wireless carriers hold wireless blocks. An explicit `voip` answer still shows
+as VoIP. Telling VoIP apart properly needs a line-type-intelligence product
+such as Twilio Lookup (about $0.008 per lookup, roughly $130/month at our
+volume), which would be another provider here.
+
 Cost controls:
 - Only valid geographic US/CA numbers are looked up. Toll-free, premium,
   invalid, incomplete and international numbers never reach Telnyx.
