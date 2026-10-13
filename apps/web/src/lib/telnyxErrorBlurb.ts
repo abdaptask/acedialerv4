@@ -11,7 +11,7 @@
 //
 // Coverage:
 //   * 30xxx range — Carrier-level delivery errors (the common ones)
-//   * 40xxx range — Telnyx API validation errors
+//   * 40xxx range — delivery outcomes on message.finalized (see textReasons.ts)
 //   * Generic "unknown" fallback that still gives the user something useful
 //     ("the carrier rejected this message") instead of a bare code.
 //
@@ -107,22 +107,75 @@ const BLURBS: Record<string, TelnyxErrorBlurb> = {
     detail: 'The sending DID is a toll-free number that hasn\'t completed Telnyx\'s toll-free verification. Contact admin to register it.',
     retryable: false,
   },
-  // 40002 — Invalid 'to' parameter
+  // 40xxx — delivery outcomes, as Telnyx actually reports them on
+  // message.finalized (e.g. 40001 "Not routable", 40012 "Invalid messaging
+  // destination number"). Earlier entries here guessed these were API
+  // validation errors, which gave 40002/40005/40010 the wrong meaning; this
+  // table now matches apps/api/src/reports/textReasons.ts so a failed bubble
+  // and the Reports page explain the same failure the same way.
+  '40001': {
+    short: 'Can’t receive texts',
+    detail: 'This number can’t receive texts — usually a landline or a number that isn’t in service. Call them instead, or ask for a mobile number.',
+    retryable: false,
+  },
   '40002': {
-    short: 'Invalid recipient number',
-    detail: 'The recipient number was malformed when we sent it to Telnyx. Re-enter the number with country code.',
+    short: 'Blocked as possible spam',
+    detail: 'The recipient’s carrier temporarily blocked this as possible spam. Wait a while before texting again, or call instead.',
+    retryable: true,
+  },
+  '40003': {
+    short: 'Blocked as spam',
+    detail: 'The recipient’s carrier blocked this message as spam. Rewording won’t reliably help — call instead, and tell your admin if it keeps happening.',
     retryable: false,
   },
-  // 40005 — Missing 'from' parameter
+  '40004': {
+    short: 'Rejected by their carrier',
+    detail: 'The recipient’s carrier refused the message without saying why. Try again later, or call instead.',
+    retryable: true,
+  },
   '40005': {
-    short: 'No sending number on your account',
-    detail: 'Your account has no DID assigned, so we can\'t send from anywhere. Ask admin to assign you a number in Users → your row → Manage lines.',
+    short: 'Phone off or out of coverage',
+    detail: 'The message expired before their phone accepted it — the phone was off or out of coverage. Try again later.',
+    retryable: true,
+  },
+  '40006': {
+    short: 'Their carrier was unavailable',
+    detail: 'The recipient’s carrier was temporarily unavailable. Try again in a few minutes.',
+    retryable: true,
+  },
+  '40008': {
+    short: 'Couldn’t be delivered',
+    detail: 'The carrier couldn’t deliver this message. Check the number, then try again or call instead.',
+    retryable: true,
+  },
+  '40009': {
+    short: 'Message content rejected',
+    detail: 'The carrier rejected the content of this message. Links and some wording are filtered — try removing any link and sending again.',
     retryable: false,
   },
-  // 40010 — Messaging profile not configured
   '40010': {
-    short: 'SMS routing not set up',
-    detail: 'The Telnyx Messaging Profile isn\'t configured for your DID. Admin needs to bind your number to the ACE messaging profile in Telnyx Portal.',
+    short: 'Our number isn’t registered for texting',
+    detail: 'Your sending number isn’t registered for business texting (10DLC), so carriers won’t deliver from it. Contact your admin.',
+    retryable: false,
+  },
+  '40011': {
+    short: 'Too many texts too fast',
+    detail: 'The carrier slowed down texts from your number. Wait a few minutes and try again.',
+    retryable: true,
+  },
+  '40012': {
+    short: 'Not a valid phone number',
+    detail: 'The carrier says this isn’t a valid number to text. Double-check the digits and the country code.',
+    retryable: false,
+  },
+  '40013': {
+    short: 'Our number can’t send texts',
+    detail: 'Your sending number isn’t able to send texts. Contact your admin.',
+    retryable: false,
+  },
+  '40300': {
+    short: 'They opted out (STOP)',
+    detail: 'This person texted STOP, so carriers block texts from your number to them until they text START. Call them instead.',
     retryable: false,
   },
 };
@@ -148,6 +201,12 @@ export function telnyxErrorBlurb(input: unknown): TelnyxErrorBlurb {
     if (/^\d+$/.test(input)) code = input;
   } else if (typeof input === 'number') {
     code = String(input);
+  } else if (Array.isArray(input)) {
+    // The shape actually stored on a Message row and returned by the send
+    // route: the bare `errors` array, not the envelope around it. Missing this
+    // case made every failed bubble say "Send failed" with no reason.
+    const first = input[0] as Record<string, unknown> | undefined;
+    if (first?.code !== undefined) code = String(first.code);
   } else if (input && typeof input === 'object') {
     // Telnyx error envelope shapes:
     //   { errors: [{ code: '30007', title: '...', detail: '...' }] }

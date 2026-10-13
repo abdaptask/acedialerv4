@@ -352,7 +352,7 @@ export default function Recents() {
       window.confirm(
         `Block ${friendly}?\n\nThey won't be able to call or text you. ` +
           'Unblock anytime in Settings → Blocked numbers.',
-      )
+      ) !== true
     ) {
       return;
     }

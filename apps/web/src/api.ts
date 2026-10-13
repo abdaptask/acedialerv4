@@ -592,8 +592,10 @@ export async function transferCallApi(token: string, callControlId: string, to: 
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
     body: JSON.stringify({ to }),
   });
-  const body = await res.json().catch(() => ({}));
-  return { ok: res.ok, ...(body as object) };
+  const body = (await res.json().catch(() => ({}))) as TransferResult & { message?: string };
+  // Some refusals (no_caller_id) carry their sentence in `message`, which the
+  // call screen never read, so the user saw the bare code. Fold it into hint.
+  return { ...body, ok: res.ok, hint: body.hint ?? body.message };
 }
 
 // Phase 5.4 (rebuild): server-originated Add Call. Telnyx dials Leg B and

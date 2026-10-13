@@ -270,6 +270,7 @@ scripts/      One-off ops helpers (dedupe call legs, fix favorite names, etc.)
 - **Always go through `SipContext`, never `sipService` directly, from a React component.** Direct access skips event subscriptions and you'll miss state.
 - **Tab-badge polls MUST be cheap counters, not data fetches.** The endpoint returns `{ count }`, not the unread rows.
 - **All navigation uses `useNavigate`, never `window.location`.** A full reload nukes `sessionStorage` (JWT) and forces a full SIP re-register.
+- **Settings → Help quotes the UI verbatim.** `apps/web/src/data/helpCenter.ts` lists every user-facing message by area with what it means and what to do; users find an entry by retyping what they saw, so a reworded string orphans its entry. Change a user-visible message → change its help entry in the same commit.
 
 ---
 

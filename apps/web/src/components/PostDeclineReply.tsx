@@ -109,7 +109,7 @@ export default function PostDeclineReply() {
             </div>
             <div>
               <strong>Message sent</strong>
-              <div className="muted small">They\u2019ll get a text from your number.</div>
+              <div className="muted small">They’ll get a text from your number.</div>
             </div>
           </div>
         ) : (
@@ -144,7 +144,7 @@ export default function PostDeclineReply() {
             <div className="post-decline-custom">
               <input
                 type="text"
-                placeholder="Or type a custom message\u2026"
+                placeholder="Or type a custom message…"
                 value={custom}
                 onChange={(e) => setCustom(e.target.value)}
                 onKeyDown={(e) => {
@@ -171,7 +171,7 @@ export default function PostDeclineReply() {
 
             <div className="post-decline-skip">
               <button type="button" className="post-decline-skip-btn" onClick={handleClose}>
-                Skip \u2014 don\u2019t send anything
+                Skip — don’t send anything
               </button>
             </div>
           </>

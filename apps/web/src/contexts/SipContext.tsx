@@ -517,7 +517,7 @@ export function SipProvider({ children }: { children: React.ReactNode }) {
             ok: false,
             error: 'no_call_control_id',
             hint:
-              'Telnyx hasn’t registered this call leg yet. Check Render webhook logs.',
+              'This call isn’t ready to transfer yet. Wait a few seconds and try again.',
           };
         }
       }

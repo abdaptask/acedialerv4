@@ -53,6 +53,7 @@ import {
   AlertCircle,
   // v0.10.26 — What's new section
   Sparkles,
+  LifeBuoy,
   Wrench,
   Zap,
   // v0.10.80 — Diagnostics section icon
@@ -61,6 +62,7 @@ import {
 // v0.10.205 - Force Update admin section lives in its own file to keep
 // Settings.tsx anchor-stable for future apply-script edits.
 import ForceUpdateAdminSection from './settings/ForceUpdateAdminSection';
+import HelpSection from './settings/HelpSection';
 import { WHATS_NEW, type ChangeType } from '../data/whatsNew';
 import {
   getMe,
@@ -280,6 +282,7 @@ const SECTIONS: SectionDef[] = [
   // v0.10.100 — What's new moved to the new 'About' category so it always
   // appears at the bottom of the sidebar for both admins and regular users.
   { key: 'whats-new', category: 'About', label: 'What\'s new', icon: Sparkles, blurb: 'Recent updates + bug fixes', Component: WhatsNewSection },
+  { key: 'help', category: 'About', label: 'Help', icon: LifeBuoy, blurb: 'What each feature does and what its messages mean', Component: HelpSection },
   { key: 'account', category: 'Personal', label: 'Account', icon: UserCircle, blurb: 'Name, DID, SIP', Component: AccountSection },
   { key: 'appearance', category: 'Personal', label: 'Appearance', icon: Palette, blurb: 'Light / dark / system', Component: AppearanceSection },
   // v0.10.91 — removed the "Telnyx" SIP credential entry (TelnyxSection).
@@ -695,7 +698,7 @@ function AccountSection() {
           onClick={save}
           disabled={saving}
         >
-          {saving ? 'Saving…' : saved ? 'âœ“ Saved' : 'Save changes'}
+          {saving ? 'Saving…' : saved ? '✓ Saved' : 'Save changes'}
         </button>
       </div>
     </div>
@@ -1165,7 +1168,7 @@ function HoldMusicSection() {
     e.target.value = '';
     if (!file) return;
     if (!/^audio\//.test(file.type) && !/\.(mp3|wav|ogg|m4a|aac)$/i.test(file.name)) {
-      setError('That doesnâ€™t look like an audio file.');
+      setError('That doesn’t look like an audio file.');
       return;
     }
     if (file.size > HOLD_MUSIC_MAX_BYTES) {
@@ -2567,7 +2570,7 @@ function QuickRepliesSection() {
                     aria-label="Move up"
                     title="Move up"
                   >
-                    â†‘
+                    ↑
                   </button>
                   <button
                     type="button"
@@ -2577,7 +2580,7 @@ function QuickRepliesSection() {
                     aria-label="Move down"
                     title="Move down"
                   >
-                    â†“
+                    ↓
                   </button>
                   <button
                     type="button"
@@ -5491,7 +5494,7 @@ function BulkImportModal({
             <div className="bulk-stat warn">{stats.missingPasswords} <span>no password</span></div>
             <div className="bulk-stat err">{stats.errors} <span>errors</span></div>
             <div className="muted small" style={{ marginLeft: 'auto' }}>
-              {stats.dryRun ? 'Preview — nothing written yet' : 'Imported âœ“'}
+              {stats.dryRun ? 'Preview — nothing written yet' : 'Imported ✓'}
             </div>
           </div>
         )}
@@ -5654,7 +5657,7 @@ function LiveOpsSection() {
             Calls today
             {deltaPct !== null && (
               <span className={'liveops-delta ' + (delta >= 0 ? 'up' : 'down')}>
-                {delta >= 0 ? 'â†‘' : 'â†“'} {Math.abs(deltaPct)}%
+                {delta >= 0 ? '↑' : '↓'} {Math.abs(deltaPct)}%
               </span>
             )}
           </div>
@@ -5873,7 +5876,7 @@ function PresenceSection() {
                 {u.currentCall ? (
                   <div>
                     <div>
-                      {u.currentCall.direction === 'inbound' ? 'â†˜ ' : 'â†— '}
+                      {u.currentCall.direction === 'inbound' ? '↘ ' : '↗ '}
                       {fmtPhone(u.currentCall.direction === 'inbound' ? u.currentCall.fromNumber : u.currentCall.toNumber)}
                     </div>
                     <div className="muted small">{fmtCallDuration(u.currentCall.startedAt)}</div>
