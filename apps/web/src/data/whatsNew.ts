@@ -24,6 +24,17 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.242',
+    date: 'October 13, 2026',
+    highlight: 'New Help page: look up any message the dialer shows you and what to do about it.',
+    changes: [
+      { type: 'new', text: 'Settings → Help explains every part of the dialer, area by area, and what each message means. Search for the words you saw on screen.' },
+      { type: 'fixed', text: 'A text that fails to deliver now says why (for example “Can’t receive texts” or “They opted out (STOP)”) instead of a general “Send failed”.' },
+      { type: 'fixed', text: 'Blocking a number from Recents now does what you choose: OK blocks, Cancel doesn’t. It used to be the other way round.' },
+      { type: 'fixed', text: 'Clearer messages when a call can’t be transferred, and a few garbled characters in Settings are fixed.' },
+    ],
+  },
+  {
     version: '0.10.240',
     date: 'October 9, 2026',
     changes: [
