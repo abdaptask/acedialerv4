@@ -19,6 +19,14 @@ export const config = {
   logLevel: optional('LOG_LEVEL', 'info'),
   jwtSecret: required('JWT_SECRET'),
   jwtExpiresIn: optional('JWT_EXPIRES_IN', '24h'),
+  // Browser extension IDs allowed to sign in (comma-separated): the Chrome Web
+  // Store ID, the Edge Add-ons ID, and any developer's unpacked ID. Each needs
+  // https://<id>.chromiumapp.org/ registered as a Web redirect URI in Entra.
+  // Empty = extension sign-in is off. See lib/extensionAuth.ts.
+  extensionIds: optional('EXTENSION_IDS')
+    .split(',')
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean),
   allowedOrigins: optional('ALLOWED_ORIGINS', '*')
     .split(',')
     .map((s) => s.trim())

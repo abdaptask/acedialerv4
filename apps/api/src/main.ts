@@ -1,11 +1,12 @@
 // ACE Dialer API — HTTP service.
 // Phase 1: /health, /, /auth/login, /auth/me.
 // Phase 5.1: /calls, /calls/:id.
-import Fastify, { type FastifyReply, type FastifyRequest } from 'fastify';
+import Fastify from 'fastify';
 import compress from '@fastify/compress';
 import cors from '@fastify/cors';
 import jwt from '@fastify/jwt';
 import { config } from './config.js';
+import { authenticate } from './lib/authenticate.js';
 import { authRoutes } from './auth/auth.routes.js';
 import { microsoftAuthRoutes } from './auth/microsoft.routes.js';
 import { adminRoutes } from './admin/admin.routes.js';
@@ -86,13 +87,7 @@ await app.register(jwt, {
   sign: { expiresIn: config.jwtExpiresIn },
 });
 
-app.decorate('authenticate', async function (request: FastifyRequest, reply: FastifyReply) {
-  try {
-    await request.jwtVerify();
-  } catch {
-    reply.code(401).send({ error: 'Unauthorised' });
-  }
-});
+app.decorate('authenticate', authenticate);
 
 app.get('/', async () => ({
   service: SERVICE_NAME,

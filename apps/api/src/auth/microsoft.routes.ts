@@ -24,6 +24,13 @@ import { z } from 'zod';
 import { ConfidentialClientApplication, PublicClientApplication } from '@azure/msal-node';
 import { prisma } from '@ace/db';
 import { config, isProtectedAdmin } from '../config.js';
+import { recordAudit } from '../lib/audit.js';
+import {
+  EXTENSION_SCOPE,
+  EXTENSION_TOKEN_TTL,
+  extensionIdFromRedirect,
+  isExtensionRedirect,
+} from '../lib/extensionAuth.js';
 
 const ExchangeSchema = z.object({
   code: z.string().min(1),
@@ -91,6 +98,15 @@ export async function microsoftAuthRoutes(app: FastifyInstance) {
       return reply.code(400).send({ error: 'invalid_request', details: parsed.error.flatten() });
     }
     const { code, redirectUri, codeVerifier } = parsed.data;
+
+    // A browser-extension redirect always yields the extension's scoped token
+    // (lib/extensionAuth.ts) — decided here, from the redirect, never from a
+    // client flag. An extension we don't know is refused before Microsoft is
+    // even asked, rather than falling through to a full token.
+    const extensionId = extensionIdFromRedirect(redirectUri, config.extensionIds);
+    if (!extensionId && isExtensionRedirect(redirectUri)) {
+      return reply.code(403).send({ error: 'extension_not_allowed', message: 'This browser extension is not allowed to sign in.' });
+    }
 
     // Pick the right MSAL client class based on whether this is a web
     // (https) redirect or an Electron custom-scheme (ace-dialer://) redirect.
@@ -201,6 +217,18 @@ export async function microsoftAuthRoutes(app: FastifyInstance) {
         where: { id: user.id },
         data: { lastLoginAt: new Date() },
       });
+    }
+
+    if (extensionId) {
+      // isAdmin is false on purpose: the scoped routes are self-only, and a
+      // route that slipped past the allowlist must not see an admin either.
+      const token = await reply.jwtSign(
+        { sub: user.id, email: user.email, isAdmin: false, scope: EXTENSION_SCOPE },
+        { expiresIn: EXTENSION_TOKEN_TTL },
+      );
+      void recordAudit(user.id, 'auth.extension_signin', user.id, { extensionId });
+      // No SIP credentials, no DID, no admin flag — the panel needs a name.
+      return reply.send({ token, user: { firstName: user.firstName, lastName: user.lastName, email: user.email } });
     }
 
     // Mint our JWT — identical shape to /auth/login so the rest of the API

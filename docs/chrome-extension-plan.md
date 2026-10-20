@@ -1,6 +1,6 @@
 # Chrome extension — plan (Phase A + Phase B)
 
-Status: Phase A **implemented** (branch `feat/extension-phase-a`, not deployed) · Phase B **planned** · Oct 20 2026 · builds on `apps/extension/` (v0.10.242, click-to-call)
+Status: Phase A **implemented** (`feat/extension-phase-a`) · Phase B **implemented** (`feat/extension-phase-b`) · neither deployed · Oct 20 2026 · builds on `apps/extension/` (v0.10.242, click-to-call)
 
 Two phases, shipped separately. A makes the existing extension work for
 everyone; B turns it into the place recruiters see what's waiting on them.
@@ -157,11 +157,9 @@ settings gear and the extension's right-click menu).
   lastAt. Strip `body`.
 - Reuse `computeFollowUps`; don't fork the logic. Reports and the panel must
   agree on what "open" means or users will stop trusting both.
-- **Open question:** `computeFollowUps` filters voicemails on
-  `listenedAt: null`, but CLAUDE.md §31 says `listenedAt` is deliberately
-  *not* used (listening from Teams/email may not set it). Settle which is
-  right before the badge depends on it — the badge makes the discrepancy very
-  visible.
+- **Resolved:** `computeFollowUps` filtered voicemails on `listenedAt: null`
+  despite its own comment and CLAUDE.md §31 saying not to. The filter was the
+  bug; removed in Phase B.
 
 ### B3. Sign-in
 

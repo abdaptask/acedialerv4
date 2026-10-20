@@ -1,4 +1,8 @@
-# ACE Dialer — Click to Call (browser extension)
+# ACE Dialer (browser extension)
+
+Two features: **click to call** (below) and the **follow-ups panel** (further
+down) — the missed calls, texts and voicemails still waiting on you, with a
+count on the toolbar icon.
 
 Finds phone numbers on a page and makes them clickable. One click opens the
 number in ACE Dialer — the web dialer or the desktop app — prefilled and
@@ -134,6 +138,56 @@ Developer mode → **Load unpacked**.
 
 libphonenumber is bundled into the content script, which is why `content.js` is
 ~125 KB. That's a deliberate trade for detection accuracy over a regex guess.
+
+## Follow-ups panel
+
+Click the toolbar icon → a Chrome side panel lists what's waiting on the
+signed-in person (same computation as Reports → Follow-ups): missed calls with
+no call/text back, texts whose last message is theirs, voicemails with no
+callback. Each row has **Call back** and **Text**, which only prefill — they
+go through the same router as a clicked number, as *trusted* numbers (no
+`src`), so the dialer treats them like a Teams-card link. The toolbar badge is
+the open count, refreshed by a 2-minute `chrome.alarms` tick.
+
+**What the panel never shows:** message bodies, voicemail transcripts or
+recordings. It sits beside other sites all day; it shows who, what kind, and
+how long. Reading the thread happens in the dialer.
+
+### Sign-in and the scoped token
+
+`src/session.ts` runs Microsoft sign-in in Chrome's own auth window
+(`chrome.identity.launchWebAuthFlow`, PKCE + state, account picker), redirect
+`https://<extension-id>.chromiumapp.org/`, then the API's normal
+`/auth/microsoft/exchange`. Because of that redirect, the server mints a
+**scoped** token (`apps/api/src/lib/extensionAuth.ts`): 12h, no admin, no SIP
+credentials, and refused on every route except `GET /me/follow-ups` and
+`GET /me/follow-ups/count`. It lives in `chrome.storage.session` (memory only,
+gone when the browser quits, not readable by content scripts). Renewal is a
+silent `prompt=none` sign-in with the last email as `login_hint`, at most every
+30 minutes — the hint is what stops a shared machine from silently signing in
+as whoever else is in the browser's Microsoft session. Sign out forgets it.
+
+### Turning it on (one-time, per extension ID)
+
+1. **Entra:** App registrations → the ACE Dialer app → Authentication → **Web**
+   platform → add `https://<extension-id>.chromiumapp.org/` (trailing slash).
+   One per ID: the Chrome Web Store ID, the Edge Add-ons ID, and any
+   developer's unpacked ID.
+2. **API env:** `EXTENSION_IDS=<id>,<id>` in the host `.env`, then
+   `pm2 reload ace-api`. Unset = extension sign-in refused (403
+   `extension_not_allowed`) — the click-to-call half still works.
+
+Permissions this adds: `identity`, `alarms`, `sidePanel` — none of them shows
+an install warning. Requires Chrome/Edge 116+.
+
+## Browsers
+
+| Browser | Status |
+|---|---|
+| Chrome, Edge | Both features. Edge installs from the Chrome Web Store, or publish separately on Edge Add-ons (separate ID → add it to Entra + `EXTENSION_IDS`). Intune: Edge has its own `ExtensionInstallForcelist` |
+| Other Chromium (Brave, Opera, Arc, Vivaldi) | Click to call works (same APIs). The side panel depends on the browser implementing `chrome.sidePanel` — where it doesn't, the toolbar icon opens the panel in a tab instead. Untested; check before promising it |
+| Firefox | Not as-is. Needs `background.scripts` instead of `service_worker`, `sidebar_action` instead of `side_panel`, and a different OAuth redirect (`*.extensions.allizom.org`) |
+| Safari | Not as-is. Needs Apple's Safari Web Extension converter, an Xcode wrapper app, an Apple Developer account and App Store distribution; no `storage.managed` (no Intune policy) and no side panel |
 
 ## Desktop app or web dialer
 

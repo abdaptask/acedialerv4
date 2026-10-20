@@ -1,12 +1,15 @@
 {
   "manifest_version": 3,
-  "name": "ACE Dialer — Click to Call",
+  "name": "ACE Dialer",
   "version": "0.10.242",
-  "description": "Finds phone numbers on a page and makes them clickable. One click opens the number in ACE Dialer, ready to dial.",
-  "minimum_chrome_version": "102",
+  "description": "Makes phone numbers on your ATS and CRM clickable, and shows the missed calls, texts and voicemails still waiting on you.",
+  "minimum_chrome_version": "116",
   "permissions": [
     "storage",
-    "scripting"
+    "scripting",
+    "identity",
+    "alarms",
+    "sidePanel"
   ],
   "host_permissions": [
     "https://dialer.aptask.com/*"
@@ -29,8 +32,11 @@
     }
   ],
   "options_page": "options.html",
+  "side_panel": {
+    "default_path": "panel.html"
+  },
   "action": {
-    "default_title": "ACE Dialer — Click to Call"
+    "default_title": "ACE Dialer"
   },
   "icons": {
     "128": "icons/icon128.png"

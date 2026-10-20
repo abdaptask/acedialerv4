@@ -24,25 +24,39 @@ export type Route =
   | { kind: 'desktop'; url: string }
   | { kind: 'new-tab'; url: string };
 
+/** What to open. `trusted` = the number came from our own database (the
+ *  follow-ups panel), the same standing as a Teams-card link; otherwise it was
+ *  read off someone else's page and the apps must parse it strictly. */
+export interface Target {
+  to: string;
+  action: 'call' | 'sms';
+  trusted: boolean;
+}
+
 // Cap mirrors the old background handler: the app re-validates, this only
 // stops a pathological selection from producing a giant URL.
 const clip = (to: string) => encodeURIComponent(to.slice(0, 200));
 
-/** `src=selection` makes both apps take the strict parser — this number came
- *  from someone else's page, not our database. */
-export function desktopUrl(to: string): string {
-  return `ace-dialer://call?to=${clip(to)}&src=selection`;
+/** `src=selection` makes both apps take the strict parser. Its ABSENCE is
+ *  what marks a number as trusted — the convention the deep links already
+ *  use (CLAUDE.md §4.4) — so it is only ever dropped for `trusted`. */
+const srcParam = (t: Target) => (t.trusted ? '' : '&src=selection');
+
+export function desktopUrl(t: Target): string {
+  return `ace-dialer://${t.action}?to=${clip(t.to)}${srcParam(t)}`;
 }
 
-export function webDialerUrl(to: string): string {
-  return `${DIALER_ORIGIN}/keypad?to=${clip(to)}&src=selection`;
+export function webDialerUrl(t: Target): string {
+  return t.action === 'sms'
+    ? `${DIALER_ORIGIN}/messages?to=${clip(t.to)}`
+    : `${DIALER_ORIGIN}/keypad?to=${clip(t.to)}${srcParam(t)}`;
 }
 
 /** The fallback once an open dialer tab has been tried (or there is none). */
-export function fallbackRoute(to: string, openIn: OpenIn): Route {
+export function fallbackRoute(t: Target, openIn: OpenIn): Route {
   return openIn === 'web'
-    ? { kind: 'new-tab', url: webDialerUrl(to) }
-    : { kind: 'desktop', url: desktopUrl(to) };
+    ? { kind: 'new-tab', url: webDialerUrl(t) }
+    : { kind: 'desktop', url: desktopUrl(t) };
 }
 
 /** Managed policy wins over the user's choice; either wins over the default. */

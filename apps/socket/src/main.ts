@@ -106,7 +106,11 @@ io.use((socket, next) => {
       email?: string;
       isAdmin?: boolean;
       exp?: number;
+      scope?: string;
     };
+    // A scoped token (the browser extension's — apps/api lib/extensionAuth.ts)
+    // may call two API routes and nothing else; it gets no realtime channel.
+    if (payload.scope !== undefined) return next(new Error('auth_scope'));
     // Stash on socket.data for downstream event handlers. Don't put the
     // raw token here - just the verified payload.
     (socket.data as { user?: typeof payload }).user = payload;

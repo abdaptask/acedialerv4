@@ -22,7 +22,7 @@ if (!w.__aceDialerBridge) {
   chrome.runtime.onMessage.addListener(onDial);
 }
 
-function onDial(msg: { type?: string; to?: string }, _sender: chrome.runtime.MessageSender, sendResponse: (r: { ok: boolean }) => void) {
+function onDial(msg: { type?: string; to?: string; action?: string; src?: string }, _sender: chrome.runtime.MessageSender, sendResponse: (r: { ok: boolean }) => void) {
   if (msg?.type !== 'ace-dial' || !msg.to) return;
   const id = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
@@ -38,7 +38,19 @@ function onDial(msg: { type?: string; to?: string }, _sender: chrome.runtime.Mes
   };
   const timer = setTimeout(() => done(false), ACK_TIMEOUT_MS);
   window.addEventListener('message', onAck);
-  window.postMessage({ source: 'ace-extension', type: 'dial', id, to: msg.to, src: 'selection' }, location.origin);
+  // Two message types on purpose. 'dial' is the Phase A shape — a page capture,
+  // strict-parsed, call only — and every web build with a listener handles it.
+  // 'open' carries panel actions (trusted numbers, texts); a web build older
+  // than the panel ignores it, sends no ack, and the worker falls back. Folding
+  // both into 'dial' would let an old build open a Text as a keypad call.
+  // src is absent only for a panel number; the worker decides that, never the page.
+  const page = msg.src === 'selection' && (msg.action ?? 'call') === 'call';
+  window.postMessage(
+    page
+      ? { source: 'ace-extension', type: 'dial', id, to: msg.to, src: 'selection' }
+      : { source: 'ace-extension', type: 'open', id, to: msg.to, action: msg.action ?? 'call', src: msg.src },
+    location.origin,
+  );
   return true; // async sendResponse
 }
 
