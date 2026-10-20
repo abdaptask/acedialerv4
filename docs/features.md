@@ -98,8 +98,11 @@ can place a call, so the user always sees the number and presses Call.
   is read *only* inside that keypress — never polled in the background, and
   the app never synthesises a copy into whatever you're using.
 - **Browser extension** — an MV3 extension underlines phone numbers on ATS
-  and CRM pages; clicking one hands it to the desktop app. It ships with no
-  host permissions and registers its scanner only for domains you grant on
+  and CRM pages; clicking one hands it to the dialer: an open web dialer tab
+  first (delivered in place, no reload, so a live call survives), otherwise
+  the desktop app or a new web dialer tab per the options page (or IT
+  policy). Its only fixed host access is dialer.aptask.com; it holds no
+  access to any other site and registers its scanner only for domains you grant on
   its options page, so it can't read every page you visit. It never touches
   form fields you're typing in.
 

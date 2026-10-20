@@ -39,6 +39,7 @@ coverage/
 .env
 
 apps/desktop/release/
+apps/extension/release/
 
 # Pulse-to-ACE migration: CSVs of users contain SIP passwords. Never commit.
 pulse_users.csv

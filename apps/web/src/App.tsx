@@ -9,6 +9,7 @@ import Recents from './pages/Recents';
 import Voicemail from './pages/Voicemail';
 import VoicemailPlay from './pages/VoicemailPlay';
 import AutoRoute from './pages/AutoRoute';
+import { extensionDialAck, extensionDialRoute, parseExtensionDial } from './lib/extensionBridge';
 import Contacts from './pages/Contacts';
 import Favorites from './pages/Favorites';
 import Messages from './pages/Messages';
@@ -195,6 +196,28 @@ export default function App() {
     // renderer is where the prefs live, so main can't restore them itself.
     void applyClickToDialPrefs();
     return unsub;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Browser extension hand-off (apps/extension → dialerBridge.ts). When this
+  // tab is the open web dialer, the extension delivers clicked numbers here
+  // rather than reloading the tab — a reload drops the JWT and SIP
+  // registration and ends any live call. Routed exactly like the desktop's
+  // `src=selection` deep link above: strict parse, prefill only.
+  //
+  // The ack is what lets the extension tell "delivered" from "no listener"
+  // (older build, Electron) and fall back instead of dropping the click.
+  useEffect(() => {
+    if (window.ace) return; // Electron has its own deep-link path; no extension here
+    const onMessage = (e: MessageEvent) => {
+      const dial = parseExtensionDial(e, window.location.origin);
+      if (!dial) return;
+      console.info('[extension] dial hand-off received');
+      navigate(extensionDialRoute(dial.to));
+      window.postMessage(extensionDialAck(dial.id), window.location.origin);
+    };
+    window.addEventListener('message', onMessage);
+    return () => window.removeEventListener('message', onMessage);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
