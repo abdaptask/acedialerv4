@@ -1,0 +1,17 @@
+{
+  "type": "object",
+  "properties": {
+    "allowedOrigins": {
+      "title": "Sites to scan for phone numbers",
+      "description": "Match patterns such as *://app.jobdiva.com/*. Each user still approves host access once; the options page shows these as set by your administrator.",
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "openIn": {
+      "title": "Where a clicked number opens",
+      "description": "'desktop' (ACE Dialer app) or 'web' (dialer.aptask.com). An open web dialer tab is always used first.",
+      "type": "string",
+      "enum": ["desktop", "web"]
+    }
+  }
+}

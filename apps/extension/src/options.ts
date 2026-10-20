@@ -1,6 +1,8 @@
 // Allowlist editor. Each entry is a real Chrome host permission, requested
 // with chrome.permissions.request() so the user sees Chrome's own prompt
 // rather than us claiming access in our own UI.
+import { effectiveOpenIn } from './route';
+
 const STORAGE_KEY = 'allowedOrigins';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -24,22 +26,69 @@ async function read(): Promise<string[]> {
   return Array.isArray(list) ? (list as string[]) : [];
 }
 
+/** Sites IT set by policy. Shown locked; a policy can name a site but can't
+ *  grant access, so each still needs the user's one click on "Allow". */
+async function readManaged(): Promise<{ origins: string[]; openIn: unknown }> {
+  try {
+    const m = await chrome.storage.managed.get(null);
+    const origins = Array.isArray(m[STORAGE_KEY])
+      ? (m[STORAGE_KEY] as unknown[]).filter((x): x is string => typeof x === 'string')
+      : [];
+    return { origins, openIn: m.openIn };
+  } catch {
+    return { origins: [], openIn: undefined }; // not managed
+  }
+}
+
+async function isGranted(pattern: string): Promise<boolean> {
+  try {
+    return await chrome.permissions.contains({ origins: [pattern] });
+  } catch {
+    return false; // malformed policy pattern
+  }
+}
+
 async function write(list: string[]): Promise<void> {
   await chrome.storage.sync.set({ [STORAGE_KEY]: list });
 }
 
 async function render(): Promise<void> {
-  const list = await read();
+  const [mine, managed] = await Promise.all([read(), readManaged()]);
   const ul = $('list');
   ul.innerHTML = '';
-  if (list.length === 0) {
+
+  for (const pattern of managed.origins) {
+    const li = document.createElement('li');
+    const site = document.createElement('div');
+    site.className = 'site';
+    const code = document.createElement('code');
+    code.textContent = hostOf(pattern);
+    const tag = document.createElement('span');
+    tag.className = 'tag';
+    tag.textContent = 'Set by your administrator';
+    site.append(code, tag);
+    li.append(site);
+    if (!(await isGranted(pattern))) {
+      const btn = document.createElement('button');
+      btn.className = 'primary';
+      btn.textContent = 'Allow';
+      btn.addEventListener('click', async () => {
+        await chrome.permissions.request({ origins: [pattern] }).catch(() => false);
+        void render();
+      });
+      li.append(btn);
+    }
+    ul.appendChild(li);
+  }
+
+  const own = mine.filter((p) => !managed.origins.includes(p));
+  if (own.length === 0 && managed.origins.length === 0) {
     const li = document.createElement('li');
     li.className = 'empty';
     li.textContent = 'No sites yet. Add your ATS or CRM above to switch this on.';
     ul.appendChild(li);
-    return;
   }
-  for (const pattern of list) {
+  for (const pattern of own) {
     const li = document.createElement('li');
     const code = document.createElement('code');
     code.textContent = hostOf(pattern);
@@ -53,6 +102,14 @@ async function render(): Promise<void> {
     li.append(code, btn);
     ul.appendChild(li);
   }
+
+  const { openIn } = await chrome.storage.sync.get('openIn');
+  const eff = effectiveOpenIn(managed.openIn, openIn);
+  for (const r of document.querySelectorAll<HTMLInputElement>('input[name="openIn"]')) {
+    r.checked = r.value === eff.value;
+  }
+  $<HTMLFieldSetElement>('open-in').disabled = eff.locked;
+  $('open-in-note').hidden = !eff.locked;
 }
 
 $('add').addEventListener('click', async () => {
@@ -85,6 +142,11 @@ $<HTMLInputElement>('host').addEventListener('keydown', (e) => {
   if ((e as KeyboardEvent).key === 'Enter') $('add').click();
 });
 
+for (const r of document.querySelectorAll<HTMLInputElement>('input[name="openIn"]')) {
+  r.addEventListener('change', () => {
+    if (r.checked) void chrome.storage.sync.set({ openIn: r.value });
+  });
+}
+
 void render();
 
-export {};

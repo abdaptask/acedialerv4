@@ -1,6 +1,6 @@
 # Chrome extension — plan (Phase A + Phase B)
 
-Status: **Planned** · Oct 20 2026 · builds on `apps/extension/` (v0.10.242, click-to-call)
+Status: Phase A **implemented** (branch `feat/extension-phase-a`, not deployed) · Phase B **planned** · Oct 20 2026 · builds on `apps/extension/` (v0.10.242, click-to-call)
 
 Two phases, shipped separately. A makes the existing extension work for
 everyone; B turns it into the place recruiters see what's waiting on them.

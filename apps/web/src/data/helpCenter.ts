@@ -270,7 +270,8 @@ export const HELP_AREAS: HelpArea[] = [
           'Turn the options on in Settings → Click to dial (desktop app only).',
           'Phone links: “Open phone links in ACE Dialer” makes clickable phone links open here. Windows or macOS may ask you once which app to use.',
           'Plain text: copy the number (Ctrl+C), then press Ctrl+Shift+D (Cmd+Shift+D on Mac). The shortcut reads what you copied, not what you highlighted.',
-          'Chrome extension: on sites you add in its options, numbers get a dotted underline. Click one to fill it into the dialer.',
+          'Chrome extension: on sites you add in its options, numbers get a dotted underline. Click one to fill it into the dialer. It works with the desktop app and the web dialer.',
+          'Chrome extension and the web dialer: if dialer.aptask.com is open in a tab, a clicked number goes into that tab without reloading it, so a call in progress keeps going. Otherwise it opens where the extension’s options say: the desktop app (the default) or a new web dialer tab.',
           'A failed capture empties the keypad on purpose, so you can’t call an old number by mistake.',
         ],
         issues: [
@@ -289,7 +290,8 @@ export const HELP_AREAS: HelpArea[] = [
           { message: 'Your operating system still has another app set as the default for phone links.', meaning: 'Teams, FaceTime or another app is still opening phone links.', fix: 'Click a phone link once and choose ACE Dialer, or change it in your computer’s default-apps settings.' },
           { message: 'Click to dial needs the desktop app', meaning: 'You’re using the dialer in a web browser, which can’t catch links or shortcuts from other apps.', fix: 'Install the ACE Dialer desktop app.' },
           { message: 'Access was not granted, so this site was not added.', meaning: 'Chrome asked for permission to read that site and it was declined. The extension needs it to find numbers on the page.', fix: 'Add the site again and choose Allow.' },
-          { message: 'Clicking an underlined number does nothing', meaning: 'The page changed after the number was underlined, or the desktop app isn’t installed.', fix: 'Reload the page. Make sure the desktop app is installed and running.' },
+          { message: 'Clicking an underlined number does nothing', meaning: 'The page changed after the number was underlined, or the extension is set to open the desktop app and it isn’t installed.', fix: 'Reload the page. If you only use the web dialer, keep it open in a tab, or choose “Web dialer” in the extension’s options.' },
+          { message: 'Set by your administrator', meaning: 'IT chose this site or this setting for everyone, so you can’t change it in the extension’s options.', fix: 'For a site marked this way, press Allow once so the extension can read it.' },
         ],
       },
       {

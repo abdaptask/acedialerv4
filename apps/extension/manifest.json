@@ -4,10 +4,38 @@
   "version": "0.10.242",
   "description": "Finds phone numbers on a page and makes them clickable. One click opens the number in ACE Dialer, ready to dial.",
   "minimum_chrome_version": "102",
-  "permissions": ["storage", "scripting"],
-  "optional_host_permissions": ["*://*/*"],
-  "background": { "service_worker": "background.js" },
+  "permissions": [
+    "storage",
+    "scripting"
+  ],
+  "host_permissions": [
+    "https://dialer.aptask.com/*"
+  ],
+  "optional_host_permissions": [
+    "*://*/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://dialer.aptask.com/*"
+      ],
+      "js": [
+        "dialerBridge.js"
+      ],
+      "run_at": "document_start"
+    }
+  ],
   "options_page": "options.html",
-  "action": { "default_title": "ACE Dialer — Click to Call" },
-  "icons": { "128": "icons/icon128.png" }
+  "action": {
+    "default_title": "ACE Dialer — Click to Call"
+  },
+  "icons": {
+    "128": "icons/icon128.png"
+  },
+  "storage": {
+    "managed_schema": "managed_schema.json"
+  }
 }
