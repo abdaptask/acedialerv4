@@ -5,13 +5,17 @@ runs in a browser tab or a packaged Electron desktop app. Calls + SMS via Telnyx
 voicemail transcription and SMS dictation via Deepgram, Microsoft Teams
 notifications via Microsoft Graph, Microsoft SSO via Entra ID.
 
-**Current release:** v0.10.221 (August 13, 2026)
+**Current release:** v0.10.242 (October 13, 2026). Since then `main` has gained the Chrome extension's
+web-dialer delivery and Follow-ups panel (web + API live October 20; the extension itself is in Chrome Web Store review).
 
 ## Quick links
 
 - **[Project state](PROJECT_STATE.md)** — living snapshot: what's deployed, open tasks, recent learnings. Read this first.
-- **[Architecture blueprint](CLAUDE.md)** — per-module contract for every part of the system (29 modules, capabilities → guardrails)
+- **[Architecture blueprint](CLAUDE.md)** — per-module contract for every part of the system (32 modules, capabilities → guardrails)
 - **[Features](docs/features.md)** — capability list (last refreshed at v0.10.192)
+- **[Reports guide](docs/reports-guide.md)**: how to read each Reports tab, per entitlement
+- **[Phone-number type detection](docs/phone-type-detection.md)**: what the Mobile / Landline / VoIP badge can and can't tell you, and what it costs
+- **[Chrome extension](apps/extension/README.md)**: build, store listing, sign-in, Intune policy ([plan](docs/chrome-extension-plan.md))
 - **[User onboarding](docs/user-onboarding.md)** — share with new users on day one
 - **[Admin runbook](docs/admin-runbook.md)** — add users, manage DIDs, watch logs, troubleshoot
 - **[Changelog](docs/changelog.md)** — per-release notes through v0.10.23. Newer releases are recorded in `PROJECT_STATE.md`, and user-facing notes in `apps/web/src/data/whatsNew.ts`.
@@ -26,12 +30,12 @@ desktop app, and a browser extension:
 
 | Workspace | What it does | Hosted |
 | --- | --- | --- |
-| `apps/api` | HTTP API — auth (MS SSO + password), users, calls, messages, voicemails, favorites, blocking, forwarding, internal chat, JobDiva, admin, /me endpoints | self-hosted (pm2 `ace-api`, :3000) |
+| `apps/api` | HTTP API — auth (MS SSO + password), users, calls, messages, voicemails, favorites, blocking, forwarding, internal chat, JobDiva, Reports + daily email, phone-type lookup, admin, /me endpoints | self-hosted (pm2 `ace-api`, :3000) |
 | `apps/socket` | Socket.IO service — stub today (ping/pong); real-time fan-out is planned, everything still polls | self-hosted (pm2 `ace-socket`, :3001) |
 | `apps/webhooks` | Telnyx webhook receiver — call.*, message.*, voicemail.* events; multi-user routing, blocked-caller reject, Teams notifications | self-hosted (pm2 `ace-webhooks`, :3002) |
 | `apps/web` | React + Vite SPA — the dialer UI | self-hosted (pm2 `ace-web` static SPA, :3010) |
 | `apps/desktop` | Electron wrapper around the web app — auto-update, tray, floating ringer, `ace-dialer://` protocol handler, click-to-dial | GitHub Releases |
-| `apps/extension` | MV3 browser extension — finds phone numbers on ATS/CRM pages and hands them to the desktop app. Per-domain permissions only, granted on its options page | side-loaded (not store-published) |
+| `apps/extension` | MV3 Chrome extension — underlines phone numbers on ATS/CRM pages and prefills the open web dialer tab or the desktop app; Follow-ups side panel with a scoped Microsoft sign-in. Per-domain permissions only, granted on its options page or by Intune policy | Chrome Web Store, unlisted (item `ljncgopkhffengghjmeboinhjiccnpja`, in review) |
 | `packages/db` | Prisma schema + generated client, shared by `api` and `webhooks` | shared |
 
 All server apps run **self-hosted** on the `dialer.aptask.com` host under pm2
@@ -77,6 +81,7 @@ example points at the production API (`https://dialer.aptask.com/api`); change t
 Tests use Node's built-in runner:
 
 ```bash
+npm test -w apps/api
 npm test -w apps/web
 npm test -w apps/extension
 ```
@@ -112,11 +117,22 @@ Desktop is the only GitHub-Actions/Releases path:
 
 | Trigger | What happens |
 | --- | --- |
-| `v*` tag / manual `package:*:publish` | GitHub Actions (`build-desktop.yml`) builds + publishes desktop installers to GitHub Releases; clients auto-update |
+| `v*` tag / manual `package:*:publish` | GitHub Actions (`build-desktop.yml`) builds desktop installers and uploads them to a **draft** GitHub Release |
+| Push to `main` touching `apps/web/**` or any `package.json` | Same workflow, at the current version. Without a version bump it only rebuilds the existing release; no user moves |
+
+A draft release is invisible to auto-update until someone presses **Publish**
+on GitHub. The desktop app bundles its own copy of `apps/web/dist`, so a web
+deploy never reaches desktop users; any UI change needs a version bump and a
+published release.
 
 There is **no staging environment** — the host is production. Desktop releases
 are gated behind the tag/publish step, so the desktop side can lag behind
 web/API if you don't publish.
+
+The Chrome extension ships separately: `npm run build -w apps/extension` writes
+the store zip to `apps/extension/release/`, which is uploaded by hand in the
+Chrome Web Store dashboard. Re-upload only when the extension's own code
+changes.
 
 ## Environment variables
 
@@ -138,6 +154,10 @@ of supported vars. Critical ones:
 | api | `LLM_PROVIDER`, `LLM_BASE_URL`, `LLM_MODEL` | SMS AI rewrite. Defaults to self-hosted Qwen via Ollama; unset ⇒ the endpoint 501s and the button hides |
 | api | `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_MEDIA_BUCKET` | MMS attachments, voicemail greetings (migration off Supabase in progress) |
 | api | `CLOUDFLARE_TURN_KEY_ID`, `CLOUDFLARE_TURN_API_TOKEN` | TURN relay — required for inbound audio on symmetric-NAT networks |
+| api | `EXTENSION_IDS` | Comma-separated Chrome extension IDs allowed to sign in. Each needs a matching `https://<id>.chromiumapp.org/` **Web** redirect URI on the `MS_CLIENT_ID` app. Empty = extension sign-in off |
+| api | `PHONE_LOOKUP_PROVIDER`, `PHONE_LOOKUP_DAILY_LIMIT`, `PHONE_LOOKUP_TTL_DAYS` | Phone-number type badge. `telnyx` = paid carrier lookup, cached permanently; `none` (code default) = free inference only |
+| api, webhooks | `SENDGRID_API_KEY`, `SENDGRID_FROM_EMAIL`, `SENDGRID_FROM_NAME` | Notification emails (webhooks) + the Reports daily email (api) |
+| api | `TELNYX_COST_*` | Per-minute / per-SMS / per-DID rates for the Reports Cost tab. Blank = built-in default |
 
 ## Project Status
 
@@ -147,12 +167,24 @@ Pulse migration tooling — all complete.
 **Phase 7 — Pillar 1 + 2 (v0.10.0–v0.10.8):** Multi-DID support, Teams
 notifications, voicemail playback page, Electron deep-link handlers. **Shipped.**
 
-**Since (v0.10.9–v0.10.221):** JsSIP migration (unlocking add-call, swap, hold &
+**v0.10.9–v0.10.221:** JsSIP migration (unlocking add-call, swap, hold &
 accept, 3-way conference, blind transfer), server-synced favorites, internal
 chat, call forwarding, 30-day Pulse backfill, Microsoft Graph Teams cards, SMS
 composer assists (templates, dictation, AI rewrite, segment counter), compose
 drafts, and click-to-dial across `tel:` links, a clipboard hotkey, and the
 browser extension. **Shipped.**
+
+**v0.10.222–v0.10.242:** scheduled-SMS failure visibility, favorites
+multi-select send, bulk-send placeholders, conference self-mute fix, personal
+SMS templates in Settings, the **Reports suite** (team + per-person, every number
+drills down, contact search, Follow-ups, admin Insights, end reasons and
+no-audio detection, the daily/weekly team email), the **phone-number type
+badge**, failed-text reasons, and **Settings → Help**. **Shipped.**
+
+**Chrome extension (merged October 20, after v0.10.242):** click-to-call through
+an open web dialer tab as well as the desktop app, an Intune managed policy,
+and the Follow-ups side panel. Web + API are live; the extension is in Chrome
+Web Store review, then goes out by Intune force-install.
 
 **Next phases:**
 
@@ -161,6 +193,8 @@ browser extension. **Shipped.**
 - **Realtime socket** — `apps/socket` is still a stub; badges, chat, and the
   voicemail inbox all poll. Replace one feature at a time.
 - **EV/OV code-signing cert** — Windows installer signing is bypassed today
+- **electron-builder 26** — macOS builds are pinned to `macos-15` runners until
+  then (electron-builder 25 passes the wrong keychain password on macOS 26)
 
 See `PROJECT_STATE.md` for what's currently deployed and `CLAUDE.md` for the
 per-module architecture.

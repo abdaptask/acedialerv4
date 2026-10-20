@@ -128,7 +128,7 @@ The zip in `release/` is the Chrome Web Store upload. Only re-upload when
 `apps/extension/` changed — the version bumps with every app release, but a
 store review for a no-op build buys nothing.
 
-**Extension ID:** the Intune policies reference it, so it must not change
+**Extension ID:** `ljncgopkhffengghjmeboinhjiccnpja` (Chrome Web Store, unlisted; first submitted October 20, 2026). The Intune policies reference it, so it must not change
 between builds. After the first store upload, copy the public key from the
 developer dashboard (Package → View public key) into `manifest.json` as
 `"key"`, so unpacked dev builds get the same ID as the store build.
