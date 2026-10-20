@@ -105,6 +105,12 @@ can place a call, so the user always sees the number and presses Call.
   access to any other site and registers its scanner only for domains you grant on
   its options page, so it can't read every page you visit. It never touches
   form fields you're typing in.
+- **Follow-ups panel** — the same extension's toolbar icon opens a side panel
+  listing the missed calls, texts and voicemails still waiting on you (the
+  Reports → Follow-ups list), with Call back / Text buttons that fill the
+  number into the dialer. The icon shows the count. It signs in with
+  Microsoft and holds a token that can only read that list; it never shows
+  message text. Chrome and Edge.
 
 Numbers are cleaned automatically (spaces, dashes, brackets removed, country
 code kept) and extensions like `x203` are dialled for you once connected.

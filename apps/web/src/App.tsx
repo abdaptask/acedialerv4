@@ -203,7 +203,8 @@ export default function App() {
   // tab is the open web dialer, the extension delivers clicked numbers here
   // rather than reloading the tab — a reload drops the JWT and SIP
   // registration and ends any live call. Routed exactly like the desktop's
-  // `src=selection` deep link above: strict parse, prefill only.
+  // deep links above: page captures strictly (`src=selection`), follow-up
+  // panel numbers like a Teams card; prefill only either way.
   //
   // The ack is what lets the extension tell "delivered" from "no listener"
   // (older build, Electron) and fall back instead of dropping the click.
@@ -213,7 +214,7 @@ export default function App() {
       const dial = parseExtensionDial(e, window.location.origin);
       if (!dial) return;
       console.info('[extension] dial hand-off received');
-      navigate(extensionDialRoute(dial.to));
+      navigate(extensionDialRoute(dial));
       window.postMessage(extensionDialAck(dial.id), window.location.origin);
     };
     window.addEventListener('message', onMessage);

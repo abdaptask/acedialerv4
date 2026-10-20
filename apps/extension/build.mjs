@@ -16,16 +16,17 @@ await build({
     background: 'src/background.ts',
     options: 'src/options.ts',
     dialerBridge: 'src/dialerBridge.ts',
+    panel: 'src/panel.ts',
   },
   outdir: 'dist',
   bundle: true,
   format: 'iife',
-  target: 'chrome102',
+  target: 'chrome116',
   minify: true,
   legalComments: 'none',
 });
 
-for (const f of ['manifest.json', 'managed_schema.json', 'options.html', 'src/content.css']) {
+for (const f of ['manifest.json', 'managed_schema.json', 'options.html', 'panel.html', 'src/content.css']) {
   cpSync(f, `dist/${f.replace('src/', '')}`);
 }
 cpSync('icons', 'dist/icons', { recursive: true });

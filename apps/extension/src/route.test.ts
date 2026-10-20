@@ -4,18 +4,21 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { effectiveOpenIn, fallbackRoute, pickDialerTab } from './route.js';
+import { effectiveOpenIn, fallbackRoute, pickDialerTab, type Target } from './route.js';
+
+const page = (to: string): Target => ({ to, action: 'call', trusted: false });
+const panel = (to: string, action: Target['action']): Target => ({ to, action, trusted: true });
 
 test('desktop is the default, and keeps the strict-parse marker', () => {
   const { value } = effectiveOpenIn(undefined, undefined);
-  assert.deepEqual(fallbackRoute('+1 732 200 1305', value), {
+  assert.deepEqual(fallbackRoute(page('+1 732 200 1305'), value), {
     kind: 'desktop',
     url: 'ace-dialer://call?to=%2B1%20732%20200%201305&src=selection',
   });
 });
 
 test('web preference opens the web keypad, also marked untrusted', () => {
-  assert.deepEqual(fallbackRoute('7322001305', 'web'), {
+  assert.deepEqual(fallbackRoute(page('7322001305'), 'web'), {
     kind: 'new-tab',
     url: 'https://dialer.aptask.com/keypad?to=7322001305&src=selection',
   });
@@ -28,7 +31,7 @@ test('policy beats the user, the user beats the default, junk is ignored', () =>
 });
 
 test('a pathological selection is clipped before it becomes a URL', () => {
-  const r = fallbackRoute('9'.repeat(5000), 'desktop');
+  const r = fallbackRoute(page('9'.repeat(5000)), 'desktop');
   assert.ok(r.url.length < 300);
 });
 
@@ -41,4 +44,19 @@ test('of several dialer tabs, the most recently used wins', () => {
   // Chrome < 121 has no lastAccessed: prefer the active tab.
   assert.equal(pickDialerTab([{ id: 1 }, { id: 2, active: true }])?.id, 2);
   assert.equal(pickDialerTab([{ active: true }, { id: 4 }])?.id, 4);
+});
+
+test('panel numbers are trusted: no src marker, so they take the lenient Teams-card path', () => {
+  assert.deepEqual(fallbackRoute(panel('+17322001305', 'call'), 'desktop'), {
+    kind: 'desktop',
+    url: 'ace-dialer://call?to=%2B17322001305',
+  });
+  assert.deepEqual(fallbackRoute(panel('+17322001305', 'sms'), 'desktop'), {
+    kind: 'desktop',
+    url: 'ace-dialer://sms?to=%2B17322001305',
+  });
+  assert.deepEqual(fallbackRoute(panel('+17322001305', 'sms'), 'web'), {
+    kind: 'new-tab',
+    url: 'https://dialer.aptask.com/messages?to=%2B17322001305',
+  });
 });

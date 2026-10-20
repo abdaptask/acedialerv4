@@ -159,7 +159,10 @@ export async function computeFollowUps(scope: number | null) {
       orderBy: { createdAt: 'asc' },
     }),
     prisma.voicemail.findMany({
-      where: { receivedAt: { gte: new Date(sinceMs) }, listenedAt: null, ...(scope !== null ? { userId: scope } : {}) },
+      // Not filtered on listenedAt — see the "Heard alone isn't reliable" note
+      // below. It was filtered here, which hid every voicemail someone played
+      // but never returned, contradicting that note and CLAUDE.md §31.
+      where: { receivedAt: { gte: new Date(sinceMs) }, ...(scope !== null ? { userId: scope } : {}) },
       select: { userId: true, fromNumber: true, receivedAt: true, durationSeconds: true },
     }),
     loadNames(scope !== null ? [scope] : null),
@@ -264,7 +267,59 @@ export async function computeFollowUps(scope: number | null) {
   };
 }
 
+// ── Follow-ups for the browser extension ─────────────────────────────
+// The side panel and toolbar badge (apps/extension). Self-only, with no
+// userId parameter, so an extension token has no admin surface at all.
+// Same computeFollowUps as Reports, so the badge and the Follow-ups tab can
+// never disagree about what's open.
+
+type FollowUps = Awaited<ReturnType<typeof computeFollowUps>>;
+
+/** The panel's view of one person's follow-ups: who, what, how long — never
+ *  message text (the panel sits beside arbitrary sites; computeFollowUps
+ *  doesn't return bodies either, and this keeps it that way by construction). */
+export function toExtensionFollowUps(f: FollowUps) {
+  return {
+    generatedAt: f.generatedAt,
+    days: f.days,
+    totals: f.totals,
+    count: f.items.length,
+    items: f.items.map((it) => ({
+      kind: it.kind,
+      number: it.number,
+      name: it.name ?? null,
+      count: it.count,
+      voicemails: 'voicemails' in it ? it.voicemails : 0,
+      since: it.since,
+      lastAt: it.lastAt,
+    })),
+  };
+}
+
+// Every open browser of every signed-in user polls the badge, so the count
+// is served from a short per-user cache rather than recomputed per poll.
+const FOLLOW_UPS_TTL_MS = 60_000;
+const followUpsCache = new Map<number, { at: number; value: ReturnType<typeof toExtensionFollowUps> }>();
+
+async function myFollowUps(userId: number) {
+  const hit = followUpsCache.get(userId);
+  if (hit && Date.now() - hit.at < FOLLOW_UPS_TTL_MS) return hit.value;
+  const value = toExtensionFollowUps(await computeFollowUps(userId));
+  followUpsCache.set(userId, { at: Date.now(), value });
+  return value;
+}
+
 export async function lookupRoutes(app: FastifyInstance) {
+  app.get('/me/follow-ups', { onRequest: [app.authenticate] }, async (request) => {
+    return myFollowUps((request.user as { sub: number }).sub);
+  });
+
+  // §5.4: a badge poll returns a counter, not rows.
+  app.get('/me/follow-ups/count', { onRequest: [app.authenticate] }, async (request) => {
+    const { count, generatedAt } = await myFollowUps((request.user as { sub: number }).sub);
+    return { count, generatedAt };
+  });
+
   // ── Search ──────────────────────────────────────────────────────────
   app.get<{ Querystring: { q?: string } }>('/reports/contact/search', { onRequest: [app.authenticate] }, async (request, reply) => {
     const scope = scopeOf(request, reply);

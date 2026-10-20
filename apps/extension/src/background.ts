@@ -4,6 +4,7 @@
 //   1. Register the page scanner ONLY on domains the user or IT has granted.
 //   2. Hand clicked numbers to a dialer — an open web dialer tab, else the
 //      desktop app or a new web dialer tab (route.ts owns the decision).
+//   3. Keep the toolbar follow-ups count fresh (badge.ts).
 //
 // ── Why there is no <all_urls> content script ──────────────────────────
 // Auto-detecting numbers means reading page text, and there is no way around
@@ -19,12 +20,14 @@
 // access would expose every page a recruiter visits; this exposes only the
 // ATS domains someone deliberately turned on.
 
+import { BADGE_ALARM, refreshBadge } from './badge';
 import {
   DIALER_MATCH,
   effectiveOpenIn,
   fallbackRoute,
   pickDialerTab,
   type Route,
+  type Target,
 } from './route';
 
 const SCRIPT_ID_PREFIX = 'ace-scanner-';
@@ -103,17 +106,38 @@ chrome.storage.onChanged.addListener((changes, area) => {
 
 // ── Handing a number to a dialer ────────────────────────────────────────
 
-chrome.runtime.onMessage.addListener((msg: { type?: string; to?: string }, _sender, sendResponse) => {
-  if (msg?.type !== 'ace-dial' || !msg.to) return;
-  void deliver(msg.to);
-  sendResponse({ ok: true });
-  return true;
-});
+chrome.runtime.onMessage.addListener(
+  (msg: { type?: string; to?: string; action?: string }, sender, sendResponse) => {
+    if (!msg?.to) return;
+    if (msg.type === 'ace-dial') {
+      // From the page scanner: text off someone else's page.
+      void deliver({ to: msg.to, action: 'call', trusted: false });
+    } else if (msg.type === 'ace-open' && fromOwnPanel(sender)) {
+      // From the follow-ups panel: a number out of our own database.
+      void deliver({ to: msg.to, action: msg.action === 'sms' ? 'sms' : 'call', trusted: true });
+    } else {
+      return;
+    }
+    sendResponse({ ok: true });
+    return true;
+  },
+);
 
-async function deliver(to: string): Promise<void> {
-  if (await handToOpenDialer(to)) return;
+/**
+ * Only our own panel page may send a TRUSTED number. Content scripts share
+ * our extension id, so `sender.id` proves nothing; a content script's
+ * sender.url is the page it runs in, never a chrome-extension:// URL. Without
+ * this check, any page we scan could inject a number that skips the strict
+ * parser.
+ */
+function fromOwnPanel(sender: chrome.runtime.MessageSender): boolean {
+  return sender.id === chrome.runtime.id && !!sender.url?.startsWith(chrome.runtime.getURL('panel.html'));
+}
+
+async function deliver(t: Target): Promise<void> {
+  if (await handToOpenDialer(t)) return;
   const [managed, { openIn }] = await Promise.all([getManaged(), chrome.storage.sync.get('openIn')]);
-  open(fallbackRoute(to, effectiveOpenIn(managed.openIn, openIn).value));
+  open(fallbackRoute(t, effectiveOpenIn(managed.openIn, openIn).value));
 }
 
 /**
@@ -122,19 +146,19 @@ async function deliver(to: string): Promise<void> {
  * the page acknowledged — anything else falls through to the preference, so a
  * click is never silently dropped.
  */
-async function handToOpenDialer(to: string): Promise<boolean> {
+async function handToOpenDialer(t: Target): Promise<boolean> {
   const tabs = await chrome.tabs.query({ url: DIALER_MATCH }).catch(() => []);
   const tab = pickDialerTab(tabs);
   if (!tab?.id) return false;
 
-  let ok = await sendToBridge(tab.id, to);
+  let ok = await sendToBridge(tab.id, t);
   if (ok === null) {
     // No bridge in the tab: it was open before the extension was installed or
     // updated, so the static content script never ran there. Inject and retry.
     const injected = await chrome.scripting
       .executeScript({ target: { tabId: tab.id }, files: ['dialerBridge.js'] })
       .then(() => true, () => false);
-    if (injected) ok = await sendToBridge(tab.id, to);
+    if (injected) ok = await sendToBridge(tab.id, t);
   }
   if (!ok) return false;
 
@@ -144,9 +168,14 @@ async function handToOpenDialer(to: string): Promise<boolean> {
 }
 
 /** true = delivered, false = the page didn't ack, null = no bridge listening. */
-async function sendToBridge(tabId: number, to: string): Promise<boolean | null> {
+async function sendToBridge(tabId: number, t: Target): Promise<boolean | null> {
   try {
-    const res = (await chrome.tabs.sendMessage(tabId, { type: 'ace-dial', to })) as { ok?: boolean } | undefined;
+    const res = (await chrome.tabs.sendMessage(tabId, {
+      type: 'ace-dial',
+      to: t.to,
+      action: t.action,
+      src: t.trusted ? undefined : 'selection',
+    })) as { ok?: boolean } | undefined;
     return res?.ok === true;
   } catch {
     return null;
@@ -179,6 +208,19 @@ function launchProtocol(url: string): void {
   });
 }
 
-// Clicking the toolbar icon opens the allowlist — the only place with UI.
-chrome.action.onClicked.addListener(() => chrome.runtime.openOptionsPage());
+// ── Toolbar: the icon opens the follow-ups panel; its count is the badge ──
 
+function setUpToolbar(): void {
+  // Browsers without the side panel API get the same page in a tab (below).
+  void chrome.sidePanel?.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => undefined);
+  void chrome.alarms.create(BADGE_ALARM, { periodInMinutes: 2, delayInMinutes: 0.1 });
+}
+chrome.runtime.onInstalled.addListener(setUpToolbar);
+chrome.runtime.onStartup.addListener(setUpToolbar);
+chrome.alarms.onAlarm.addListener((a) => {
+  if (a.name === BADGE_ALARM) void refreshBadge();
+});
+// Only fires when the side panel didn't claim the click.
+chrome.action.onClicked.addListener(() => {
+  if (!chrome.sidePanel) void chrome.tabs.create({ url: chrome.runtime.getURL('panel.html') });
+});

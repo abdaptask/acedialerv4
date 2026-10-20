@@ -295,6 +295,27 @@ export const HELP_AREAS: HelpArea[] = [
         ],
       },
       {
+        id: 'extension-follow-ups',
+        title: 'Follow-ups in Chrome or Edge (browser extension)',
+        summary: 'The ACE Dialer extension shows the missed calls, texts and voicemails still waiting on you, beside whatever page you’re working in. The number on its toolbar icon is how many.',
+        keywords: ['extension', 'chrome', 'edge', 'side panel', 'follow-ups', 'badge', 'toolbar', 'waiting', 'call back', 'sign in'],
+        steps: [
+          'Click the ACE Dialer icon in the browser toolbar to open the panel, then Sign in with Microsoft.',
+          'Call back and Text fill the number into the dialer (an open web dialer tab, else the desktop app or a new tab, per the extension’s settings). Nothing dials or sends until you press the button in the dialer.',
+          'An item clears once you call or text that number back. It’s the same list as Reports → Follow-ups, and it never shows what a text or voicemail said.',
+          'The gear opens the click-to-call settings: which sites get clickable numbers, and where a clicked number opens.',
+        ],
+        issues: [
+          { message: 'Sign-in was closed before it finished.', meaning: 'The Microsoft sign-in window was closed before you finished signing in.', fix: 'Press Sign in with Microsoft again.' },
+          { message: 'Couldn’t reach ACE Dialer. Check your connection and try again.', meaning: 'The extension couldn’t contact dialer.aptask.com to start sign-in.', fix: 'Check you’re online, then try again.' },
+          { message: 'This browser extension is not allowed to sign in.', meaning: 'This copy of the extension isn’t the one ApTask installs (often a test build).', fix: 'Use the ACE Dialer extension from IT, or ask an admin to allow this one.' },
+          { message: 'ACE Dialer didn’t accept the sign-in. Try again, or ask your admin.', meaning: 'Microsoft signed you in but the dialer refused it.', fix: 'Make sure you picked your own ApTask account. If it keeps happening, ask an admin.' },
+          { message: 'Your account has not been provisioned. Ask your admin to invite you.', meaning: 'The Microsoft account you picked doesn’t have an ACE Dialer account.', fix: 'Sign in with the account you use for the dialer, or ask an admin to invite you.' },
+          { message: 'Couldn’t load follow-ups', meaning: 'The panel lost its connection to the dialer. It keeps the last list it had.', fix: 'It retries every minute; you can also press refresh.' },
+          { message: 'The toolbar number doesn’t match the panel', meaning: 'The number refreshes every 2 minutes; the panel refreshes when it opens.', fix: 'Open the panel and the two will agree.' },
+        ],
+      },
+      {
         id: 'teams-links',
         title: 'Call back links in Teams and email',
         summary: 'The “Call back” button in a missed-call card or email opens the dialer with the number filled in.',

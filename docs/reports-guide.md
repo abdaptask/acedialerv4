@@ -196,6 +196,10 @@ Cost estimates spend on calls (billed minutes), texts (billed message parts) and
 
 **Why are call quality and "no audio" blank for some calls?** Audio is measured from 25 September 2026 on. The app's own measurement needs desktop version 0.10.232 or later; update from your name menu, then Check for updates.
 
+**Why is a voicemail I already listened to on Follow-ups?** Listening isn't answering. A voicemail stays open until you call or text that number back. (Earlier, a voicemail you'd played dropped off the list even if nobody had called back; that was a bug.) Playing from a Teams card or an email doesn't always register as listened anyway, so it was never a reliable signal.
+
+**Can I see Follow-ups without opening Reports?** Yes. The ACE Dialer browser extension (Chrome or Edge) shows the same list in a side panel, and the number on its toolbar icon is how many items are waiting.
+
 **Why does Follow-ups still list someone I spoke to?** It clears when you call or text that exact number back. If they called from a different number, contact that one too or it stays open.
 
 **How far back can I look?** Any range of up to 92 days at a time. Search covers the last 12 months.
