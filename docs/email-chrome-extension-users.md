@@ -1,7 +1,6 @@
 # Email draft — ACE Dialer for Chrome (install announcement)
 
-Send only after the Chrome Web Store approves item `ljncgopkhffengghjmeboinhjiccnpja`;
-until then the link below shows "item not found". Open it yourself first to check.
+The store listing is live (public). Open the link below yourself before sending.
 
 **Subject:** Click any phone number in JobDiva to call it, plus a list of who's still waiting on you
 
@@ -20,8 +19,9 @@ It takes about two minutes to set up.
 
 1. In **Chrome**, open this link:
    **https://chromewebstore.google.com/detail/ljncgopkhffengghjmeboinhjiccnpja**
-   (It's private to ApTask, so you won't find it by searching the store.)
+   (Using the link is quickest. Searching the store for it may not find it yet.)
 2. Click **Add to Chrome**, then **Add extension**.
+   Chrome may say the extension **isn't trusted by Enhanced Safe Browsing** yet. That's normal for new extensions: click **Continue to install**.
 3. Pin it so it's always visible: click the **puzzle-piece icon** at the top right of Chrome, then the **pin** next to **ACE Dialer**.
 
 *Using Microsoft Edge?* Open the same link, click **Allow extensions from other stores** if Edge asks, then **Add to Chrome**.
@@ -35,6 +35,8 @@ It takes about two minutes to set up.
 5. Under **"Where should a clicked number open?"**, leave **ACE Dialer app** selected.
 
 Go back to JobDiva and refresh the page. Phone numbers now have a dotted underline. Click one and the ACE Dialer app comes forward with the number filled in.
+
+The first time you click a number, Chrome asks **"Open ACE Dialer?"**. Tick **Always allow** and click **Open ACE Dialer**, and it won't ask again.
 
 ## See your follow-ups
 
