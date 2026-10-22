@@ -63,7 +63,19 @@ async function getAllowedOrigins(): Promise<string[]> {
  * permission from chrome://extensions at any time, and registering a script
  * for a revoked origin throws.
  */
-async function syncContentScripts(): Promise<void> {
+let syncing: Promise<void> = Promise.resolve();
+function syncContentScripts(): Promise<void> {
+  // One at a time. Adding a site fires permissions.onAdded AND
+  // storage.onChanged within milliseconds; two overlapping runs both
+  // unregister, then both register the same id, the second throws "Duplicate
+  // script ID" (swallowed below), and the scanner is left matching whichever
+  // run read storage first — the first store install ended up scanning www1
+  // only, while JobDiva serves the candidate record from www2.
+  syncing = syncing.then(doSync, doSync);
+  return syncing;
+}
+
+async function doSync(): Promise<void> {
   const wanted = await getAllowedOrigins();
   const granted: string[] = [];
   for (const origin of wanted) {
@@ -90,7 +102,12 @@ async function syncContentScripts(): Promise<void> {
         js: ['content.js'],
         css: ['content.css'],
         runAt: 'document_idle',
-        allFrames: false, // iframes are usually ads/widgets; scanning them is cost without benefit
+        // JobDiva renders the candidate record inside frames on the same host;
+        // a top-frame-only scanner ran on a page holding no numbers at all.
+        // Frames on a granted host only: matchOriginAsFallback stays off, so
+        // the about:blank frames (rich-text editors among them) are never
+        // injected, and neither is a third-party ad frame.
+        allFrames: true,
       },
     ])
     .catch((e) => console.warn('[ace-dialer] could not register scanner', e));
@@ -183,30 +200,82 @@ async function sendToBridge(tabId: number, t: Target): Promise<boolean | null> {
 }
 
 function open(route: Route): void {
-  if (route.kind === 'desktop') launchProtocol(route.url);
+  if (route.kind === 'desktop') void launchProtocol(route.url);
   // A new tab has empty sessionStorage, so this lands on sign-in first; the
   // route guard keeps the URL and comes back to it. That's why an OPEN tab
   // is tried before this.
   else chrome.tabs.create({ url: route.url, active: true });
 }
 
+const LAUNCH_KEY = 'launchTabs';
+const LEFT_KEY = 'launchFocusLeft';
+const LAUNCH_ALARM = 'ace-launch-cleanup';
+
 /**
  * Open a protocol URL without disturbing what the user is looking at.
  *
- * Deliberately NOT a navigation of the active tab. That works when the app is
- * installed, but when it isn't, Chrome navigates the tab to an error page and
- * the user loses their work — destroying a half-filled ATS form because
- * someone clicked a phone number is far worse than the feature not working.
- * A background tab, closed right after, keeps the failure mode invisible.
+ * Deliberately NOT a navigation of the user's tab: when the app isn't
+ * installed that can leave their half-filled ATS form on an error page. And
+ * NOT a hidden background tab either — that was the first version, and
+ * Chrome's "Open ACE Dialer?" prompt appeared in the hidden tab, which closed
+ * after 1.5s with the question unanswered, so nothing ever opened. launch.html
+ * is a visible tab of our own that the prompt can sit on; the listeners above
+ * close it, and openerTabId sends the user back to the page they came from.
  */
-function launchProtocol(url: string): void {
-  chrome.tabs.create({ url, active: false }, (created) => {
-    if (chrome.runtime.lastError || !created?.id) return;
-    setTimeout(() => {
-      chrome.tabs.remove(created.id!, () => void chrome.runtime.lastError);
-    }, 1500);
-  });
+async function launchProtocol(url: string): Promise<void> {
+  const [opener] = await chrome.tabs.query({ active: true, lastFocusedWindow: true }).catch(() => []);
+  const created = await chrome.tabs
+    .create({
+      url: chrome.runtime.getURL(`launch.html?u=${encodeURIComponent(url)}`),
+      active: true,
+      openerTabId: opener?.id,
+    })
+    .catch(() => undefined);
+  if (!created?.id) return;
+  await chrome.storage.session.remove(LEFT_KEY);
+  await chrome.storage.session.set({ [LAUNCH_KEY]: [...(await launchTabs()), created.id] });
+  // Backstop for a tab nothing else closed (prompt ignored, app not installed).
+  void chrome.alarms.create(LAUNCH_ALARM, { delayInMinutes: 2 });
 }
+
+// The worker can be suspended between a launch and the event that ends it,
+// so the open launch tabs live in session storage, not a module variable.
+async function launchTabs(): Promise<number[]> {
+  const { [LAUNCH_KEY]: ids } = await chrome.storage.session.get(LAUNCH_KEY);
+  return Array.isArray(ids) ? ids.filter((x): x is number => typeof x === 'number') : [];
+}
+
+/** Removing only; onRemoved owns the list, so a launch recorded while this
+ *  runs can't be written over. */
+async function closeLaunchTabs(keep?: number): Promise<void> {
+  const closing = (await launchTabs()).filter((id) => id !== keep);
+  if (closing.length) await chrome.tabs.remove(closing).catch(() => undefined);
+}
+
+// Close once focus comes BACK to Chrome, never when it leaves. On Windows the
+// "Open ACE Dialer?" prompt is its own native window, so focus leaving Chrome
+// can be the prompt itself appearing — closing then would repeat the original
+// bug. Focus returning means the prompt was answered (or the app opened and
+// the user has come back), and either way the tab has done its job.
+chrome.windows.onFocusChanged.addListener(async (w) => {
+  if (w === chrome.windows.WINDOW_ID_NONE) {
+    if ((await launchTabs()).length) await chrome.storage.session.set({ [LEFT_KEY]: true });
+    return;
+  }
+  const { [LEFT_KEY]: left } = await chrome.storage.session.get(LEFT_KEY);
+  if (!left) return;
+  await chrome.storage.session.remove(LEFT_KEY);
+  await closeLaunchTabs();
+});
+// The user moved on (Cancel, then back to their page) — tidy up behind them.
+chrome.tabs.onActivated.addListener(({ tabId }) => void closeLaunchTabs(tabId));
+chrome.tabs.onRemoved.addListener(async (tabId) => {
+  const ids = await launchTabs();
+  if (ids.includes(tabId)) await chrome.storage.session.set({ [LAUNCH_KEY]: ids.filter((id) => id !== tabId) });
+});
+chrome.alarms.onAlarm.addListener((a) => {
+  if (a.name === LAUNCH_ALARM) void closeLaunchTabs();
+});
 
 // ── Toolbar: the icon opens the follow-ups panel; its count is the badge ──
 

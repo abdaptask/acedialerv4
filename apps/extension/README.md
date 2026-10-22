@@ -99,7 +99,7 @@ page is a worse outcome than missing a number. It therefore:
 - batches DOM writes and debounces the observer through `requestIdleCallback`,
   because an ATS re-renders constantly and a scan per mutation would peg the CPU
 - caps work per pass so a pathological page degrades instead of hanging
-- skips iframes (`allFrames: false`) — usually ads and widgets, cost without benefit
+- scans frames on a granted host (`allFrames: true`) — JobDiva shows the candidate record in same-host frames. about:blank frames (rich-text editors) and third-party frames are never injected, and a `designMode` document is skipped
 
 ## False positives are the real risk
 

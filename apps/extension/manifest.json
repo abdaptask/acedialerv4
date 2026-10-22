@@ -1,7 +1,8 @@
 {
   "manifest_version": 3,
   "name": "ACE Dialer",
-  "version": "0.10.242",
+  "version": "0.10.242.1",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAshsC/kB2FIYAZyPclo1orhnUMqrH95mmnzB+u/kxF0BXhdviHHAgI3A0D11BacCXiwyC66AmlopPYiEITCAKW1TUMK/WFibg9FiBicAMG1slifHeSlg/Uyld7d0yV8QoYOaLO5gHMoHOQb6Rs4//YaZx6zCV/S49EXaMomZVkrT+C3xN/5ESRklkrsZDU2cYG1Aw9tLO0aRn6aDLE2ib/NBq8pzTxkS7MAyvmAYStCdUr0I+Wc8Dfk/VcxN4jdj1iPvS9Zia2JPcdeqy+I3af+2QgXrxp89Npfg1aTuUnC7d5FxkqyXdKlul1GflAVFPbR+nz4mLttZeNji+PsRgSwIDAQAB",
   "description": "Makes phone numbers on your ATS and CRM clickable, and shows the missed calls, texts and voicemails still waiting on you.",
   "minimum_chrome_version": "116",
   "permissions": [

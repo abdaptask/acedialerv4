@@ -17,6 +17,7 @@ await build({
     options: 'src/options.ts',
     dialerBridge: 'src/dialerBridge.ts',
     panel: 'src/panel.ts',
+    launch: 'src/launch.ts',
   },
   outdir: 'dist',
   bundle: true,
@@ -26,20 +27,29 @@ await build({
   legalComments: 'none',
 });
 
-for (const f of ['manifest.json', 'managed_schema.json', 'options.html', 'panel.html', 'src/content.css']) {
+for (const f of ['manifest.json', 'managed_schema.json', 'options.html', 'panel.html', 'launch.html', 'src/content.css']) {
   cpSync(f, `dist/${f.replace('src/', '')}`);
 }
 cpSync('icons', 'dist/icons', { recursive: true });
 // The Chrome Web Store upload. Kept OUTSIDE dist/ so "Load unpacked" on dist
 // never contains its own archive.
-const { version } = JSON.parse(readFileSync('manifest.json', 'utf8'));
+//
+// dist/ keeps the manifest's pinned `key`, so a "Load unpacked" build gets the
+// store's extension id and Microsoft sign-in (redirect URI = that id) works
+// in testing. The store refuses an upload whose manifest carries a key, so
+// the store zip gets a copy without it; the -unpacked zip is for handing a
+// test build to someone off this host.
+const manifest = JSON.parse(readFileSync('manifest.json', 'utf8'));
+const { key: _key, ...storeManifest } = manifest;
 mkdirSync('release', { recursive: true });
-const zipPath = `release/ace-dialer-extension-${version}.zip`;
-writeFileSync(zipPath, zip('dist'));
-console.log(`extension bundled → apps/extension/dist, store upload → apps/extension/${zipPath}`);
+const zipPath = `release/ace-dialer-extension-${manifest.version}.zip`;
+writeFileSync(zipPath, zip('dist', { 'manifest.json': Buffer.from(JSON.stringify(storeManifest, null, 2) + '\n') }));
+const testZipPath = `release/ace-dialer-extension-${manifest.version}-unpacked.zip`;
+writeFileSync(testZipPath, zip('dist'));
+console.log(`extension bundled → apps/extension/dist, store upload → apps/extension/${zipPath}, test build → apps/extension/${testZipPath}`);
 
 /** Minimal deflate zip writer — enough for a store upload, no dependency. */
-function zip(root) {
+function zip(root, overrides = {}) {
   const files = [];
   const walk = (dir) => {
     for (const name of readdirSync(dir).sort()) {
@@ -54,8 +64,9 @@ function zip(root) {
   const central = [];
   let offset = 0;
   for (const p of files) {
-    const name = Buffer.from(relative(root, p).split('\\').join('/'));
-    const data = readFileSync(p);
+    const rel = relative(root, p).split('\\').join('/');
+    const name = Buffer.from(rel);
+    const data = overrides[rel] ?? readFileSync(p);
     const packed = deflateRawSync(data, { level: 9 });
     const crc = crc32(data);
     // Fixed DOS date (1980-01-01) keeps the archive byte-identical across
