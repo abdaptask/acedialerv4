@@ -296,6 +296,7 @@ export const HELP_AREAS: HelpArea[] = [
           { message: 'Opening ACE Dialer…', meaning: 'The extension is handing the number to the desktop app. Chrome may ask first whether to open it.', fix: 'Choose Open ACE Dialer. Tick “Always allow” to skip the question next time. The tab closes itself.' },
           { message: 'Nothing happened? Make sure the ACE Dialer desktop app is installed.', meaning: 'Chrome couldn’t find the desktop app to open the number in.', fix: 'Install the desktop app, or choose “Web dialer” in the extension’s options.' },
           { message: 'Couldn’t change the Chrome extension setting. Try again.', meaning: 'Your computer didn’t accept the change to Chrome’s extension settings.', fix: 'Try again. If it keeps happening, install or remove the extension from Chrome’s own Extensions page instead.' },
+          { message: 'Not allowed yet', meaning: 'The site is on your list, but Chrome isn’t letting the extension read it, so numbers there aren’t underlined. This happens after removing and reinstalling the extension.', fix: 'Click Allow next to the site, then refresh the page.' },
           { message: 'Set by your administrator', meaning: 'IT chose this site or this setting for everyone, so you can’t change it in the extension’s options.', fix: 'For a site marked this way, press Allow once so the extension can read it.' },
         ],
       },
