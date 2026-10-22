@@ -3,6 +3,9 @@
 // the window to the system tray on close so active calls keep running.
 import { app, BrowserWindow, shell, Menu, ipcMain, screen, Tray, nativeImage, powerMonitor, powerSaveBlocker, globalShortcut, clipboard } from 'electron';
 import * as path from 'node:path';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import { execFile } from 'node:child_process';
 // electron-updater handles the entire silent-update lifecycle: poll GitHub
 // Releases, download the new installer in the background, and offer to restart.
 // Mac auto-update REQUIRES the app be signed + notarized (we have both). On
@@ -970,23 +973,94 @@ function setDialHotkey(accelerator: string | null): { ok: boolean; error?: strin
   }
 }
 
+// ── Offering the Chrome extension ──────────────────────────────────────
+//
+// Chrome lets a locally installed program *propose* a Web Store extension
+// through its documented external-extensions mechanism: a per-user registry
+// key on Windows, a JSON file on macOS. Chrome then shows "ACE Dialer
+// extension added" with an Enable button on its next start. It never
+// installs one silently — that's Chrome's anti-malware rule and the reason
+// this is safe to do by default: nothing changes until the user clicks
+// Enable, and once they remove or decline it Chrome never asks again.
+//
+// Removing the entry makes Chrome uninstall an extension it added this way,
+// so the entry is only removed when the user turns the setting off — never
+// by the uninstaller, which also runs during every auto-update (an update
+// would otherwise yank the extension out from under everyone).
+//
+// Silent force-install exists only as admin policy (ExtensionInstallForcelist)
+// and brands Chrome "Managed by your organization"; ApTask has no device
+// management, so it's deliberately not used.
+
+const CHROME_EXTENSION_ID = 'ljncgopkhffengghjmeboinhjiccnpja';
+const CHROME_STORE_UPDATE_URL = 'https://clients2.google.com/service/update2/crx';
+const CHROME_WIN_KEY = `HKCU\\Software\\Google\\Chrome\\Extensions\\${CHROME_EXTENSION_ID}`;
+const chromeMacDir = () => path.join(os.homedir(), 'Library', 'Application Support', 'Google', 'Chrome');
+const chromeMacFile = () => path.join(chromeMacDir(), 'External Extensions', `${CHROME_EXTENSION_ID}.json`);
+
+function reg(args: string[]): Promise<boolean> {
+  return new Promise((resolve) => execFile('reg', args, { windowsHide: true }, (err) => resolve(!err)));
+}
+
+type ExtensionOffer = { ok: boolean; error?: string; supported: boolean };
+
+async function setChromeExtensionOffered(enabled: boolean): Promise<ExtensionOffer> {
+  try {
+    if (process.platform === 'win32') {
+      const ok = enabled
+        ? await reg(['add', CHROME_WIN_KEY, '/v', 'update_url', '/t', 'REG_SZ', '/d', CHROME_STORE_UPDATE_URL, '/f'])
+        : (await reg(['query', CHROME_WIN_KEY])) ? await reg(['delete', CHROME_WIN_KEY, '/f']) : true;
+      return ok ? { ok, supported: true } : { ok, supported: true, error: 'Windows didn’t accept the change. Try again.' };
+    }
+    if (process.platform === 'darwin') {
+      // Chrome not installed: writing into its folder would create a stray one.
+      if (!fs.existsSync(chromeMacDir())) return { ok: true, supported: true };
+      if (enabled) {
+        fs.mkdirSync(path.dirname(chromeMacFile()), { recursive: true });
+        fs.writeFileSync(chromeMacFile(), JSON.stringify({ external_update_url: CHROME_STORE_UPDATE_URL }));
+      } else {
+        fs.rmSync(chromeMacFile(), { force: true });
+      }
+      return { ok: true, supported: true };
+    }
+    // Linux Chrome reads external extensions only from a root-owned folder.
+    return { ok: true, supported: false };
+  } catch (e) {
+    const error = e instanceof Error ? e.message : String(e);
+    console.warn('[click-to-dial] chrome extension offer failed', error);
+    return { ok: false, supported: true, error };
+  }
+}
+
+async function chromeExtensionOffered(): Promise<boolean | null> {
+  if (process.platform === 'win32') return reg(['query', CHROME_WIN_KEY]);
+  if (process.platform === 'darwin') return fs.existsSync(chromeMacFile());
+  return null;
+}
+
 // The renderer owns the preferences (localStorage, same as every other user
 // pref) and pushes them here on boot and on change.
 ipcMain.handle(
   'ace:click-to-dial-config',
-  (_e, cfg: { telHandler?: boolean; hotkey?: string | null }) => {
-    const result: { tel?: { ok: boolean; error?: string }; hotkey?: { ok: boolean; error?: string } } = {};
+  async (_e, cfg: { telHandler?: boolean; hotkey?: string | null; chromeExtension?: boolean }) => {
+    const result: {
+      tel?: { ok: boolean; error?: string };
+      hotkey?: { ok: boolean; error?: string };
+      chromeExtension?: ExtensionOffer;
+    } = {};
     if (typeof cfg?.telHandler === 'boolean') result.tel = setTelHandlerRegistered(cfg.telHandler);
     if (cfg && 'hotkey' in cfg) result.hotkey = setDialHotkey(cfg.hotkey ?? null);
+    if (typeof cfg?.chromeExtension === 'boolean') result.chromeExtension = await setChromeExtensionOffered(cfg.chromeExtension);
     return result;
   },
 );
 
 /** Whether the OS currently considers us the tel: handler — so Settings can
  *  show real state rather than just what we last wrote to localStorage. */
-ipcMain.handle('ace:click-to-dial-status', () => ({
+ipcMain.handle('ace:click-to-dial-status', async () => ({
   telHandler: app.isDefaultProtocolClient('tel'),
   hotkey: currentHotkey,
+  chromeExtension: await chromeExtensionOffered(),
 }));
 
 app.on('will-quit', () => {

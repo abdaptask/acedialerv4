@@ -114,10 +114,11 @@ contextBridge.exposeInMainWorld('ace', {
   // v0.10.218 — Click-to-Dial. The renderer owns these preferences (they live
   // in localStorage with every other user pref) and pushes them to main on
   // boot and on change; main does the OS-level registration.
-  setClickToDialConfig: (cfg: { telHandler?: boolean; hotkey?: string | null }) =>
+  setClickToDialConfig: (cfg: { telHandler?: boolean; hotkey?: string | null; chromeExtension?: boolean }) =>
     ipcRenderer.invoke('ace:click-to-dial-config', cfg) as Promise<{
       tel?: { ok: boolean; error?: string };
       hotkey?: { ok: boolean; error?: string };
+      chromeExtension?: { ok: boolean; error?: string; supported: boolean };
     }>,
   /** Real OS state, so Settings can show what's actually registered rather
    *  than only what we last stored. */
@@ -125,6 +126,8 @@ contextBridge.exposeInMainWorld('ace', {
     ipcRenderer.invoke('ace:click-to-dial-status') as Promise<{
       telHandler: boolean;
       hotkey: string | null;
+      /** null = this OS can't offer it (Linux). */
+      chromeExtension: boolean | null;
     }>,
   onSipWake: (cb: (data: { reason: string }) => void) => {
     const handler = (_e: unknown, data: { reason: string }) => cb(data);

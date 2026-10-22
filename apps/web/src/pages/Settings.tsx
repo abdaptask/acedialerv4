@@ -8510,6 +8510,9 @@ function ClickToDialSection() {
   const [prefs, setPrefs] = useState<ClickToDialPrefs>(() => getClickToDialPrefs());
   const [error, setError] = useState<string | null>(null);
   const [osTelHandler, setOsTelHandler] = useState<boolean | null>(null);
+  // false until the desktop answers; stays false on Linux and on desktop
+  // builds that predate the setting, which hides the toggle.
+  const [extensionSupported, setExtensionSupported] = useState<boolean>(false);
 
   // Show what the OS actually thinks, not just what we last wrote locally —
   // another app can take the tel: association at any time, and a toggle that
@@ -8518,7 +8521,11 @@ function ClickToDialSection() {
     if (!window.ace?.getClickToDialStatus) return;
     window.ace
       .getClickToDialStatus()
-      .then((s) => setOsTelHandler(s.telHandler))
+      .then((s) => {
+        setOsTelHandler(s.telHandler);
+        // An older desktop build doesn't report it at all: hide the toggle.
+        setExtensionSupported(typeof s.chromeExtension === 'boolean');
+      })
       .catch(() => undefined);
   }, []);
   useEffect(() => { refreshOsStatus(); }, [refreshOsStatus]);
@@ -8537,6 +8544,8 @@ function ClickToDialSection() {
       setClickToDialPrefs(reverted);
     } else if (res.tel && !res.tel.ok) {
       setError(res.tel.error ?? 'Could not change the phone-link setting.');
+    } else if (res.chromeExtension && !res.chromeExtension.ok) {
+      setError('Couldn’t change the Chrome extension setting. Try again.');
     }
     refreshOsStatus();
   }
@@ -8604,6 +8613,24 @@ function ClickToDialSection() {
           </span>
         </span>
       </label>
+
+      {extensionSupported && (
+        <label className="settings-toggle-row">
+          <input
+            type="checkbox"
+            checked={prefs.chromeExtension}
+            onChange={(e) => void update({ ...prefs, chromeExtension: e.target.checked })}
+          />
+          <span>
+            <strong>Offer the ACE Dialer extension in Chrome</strong>
+            <span className="muted small">
+              Chrome asks once whether to add it. The extension makes phone numbers on
+              JobDiva and other sites clickable, and adds a dialer panel to Chrome.
+              Turning this off removes the extension from Chrome the next time Chrome starts.
+            </span>
+          </span>
+        </label>
+      )}
 
       {error && <div className="error small" style={{ marginTop: 10 }}>{error}</div>}
 
