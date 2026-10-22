@@ -90,8 +90,30 @@ async function render(): Promise<void> {
   }
   for (const pattern of own) {
     const li = document.createElement('li');
+    const site = document.createElement('div');
+    site.className = 'site';
     const code = document.createElement('code');
     code.textContent = hostOf(pattern);
+    site.append(code);
+    li.append(site);
+    // The list lives in chrome.storage.sync, the permission doesn't: after a
+    // remove-and-reinstall, Chrome sync brings the list back without the
+    // grant, and the scanner (which only registers granted sites) is silently
+    // off while this page looked fine. Show it and offer the one click.
+    if (!(await isGranted(pattern))) {
+      const tag = document.createElement('span');
+      tag.className = 'tag';
+      tag.textContent = 'Not allowed yet';
+      site.append(tag);
+      const allow = document.createElement('button');
+      allow.className = 'primary';
+      allow.textContent = 'Allow';
+      allow.addEventListener('click', async () => {
+        await chrome.permissions.request({ origins: [pattern] }).catch(() => false);
+        void render();
+      });
+      li.append(allow);
+    }
     const btn = document.createElement('button');
     btn.textContent = 'Remove';
     btn.addEventListener('click', async () => {
@@ -99,7 +121,7 @@ async function render(): Promise<void> {
       await write((await read()).filter((p) => p !== pattern));
       void render();
     });
-    li.append(code, btn);
+    li.append(btn);
     ul.appendChild(li);
   }
 
