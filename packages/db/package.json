@@ -1,6 +1,6 @@
 {
   "name": "@ace/db",
-  "version": "0.10.242",
+  "version": "0.10.243",
   "private": true,
   "type": "module",
   "main": "dist/index.js",
