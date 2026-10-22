@@ -2,6 +2,7 @@
 // with chrome.permissions.request() so the user sees Chrome's own prompt
 // rather than us claiming access in our own UI.
 import { effectiveOpenIn } from './route';
+import { BUILT_IN_HOSTS, hostOf, isBuiltIn } from './sites';
 
 const STORAGE_KEY = 'allowedOrigins';
 
@@ -17,9 +18,6 @@ function toPattern(input: string): string | null {
   return `*://${host}/*`;
 }
 
-function hostOf(pattern: string): string {
-  return pattern.replace(/^\*:\/\//, '').replace(/\/\*$/, '');
-}
 
 async function read(): Promise<string[]> {
   const { [STORAGE_KEY]: list } = await chrome.storage.sync.get(STORAGE_KEY);
@@ -57,7 +55,22 @@ async function render(): Promise<void> {
   const ul = $('list');
   ul.innerHTML = '';
 
-  for (const pattern of managed.origins) {
+  // Granted at install by the manifest; there's nothing to add or remove.
+  for (const host of BUILT_IN_HOSTS) {
+    const li = document.createElement('li');
+    const site = document.createElement('div');
+    site.className = 'site';
+    const code = document.createElement('code');
+    code.textContent = host;
+    const tag = document.createElement('span');
+    tag.className = 'tag';
+    tag.textContent = 'Built in';
+    site.append(code, tag);
+    li.append(site);
+    ul.appendChild(li);
+  }
+
+  for (const pattern of managed.origins.filter((p) => !isBuiltIn(p))) {
     const li = document.createElement('li');
     const site = document.createElement('div');
     site.className = 'site';
@@ -81,13 +94,9 @@ async function render(): Promise<void> {
     ul.appendChild(li);
   }
 
-  const own = mine.filter((p) => !managed.origins.includes(p));
-  if (own.length === 0 && managed.origins.length === 0) {
-    const li = document.createElement('li');
-    li.className = 'empty';
-    li.textContent = 'No sites yet. Add your ATS or CRM above to switch this on.';
-    ul.appendChild(li);
-  }
+  // A built-in site the user once added by hand stays in their synced list;
+  // it's covered by the manifest now, so it isn't shown twice.
+  const own = mine.filter((p) => !managed.origins.includes(p) && !isBuiltIn(p));
   for (const pattern of own) {
     const li = document.createElement('li');
     const site = document.createElement('div');
@@ -140,7 +149,11 @@ $('add').addEventListener('click', async () => {
   const input = $<HTMLInputElement>('host');
   const pattern = toPattern(input.value);
   if (!pattern) {
-    err.textContent = 'Enter a site address, for example app.jobdiva.com';
+    err.textContent = 'Enter a site address, for example crm.example.com';
+    return;
+  }
+  if (isBuiltIn(pattern)) {
+    err.textContent = `${hostOf(pattern)} is already built in.`;
     return;
   }
   let granted = false;

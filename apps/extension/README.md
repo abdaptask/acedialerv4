@@ -26,15 +26,25 @@ this one doesn't:
 
 | | |
 |---|---|
-| `host_permissions` | **`https://dialer.aptask.com/*` only** — our own web dialer, for the hand-off below |
-| Static `content_scripts` | **one**, `dialerBridge.js`, on `dialer.aptask.com` only |
-| On a fresh install, it can read | **nothing but our own dialer** |
+| `host_permissions` | **`dialer.aptask.com`** (our own web dialer, for the hand-off below) and **`www1.jobdiva.com` + `www2.jobdiva.com`** (built in since 0.10.243.2) |
+| Static `content_scripts` | `dialerBridge.js` on `dialer.aptask.com`; the scanner (`content.js`, all frames) on the two JobDiva hosts |
+| On a fresh install, it can read | **our own dialer and JobDiva — nothing else** |
 
-Instead it declares `optional_host_permissions` and registers the scanner
-**dynamically, per domain**, via `chrome.scripting.registerContentScripts()`.
-A domain becomes active only when someone adds it on the options page, which
-triggers Chrome's own permission prompt. Removing it there revokes the grant
-immediately.
+JobDiva is built in because every recruiter needs it, and the by-hand step was
+where setup broke: the site list syncs through the Google account but the
+grant doesn't, so a reinstall left the sites listed but switched off.
+`src/sites.ts` names the hosts and a test keeps it in step with the manifest.
+
+Any other site still goes through `optional_host_permissions` and a scanner
+registered **dynamically, per domain**, via
+`chrome.scripting.registerContentScripts()`. A domain becomes active only when
+someone adds it on the options page, which triggers Chrome's own permission
+prompt. Removing it there revokes the grant immediately.
+
+Adding a host to the built-in list widens what the extension can read for
+**every** user, and existing installs are paused until each person approves
+the new access. Treat it as the same decision as adding a domain for
+everyone; never a wildcard.
 
 Why this rather than the usual `<all_urls>`: our users spend the day inside an
 ATS and a CRM full of candidate PII. With blanket access, a compromise of this

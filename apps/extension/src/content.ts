@@ -21,6 +21,15 @@
 import { detectNumbers } from './detect';
 
 const CHIP_CLASS = 'ace-dialer-chip';
+
+/** True in the copy that got here first. JobDiva is injected by the manifest,
+ *  and a user who also lists it on the options page (it used to be added by
+ *  hand) would get a second, dynamically registered copy in the same page —
+ *  two click listeners, so one click opened the dialer twice. Copies of one
+ *  extension share an isolated world, so a window flag sees both. */
+const scannerWindow = window as { __aceScanner?: boolean };
+const firstCopy = !scannerWindow.__aceScanner;
+scannerWindow.__aceScanner = true;
 const PROCESSED = 'data-ace-dialer-scanned';
 /** Stop scanning a page that's pathologically large rather than hanging it. */
 const MAX_NODES_PER_PASS = 4000;
@@ -165,7 +174,7 @@ function dial(el: HTMLElement): void {
   chrome.runtime.sendMessage({ type: 'ace-dial', to });
 }
 
-document.addEventListener(
+if (firstCopy) document.addEventListener(
   'click',
   (e) => {
     const target = (e.target as HTMLElement | null)?.closest?.(`.${CHIP_CLASS}`);
@@ -177,7 +186,7 @@ document.addEventListener(
   true, // capture: some ATS pages swallow clicks on the bubble phase
 );
 
-document.addEventListener('keydown', (e) => {
+if (firstCopy) document.addEventListener('keydown', (e) => {
   if (e.key !== 'Enter' && e.key !== ' ') return;
   const target = (e.target as HTMLElement | null)?.closest?.(`.${CHIP_CLASS}`);
   if (!target) return;
@@ -298,7 +307,9 @@ function start() {
   });
 }
 
-if (document.readyState === 'loading') {
+if (!firstCopy) {
+  // The first copy is already scanning this page.
+} else if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', start, { once: true });
 } else {
   start();

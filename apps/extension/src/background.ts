@@ -21,6 +21,7 @@
 // ATS domains someone deliberately turned on.
 
 import { BADGE_ALARM, refreshBadge } from './badge';
+import { isBuiltIn } from './sites';
 import {
   DIALER_MATCH,
   effectiveOpenIn,
@@ -76,7 +77,9 @@ function syncContentScripts(): Promise<void> {
 }
 
 async function doSync(): Promise<void> {
-  const wanted = await getAllowedOrigins();
+  // Built-in sites are injected by the manifest; registering them again
+  // would run a second scanner in the same page.
+  const wanted = (await getAllowedOrigins()).filter((o) => !isBuiltIn(o));
   const granted: string[] = [];
   for (const origin of wanted) {
     try {
