@@ -614,11 +614,17 @@ export interface ClickToDialPrefs {
   /** Global shortcut that dials whatever is currently on the clipboard.
    *  null = disabled. Electron accelerator syntax. */
   hotkey: string | null;
+  /** Offer the ACE Dialer Chrome extension to Chrome on this computer.
+   *  ON by default, unlike the two above: all it does is make Chrome ask
+   *  "add this extension?" once, and nothing changes unless the user says
+   *  yes. Turning it off removes the extension from Chrome. */
+  chromeExtension: boolean;
 }
 
 export const DEFAULT_CLICK_TO_DIAL: ClickToDialPrefs = {
   telHandler: false,
   hotkey: null,
+  chromeExtension: true,
 };
 
 /** Suggested combination. Ctrl/Cmd+Shift+D is rarely claimed by other apps
@@ -633,6 +639,7 @@ export function getClickToDialPrefs(): ClickToDialPrefs {
     return {
       telHandler: typeof parsed.telHandler === 'boolean' ? parsed.telHandler : false,
       hotkey: typeof parsed.hotkey === 'string' && parsed.hotkey ? parsed.hotkey : null,
+      chromeExtension: typeof parsed.chromeExtension === 'boolean' ? parsed.chromeExtension : true,
     };
   } catch {
     return { ...DEFAULT_CLICK_TO_DIAL };
@@ -652,12 +659,17 @@ export function setClickToDialPrefs(prefs: ClickToDialPrefs): void {
  */
 export async function applyClickToDialPrefs(
   prefs: ClickToDialPrefs = getClickToDialPrefs(),
-): Promise<{ tel?: { ok: boolean; error?: string }; hotkey?: { ok: boolean; error?: string } }> {
+): Promise<{
+  tel?: { ok: boolean; error?: string };
+  hotkey?: { ok: boolean; error?: string };
+  chromeExtension?: { ok: boolean; error?: string; supported: boolean };
+}> {
   if (!window.ace?.setClickToDialConfig) return {};
   try {
     return await window.ace.setClickToDialConfig({
       telHandler: prefs.telHandler,
       hotkey: prefs.hotkey,
+      chromeExtension: prefs.chromeExtension,
     });
   } catch (e) {
     console.warn('[click-to-dial] failed to apply prefs', e);

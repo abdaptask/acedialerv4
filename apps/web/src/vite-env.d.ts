@@ -49,11 +49,12 @@ interface AceElectronBridge {
   ) => () => void;
   notifyReadyForDeepLink?: () => void;
   // v0.10.218 - Click-to-Dial OS registration, driven from Settings.
-  setClickToDialConfig?: (cfg: { telHandler?: boolean; hotkey?: string | null }) => Promise<{
+  setClickToDialConfig?: (cfg: { telHandler?: boolean; hotkey?: string | null; chromeExtension?: boolean }) => Promise<{
     tel?: { ok: boolean; error?: string };
     hotkey?: { ok: boolean; error?: string };
+    chromeExtension?: { ok: boolean; error?: string; supported: boolean };
   }>;
-  getClickToDialStatus?: () => Promise<{ telHandler: boolean; hotkey: string | null }>;
+  getClickToDialStatus?: () => Promise<{ telHandler: boolean; hotkey: string | null; chromeExtension?: boolean | null }>;
   // v0.10.9 — System power events (resume from sleep / unlock screen).
   onSipWake?: (cb: (data: { reason: string }) => void) => () => void;
   // Phase 7.1 — silent auto-update bridge
