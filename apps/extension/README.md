@@ -155,7 +155,7 @@ Click the toolbar icon → a Chrome side panel with five tabs (0.10.242.2):
 
 | Tab | Shows | Source |
 |---|---|---|
-| Keypad | Type, paste or tap a number; Call / Text. Works signed out — it needs no data | — |
+| Keypad | Type, paste or tap a number; Call / Text. Shows Mobile / Landline / VoIP / Toll-free exactly as the Dialpad does (inferred at once; carrier-verified for US/CA when signed in). Works signed out | `GET /phone-type` |
 | Recents | The dialer's Recents, row for row: same calls, labels, red rows, times, lengths | `GET /me/panel/recents` |
 | Messages | The dialer's conversation list (SMS), same order: who, who texted last, unread, failed send | `GET /me/panel/threads` |
 | Favorites | The dialer's Favorites, same order, every number, searchable | `GET /me/panel/contacts` |

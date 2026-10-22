@@ -18,6 +18,16 @@ import {
   when,
 } from './panelFormat';
 import {
+  describePhoneType,
+  inferPhoneType,
+  refineWithFullMetadata,
+  shouldLookUp,
+  type LineType,
+  type LookupState,
+  type PhoneTypeDisplay,
+} from './phoneType';
+import {
+  API_BASE,
   SignInError,
   apiGet,
   clearSession,
@@ -49,6 +59,10 @@ const ICONS = {
     'M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z',
   message: 'M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z',
   outgoing: 'M7 17 17 7M7 7h10v10',
+  // lucide badge-check: the dialer's mark for a carrier-verified line type.
+  verified:
+    'M3.85 8.62a4 4 0 0 1 4.78-4.77 4 4 0 0 1 6.74 0 4 4 0 0 1 4.78 4.78 4 4 0 0 1 0 6.74 4 4 0 0 1-4.77 4.78 4 4 0 0 1-6.75 0 4 4 0 0 1-4.78-4.77 4 4 0 0 1 0-6.76ZM9 12l2 2 4-4',
+  alert: 'M12 8v4M12 16h.01M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0z',
   incoming: 'M17 7 7 17M17 17H7V7',
 };
 
@@ -410,6 +424,103 @@ function syncKeypad(): void {
   // Show the formatted form only when it adds something.
   const pretty = formatNumber(v);
   $('pretty').textContent = pretty !== v ? pretty : '';
+  void updateLineType(v);
+}
+
+// ── Line type (Mobile / Landline / VoIP …) ──
+// The dialer's Dialpad badge, same rules (phoneType.ts is its copy): the
+// numbering-plan inference shows at once; for US/CA numbers a carrier lookup
+// (GET /phone-type, shared server cache, daily cap) upgrades it after the
+// number settles. Never on the dial path: Call doesn't read any of this.
+
+const LOOKUP_DEBOUNCE_MS = 350;
+const VERIFIED_TTL_MS = 30 * 60_000;
+const FAILURE_TTL_MS = 60_000;
+const NOT_CONFIGURED_BACKOFF_MS = 10 * 60_000;
+const typeCache = new Map<string, { state: LookupState; expiresAt: number }>();
+let lookupsDisabledUntil = 0;
+let typeSeq = 0;
+
+/** Not apiGet: a refused lookup (an API that predates the extension being
+ *  allowed this route) must cost only the badge, never the session. */
+async function fetchLineType(e164: string): Promise<LookupState> {
+  const s = await getSession();
+  if (!s) return { status: 'unavailable', reason: 'signed_out' };
+  try {
+    const res = await fetch(`${API_BASE}/phone-type?number=${encodeURIComponent(e164)}`, {
+      headers: { authorization: `Bearer ${s.token}` },
+    });
+    if (!res.ok) return { status: 'unavailable', reason: `http_${res.status}` };
+    const r = (await res.json()) as
+      | { status: 'verified'; lineType: LineType; carrier: string | null; ported: boolean | null; checkedAt: string }
+      | { status: 'invalid' }
+      | { status: 'unavailable'; reason: string };
+    if (r.status === 'verified') {
+      return { status: 'verified', result: { lineType: r.lineType, carrier: r.carrier, ported: r.ported, checkedAt: r.checkedAt } };
+    }
+    return { status: 'unavailable', reason: r.status === 'invalid' ? 'invalid' : r.reason };
+  } catch {
+    return { status: 'unavailable', reason: 'network' };
+  }
+}
+
+function paintLineType(d: PhoneTypeDisplay): void {
+  const el = $('ptype');
+  el.className = 'ptype';
+  el.removeAttribute('title');
+  if (d.state === 'hidden') {
+    el.replaceChildren();
+    return;
+  }
+  const text = document.createElement('span');
+  if (d.state === 'invalid') {
+    el.classList.add('invalid');
+    text.textContent = d.label;
+    el.replaceChildren(icon(ICONS.alert, 12), text);
+    return;
+  }
+  const checking = d.loading && d.lineType === 'unknown';
+  text.textContent = checking ? 'Checking…' : d.label;
+  if (checking) text.className = 'checking';
+  el.title = d.detail;
+  if (d.source === 'verified') {
+    el.classList.add('verified');
+    el.replaceChildren(icon(ICONS.verified, 13), text);
+  } else {
+    el.replaceChildren(text);
+  }
+}
+
+async function updateLineType(raw: string): Promise<void> {
+  const seq = ++typeSeq;
+  const base = inferPhoneType(raw);
+  // International numbers the bundled metadata can't type get the full set.
+  const inf = base.kind === 'inferred' && base.typeMissing ? await refineWithFullMetadata(base.e164) : base;
+  if (seq !== typeSeq) return;
+  if (!shouldLookUp(base)) {
+    paintLineType(describePhoneType(inf, { status: 'idle' }));
+    return;
+  }
+  const e164 = base.e164;
+  if (Date.now() < lookupsDisabledUntil) {
+    paintLineType(describePhoneType(inf, { status: 'unavailable', reason: 'not_configured' }));
+    return;
+  }
+  const hit = typeCache.get(e164);
+  if (hit && hit.expiresAt > Date.now()) {
+    paintLineType(describePhoneType(inf, hit.state));
+    return;
+  }
+  paintLineType(describePhoneType(inf, { status: 'loading' }));
+  // A number that's valid for a moment mid-edit shouldn't cost a carrier dip.
+  await new Promise((r) => setTimeout(r, LOOKUP_DEBOUNCE_MS));
+  if (seq !== typeSeq) return;
+  const state = await fetchLineType(e164);
+  if (state.status === 'unavailable' && state.reason === 'not_configured') {
+    lookupsDisabledUntil = Date.now() + NOT_CONFIGURED_BACKOFF_MS;
+  }
+  typeCache.set(e164, { state, expiresAt: Date.now() + (state.status === 'verified' ? VERIFIED_TTL_MS : FAILURE_TTL_MS) });
+  if (seq === typeSeq) paintLineType(describePhoneType(inf, state));
 }
 
 function press(ch: string): void {

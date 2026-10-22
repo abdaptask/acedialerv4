@@ -100,6 +100,17 @@
   .entry::placeholder { color: var(--text-muted); font: 400 15px/1.2 var(--sans); letter-spacing: 0; }
   .entry:focus-visible { outline: none; }
   .pretty { color: var(--text-dim); font-size: 13px; min-height: 18px; font-variant-numeric: tabular-nums; }
+  /* Line type, as on the dialer's Dialpad (PhoneTypeBadge.css): quiet text, no
+     colour per type; the one accent is the carrier-verified check. */
+  .ptype { display: inline-flex; align-items: center; gap: 5px; min-height: 18px; margin-top: -10px;
+    font-size: 13px; color: var(--text-muted); letter-spacing: 0.01em; }
+  .ptype.verified { color: var(--text-dim); }
+  .ptype.verified svg { color: var(--accent); flex: none; }
+  .ptype.invalid { color: #ff9f0a; }
+  .ptype .checking { animation: ptype-pulse 1.2s ease-out infinite alternate; }
+  @keyframes ptype-pulse { from { opacity: 1; } to { opacity: 0.45; } }
+  @media (prefers-reduced-motion: reduce) { .ptype .checking { animation: none; } }
+  @media (prefers-color-scheme: light) { .ptype.invalid { color: #b25000; } }
   .keys { display: grid; grid-template-columns: repeat(3, 72px); gap: 14px 22px; }
   .key {
     width: 72px; height: 72px; border-radius: 36px; border: 0; cursor: pointer;
@@ -158,6 +169,7 @@
     <input class="entry" id="entry" type="tel" inputmode="tel" autocomplete="off" spellcheck="false"
            placeholder="Type or paste a number" aria-label="Phone number" />
     <div class="pretty" id="pretty"></div>
+    <div class="ptype" id="ptype" role="status"></div>
     <div class="keys" id="keys"></div>
     <div class="dial-row">
       <button class="ghost" id="kp-text" title="Text this number" aria-label="Text this number">

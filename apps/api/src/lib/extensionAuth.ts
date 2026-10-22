@@ -4,8 +4,9 @@
 // dependency of it — were ever compromised, whatever credential it holds is
 // what leaks. So it never gets the dialer's full JWT: no SIP credentials, no
 // SMS send, no message bodies, no admin. It gets a token that can read the
-// caller's own follow-up list and the dialer panel's who-and-when lists
-// (recent calls, text threads without their text, saved contacts).
+// caller's own follow-up list, the dialer panel's who-and-when lists
+// (recent calls, text threads without their text, saved contacts), and the
+// line-type lookup the Keypad shows.
 //
 // Two rules make that hold, both server-side:
 //   1. The scope is decided by the REDIRECT URI, not by anything the client
@@ -30,6 +31,10 @@ export const EXTENSION_ROUTES: ReadonlySet<string> = new Set([
   'GET /me/panel/recents',
   'GET /me/panel/threads',
   'GET /me/panel/contacts',
+  // The Keypad's Mobile / Landline / VoIP line, as on the Dialpad. Not
+  // user-scoped data; spend is bounded by the route's own gates (US/CA
+  // geographic only, shared cache, PHONE_LOOKUP_DAILY_LIMIT across everyone).
+  'GET /phone-type',
 ]);
 
 /** The extension ID when `redirectUri` is an allowed extension redirect, else null. */
