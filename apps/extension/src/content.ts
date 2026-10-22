@@ -260,6 +260,9 @@ function schedule(node: Node) {
 }
 
 function start() {
+  // A designMode document is an editor surface (a frame-based rich-text box)
+  // even though no element in it carries contenteditable.
+  if (document.designMode === 'on') return;
   if (document.documentElement.hasAttribute(PROCESSED)) return;
   document.documentElement.setAttribute(PROCESSED, '1');
 
