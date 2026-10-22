@@ -28,13 +28,20 @@ test('any chromiumapp.org redirect is recognised, so an unknown extension is ref
   assert.equal(isExtensionRedirect('https://dialer.aptask.com/auth/microsoft/callback'), false);
 });
 
-test('extension tokens reach only the follow-up routes', () => {
+test('extension tokens reach only the follow-up and panel routes', () => {
   assert.equal(extensionMayCall('GET', '/me/follow-ups'), true);
   assert.equal(extensionMayCall('get', '/me/follow-ups/count'), true);
+  for (const u of ['/me/panel/recents', '/me/panel/threads', '/me/panel/contacts']) {
+    assert.equal(extensionMayCall('GET', u), true, u);
+  }
   for (const [m, u] of [
     ['GET', '/auth/me'],
     ['POST', '/messages'],
     ['GET', '/messages/threads/:number'],
+    ['GET', '/messages/threads'],
+    ['GET', '/calls'],
+    ['GET', '/favorites'],
+    ['POST', '/me/panel/contacts'],
     ['GET', '/reports/follow-ups'],
     ['POST', '/me/follow-ups'],
     ['GET', undefined],
