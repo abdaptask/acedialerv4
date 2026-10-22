@@ -36,6 +36,16 @@ function normalizeKey(phone: string): string {
   return (phone ?? '').replace(/[^\d]/g, '').slice(-10);
 }
 
+/** A JobDiva name this server has already looked up for the dialer, without
+ *  asking JobDiva. The extension panel uses it so its lists name people the
+ *  way the dialer does, while never adding JobDiva traffic of its own (one
+ *  miss is up to seven sequential JobDiva searches). */
+export function cachedJobDivaName(phone: string): string | null {
+  const key = normalizeKey(phone);
+  if (key.length < 7) return null;
+  return cacheGet(key)?.name || null;
+}
+
 export async function jobDivaRoutes(app: FastifyInstance) {
   // GET /jobdiva/contact?phone=+15551234567
   // Returns: { found: true, contact: {...} } or { found: false }

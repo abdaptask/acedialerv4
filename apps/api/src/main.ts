@@ -31,6 +31,7 @@ import { tipsRoutes, seedDefaultTipsIfEmpty } from './tips/tips.routes.js';
 import { voicemailsRoutes } from './voicemails/voicemails.routes.js';
 import { reportsRoutes } from './reports/reports.routes.js';
 import { lookupRoutes } from './reports/lookup.js';
+import { panelRoutes } from './panel/panel.routes.js';
 import { digestRoutes, startDigestScheduler } from './reports/digest.js';
 import { voicemailGreetingRoutes } from './voicemailGreeting/voicemailGreeting.routes.js';
 import { jobDivaRoutes } from './jobdiva/jobdiva.routes.js';
@@ -134,6 +135,7 @@ void seedDefaultTipsIfEmpty().catch((e) =>
 await app.register(voicemailsRoutes);
 await app.register(reportsRoutes);
 await app.register(lookupRoutes);
+await app.register(panelRoutes);
 await app.register(digestRoutes);
 await app.register(voicemailGreetingRoutes);
 await app.register(jobDivaRoutes);

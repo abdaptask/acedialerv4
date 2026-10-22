@@ -4,7 +4,8 @@
 // dependency of it — were ever compromised, whatever credential it holds is
 // what leaks. So it never gets the dialer's full JWT: no SIP credentials, no
 // SMS send, no message bodies, no admin. It gets a token that can read the
-// caller's own follow-up list and nothing else.
+// caller's own follow-up list and the dialer panel's who-and-when lists
+// (recent calls, text threads without their text, saved contacts).
 //
 // Two rules make that hold, both server-side:
 //   1. The scope is decided by the REDIRECT URI, not by anything the client
@@ -25,6 +26,10 @@ export const EXTENSION_TOKEN_TTL = '12h';
 export const EXTENSION_ROUTES: ReadonlySet<string> = new Set([
   'GET /me/follow-ups',
   'GET /me/follow-ups/count',
+  // The dialer panel: metadata only, built field by field in panel/panelView.ts.
+  'GET /me/panel/recents',
+  'GET /me/panel/threads',
+  'GET /me/panel/contacts',
 ]);
 
 /** The extension ID when `redirectUri` is an allowed extension redirect, else null. */

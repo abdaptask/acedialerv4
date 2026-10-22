@@ -1,48 +1,56 @@
 <!doctype html>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Follow-ups</title>
+<title>ACE Dialer</title>
 <style>
   /* iOS tokens, matching the dialer (CLAUDE.md §27). Dark is canonical. */
   :root {
     color-scheme: dark;
-    --bg: #000; --bg-elevated: #1c1c1e; --sep: rgba(84, 84, 88, 0.6);
+    --bg: #000; --bg-elevated: #1c1c1e; --key: #333336; --key-press: #737373; --sep: rgba(84, 84, 88, 0.6);
     --text: #fff; --text-dim: rgba(235, 235, 245, 0.7); --text-muted: rgba(235, 235, 245, 0.45);
-    --accent: #0a84ff; --green: #30d158; --press: rgba(255, 255, 255, 0.08);
+    --accent: #0a84ff; --green: #30d158; --red: #ff453a; --press: rgba(255, 255, 255, 0.08);
+    --bar: rgba(22, 22, 24, 0.94);
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
   }
   @media (prefers-color-scheme: light) {
     :root {
       color-scheme: light;
-      --bg: #f2f2f7; --bg-elevated: #fff; --sep: rgba(60, 60, 67, 0.18);
+      --bg: #f2f2f7; --bg-elevated: #fff; --key: #e5e5ea; --key-press: #c7c7cc; --sep: rgba(60, 60, 67, 0.18);
       --text: #1c1c1e; --text-dim: rgba(60, 60, 67, 0.7); --text-muted: rgba(60, 60, 67, 0.45);
-      --accent: #007aff; --green: #34c759; --press: rgba(0, 0, 0, 0.05);
+      --accent: #007aff; --green: #34c759; --red: #ff3b30; --press: rgba(0, 0, 0, 0.05);
+      --bar: rgba(249, 249, 249, 0.94);
     }
   }
   * { box-sizing: border-box; }
+  html, body { height: 100%; }
   body {
-    margin: 0; background: var(--bg); color: var(--text);
-    font: 14px/1.4 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
+    margin: 0; background: var(--bg); color: var(--text); display: flex; flex-direction: column;
+    font: 14px/1.4 var(--sans);
     -webkit-font-smoothing: antialiased;
   }
   header {
-    position: sticky; top: 0; z-index: 1; display: flex; align-items: center; gap: 4px;
+    flex: none; display: flex; align-items: center; gap: 4px;
     padding: 14px 8px 10px 16px; background: var(--bg);
   }
   header .titles { flex: 1; min-width: 0; }
   h1 { font-size: 22px; font-weight: 700; margin: 0; letter-spacing: -0.01em; }
-  .sub { color: var(--text-dim); font-size: 13px; margin-top: 1px; font-variant-numeric: tabular-nums; }
+  .sub { color: var(--text-dim); font-size: 13px; margin-top: 1px; font-variant-numeric: tabular-nums; min-height: 18px; }
   .icon-btn {
     width: 44px; height: 44px; display: grid; place-items: center; flex: none;
     border: 0; border-radius: 22px; background: transparent; color: var(--text-dim); cursor: pointer;
     transition: background-color 90ms cubic-bezier(0.2, 0, 0, 1);
   }
   .icon-btn:hover { background: var(--press); color: var(--text); }
-  .icon-btn:focus-visible, .act:focus-visible, .primary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .icon-btn.spin svg { animation: spin 700ms linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
   @media (prefers-reduced-motion: reduce) { .icon-btn.spin svg { animation: none; } }
 
-  main { padding: 0 12px 16px; }
+  main { flex: 1; overflow-y: auto; padding: 0 12px 16px; }
+  .view[hidden] { display: none !important; }
+
+  /* Lists */
   h2 {
     font-size: 13px; font-weight: 400; text-transform: uppercase; letter-spacing: 0.02em;
     color: var(--text-muted); margin: 18px 4px 6px;
@@ -52,9 +60,12 @@
   .row + .row { border-top: 0.5px solid var(--sep); }
   .who { flex: 1; min-width: 0; }
   .name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  /* Wraps rather than truncating: "how long ago" is the part that matters and it's last. */
-  .detail { color: var(--text-dim); font-size: 13px; font-variant-numeric: tabular-nums; }
+  .detail { color: var(--text-dim); font-size: 13px; font-variant-numeric: tabular-nums; display: flex; gap: 4px; align-items: center; }
+  .detail.warn { color: var(--red); }
+  .detail svg { flex: none; }
   .num { color: var(--text-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+  .time { color: var(--text-muted); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .dot { width: 8px; height: 8px; border-radius: 4px; background: var(--accent); flex: none; }
   .act {
     width: 44px; height: 44px; display: grid; place-items: center; flex: none;
     border: 0; border-radius: 22px; cursor: pointer; background: var(--press); color: var(--accent);
@@ -63,6 +74,12 @@
   .act.call { color: var(--green); }
   .act:hover { filter: brightness(1.15); }
 
+  .search {
+    width: 100%; min-height: 40px; margin: 2px 0 4px; padding: 0 12px; border: 0; border-radius: 10px;
+    background: var(--bg-elevated); color: var(--text); font: inherit;
+  }
+  .search::placeholder { color: var(--text-muted); }
+
   .state { text-align: center; padding: 56px 24px 24px; color: var(--text-dim); }
   .state strong { display: block; color: var(--text); font-size: 17px; margin-bottom: 6px; }
   .primary {
@@ -70,16 +87,62 @@
     background: var(--accent); color: #fff; font: inherit; font-weight: 600;
   }
   .primary:disabled { opacity: 0.6; cursor: default; }
-  .err { color: #ff453a; font-size: 13px; margin-top: 12px; min-height: 18px; }
-  footer { padding: 4px 16px 20px; color: var(--text-muted); font-size: 12px; text-align: center; }
-  footer button { border: 0; background: none; color: var(--accent); font: inherit; cursor: pointer; padding: 4px; }
+  .err { color: var(--red); font-size: 13px; margin-top: 12px; min-height: 18px; }
+  .foot { padding: 14px 4px 4px; color: var(--text-muted); font-size: 12px; text-align: center; }
+  .foot button { border: 0; background: none; color: var(--accent); font: inherit; cursor: pointer; padding: 4px; }
+
+  /* Keypad */
+  .keypad { display: flex; flex-direction: column; align-items: center; gap: 14px; padding-top: 8px; }
+  .entry {
+    width: 100%; border: 0; background: transparent; color: var(--text); text-align: center;
+    font: 300 30px/1.2 var(--mono); letter-spacing: 0.02em; min-height: 44px; padding: 0 8px;
+  }
+  .entry::placeholder { color: var(--text-muted); font: 400 15px/1.2 var(--sans); letter-spacing: 0; }
+  .entry:focus-visible { outline: none; }
+  .pretty { color: var(--text-dim); font-size: 13px; min-height: 18px; font-variant-numeric: tabular-nums; }
+  .keys { display: grid; grid-template-columns: repeat(3, 72px); gap: 14px 22px; }
+  .key {
+    width: 72px; height: 72px; border-radius: 36px; border: 0; cursor: pointer;
+    background: var(--key); color: var(--text); display: grid; place-content: center; text-align: center;
+    transition: background-color 90ms cubic-bezier(0.2, 0, 0, 1);
+    -webkit-user-select: none; user-select: none;
+  }
+  .key:active { background: var(--key-press); }
+  .key b { font: 400 30px/1 var(--mono); }
+  .key small { font-size: 9px; letter-spacing: 0.18em; color: var(--text-dim); min-height: 11px; margin-top: 2px; font-weight: 600; }
+  .dial-row { display: grid; grid-template-columns: repeat(3, 72px); gap: 22px; align-items: center; justify-items: center; }
+  .round {
+    width: 72px; height: 72px; border-radius: 36px; border: 0; cursor: pointer; display: grid; place-items: center;
+  }
+  .round.call { background: var(--green); color: #fff; }
+  .round:disabled { opacity: 0.4; cursor: default; }
+  .ghost { width: 44px; height: 44px; border-radius: 22px; border: 0; background: transparent; color: var(--text-dim); cursor: pointer; display: grid; place-items: center; }
+  .ghost:hover { background: var(--press); color: var(--text); }
+  .ghost[hidden] { display: grid !important; visibility: hidden; }
+  .hint { color: var(--text-muted); font-size: 12px; text-align: center; max-width: 260px; }
+
+  /* Tab bar */
+  nav {
+    flex: none; display: grid; grid-template-columns: repeat(5, 1fr);
+    border-top: 0.5px solid var(--sep); background: var(--bar);
+    -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px);
+  }
+  nav button {
+    position: relative; min-height: 52px; border: 0; background: none; cursor: pointer; color: var(--text-muted);
+    display: grid; justify-items: center; align-content: center; gap: 2px; font: 500 10px/1.1 inherit; padding: 6px 0 4px;
+  }
+  nav button[aria-selected="true"] { color: var(--accent); }
+  nav .count {
+    position: absolute; top: 4px; left: calc(50% + 6px); min-width: 17px; height: 17px; padding: 0 5px; border-radius: 9px;
+    background: var(--red); color: #fff; font: 600 11px/17px inherit; font-variant-numeric: tabular-nums;
+  }
   [hidden] { display: none !important; }
 </style>
 
 <header>
   <div class="titles">
-    <h1>Follow-ups</h1>
-    <div class="sub" id="sub">&nbsp;</div>
+    <h1 id="title">Keypad</h1>
+    <div class="sub" id="sub"></div>
   </div>
   <button class="icon-btn" id="refresh" title="Refresh" aria-label="Refresh" hidden>
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>
@@ -90,28 +153,70 @@
 </header>
 
 <main>
+  <!-- Keypad: works signed out — it only prefills the dialer, it needs no data. -->
+  <section class="view keypad" id="view-keypad" role="tabpanel" aria-labelledby="tab-keypad">
+    <input class="entry" id="entry" type="tel" inputmode="tel" autocomplete="off" spellcheck="false"
+           placeholder="Type or paste a number" aria-label="Phone number" />
+    <div class="pretty" id="pretty"></div>
+    <div class="keys" id="keys"></div>
+    <div class="dial-row">
+      <button class="ghost" id="kp-text" title="Text this number" aria-label="Text this number">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+      </button>
+      <button class="round call" id="kp-call" title="Call" aria-label="Call" disabled>
+        <svg width="30" height="30" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+      </button>
+      <button class="ghost" id="kp-back" title="Delete" aria-label="Delete last digit" hidden>
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 5a2 2 0 0 0-1.344.519l-6.328 5.74a1 1 0 0 0 0 1.481l6.328 5.741A2 2 0 0 0 10 19h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2z"/><path d="m12 9 6 6"/><path d="m18 9-6 6"/></svg>
+      </button>
+    </div>
+    <div class="hint">Call and Text open the number in ACE Dialer, ready for you to press Call or Send.</div>
+  </section>
+
+  <section class="view" id="view-recents" role="tabpanel" aria-labelledby="tab-recents" hidden></section>
+  <section class="view" id="view-messages" role="tabpanel" aria-labelledby="tab-messages" hidden></section>
+  <section class="view" id="view-contacts" role="tabpanel" aria-labelledby="tab-contacts" hidden>
+    <input class="search" id="contact-q" type="search" placeholder="Search name or number" aria-label="Search favorites" autocomplete="off" />
+    <div id="contacts-list"></div>
+  </section>
+  <section class="view" id="view-followups" role="tabpanel" aria-labelledby="tab-followups" hidden></section>
+
   <section class="state" id="signed-out" hidden>
-    <strong>See what’s waiting on you</strong>
-    Missed calls, texts and voicemails you haven’t answered yet, next to the page you’re working in.
+    <strong>Sign in to see your calls and texts</strong>
+    Recent calls, text conversations, saved contacts and anything still waiting on you.
     <div><button class="primary" id="sign-in">Sign in with Microsoft</button></div>
     <div class="err" id="sign-in-err" role="alert"></div>
   </section>
 
-  <section class="state" id="empty" hidden>
-    <strong>Nothing waiting</strong>
-    Every missed call, text and voicemail from the last 14 days has been answered.
-  </section>
-
   <section class="state" id="error" hidden>
-    <strong>Couldn’t load follow-ups</strong>
+    <strong>Couldn’t load this list</strong>
     Check your connection. This retries every minute.
   </section>
 
-  <div id="list"></div>
+  <div class="foot" id="foot" hidden><span id="who"></span> · <button id="sign-out">Sign out</button></div>
 </main>
 
-<footer id="footer" hidden>
-  Last <span id="days">14</span> days · <span id="who"></span> · <button id="sign-out">Sign out</button>
-</footer>
+<nav role="tablist" aria-label="Dialer sections">
+  <button role="tab" id="tab-followups" data-view="followups" aria-selected="false">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg>
+    Follow-ups<span class="count" id="tab-count" hidden></span>
+  </button>
+  <button role="tab" id="tab-recents" data-view="recents" aria-selected="false">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+    Recents
+  </button>
+  <button role="tab" id="tab-keypad" data-view="keypad" aria-selected="true">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="4" r="2"/><circle cx="12" cy="4" r="2"/><circle cx="19" cy="4" r="2"/><circle cx="5" cy="11" r="2"/><circle cx="12" cy="11" r="2"/><circle cx="19" cy="11" r="2"/><circle cx="5" cy="18" r="2"/><circle cx="12" cy="18" r="2"/><circle cx="19" cy="18" r="2"/></svg>
+    Keypad
+  </button>
+  <button role="tab" id="tab-messages" data-view="messages" aria-selected="false">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+    Messages
+  </button>
+  <button role="tab" id="tab-contacts" data-view="contacts" aria-selected="false">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.123 2.123 0 0 0 1.595 1.16l5.166.756a.53.53 0 0 1 .294.904l-3.736 3.638a2.123 2.123 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.122 2.122 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.122 2.122 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.755a2.122 2.122 0 0 0 1.597-1.16z"/></svg>
+    Favorites
+  </button>
+</nav>
 
 <script src="panel.js"></script>

@@ -166,3 +166,31 @@ export interface FollowUps {
   totals: { missedCalls: number; texts: number; voicemails: number };
   items: FollowUpItem[];
 }
+
+// ── The dialer panel's lists (apps/api panel/panelView.ts) ──
+// Who, when and what kind only: the server never sends message text here.
+
+export interface PanelRecent {
+  number: string;
+  name: string | null;
+  direction: 'inbound' | 'outbound';
+  /** The dialer's own wording, decided server-side so the two never differ. */
+  label: string;
+  red: boolean;
+  at: string;
+  durationSeconds: number;
+}
+
+export interface PanelThread {
+  number: string;
+  name: string | null;
+  lastDirection: 'inbound' | 'outbound';
+  lastAt: string;
+  unread: number;
+  failed: boolean;
+}
+
+export interface PanelContact {
+  name: string;
+  numbers: Array<{ label: string | null; number: string }>;
+}

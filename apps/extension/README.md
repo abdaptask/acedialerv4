@@ -1,8 +1,8 @@
 # ACE Dialer (browser extension)
 
-Two features: **click to call** (below) and the **follow-ups panel** (further
-down) — the missed calls, texts and voicemails still waiting on you, with a
-count on the toolbar icon.
+Two features: **click to call** (below) and the **dialer panel** (further
+down) — a keypad, recent calls, text conversations, favorites and the
+follow-ups still waiting on you, with that count on the toolbar icon.
 
 Finds phone numbers on a page and makes them clickable. One click opens the
 number in ACE Dialer — the web dialer or the desktop app — prefilled and
@@ -139,19 +139,35 @@ Developer mode → **Load unpacked**.
 libphonenumber is bundled into the content script, which is why `content.js` is
 ~125 KB. That's a deliberate trade for detection accuracy over a regex guess.
 
-## Follow-ups panel
+## Dialer panel
 
-Click the toolbar icon → a Chrome side panel lists what's waiting on the
-signed-in person (same computation as Reports → Follow-ups): missed calls with
-no call/text back, texts whose last message is theirs, voicemails with no
-callback. Each row has **Call back** and **Text**, which only prefill — they
-go through the same router as a clicked number, as *trusted* numbers (no
-`src`), so the dialer treats them like a Teams-card link. The toolbar badge is
-the open count, refreshed by a 2-minute `chrome.alarms` tick.
+Click the toolbar icon → a Chrome side panel with five tabs (0.10.242.2):
+
+| Tab | Shows | Source |
+|---|---|---|
+| Keypad | Type, paste or tap a number; Call / Text. Works signed out — it needs no data | — |
+| Recents | The dialer's Recents, row for row: same calls, labels, red rows, times, lengths | `GET /me/panel/recents` |
+| Messages | The dialer's conversation list (SMS), same order: who, who texted last, unread, failed send | `GET /me/panel/threads` |
+| Favorites | The dialer's Favorites, same order, every number, searchable | `GET /me/panel/contacts` |
+| Follow-ups | What's waiting on you (same computation as Reports → Follow-ups) | `GET /me/follow-ups` |
+
+Every **Call** and **Text** only prefills the desktop app or web dialer, through
+the same router as a clicked number, as *trusted* numbers (no `src`), so the
+dialer treats them like a Teams-card link. Nothing in the panel dials or sends.
+The toolbar badge is the follow-ups count, refreshed by a 2-minute
+`chrome.alarms` tick; the Follow-ups tab carries it too. The last tab used is
+remembered (`chrome.storage.local`).
+
+Calls themselves still run in the desktop app or web dialer — deliberately.
+Calling from inside the extension would need SIP credentials in the browser,
+a hidden page to keep the call alive when the panel closes, and two devices
+ringing for every inbound call.
 
 **What the panel never shows:** message bodies, voicemail transcripts or
 recordings. It sits beside other sites all day; it shows who, what kind, and
-how long. Reading the thread happens in the dialer.
+when. `apps/api/src/panel/panelView.ts` builds each response field by field
+(tests pin it), so a column added to a table later can't ride along. Reading
+the thread happens in the dialer.
 
 ### Sign-in and the scoped token
 
@@ -160,8 +176,8 @@ how long. Reading the thread happens in the dialer.
 `https://<extension-id>.chromiumapp.org/`, then the API's normal
 `/auth/microsoft/exchange`. Because of that redirect, the server mints a
 **scoped** token (`apps/api/src/lib/extensionAuth.ts`): 12h, no admin, no SIP
-credentials, and refused on every route except `GET /me/follow-ups` and
-`GET /me/follow-ups/count`. It lives in `chrome.storage.session` (memory only,
+credentials, and refused on every route except `GET /me/follow-ups`,
+`GET /me/follow-ups/count` and the three `GET /me/panel/*` lists. It lives in `chrome.storage.session` (memory only,
 gone when the browser quits, not readable by content scripts). Renewal is a
 silent `prompt=none` sign-in with the last email as `login_hint`, at most every
 30 minutes — the hint is what stops a shared machine from silently signing in
