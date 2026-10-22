@@ -272,7 +272,7 @@ export const HELP_AREAS: HelpArea[] = [
           'Plain text: copy the number (Ctrl+C), then press Ctrl+Shift+D (Cmd+Shift+D on Mac). The shortcut reads what you copied, not what you highlighted.',
           'Chrome extension: on JobDiva (built in) and any sites you add in its options, numbers get a dotted underline. Click one to fill it into the dialer. It works with the desktop app and the web dialer.',
           'Chrome extension and the web dialer: if dialer.aptask.com is open in a tab, a clicked number goes into that tab without reloading it, so a call in progress keeps going. Otherwise it opens where the extension’s options say: the desktop app (the default) or a new web dialer tab.',
-          'Chrome extension panel: click the ACE Dialer icon in Chrome for a keypad, your Recents, Messages and Favorites (the same lists as the dialer), and Follow-ups. Call and Text open the number in the dialer, ready for you to press Call or Send.',
+          'Chrome extension panel: click the ACE Dialer icon in Chrome for a keypad (it shows Mobile, Landline, VoIP or Toll-free like the dialer’s keypad), your Recents, Messages and Favorites (the same lists as the dialer), and Follow-ups. Call and Text open the number in the dialer, ready for you to press Call or Send.',
           'Getting the extension: with “Offer the ACE Dialer extension in Chrome” on (the default), Chrome asks once whether to add it. Choose Enable extension. You can also install it from the Chrome Web Store.',
           'A failed capture empties the keypad on purpose, so you can’t call an old number by mistake.',
         ],
