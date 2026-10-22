@@ -13,7 +13,7 @@ We have a new Chrome extension for ACE Dialer. It does two things:
 1. **Phone numbers in JobDiva become clickable.** Click one and it opens in the ACE Dialer app with the number already filled in. Nothing is dialled until you press **Call**, so a mis-click can't call anyone.
 2. **A Follow-ups list next to JobDiva.** It shows the missed calls, texts and voicemails from the last 14 days that you haven't answered yet. Each one has a **Call back** and a **Text** button. The number on the extension's icon tells you how many are waiting.
 
-It takes about two minutes to set up.
+It takes about a minute to set up.
 
 ## Install it
 
@@ -26,17 +26,13 @@ It takes about two minutes to set up.
 
 *Using Microsoft Edge?* Open the same link, click **Allow extensions from other stores** if Edge asks, then **Add to Chrome**.
 
-## Turn it on for JobDiva
+## JobDiva works straight away
 
-1. Click the **ACE Dialer icon** in the toolbar. A panel opens on the right.
-2. Click the **gear icon** at the top of the panel. The settings page opens.
-3. In the box under **"Where should ACE Dialer find phone numbers?"**, type `www1.jobdiva.com` and click **Add site**. When Chrome asks for permission, click **Allow**.
-4. Do the same for `www2.jobdiva.com`.
-5. Under **"Where should a clicked number open?"**, leave **ACE Dialer app** selected.
-
-Go back to JobDiva and refresh the page. Phone numbers now have a dotted underline. Click one and the ACE Dialer app comes forward with the number filled in.
+Open JobDiva and refresh the page. Phone numbers now have a dotted underline. Click one and the ACE Dialer app comes forward with the number filled in. There's nothing to set up for JobDiva.
 
 The first time you click a number, Chrome asks **"Open ACE Dialer?"**. Tick **Always allow** and click **Open ACE Dialer**, and it won't ask again.
+
+Want it on another site too? Click the ACE Dialer icon, then the **gear icon**, type the site's address and click **Add site**.
 
 ## See your follow-ups
 
@@ -44,7 +40,7 @@ Click the **ACE Dialer icon**, then **Sign in with Microsoft**, with your usual 
 
 ## Good to know
 
-- **The extension only reads the sites you add.** It can't see any other website, and it never touches a box you're typing in. You can remove a site from the settings page at any time.
+- **The extension only reads JobDiva and any sites you add.** It can't see any other website, and it never touches a box you're typing in.
 - **The Follow-ups panel shows who and when, never what was said.** To read a text or hear a voicemail, open the dialer.
 - **The ACE Dialer app needs to be installed and signed in** for clicks to work. If you already have the web dialer open in a Chrome tab, the number goes there instead, and a call you're on in that tab isn't interrupted.
 - **Clicking a number does nothing?** Check that the ACE Dialer app is running (look for its icon near the clock), then try again. If the number looked wrong, or two numbers were next to each other, the dialer says so rather than guessing.
