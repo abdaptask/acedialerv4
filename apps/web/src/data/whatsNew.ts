@@ -24,6 +24,17 @@ export interface ReleaseEntry {
 
 export const WHATS_NEW: ReleaseEntry[] = [
   {
+    version: '0.10.243',
+    date: 'October 22, 2026',
+    highlight: 'ACE Dialer for Chrome: click any phone number in JobDiva, and keep the dialer in a side panel.',
+    changes: [
+      { type: 'new', text: 'The ACE Dialer Chrome extension underlines phone numbers in JobDiva. Click one and it opens here with the number filled in, ready for you to press Call.' },
+      { type: 'new', text: 'The extension’s side panel has a keypad, your Recents, Messages and Favorites (the same lists as here), and Follow-ups: the missed calls, texts and voicemails still waiting on you.' },
+      { type: 'new', text: 'Settings → Click to dial → “Offer the ACE Dialer extension in Chrome” (on by default). Chrome asks you once whether to add the extension; nothing is installed unless you say yes.' },
+      { type: 'improved', text: 'Settings → Help covers the extension: what its messages mean and what to do about them.' },
+    ],
+  },
+  {
     version: '0.10.242',
     date: 'October 13, 2026',
     highlight: 'New Help page: look up any message the dialer shows you and what to do about it.',
