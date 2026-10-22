@@ -41,7 +41,7 @@ const TITLES: Record<View, string> = {
   recents: 'Recents',
   keypad: 'Keypad',
   messages: 'Messages',
-  contacts: 'Contacts',
+  contacts: 'Favorites',
 };
 
 const ICONS = {
@@ -49,6 +49,7 @@ const ICONS = {
     'M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z',
   message: 'M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z',
   outgoing: 'M7 17 17 7M7 7h10v10',
+  incoming: 'M17 7 7 17M17 17H7V7',
 };
 
 function icon(path: string, size = 20): SVGSVGElement {
@@ -84,11 +85,10 @@ interface RowSpec {
   number: string;
   name: string | null;
   detail: string;
-  /** Red name, as Recents shows a missed call. */
-  missed?: boolean;
-  /** Red detail line, e.g. a text that didn't deliver. */
+  /** Red detail line: a missed or declined call, a text that didn't deliver. */
   warn?: boolean;
-  outgoing?: boolean;
+  /** The dialer's direction arrow. */
+  arrow?: 'inbound' | 'outbound';
   /** Shown under the detail; defaults to the formatted number when a name is shown. */
   sub?: string;
   time?: string;
@@ -113,11 +113,11 @@ function row(s: RowSpec): HTMLElement {
   // Server values only ever go in through textContent — a saved name is user
   // input, and this page has extension privileges.
   const name = document.createElement('div');
-  name.className = s.missed ? 'name missed' : 'name';
+  name.className = 'name';
   name.textContent = label;
   const d = document.createElement('div');
   d.className = s.warn ? 'detail warn' : 'detail';
-  if (s.outgoing) d.append(icon(ICONS.outgoing, 12));
+  if (s.arrow) d.append(icon(s.arrow === 'outbound' ? ICONS.outgoing : ICONS.incoming, 12));
   const text = document.createElement('span');
   // Keep "4 hr ago" together when the line wraps.
   text.textContent = s.detail.replace(/(\d+) (min|hr|days) ago/, '$1 $2 ago');
@@ -213,8 +213,8 @@ function renderRecents(items: PanelRecent[]): void {
           number: r.number,
           name: r.name,
           detail: recentDetail(r),
-          missed: r.outcome === 'missed',
-          outgoing: r.direction === 'outbound',
+          warn: r.red,
+          arrow: r.direction,
           time: when(r.at),
           lead: 'call',
         }),
@@ -256,7 +256,7 @@ function renderContacts(): void {
   const digits = q.replace(/\D/g, '');
   if (current === 'contacts') setSub(contacts.length ? `${contacts.length} saved` : '');
   if (!contacts.length) {
-    list.replaceChildren(emptyState('No saved contacts', 'Star someone in ACE Dialer and they’ll appear here.'));
+    list.replaceChildren(emptyState('No favorites yet', 'Star someone in ACE Dialer and they’ll appear here.'));
     return;
   }
   const rows: HTMLElement[] = [];

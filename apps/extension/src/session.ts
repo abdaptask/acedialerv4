@@ -174,9 +174,11 @@ export interface PanelRecent {
   number: string;
   name: string | null;
   direction: 'inbound' | 'outbound';
-  outcome: 'answered' | 'missed' | 'blocked' | 'forwarded' | 'no_answer' | 'failed';
+  /** The dialer's own wording, decided server-side so the two never differ. */
+  label: string;
+  red: boolean;
   at: string;
-  talkSeconds: number | null;
+  durationSeconds: number;
 }
 
 export interface PanelThread {

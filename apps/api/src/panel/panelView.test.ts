@@ -1,75 +1,90 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { nameBook, toPanelContacts, toPanelRecent, toPanelThread } from './panelView.js';
+import { callIsRed, callLabel, nameBook, toPanelContacts, toPanelRecent, toPanelThread } from './panelView.js';
 
-const fav = (phone: string, firstName: string | null, lastName: string | null = null, numbers: string[] = []) => ({
+const fav = (phone: string, firstName: string | null, lastName: string | null = null, label: string | null = null) => ({
   phone,
   firstName,
   lastName,
-  label: null,
-  numbers: numbers.map((p, i) => ({ phone: p, label: i ? 'Work' : 'Mobile', sortOrder: i * 10 })),
+  label,
+  numbers: [] as Array<{ phone: string; label: string | null }>,
 });
 
 const at = (s: string) => new Date(`2026-10-22T${s}Z`);
-
-test('names resolve from every number on a favorite, by last 10 digits', () => {
-  const book = nameBook([fav('+17322001305', 'Sarah', 'Chen', ['+17322001305', '+16465550100'])]);
-  assert.equal(book.get('7322001305'), 'Sarah Chen');
-  assert.equal(book.get('6465550100'), 'Sarah Chen');
+const noJobDiva = () => null;
+const call = (direction: string, status: string, hangupCause: string | null = null) => ({
+  direction, status, hangupCause, fromNumber: '+17322001305', toNumber: '+16465550100', startedAt: at('14:00:00'), durationSeconds: 0,
 });
 
-test('a short code never picks up a contact name', () => {
-  assert.equal(nameBook([fav('22000', 'Promo')]).size, 0);
+test('labels and red rows match the dialer’s Recents, status by status', () => {
+  // [direction, status, hangupCause, label, red] — Recents.tsx statusLabel + isDangerStatus.
+  const table: Array<[string, string, string | null, string, boolean]> = [
+    ['inbound', 'missed', null, 'Missed', true],
+    ['inbound', 'no_answer', null, 'Missed', true],
+    ['inbound', 'missed', 'ORIGINATOR_CANCEL', 'Caller canceled', true],
+    ['inbound', 'rejected', null, 'Declined', true],
+    ['inbound', 'busy', null, 'Busy', true],
+    ['inbound', 'failed', null, 'Failed', true],
+    ['inbound', 'blocked', null, 'Blocked', true],
+    ['inbound', 'forwarded', null, 'Forwarded', false],
+    ['inbound', 'answered', null, 'Inbound', false],
+    ['inbound', 'completed', null, 'Inbound', false],
+    ['outbound', 'completed', null, 'Outgoing', false],
+    ['outbound', 'failed', null, 'Outgoing', false],
+    ['outbound', 'no_answer', null, 'Outgoing', false],
+    ['outbound', 'blocked', null, 'Blocked', true],
+  ];
+  for (const [d, s, h, label, red] of table) {
+    assert.equal(callLabel(call(d, s, h)), label, `${d} ${s} ${h}`);
+    assert.equal(callIsRed(call(d, s, h)), red, `${d} ${s} ${h} red`);
+  }
 });
 
-test('recents: inbound unanswered is missed, talk time excludes ringing', () => {
+test('recents rows: other party, the dialer’s duration field, no extras', () => {
   const book = nameBook([fav('+17322001305', 'Sarah', 'Chen')]);
-  const missed = toPanelRecent(
-    { direction: 'inbound', fromNumber: '+17322001305', toNumber: '+12015550000', status: 'no_answer', startedAt: at('14:00:00'), answeredAt: null, endedAt: at('14:00:25') },
-    book,
-  );
-  assert.deepEqual(missed, {
-    number: '+17322001305', name: 'Sarah Chen', direction: 'inbound', outcome: 'missed', at: '2026-10-22T14:00:00.000Z', talkSeconds: null,
+  const r = toPanelRecent({ ...call('inbound', 'completed'), durationSeconds: 125 }, book, noJobDiva);
+  assert.deepEqual(r, {
+    number: '+17322001305', name: 'Sarah Chen', direction: 'inbound', label: 'Inbound', red: false,
+    at: '2026-10-22T14:00:00.000Z', durationSeconds: 125,
   });
-  const out = toPanelRecent(
-    { direction: 'outbound', fromNumber: '+12015550000', toNumber: '+16465550199', status: 'completed', startedAt: at('15:00:00'), answeredAt: at('15:00:20'), endedAt: at('15:02:20') },
-    book,
-  );
-  assert.equal(out.number, '+16465550199');
-  assert.equal(out.outcome, 'answered');
-  assert.equal(out.talkSeconds, 120);
-  assert.equal(out.name, null);
+  assert.equal(toPanelRecent(call('outbound', 'completed'), book, noJobDiva).number, '+16465550100');
 });
 
-test('recents: blocked stays blocked even with no answer', () => {
-  const r = toPanelRecent(
-    { direction: 'inbound', fromNumber: '+17322001305', toNumber: '+1', status: 'blocked', startedAt: at('10:00:00'), answeredAt: null, endedAt: null },
-    new Map(),
-  );
-  assert.equal(r.outcome, 'blocked');
+test('names: favorite first, then a JobDiva name the dialer already looked up', () => {
+  const book = nameBook([fav('+17322001305', 'Sarah', null)]);
+  const jd = (p: string) => (p.endsWith('0100') ? 'Raj Patel' : null);
+  assert.equal(toPanelRecent(call('inbound', 'completed'), book, jd).name, 'Sarah');
+  assert.equal(toPanelRecent(call('outbound', 'completed'), book, jd).name, 'Raj Patel');
 });
 
-test('threads carry no text, and flag a failed last send', () => {
-  const t = toPanelThread({ threadKey: '+17322001305', direction: 'outbound', status: 'delivery_failed', createdAt: at('09:00:00') }, 0, new Map());
+test('favorite names follow the dialer: first + last, else label; oldest wins a duplicate', () => {
+  // GET /favorites order: newest first.
+  const book = nameBook([fav('+17322001305', 'Newer', null), fav('7322001305', null, null, 'Older label')]);
+  assert.equal(book.get('7322001305'), 'Older label');
+});
+
+test('threads carry no text; unread only while their message is last', () => {
+  const t = toPanelThread({ threadKey: '+17322001305', direction: 'outbound', status: 'delivery_failed', createdAt: at('09:00:00') }, 3, new Map(), noJobDiva);
   assert.deepEqual(Object.keys(t).sort(), ['failed', 'lastAt', 'lastDirection', 'name', 'number', 'unread']);
   assert.equal(t.failed, true);
+  assert.equal(t.unread, 0);
   // Extra columns on the source row must not ride through.
   const leaky = { threadKey: '+1', direction: 'inbound', status: 'received', createdAt: at('09:00:00'), body: 'secret', mediaUrls: ['x'] };
-  const out = toPanelThread(leaky, 2, new Map()) as unknown as Record<string, unknown>;
+  const out = toPanelThread(leaky, 2, new Map(), noJobDiva) as unknown as Record<string, unknown>;
   assert.equal(out.body, undefined);
   assert.equal(out.mediaUrls, undefined);
   assert.equal(out.unread, 2);
 });
 
-test('contacts sort by name and keep number order', () => {
+test('favorites keep the dialer’s order and each favorite’s number order', () => {
   const c = toPanelContacts([
-    fav('+16465550100', 'zoe', null, ['+16465550100']),
-    fav('+17322001305', 'Adam', 'Lee', ['+17322001305', '+12125550123']),
+    { ...fav('+16465550100', 'Zoe'), numbers: [{ phone: '+16465550100', label: 'Mobile' }, { phone: '+12125550123', label: 'Work' }] },
     fav('+19175550000', null),
   ]);
-  assert.deepEqual(c.map((x) => x.name), ['+19175550000', 'Adam Lee', 'zoe']);
-  assert.deepEqual(c[1].numbers, [
-    { label: 'Mobile', number: '+17322001305' },
+  assert.deepEqual(c.map((x) => x.name), ['Zoe', '+19175550000']);
+  assert.deepEqual(c[0].numbers, [
+    { label: 'Mobile', number: '+16465550100' },
     { label: 'Work', number: '+12125550123' },
   ]);
+  assert.deepEqual(c[1].numbers, [{ label: null, number: '+19175550000' }]);
 });

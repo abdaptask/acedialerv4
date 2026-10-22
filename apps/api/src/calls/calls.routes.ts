@@ -219,6 +219,59 @@ export function dedupeCallLegs<T extends {
   return kept;
 }
 
+/** The dialer's Recents list: newest first, infrastructure legs removed,
+ *  Telnyx's two legs per call collapsed. GET /calls returns it as-is and the
+ *  browser extension's panel (panel/panel.routes.ts) maps the same rows, so
+ *  the two lists can't drift apart. */
+export async function loadRecents(userId: number) {
+  // Filter out server-internal call rows the user shouldn't see:
+  //   - SIP URI targets (e.g. sip:userabdulla74993@sip.telnyx.com) from
+  //     legacy Call Control flows where the webhook itself originated a
+  //     leg to bridge to the WebRTC user. Those are infrastructure, not
+  //     phone calls the user made.
+  //   - Empty/placeholder phone numbers.
+  // Result: Recents shows only real PSTN/external calls, like an iPhone.
+  // v0.10.108 - also exclude SIP-delivery-leg rows where toNumber is
+  // a credential username without a sip: prefix. Those rows are server
+  // infrastructure events, not real phone calls. Match against the set
+  // of known User.sipUsername values so we filter ANY user's SIP leg.
+  const allSipUsernames = await prisma.user.findMany({
+    where: { sipUsername: { not: null } },
+    select: { sipUsername: true },
+  });
+  const sipUsernameSet = allSipUsernames
+    .map((u) => u.sipUsername)
+    .filter((s): s is string => !!s);
+
+  const calls = await prisma.call.findMany({
+    where: {
+      userId,
+      AND: [
+        { NOT: { toNumber: { startsWith: 'sip:' } } },
+        { NOT: { fromNumber: { startsWith: 'sip:' } } },
+        { NOT: { toNumber: '' } },
+        { NOT: { fromNumber: '' } },
+        ...(sipUsernameSet.length
+          ? [{ NOT: { toNumber: { in: sipUsernameSet } } }]
+          : []),
+      ],
+    },
+    orderBy: { startedAt: 'desc' },
+    // Bumped from 100 -> 200 so dedupe (which collapses 2 legs into 1) still
+    // leaves a healthy ~100-row history in the UI.
+    take: 200,
+    // v0.10.0 Task 5 — include the UserDid for the line-badge tag.
+    // Only the fields the UI needs (id/label/colorHex); skip the
+    // sensitive cached telnyxNumberId + connectionId.
+    include: {
+      userDid: {
+        select: { id: true, label: true, colorHex: true, didNumber: true },
+      },
+    },
+  });
+  return dedupeCallLegs(calls);
+}
+
 export async function callsRoutes(app: FastifyInstance) {
   // --- Missed-call count for bottom-nav badge ---
   // Counts inbound calls that didn't connect (missed/no_answer/rejected/failed)
@@ -245,52 +298,7 @@ export async function callsRoutes(app: FastifyInstance) {
 
   app.get('/calls', { onRequest: [app.authenticate] }, async (request: FastifyRequest) => {
     const user = request.user as JwtPayload;
-    // Filter out server-internal call rows the user shouldn't see:
-    //   - SIP URI targets (e.g. sip:userabdulla74993@sip.telnyx.com) from
-    //     legacy Call Control flows where the webhook itself originated a
-    //     leg to bridge to the WebRTC user. Those are infrastructure, not
-    //     phone calls the user made.
-    //   - Empty/placeholder phone numbers.
-    // Result: Recents shows only real PSTN/external calls, like an iPhone.
-    // v0.10.108 - also exclude SIP-delivery-leg rows where toNumber is
-    // a credential username without a sip: prefix. Those rows are server
-    // infrastructure events, not real phone calls. Match against the set
-    // of known User.sipUsername values so we filter ANY user's SIP leg.
-    const allSipUsernames = await prisma.user.findMany({
-      where: { sipUsername: { not: null } },
-      select: { sipUsername: true },
-    });
-    const sipUsernameSet = allSipUsernames
-      .map((u) => u.sipUsername)
-      .filter((s): s is string => !!s);
-
-    const calls = await prisma.call.findMany({
-      where: {
-        userId: user.sub,
-        AND: [
-          { NOT: { toNumber: { startsWith: 'sip:' } } },
-          { NOT: { fromNumber: { startsWith: 'sip:' } } },
-          { NOT: { toNumber: '' } },
-          { NOT: { fromNumber: '' } },
-          ...(sipUsernameSet.length
-            ? [{ NOT: { toNumber: { in: sipUsernameSet } } }]
-            : []),
-        ],
-      },
-      orderBy: { startedAt: 'desc' },
-      // Bumped from 100 -> 200 so dedupe (which collapses 2 legs into 1) still
-      // leaves a healthy ~100-row history in the UI.
-      take: 200,
-      // v0.10.0 Task 5 — include the UserDid for the line-badge tag.
-      // Only the fields the UI needs (id/label/colorHex); skip the
-      // sensitive cached telnyxNumberId + connectionId.
-      include: {
-        userDid: {
-          select: { id: true, label: true, colorHex: true, didNumber: true },
-        },
-      },
-    });
-    return dedupeCallLegs(calls);
+    return loadRecents(user.sub);
   });
 
   app.get('/calls/:id', { onRequest: [app.authenticate] }, async (request, reply) => {

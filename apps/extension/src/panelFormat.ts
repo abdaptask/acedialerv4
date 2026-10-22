@@ -45,42 +45,38 @@ export function subtitle(count: number): string {
 
 // ── Dialer panel ─────────────────────────────────────────────────────────
 
-/** 0:45, 2:05, 1:02:03 — how a phone shows call length. */
-export function talkTime(seconds: number): string {
-  const s = Math.max(0, Math.round(seconds));
-  const h = Math.floor(s / 3600);
-  const m = Math.floor((s % 3600) / 60);
-  const ss = String(s % 60).padStart(2, '0');
-  return h ? `${h}:${String(m).padStart(2, '0')}:${ss}` : `${m}:${ss}`;
+/** Recents.tsx formatDuration: m:ss, minutes never rolled into hours, so the
+ *  panel shows exactly what the dialer shows. */
+export function callLength(seconds: number): string {
+  if (!seconds) return '';
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
 }
 
-/** Recents-style time: "2:14 PM" today, "Yesterday", "Tuesday" this week,
- *  then "10/14/26". `timeZone` exists for tests; the panel uses the
- *  browser's own zone, which is the user's. */
-export function when(iso: string, now = Date.now(), timeZone?: string): string {
-  const d = new Date(iso);
-  const day = (t: number) => new Date(t).toLocaleDateString('en-US', { timeZone });
-  if (day(d.getTime()) === day(now)) {
-    return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone });
-  }
-  if (day(d.getTime()) === day(now - 86_400_000)) return 'Yesterday';
-  if (now - d.getTime() < 6 * 86_400_000) return d.toLocaleDateString('en-US', { weekday: 'long', timeZone });
-  return d.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: '2-digit', timeZone });
+/** Recents.tsx formatTime / Messages.tsx formatRelative, copied so the panel
+ *  and the dialer print the same time for the same row: "3:07 PM",
+ *  "Yesterday, 3:07 PM", "Oct 5, 3:07 PM". The clock is Eastern; which day it
+ *  is comes from the computer's own calendar — both exactly as the dialer. */
+export function when(iso: string, now = new Date()): string {
+  const date = new Date(iso);
+  if (!iso || Number.isNaN(date.getTime())) return '';
+  const timeStr = date.toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' });
+  const sameDay =
+    date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth() && date.getDate() === now.getDate();
+  if (sameDay) return timeStr;
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+  const isYesterday =
+    date.getFullYear() === yesterday.getFullYear() &&
+    date.getMonth() === yesterday.getMonth() &&
+    date.getDate() === yesterday.getDate();
+  if (isYesterday) return `Yesterday, ${timeStr}`;
+  return `${date.toLocaleDateString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric' })}, ${timeStr}`;
 }
 
-const OUTCOME: Record<PanelRecent['outcome'], string> = {
-  answered: '',
-  missed: 'Missed',
-  blocked: 'Blocked',
-  forwarded: 'Forwarded',
-  no_answer: 'No answer',
-  failed: 'Didn’t connect',
-};
-
-/** The line under a Recents name: "Outgoing · 2:05", "Missed". */
+/** The line under a Recents name, as the dialer prints it: "Outgoing · 2:05". */
 export function recentDetail(r: PanelRecent): string {
-  const label = OUTCOME[r.outcome] || (r.direction === 'inbound' ? 'Incoming' : 'Outgoing');
-  return r.talkSeconds ? `${label} · ${talkTime(r.talkSeconds)}` : label;
+  const len = callLength(r.durationSeconds);
+  return len ? `${r.label} · ${len}` : r.label;
 }
 
 /** The line under a Messages name. Never the text itself — the panel isn't

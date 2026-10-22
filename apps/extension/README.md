@@ -1,7 +1,7 @@
 # ACE Dialer (browser extension)
 
 Two features: **click to call** (below) and the **dialer panel** (further
-down) — a keypad, recent calls, text conversations, saved contacts and the
+down) — a keypad, recent calls, text conversations, favorites and the
 follow-ups still waiting on you, with that count on the toolbar icon.
 
 Finds phone numbers on a page and makes them clickable. One click opens the
@@ -146,9 +146,9 @@ Click the toolbar icon → a Chrome side panel with five tabs (0.10.242.2):
 | Tab | Shows | Source |
 |---|---|---|
 | Keypad | Type, paste or tap a number; Call / Text. Works signed out — it needs no data | — |
-| Recents | Last 60 calls: who, direction, outcome, talk time | `GET /me/panel/recents` |
-| Messages | Last 60 text conversations: who, who texted last, unread, failed send | `GET /me/panel/threads` |
-| Contacts | Your saved contacts, every number, searchable | `GET /me/panel/contacts` |
+| Recents | The dialer's Recents, row for row: same calls, labels, red rows, times, lengths | `GET /me/panel/recents` |
+| Messages | The dialer's conversation list (SMS), same order: who, who texted last, unread, failed send | `GET /me/panel/threads` |
+| Favorites | The dialer's Favorites, same order, every number, searchable | `GET /me/panel/contacts` |
 | Follow-ups | What's waiting on you (same computation as Reports → Follow-ups) | `GET /me/follow-ups` |
 
 Every **Call** and **Text** only prefills the desktop app or web dialer, through
