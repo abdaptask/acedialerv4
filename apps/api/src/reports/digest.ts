@@ -393,6 +393,10 @@ export function renderDigest(d: Digest, sender: string): Rendered {
   const shouts = shoutOuts(d);
   const sc = shortCalls(d);
   const practices = bestPractices(d);
+  // Open the page on the period this email reports, not the page's default
+  // last-30-days. One message goes to everyone, so the link can't carry a
+  // person; Reports scopes a non-admin to their own numbers server-side.
+  const reportsUrl = `${APP_URL}/reports/overview?from=${p.from}&to=${p.to}`;
   const vs = weekly ? 'the week before' : 'last week';
 
   const tiles: Array<{ label: string; value: string; cur: number; prev: number }> = [
@@ -509,7 +513,7 @@ export function renderDigest(d: Digest, sender: string): Rendered {
   ${worked ? section('How responsive we were', `<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>${respHtml}</tr></table>`) : ''}
   ${practices.length ? section('Best practices 💡', practiceHtml) : ''}
   <tr><td style="padding:24px 28px 28px">
-    ${button(`${APP_URL}/reports/overview`, 'Open Reports')}
+    ${button(reportsUrl, 'Open Reports')}
     <div style="font-size:11px;color:${C.muted};line-height:1.5;margin-top:18px">Sent by ${esc(sender)} to ACE Dialer users. Each call counts once; talk time excludes ringing; times are Eastern.</div>
   </td></tr>
 </table>
@@ -544,7 +548,7 @@ export function renderDigest(d: Digest, sender: string): Rendered {
     lines.push('', 'BEST PRACTICES');
     for (const x of practices) lines.push(`  ${x.icon} ${x.title}`, `     ${x.body}`);
   }
-  lines.push('', `Open Reports: ${APP_URL}/reports`, `Sent by ${sender} to ACE Dialer users.`);
+  lines.push('', `Open Reports: ${reportsUrl}`, `Sent by ${sender} to ACE Dialer users.`);
 
   return { subject, html, text: lines.join('\n') };
 }
