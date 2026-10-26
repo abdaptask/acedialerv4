@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Routes, Route, Navigate, useNavigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import Login from './pages/Login';
 import MicrosoftCallback from './pages/MicrosoftCallback';
 import Layout from './pages/Layout';
@@ -76,6 +76,22 @@ function persistSipCreds(u: User | null): void {
   window.dispatchEvent(new CustomEvent('ace:sip-creds-updated'));
 }
 
+// v0.10.2 — stash the requested URL so handleLoginSuccess can bounce the
+// user back here after MS SSO (a Teams card or the Reports email link).
+// This MUST be a component, not an inline expression in the route's
+// `element` prop: props are evaluated on every App render whatever the URL,
+// so the stash also ran on /auth/microsoft/callback and saved the callback
+// URL itself. Sign-in then "returned" to the callback page, whose effect
+// never re-runs, and the user sat on "Signing you in…" forever. A component
+// only renders when its route actually matched.
+function RedirectToLogin() {
+  const location = useLocation();
+  try {
+    sessionStorage.setItem('ace_return_to', location.pathname + location.search);
+  } catch { /* sessionStorage can throw in private mode */ }
+  return <Navigate to="/login" />;
+}
+
 export default function App() {
   const [token, setToken] = useState<string | null>(() => sessionStorage.getItem('ace_token'));
   const [user, setUser] = useState<User | null>(null);
@@ -116,7 +132,7 @@ export default function App() {
     let target = '/keypad';
     try {
       const returnTo = sessionStorage.getItem('ace_return_to');
-      if (returnTo && returnTo !== '/login' && returnTo !== '/') {
+      if (returnTo && returnTo !== '/login' && returnTo !== '/' && !returnTo.startsWith('/auth/')) {
         target = returnTo;
         sessionStorage.removeItem('ace_return_to');
       }
@@ -276,19 +292,7 @@ export default function App() {
         element={
           user
             ? <Layout user={user} onLogout={handleLogout} />
-            : (() => {
-                // v0.10.2 — stash the requested URL so handleLoginSuccess
-                // can bounce the user back here after MS SSO. Without this
-                // a Teams card click → SSO → /keypad dumps the user away
-                // from the voicemail they were trying to play.
-                try {
-                  const here = window.location.pathname + window.location.search;
-                  if (here && here !== '/login') {
-                    sessionStorage.setItem('ace_return_to', here);
-                  }
-                } catch { /* sessionStorage can throw in private mode */ }
-                return <Navigate to="/login" />;
-              })()
+            : <RedirectToLogin />
         }
       >
         <Route index element={<Navigate to="/keypad" replace />} />
