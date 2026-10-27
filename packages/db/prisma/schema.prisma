@@ -172,6 +172,7 @@ model User {
   /// its app version + last-seen timestamp via /me/heartbeat. Admin can
   /// see each user's devices and request a force-update.
   devices         UserDevice[] @relation("UserDevices")
+  followUpDismissals FollowUpDismissal[]
 
   @@map("users")
 }
@@ -1089,4 +1090,26 @@ model PhoneTypeLookup {
   checkedAt   DateTime @default(now()) @map("checked_at")
 
   @@map("phone_type_lookups")
+}
+
+/// A follow-up the user marked Done without calling or texting back (a wrong
+/// number, a "thanks!" text). computeFollowUps treats it as a reply at
+/// `dismissedAt`, so anything that number does afterwards reopens the item —
+/// Done means "handled so far", never "hide this number". One row per number;
+/// marking it Done again moves the timestamp forward.
+model FollowUpDismissal {
+  id           Int       @id @default(autoincrement())
+  userId       Int       @map("user_id")
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// Last 10 digits, the dialer-wide match key (§3.4).
+  numberLast10 String    @map("number_last10")
+  dismissedAt  DateTime  @default(now()) @map("dismissed_at")
+  /// The Done this one replaced, so Undo puts it back rather than reopening
+  /// everything the earlier Done had closed. Server-held: a client-supplied
+  /// restore time could be set in the future to hide a number for good.
+  previousAt   DateTime? @map("previous_at")
+
+  @@unique([userId, numberLast10])
+  @@index([dismissedAt])
+  @@map("follow_up_dismissals")
 }

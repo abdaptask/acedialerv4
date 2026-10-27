@@ -52,7 +52,7 @@ Start each day on **Follow-ups**: it's the list of people waiting on you. Everyt
 
 ### A five-minute daily routine
 
-1. **Follow-ups:** work the list from the top. The oldest items are first, and red means waiting more than 2 days. An item disappears as soon as you call or text that number back.
+1. **Follow-ups:** work the list from the top. The oldest items are first, and red means waiting more than 2 days. An item disappears as soon as you call or text that number back. If one needs no reply (a wrong number, a "thanks!"), press **Done**; it comes back if that number gets in touch again.
 2. **Overview, set to Yesterday:** check your calls, talk time, and how many missed calls you returned.
 3. **Activity, Unanswered filter:** anyone who called you and didn't reach you.
 
@@ -92,7 +92,7 @@ Admins see the whole team, can open any person's report, and get three extra tab
 ### A weekly review in ten minutes
 
 1. **Overview, 7 days:** scan the tiles for red chips, then sort the Team scorecard by the column you care about.
-2. **Follow-ups:** the "By person" table shows who has the most people waiting and for how long. Anything older than 2 days is red.
+2. **Follow-ups:** the "By person" table shows who has the most people waiting and for how long. Anything older than 2 days is red. **Marked done** is how many items that person cleared with Done (no reply needed) in the last 14 days; a high number next to a short list is worth a look.
 3. **Insights:** check the biggest drops in calling, opt-outs with texts sent after them, and numbers that keep failing.
 4. **Open two or three people:** their report compares every measure with the team average and their own previous period. Gaps of 15% or more are marked green or red.
 
@@ -199,6 +199,8 @@ Cost estimates spend on calls (billed minutes), texts (billed message parts) and
 **Why is a voicemail I already listened to on Follow-ups?** Listening isn't answering. A voicemail stays open until you call or text that number back. (Earlier, a voicemail you'd played dropped off the list even if nobody had called back; that was a bug.) Playing from a Teams card or an email doesn't always register as listened anyway, so it was never a reliable signal.
 
 **Can I see Follow-ups without opening Reports?** Yes. The ACE Dialer browser extension (Chrome or Edge) shows the same list in a side panel, and the number on its toolbar icon is how many items are waiting.
+
+**Can I clear an item without calling back?** Yes. Press **Done** on it (in Reports or the browser extension). Use it for wrong numbers and texts that don't need an answer. It's per number, so a missed call and a text from the same person both clear. If that number calls, texts or leaves a voicemail afterwards, it comes back. Admins see each person's "Marked done" count.
 
 **Why does Follow-ups still list someone I spoke to?** It clears when you call or text that exact number back. If they called from a different number, contact that one too or it stays open.
 

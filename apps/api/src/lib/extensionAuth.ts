@@ -4,9 +4,9 @@
 // dependency of it — were ever compromised, whatever credential it holds is
 // what leaks. So it never gets the dialer's full JWT: no SIP credentials, no
 // SMS send, no message bodies, no admin. It gets a token that can read the
-// caller's own follow-up list, the dialer panel's who-and-when lists
-// (recent calls, text threads without their text, saved contacts), and the
-// line-type lookup the Keypad shows.
+// caller's own follow-up list (and mark items in it Done), the dialer panel's
+// who-and-when lists (recent calls, text threads without their text, saved
+// contacts), and the line-type lookup the Keypad shows.
 //
 // Two rules make that hold, both server-side:
 //   1. The scope is decided by the REDIRECT URI, not by anything the client
@@ -27,6 +27,12 @@ export const EXTENSION_TOKEN_TTL = '12h';
 export const EXTENSION_ROUTES: ReadonlySet<string> = new Set([
   'GET /me/follow-ups',
   'GET /me/follow-ups/count',
+  // Done / Undo on the caller's own follow-ups — the one write an extension
+  // token can make. No userId parameter; it only hides items from the
+  // caller's own list, later activity from the number reopens them, and
+  // admins see a per-person Done count in Reports.
+  'POST /me/follow-ups/done',
+  'DELETE /me/follow-ups/done',
   // The dialer panel: metadata only, built field by field in panel/panelView.ts.
   'GET /me/panel/recents',
   'GET /me/panel/threads',

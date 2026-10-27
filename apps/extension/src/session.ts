@@ -149,6 +149,26 @@ export async function apiGet<T>(path: string): Promise<ApiResult<T>> {
   return { ok: true, data: (await res.json()) as T };
 }
 
+/** POST/DELETE with the scoped token. Only a 401 signs out here: a 403 on a
+ *  write is an API that doesn't allow this route yet (the extension can
+ *  reach users before a deploy does), and that must not cost them their
+ *  session — it's reported as an ordinary failure. */
+export async function apiSend(method: 'POST' | 'DELETE', path: string, body?: unknown): Promise<ApiResult<null>> {
+  const s = await getSession();
+  if (!s) return { ok: false, signedOut: true };
+  const res = await fetch(`${API_BASE}${path}`, {
+    method,
+    headers: { authorization: `Bearer ${s.token}`, ...(body === undefined ? {} : { 'content-type': 'application/json' }) },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  }).catch(() => null);
+  if (!res) return { ok: false, signedOut: false };
+  if (res.status === 401) {
+    await clearSession();
+    return { ok: false, signedOut: true };
+  }
+  return res.ok ? { ok: true, data: null } : { ok: false, signedOut: false };
+}
+
 export interface FollowUpItem {
   kind: 'missed_call' | 'text' | 'voicemail';
   number: string;

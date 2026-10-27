@@ -2,10 +2,12 @@
 // independent of the date range picker): missed calls nobody returned,
 // text conversations where the candidate's text was the last one, and
 // voicemails with no callback. Oldest first, because oldest is most urgent.
+// Someone can mark their own item Done (no reply needed); admins see how
+// many each person cleared that way beside what's still open.
 
 import { useEffect, useMemo, useState } from 'react';
-import { MessageSquare, PhoneMissed, Voicemail } from 'lucide-react';
-import { getReportFollowUps } from '../../api';
+import { Check, MessageSquare, PhoneMissed, Voicemail } from 'lucide-react';
+import { getReportFollowUps, setFollowUpDone } from '../../api';
 import { formatPhone } from '../../lib/phone';
 import { fmtAgo, fmtDateTime, fmtInt } from './format';
 import { Empty, Kpi, KpiGrid, Panel, Person } from './parts';
@@ -26,17 +28,57 @@ export function FollowUps(p: TabProps) {
   const [err, setErr] = useState<string | null>(null);
   const [kind, setKind] = useState<Kind>('all');
   const [shown, setShown] = useState(PAGE);
+  const [nonce, setNonce] = useState(0);
+  const [done, setDone] = useState<{ number: string; label: string } | null>(null);
+  const [doneErr, setDoneErr] = useState<string | null>(null);
   const userId = p.person?.userId ?? null;
+  const token = () => sessionStorage.getItem('ace_token') ?? '';
+
+  // A different person is a fresh load; a Done/Undo refresh keeps the list up.
+  useEffect(() => { setData(null); }, [userId]);
 
   useEffect(() => {
     let live = true;
-    setData(null);
     setErr(null);
-    getReportFollowUps(sessionStorage.getItem('ace_token') ?? '', userId)
+    getReportFollowUps(token(), userId)
       .then((d) => { if (live) setData(d); })
       .catch((e: Error) => { if (live) setErr(e.message); });
     return () => { live = false; };
-  }, [userId]);
+  }, [userId, nonce]);
+
+  // The Undo line lingers long enough to read, then goes.
+  useEffect(() => {
+    if (!done) return;
+    const t = setTimeout(() => setDone(null), 8000);
+    return () => clearTimeout(t);
+  }, [done]);
+
+  const last10 = (n: string) => n.replace(/\D/g, '').slice(-10);
+
+  async function markDone(i: FollowUpItem) {
+    setDoneErr(null);
+    // Gone straight away — every open item for the number, as the server will.
+    setData((d) => d && { ...d, items: d.items.filter((x) => x.userId !== i.userId || last10(x.number) !== last10(i.number)) });
+    try {
+      await setFollowUpDone(token(), i.number, true);
+      setDone({ number: i.number, label: i.name ?? formatPhone(i.number) });
+    } catch (e) {
+      setDoneErr((e as Error).message);
+    }
+    setNonce((n) => n + 1);
+  }
+
+  async function undoDone() {
+    if (!done) return;
+    const { number } = done;
+    setDone(null);
+    try {
+      await setFollowUpDone(token(), number, false);
+    } catch (e) {
+      setDoneErr((e as Error).message);
+    }
+    setNonce((n) => n + 1);
+  }
 
   const items = useMemo(() => (data ? data.items.filter((i) => kind === 'all' || i.kind === kind) : []), [data, kind]);
 
@@ -48,12 +90,13 @@ export function FollowUps(p: TabProps) {
   return (
     <>
       <p className="rp-footnote rp-footnote-top">
-        Live, for the last {data.days} days, whatever date range is picked above. An item clears as soon as someone calls or texts that number back.
+        Live, for the last {data.days} days, whatever date range is picked above. An item clears as soon as someone calls or texts that number back, or marks it Done.
       </p>
-      <KpiGrid cols={4}>
+      <KpiGrid cols={5}>
         <Kpi label="Missed calls not returned" value={fmtInt(t.missedCalls)} sub="No call or text back since" onOpen={() => setKind('missed_call')} />
         <Kpi label="Texts waiting on a reply" value={fmtInt(t.texts)} sub="Their text was the last one" onOpen={() => setKind('text')} />
         <Kpi label="Voicemails not returned" value={fmtInt(t.voicemails)} sub="Not already counted as a missed call" onOpen={() => setKind('voicemail')} />
+        <Kpi label="Marked done" value={fmtInt(t.markedDone)} sub="Cleared with no reply needed" />
         <Kpi label="Oldest waiting" value={data.items[0] ? fmtAgo(data.items[0].since) : '—'} sub={data.items[0] ? `${data.items[0].personName} · ${KIND_LABEL[data.items[0].kind].toLowerCase()}` : 'Nothing waiting'} />
       </KpiGrid>
       <div className="rp-grid">
@@ -63,7 +106,7 @@ export function FollowUps(p: TabProps) {
               <div className="rp-table-wrap rp-table-scroll">
                 <table className="rp-table">
                   <thead>
-                    <tr><th>Person</th><th className="rp-r">Missed calls</th><th className="rp-r">Texts</th><th className="rp-r">Voicemails</th><th className="rp-r">Total</th><th className="rp-r">Oldest</th></tr>
+                    <tr><th>Person</th><th className="rp-r">Missed calls</th><th className="rp-r">Texts</th><th className="rp-r">Voicemails</th><th className="rp-r">Total</th><th className="rp-r">Marked done</th><th className="rp-r">Oldest</th></tr>
                   </thead>
                   <tbody>
                     {data.people.map((r) => (
@@ -73,7 +116,8 @@ export function FollowUps(p: TabProps) {
                         <td className="rp-r rp-num">{fmtInt(r.texts)}</td>
                         <td className="rp-r rp-num">{fmtInt(r.voicemails)}</td>
                         <td className="rp-r rp-num"><b>{fmtInt(r.missedCalls + r.texts + r.voicemails)}</b></td>
-                        <td className="rp-r rp-num">{fmtAgo(r.oldest)}</td>
+                        <td className="rp-r rp-num">{fmtInt(r.markedDone)}</td>
+                        <td className="rp-r rp-num">{r.oldest ? fmtAgo(r.oldest) : '—'}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -94,11 +138,17 @@ export function FollowUps(p: TabProps) {
               ))}
             </div>
           </header>
+          {(done || doneErr) && (
+            <div className="rp-done-note" role="status">
+              {doneErr ?? `${done!.label} marked done.`}
+              {done && !doneErr && <button type="button" className="rp-btn" onClick={() => void undoDone()}>Undo</button>}
+            </div>
+          )}
           {items.length === 0 ? <Empty>Nothing waiting. Good.</Empty> : (
             <div className="rp-table-wrap">
               <table className="rp-table">
                 <thead>
-                  <tr><th>Waiting since</th><th>What</th><th>Number</th><th>Contact</th>{team && <th>Person</th>}<th className="rp-r">Last attempt</th></tr>
+                  <tr><th>Waiting since</th><th>What</th><th>Number</th><th>Contact</th>{team && <th>Person</th>}<th className="rp-r">Last attempt</th><th aria-label="Actions" /></tr>
                 </thead>
                 <tbody>
                   {items.slice(0, shown).map((i, n) => {
@@ -116,6 +166,20 @@ export function FollowUps(p: TabProps) {
                         <td className={i.name ? undefined : 'rp-muted'}>{i.name ?? '—'}</td>
                         {team && <td>{i.personName}</td>}
                         <td className="rp-r rp-num">{fmtDateTime(i.lastAt)}</td>
+                        <td className="rp-r">
+                          {i.userId === p.meId && (
+                            <button
+                              type="button"
+                              className="rp-btn rp-done-btn"
+                              title="Done — no reply needed"
+                              aria-label={`Mark ${i.name ?? formatPhone(i.number)} done`}
+                              onClick={(e) => { e.stopPropagation(); void markDone(i); }}
+                              onKeyDown={(e) => e.stopPropagation()}
+                            >
+                              <Check size={14} /> Done
+                            </button>
+                          )}
+                        </td>
                       </tr>
                     );
                   })}

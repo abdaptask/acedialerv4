@@ -305,11 +305,12 @@ export const HELP_AREAS: HelpArea[] = [
         id: 'extension-follow-ups',
         title: 'Follow-ups in Chrome or Edge (browser extension)',
         summary: 'The ACE Dialer extension shows the missed calls, texts and voicemails still waiting on you, beside whatever page you’re working in. The number on its toolbar icon is how many.',
-        keywords: ['extension', 'chrome', 'edge', 'side panel', 'follow-ups', 'badge', 'toolbar', 'waiting', 'call back', 'sign in'],
+        keywords: ['extension', 'chrome', 'edge', 'side panel', 'follow-ups', 'badge', 'toolbar', 'waiting', 'call back', 'sign in', 'done', 'dismiss', 'clear', 'mark as read'],
         steps: [
           'Click the ACE Dialer icon in the browser toolbar to open the panel, then Sign in with Microsoft.',
           'Call back and Text fill the number into the dialer (an open web dialer tab, else the desktop app or a new tab, per the extension’s settings). Nothing dials or sends until you press the button in the dialer.',
           'An item clears once you call or text that number back. It’s the same list as Reports → Follow-ups, and it never shows what a text or voicemail said.',
+          'If it doesn’t need a reply (a wrong number, a “thanks!”), press the check mark to mark it Done. Undo appears for a few seconds. If that number calls or texts again, it comes back. Admins can see how many items each person marked Done.',
           'The gear opens the click-to-call settings: which sites get clickable numbers, and where a clicked number opens.',
         ],
         issues: [
@@ -319,6 +320,8 @@ export const HELP_AREAS: HelpArea[] = [
           { message: 'ACE Dialer didn’t accept the sign-in. Try again, or ask your admin.', meaning: 'Microsoft signed you in but the dialer refused it.', fix: 'Make sure you picked your own ApTask account. If it keeps happening, ask an admin.' },
           { message: 'Your account has not been provisioned. Ask your admin to invite you.', meaning: 'The Microsoft account you picked doesn’t have an ACE Dialer account.', fix: 'Sign in with the account you use for the dialer, or ask an admin to invite you.' },
           { message: 'Couldn’t load follow-ups', meaning: 'The panel lost its connection to the dialer. It keeps the last list it had.', fix: 'It retries every minute; you can also press refresh.' },
+          { message: 'Couldn’t mark that done. Try again.', meaning: 'The dialer didn’t save it, so the item is back in the list.', fix: 'Check your connection and press the check mark again.' },
+          { message: 'Couldn’t undo that. Try again.', meaning: 'The item is still marked Done.', fix: 'It comes back on its own if that number calls or texts again. To reach them now, use Recents or Messages.' },
           { message: 'The toolbar number doesn’t match the panel', meaning: 'The number refreshes every 2 minutes; the panel refreshes when it opens.', fix: 'Open the panel and the two will agree.' },
         ],
       },
@@ -756,7 +759,7 @@ export const HELP_AREAS: HelpArea[] = [
         keywords: ['reports', 'stats', 'dashboard', 'follow-ups', 'activity', 'export', 'csv'],
         steps: [
           'Click any number to see the calls or texts behind it.',
-          'Follow-ups lists missed calls, texts and voicemails from the last 14 days that you haven’t replied to.',
+          'Follow-ups lists missed calls, texts and voicemails from the last 14 days that you haven’t replied to. Press Done on one of yours that needs no reply; it comes back if that number gets in touch again. Admins see each person’s Marked done count.',
           'All times are Eastern. A custom range can be up to 92 days.',
           'The address bar holds the whole view, so you can share a link to exactly what you’re looking at.',
         ],

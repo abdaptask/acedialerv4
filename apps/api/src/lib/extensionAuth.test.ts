@@ -31,6 +31,8 @@ test('any chromiumapp.org redirect is recognised, so an unknown extension is ref
 test('extension tokens reach only the follow-up and panel routes', () => {
   assert.equal(extensionMayCall('GET', '/me/follow-ups'), true);
   assert.equal(extensionMayCall('get', '/me/follow-ups/count'), true);
+  assert.equal(extensionMayCall('POST', '/me/follow-ups/done'), true);
+  assert.equal(extensionMayCall('DELETE', '/me/follow-ups/done'), true);
   for (const u of ['/me/panel/recents', '/me/panel/threads', '/me/panel/contacts', '/phone-type']) {
     assert.equal(extensionMayCall('GET', u), true, u);
   }
@@ -44,6 +46,7 @@ test('extension tokens reach only the follow-up and panel routes', () => {
     ['POST', '/me/panel/contacts'],
     ['GET', '/reports/follow-ups'],
     ['POST', '/me/follow-ups'],
+    ['PUT', '/me/follow-ups/done'],
     ['GET', undefined],
   ] as const) {
     assert.equal(extensionMayCall(m, u), false, `${m} ${u}`);

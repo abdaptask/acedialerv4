@@ -2,8 +2,8 @@
 // Follow-ups — every Call / Text button only PREFILLS the desktop app or web
 // dialer, through the same router as a clicked number (background.ts).
 // Nothing here dials, sends, or holds calling credentials: the panel's token
-// is scoped to reading these lists (apps/api lib/extensionAuth.ts), and the
-// lists carry who and when, never what anyone said.
+// is scoped to reading these lists and marking a follow-up Done (apps/api
+// lib/extensionAuth.ts), and the lists carry who and when, never what anyone said.
 
 import { forgetEmail, rememberEmail, showCount } from './badge';
 import {
@@ -30,6 +30,7 @@ import {
   API_BASE,
   SignInError,
   apiGet,
+  apiSend,
   clearSession,
   getSession,
   signIn,
@@ -64,6 +65,7 @@ const ICONS = {
     'M3.85 8.62a4 4 0 0 1 4.78-4.77 4 4 0 0 1 6.74 0 4 4 0 0 1 4.78 4.78 4 4 0 0 1 0 6.74 4 4 0 0 1-4.77 4.78 4 4 0 0 1-6.75 0 4 4 0 0 1-4.78-4.77 4 4 0 0 1 0-6.76ZM9 12l2 2 4-4',
   alert: 'M12 8v4M12 16h.01M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0z',
   incoming: 'M17 7 7 17M17 17H7V7',
+  done: 'M20 6 9 17l-5-5',
 };
 
 function icon(path: string, size = 20): SVGSVGElement {
@@ -110,6 +112,8 @@ interface RowSpec {
   /** Which button leads: reply the way they reached you. */
   lead: 'call' | 'sms';
   callLabel?: string;
+  /** Follow-ups only: clears the item without calling or texting back. */
+  onDone?: () => void;
 }
 
 function row(s: RowSpec): HTMLElement {
@@ -155,6 +159,15 @@ function row(s: RowSpec): HTMLElement {
   const call = actionButton(s.number, s.callLabel ?? 'Call', 'call', label);
   const sms = actionButton(s.number, 'Text', 'sms', label);
   r.append(...(s.lead === 'sms' ? [sms, call] : [call, sms]));
+  if (s.onDone) {
+    const done = document.createElement('button');
+    done.className = 'act done';
+    done.title = 'Done — no reply needed';
+    done.setAttribute('aria-label', `Mark ${label} done`);
+    done.appendChild(icon(ICONS.done));
+    done.addEventListener('click', s.onDone);
+    r.append(done);
+  }
   return r;
 }
 
@@ -206,6 +219,7 @@ function renderFollowUps(f: FollowUps): void {
             detail: detail(it),
             lead: it.kind === 'text' ? 'sms' : 'call',
             callLabel: 'Call back',
+            onDone: () => void markDone(it),
           }),
         ),
       ),
@@ -330,11 +344,61 @@ async function loadFollowUps(): Promise<void> {
     $('error').hidden = true;
     $('view-followups').hidden = false;
   }
-  void showCount(r.data.count);
+  showFollowUps(r.data);
+}
+
+let followUps: FollowUps | null = null;
+
+function showFollowUps(f: FollowUps): void {
+  followUps = f;
+  void showCount(f.count);
   const badge = $('tab-count');
-  badge.hidden = r.data.count === 0;
-  badge.textContent = r.data.count > 99 ? '99+' : String(r.data.count);
-  renderFollowUps(r.data);
+  badge.hidden = f.count === 0;
+  badge.textContent = f.count > 99 ? '99+' : String(f.count);
+  renderFollowUps(f);
+}
+
+const last10 = (n: string) => n.replace(/\D/g, '').slice(-10);
+
+/** Done hides every open item for that number (a missed call and a text from
+ *  the same person are one conversation), straight away; the server agrees
+ *  on the next load, and anything the number does later reopens it. */
+async function markDone(it: FollowUpItem): Promise<void> {
+  if (!followUps) return;
+  const before = followUps;
+  const key = last10(it.number);
+  const items = before.items.filter((i) => last10(i.number) !== key);
+  showFollowUps({ ...before, items, count: items.length });
+  const r = await apiSend('POST', '/me/follow-ups/done', { number: it.number });
+  if (!r.ok) {
+    if (r.signedOut) return showSignedOut();
+    showFollowUps(before);
+    toast('Couldn’t mark that done. Try again.');
+    return;
+  }
+  toast(`${it.name ?? formatNumber(it.number)} marked done`, async () => {
+    const u = await apiSend('DELETE', `/me/follow-ups/done?number=${encodeURIComponent(it.number)}`);
+    if (!u.ok && !u.signedOut) toast('Couldn’t undo that. Try again.');
+    await loadFollowUps();
+  });
+}
+
+let toastTimer: ReturnType<typeof setTimeout> | undefined;
+
+function toast(text: string, undo?: () => void): void {
+  const t = $('toast');
+  $('toast-text').textContent = text;
+  const b = $<HTMLButtonElement>('toast-undo');
+  b.hidden = !undo;
+  b.onclick = undo
+    ? () => {
+        t.hidden = true;
+        undo();
+      }
+    : null;
+  t.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { t.hidden = true; }, 6000);
 }
 
 function showError(): void {

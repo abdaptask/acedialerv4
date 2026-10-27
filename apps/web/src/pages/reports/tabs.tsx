@@ -34,6 +34,8 @@ export interface TabProps {
   openDay: (date: string) => void;
   /** Open everything the team (or this person) has had with a number. */
   openContact: (number: string) => void;
+  /** The signed-in user — Done is offered only on their own follow-ups. */
+  meId: number;
 }
 
 export interface TabDef {

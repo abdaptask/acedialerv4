@@ -295,7 +295,9 @@ export interface FollowUpItem {
 export interface FollowUps {
   generatedAt: string;
   days: number;
-  totals: { missedCalls: number; texts: number; voicemails: number };
-  people: Array<{ userId: number; name: string; missedCalls: number; texts: number; voicemails: number; oldest: string }>;
+  /** markedDone: follow-ups cleared with Done (no reply needed) in the window. */
+  totals: { missedCalls: number; texts: number; voicemails: number; markedDone: number };
+  /** oldest is null for someone with nothing open but something marked Done. */
+  people: Array<{ userId: number; name: string; missedCalls: number; texts: number; voicemails: number; markedDone: number; oldest: string | null }>;
   items: FollowUpItem[];
 }
