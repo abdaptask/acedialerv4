@@ -100,6 +100,11 @@ jobs:
           CSC_IDENTITY_AUTO_DISCOVERY: ${{ secrets.APPLE_CSC_LINK == '' && 'false' || 'true' }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         continue-on-error: true
+        # A notarization that never answers used to hold this step until the
+        # runner itself died (#106: 46 min, "lost communication", no .dmg).
+        # Healthy runs take ~5 min. Timing out counts as failure, so the
+        # signed-only fallback below still produces an installer.
+        timeout-minutes: 25
         run: |
           set +e
           for attempt in 1 2 3; do
