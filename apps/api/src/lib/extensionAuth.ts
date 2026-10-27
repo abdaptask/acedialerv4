@@ -37,6 +37,9 @@ export const EXTENSION_ROUTES: ReadonlySet<string> = new Set([
   'GET /me/panel/recents',
   'GET /me/panel/threads',
   'GET /me/panel/contacts',
+  // One number's calls, texts and voicemails for the wide panel's detail
+  // pane: the same metadata-only mapping (panelView.toPanelHistory).
+  'GET /me/panel/history',
   // The Keypad's Mobile / Landline / VoIP line, as on the Dialpad. Not
   // user-scoped data; spend is bounded by the route's own gates (US/CA
   // geographic only, shared cache, PHONE_LOOKUP_DAILY_LIMIT across everyone).

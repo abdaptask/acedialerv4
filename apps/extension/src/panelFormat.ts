@@ -38,6 +38,16 @@ export const GROUPS: Array<{ kind: FollowUpItem['kind']; title: string }> = [
   { kind: 'voicemail', title: 'Voicemails' },
 ];
 
+/** The letters in a row's circle: first and last word of a saved name, "#"
+ *  for a bare number (a favorite with no name is stored under its number). */
+export function initials(name: string | null): string {
+  const words = (name ?? '').split(/\s+/).filter((w) => /^\p{L}/u.test(w));
+  if (!words.length) return '#';
+  const first = words[0][0];
+  const last = words.length > 1 ? words[words.length - 1][0] : '';
+  return (first + last).toUpperCase();
+}
+
 export function subtitle(count: number): string {
   if (count === 0) return 'Nothing waiting';
   return count === 1 ? '1 waiting on you' : `${count} waiting on you`;

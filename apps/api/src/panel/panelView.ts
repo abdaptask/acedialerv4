@@ -175,3 +175,76 @@ export function toPanelContacts(
     numbers: f.numbers.length ? f.numbers.map((n) => ({ label: n.label, number: n.phone })) : [{ label: null, number: f.phone }],
   }));
 }
+
+// ── One number's history (the wide panel's detail pane) ─────────────────
+
+export interface PanelHistoryEvent {
+  kind: 'call' | 'text' | 'voicemail';
+  direction: 'inbound' | 'outbound';
+  /** Calls use the dialer's Recents wording; texts and voicemails a fixed one. */
+  label: string;
+  /** How it went: a call's length, a text's delivery, a voicemail's length.
+   *  Never what was said. */
+  detail: string;
+  red: boolean;
+  at: string;
+}
+
+export interface PanelHistory {
+  number: string;
+  name: string | null;
+  days: number;
+  items: PanelHistoryEvent[];
+}
+
+const HISTORY_CAP = 50;
+
+/** m:ss, as the panel shows a call length (Recents.tsx formatDuration). */
+const mss = (sec: number) => (sec > 0 ? `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}` : '');
+
+/** Every call, text and voicemail with one number, newest first. Calls arrive
+ *  already deduped (dedupeCallLegs), as in Recents. */
+export function toPanelHistory(
+  number: string,
+  days: number,
+  src: {
+    calls: CallRowForPanel[];
+    texts: Array<{ direction: string; status: string; createdAt: Date }>;
+    voicemails: Array<{ receivedAt: Date; durationSeconds: number }>;
+  },
+  book: NameBook,
+  jobDiva: JobDivaNames,
+): PanelHistory {
+  const items: PanelHistoryEvent[] = [
+    ...src.calls.map((c) => ({
+      kind: 'call' as const,
+      direction: c.direction === 'inbound' ? ('inbound' as const) : ('outbound' as const),
+      label: callLabel(c),
+      detail: mss(c.durationSeconds ?? 0),
+      red: callIsRed(c),
+      at: c.startedAt.toISOString(),
+    })),
+    ...src.texts.map((t) => {
+      const inbound = t.direction === 'inbound';
+      const failed = !inbound && FAILED_TEXT.has(t.status);
+      return {
+        kind: 'text' as const,
+        direction: inbound ? ('inbound' as const) : ('outbound' as const),
+        label: inbound ? 'They texted' : 'You texted',
+        detail: inbound ? '' : failed ? 'Didn’t deliver' : t.status === 'delivered' ? 'Delivered' : 'Sent',
+        red: failed,
+        at: t.createdAt.toISOString(),
+      };
+    }),
+    ...src.voicemails.map((v) => ({
+      kind: 'voicemail' as const,
+      direction: 'inbound' as const,
+      label: 'Voicemail',
+      detail: mss(v.durationSeconds),
+      red: false,
+      at: v.receivedAt.toISOString(),
+    })),
+  ];
+  items.sort((a, b) => b.at.localeCompare(a.at));
+  return { number, name: nameFor(book, jobDiva, number), days, items: items.slice(0, HISTORY_CAP) };
+}

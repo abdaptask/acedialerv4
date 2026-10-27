@@ -4,7 +4,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { ago, callLength, canDial, detail, formatNumber, keypadValue, recentDetail, subtitle, threadDetail, when } from './panelFormat.js';
+import { ago, callLength, canDial, detail, formatNumber, initials, keypadValue, recentDetail, subtitle, threadDetail, when } from './panelFormat.js';
 import { badgeText } from './badge.js';
 
 const NOW = Date.parse('2026-10-20T15:00:00Z');
@@ -77,4 +77,14 @@ test('keypad keeps only what can be dialled', () => {
   assert.equal(keypadValue('1+2'), '12');
   assert.equal(canDial('91'), false);
   assert.equal(canDial('911'), true);
+});
+
+test('initials: first and last word of a name, # for a number', () => {
+  assert.equal(initials('Sarah Chen'), 'SC');
+  assert.equal(initials('Maya'), 'M');
+  assert.equal(initials('Ana María de la Cruz'), 'AC');
+  assert.equal(initials('élodie roux'), 'ÉR');
+  assert.equal(initials(null), '#');
+  assert.equal(initials('+19175550000'), '#');
+  assert.equal(initials('  '), '#');
 });

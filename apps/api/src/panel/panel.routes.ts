@@ -3,6 +3,8 @@
 //   GET /me/panel/recents   → the dialer's Recents rows: who, label, when, length
 //   GET /me/panel/threads   → text conversations: who, who sent last, when, unread
 //   GET /me/panel/contacts  → the caller's favorites and their numbers
+//   GET /me/panel/history?number= → every call, text and voicemail with one
+//                             number in the last 30 days: who, when, outcome
 //
 // Self-only with no userId parameter, so an extension token gets no admin
 // surface. Separate routes rather than allowlisting /calls and
@@ -15,12 +17,15 @@
 
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { prisma } from '@ace/db';
-import { loadRecents } from '../calls/calls.routes.js';
+import { dedupeCallLegs, loadRecents } from '../calls/calls.routes.js';
 import { cachedJobDivaName } from '../jobdiva/jobdiva.routes.js';
-import { nameBook, toPanelContacts, toPanelRecent, toPanelThread } from './panelView.js';
+import { last10, nameBook, toPanelContacts, toPanelHistory, toPanelRecent, toPanelThread } from './panelView.js';
 
 /** Safety cap only; the dialer's own list has none and nobody comes close. */
 const THREADS_CAP = 500;
+const HISTORY_DAYS = 30;
+/** Per source, before merging; the response keeps the newest 50. */
+const HISTORY_ROWS = 200;
 
 const me = (request: FastifyRequest) => (request.user as { sub: number }).sub;
 
@@ -93,5 +98,52 @@ export async function panelRoutes(app: FastifyInstance) {
 
   app.get('/me/panel/contacts', { onRequest: [app.authenticate] }, async (request) => {
     return { items: toPanelContacts(await favoritesOf(me(request))) };
+  });
+
+  app.get<{ Querystring: { number?: string } }>('/me/panel/history', { onRequest: [app.authenticate] }, async (request, reply) => {
+    const userId = me(request);
+    const key = last10(request.query.number);
+    if (key.length < 10) return reply.code(400).send({ error: 'That number is too short.' });
+    const since = new Date(Date.now() - HISTORY_DAYS * 86_400_000);
+    // Numbers are stored E.164, so the last 10 digits are a suffix match;
+    // body-free selects, same as the threads query above.
+    const [calls, texts, voicemails, favorites] = await Promise.all([
+      prisma.call.findMany({
+        where: {
+          userId,
+          startedAt: { gte: since },
+          OR: [
+            { direction: 'inbound', fromNumber: { endsWith: key } },
+            { direction: 'outbound', toNumber: { endsWith: key } },
+          ],
+        },
+        orderBy: { startedAt: 'desc' },
+        take: HISTORY_ROWS,
+        select: {
+          sessionId: true, direction: true, fromNumber: true, toNumber: true, status: true,
+          hangupCause: true, startedAt: true, durationSeconds: true,
+        },
+      }),
+      prisma.message.findMany({
+        where: { userId, threadKey: { endsWith: key }, createdAt: { gte: since } },
+        orderBy: { createdAt: 'desc' },
+        take: HISTORY_ROWS,
+        select: { direction: true, status: true, createdAt: true },
+      }),
+      prisma.voicemail.findMany({
+        where: { userId, fromNumber: { endsWith: key }, receivedAt: { gte: since } },
+        orderBy: { receivedAt: 'desc' },
+        take: HISTORY_ROWS,
+        select: { receivedAt: true, durationSeconds: true },
+      }),
+      favoritesOf(userId),
+    ]);
+    return toPanelHistory(
+      request.query.number ?? key,
+      HISTORY_DAYS,
+      { calls: dedupeCallLegs(calls), texts, voicemails },
+      bookFor(favorites),
+      cachedJobDivaName,
+    );
   });
 }

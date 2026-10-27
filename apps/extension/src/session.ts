@@ -149,6 +149,21 @@ export async function apiGet<T>(path: string): Promise<ApiResult<T>> {
   return { ok: true, data: (await res.json()) as T };
 }
 
+/** GET that signs out on 401 only, for a route newer than some APIs the
+ *  extension may meet (see apiSend): a 403 there is a refusal, not a dead token. */
+export async function apiRead<T>(path: string): Promise<ApiResult<T>> {
+  const s = await getSession();
+  if (!s) return { ok: false, signedOut: true };
+  const res = await fetch(`${API_BASE}${path}`, { headers: { authorization: `Bearer ${s.token}` } }).catch(() => null);
+  if (!res) return { ok: false, signedOut: false };
+  if (res.status === 401) {
+    await clearSession();
+    return { ok: false, signedOut: true };
+  }
+  if (!res.ok) return { ok: false, signedOut: false };
+  return { ok: true, data: (await res.json()) as T };
+}
+
 /** POST/DELETE with the scoped token. Only a 401 signs out here: a 403 on a
  *  write is an API that doesn't allow this route yet (the extension can
  *  reach users before a deploy does), and that must not cost them their
@@ -213,4 +228,20 @@ export interface PanelThread {
 export interface PanelContact {
   name: string;
   numbers: Array<{ label: string | null; number: string }>;
+}
+
+/** One number's calls, texts and voicemails (GET /me/panel/history):
+ *  outcomes and times, never content. */
+export interface PanelHistory {
+  number: string;
+  name: string | null;
+  days: number;
+  items: Array<{
+    kind: 'call' | 'text' | 'voicemail';
+    direction: 'inbound' | 'outbound';
+    label: string;
+    detail: string;
+    red: boolean;
+    at: string;
+  }>;
 }
