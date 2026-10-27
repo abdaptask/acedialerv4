@@ -15,6 +15,8 @@ async function server() {
   const ok = async () => ({ ok: true });
   app.get('/me/follow-ups', { onRequest: [app.authenticate] }, ok);
   app.get('/me/follow-ups/count', { onRequest: [app.authenticate] }, ok);
+  app.post('/me/follow-ups/done', { onRequest: [app.authenticate] }, ok);
+  app.delete('/me/follow-ups/done', { onRequest: [app.authenticate] }, ok);
   app.get('/auth/me', { onRequest: [app.authenticate] }, ok);
   app.post('/messages', { onRequest: [app.authenticate] }, ok);
   app.get('/reports/follow-ups', { onRequest: [app.authenticate] }, ok);
@@ -26,7 +28,7 @@ test('a full token reaches everything, a scoped one only its allowlist', async (
   const app = await server();
   const full = app.jwt.sign({ sub: 1, email: 'a@x', isAdmin: true });
   const ext = app.jwt.sign({ sub: 1, email: 'a@x', isAdmin: false, scope: 'ext' });
-  const call = (method: 'GET' | 'POST', url: string, token: string) =>
+  const call = (method: 'GET' | 'POST' | 'DELETE', url: string, token: string) =>
     app.inject({ method, url, headers: { authorization: `Bearer ${token}` } }).then((r) => r.statusCode);
 
   for (const [m, u] of [['GET', '/me/follow-ups'], ['GET', '/auth/me'], ['POST', '/messages']] as const) {
@@ -34,6 +36,8 @@ test('a full token reaches everything, a scoped one only its allowlist', async (
   }
   assert.equal(await call('GET', '/me/follow-ups', ext), 200);
   assert.equal(await call('GET', '/me/follow-ups/count', ext), 200);
+  assert.equal(await call('POST', '/me/follow-ups/done', ext), 200);
+  assert.equal(await call('DELETE', '/me/follow-ups/done', ext), 200);
   assert.equal(await call('GET', '/auth/me', ext), 403);
   assert.equal(await call('POST', '/messages', ext), 403);
   assert.equal(await call('GET', '/reports/follow-ups', ext), 403);

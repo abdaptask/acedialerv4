@@ -3890,6 +3890,18 @@ export function getReportFollowUps(token: string, userId?: number | null) {
   return reportsGet<import('./pages/reports/types').FollowUps>(token, `/reports/follow-ups${qs}`);
 }
 
+/** Done on one of the caller's own follow-ups: no reply needed. Self-only on
+ *  the server; anything the number does afterwards reopens it. */
+export async function setFollowUpDone(token: string, number: string, done: boolean): Promise<void> {
+  const res = await fetch(
+    `${API_URL}/me/follow-ups/done${done ? '' : `?number=${encodeURIComponent(number)}`}`,
+    done
+      ? { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ number }) }
+      : { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } },
+  );
+  if (!res.ok) throw new Error(done ? 'Couldn’t mark that done. Try again.' : 'Couldn’t undo that. Try again.');
+}
+
 // ---------- Reports: daily email (admin) ----------
 export interface DigestPeriod {
   kind: 'day' | 'week';

@@ -4,6 +4,7 @@
 //   GET /reports/contact?number=     → who on the team called / texted that
 //                                      number, and every call + text with it
 //   GET /reports/follow-ups?userId=  → what's waiting on someone right now
+//   POST/DELETE /me/follow-ups/done  → mark one of my follow-ups Done / undo
 //
 // Same scope rule as /reports: admins see everyone, anyone else only their
 // own history. The contact panel carries message text and voicemail
@@ -151,7 +152,7 @@ export async function computeFollowUps(scope: number | null) {
   const now = Date.now();
   const sinceMs = now - FOLLOW_UP_DAYS * DAY;
 
-  const [rawCalls, msgs, vms, names, people] = await Promise.all([
+  const [rawCalls, msgs, vms, names, people, dismissals] = await Promise.all([
     loadCallsFor(sinceMs, scope, null),
     prisma.message.findMany({
       where: { createdAt: { gte: new Date(sinceMs) }, ...(scope !== null ? { userId: scope } : {}) },
@@ -167,6 +168,10 @@ export async function computeFollowUps(scope: number | null) {
     }),
     loadNames(scope !== null ? [scope] : null),
     userNames(),
+    prisma.followUpDismissal.findMany({
+      where: { dismissedAt: { gte: new Date(sinceMs) }, ...(scope !== null ? { userId: scope } : {}) },
+      select: { userId: true, numberLast10: true, dismissedAt: true },
+    }),
   ]);
   const calls = canonicalizeCalls(rawCalls);
 
@@ -178,6 +183,13 @@ export async function computeFollowUps(scope: number | null) {
   };
   for (const c of calls) if (c.direction === 'outbound' || c.answered) touch(c.userId, c.number, c.startedAt);
   for (const m of msgs) if (m.direction === 'outbound') touch(m.userId, m.threadKey, m.createdAt.getTime());
+  // Done counts as a reply at that moment, so a call, text or voicemail
+  // from the number afterwards reopens the item on its own.
+  const doneAt = new Map<string, number>();
+  for (const d of dismissals) {
+    touch(d.userId, d.numberLast10, d.dismissedAt.getTime());
+    doneAt.set(`${d.userId}|${d.numberLast10}`, d.dismissedAt.getTime());
+  }
 
   const missed = new Map<string, { userId: number; number: string; attempts: number; firstAt: number; lastAt: number }>();
   for (const c of calls) {
@@ -229,7 +241,7 @@ export async function computeFollowUps(scope: number | null) {
     })),
     ...[...threads.values()]
       // A STOP is an answer, not a question — replying to it is the opposite of what's wanted.
-      .filter((t) => t.waiting > 0 && !t.optedOut)
+      .filter((t) => t.waiting > 0 && !t.optedOut && t.lastAt > (doneAt.get(`${t.userId}|${last10(t.number)}`) ?? 0))
       .map((t) => ({
         kind: 'text' as const, userId: t.userId, number: t.number, name: label(t.userId, t.number),
         count: t.waiting, since: new Date(t.since).toISOString(), lastAt: new Date(t.lastAt).toISOString(),
@@ -245,14 +257,25 @@ export async function computeFollowUps(scope: number | null) {
       })),
   ].sort((a, b) => a.since.localeCompare(b.since));
 
-  const byPerson = new Map<number, { userId: number; name: string; missedCalls: number; texts: number; voicemails: number; oldest: string }>();
+  type PersonRow = { userId: number; name: string; missedCalls: number; texts: number; voicemails: number; markedDone: number; oldest: string | null };
+  const byPerson = new Map<number, PersonRow>();
+  const personRow = (userId: number): PersonRow =>
+    byPerson.get(userId) ?? { userId, name: people.get(userId) ?? 'Unknown', missedCalls: 0, texts: 0, voicemails: 0, markedDone: 0, oldest: null };
   for (const it of items) {
-    const p = byPerson.get(it.userId) ?? { userId: it.userId, name: people.get(it.userId) ?? 'Unknown', missedCalls: 0, texts: 0, voicemails: 0, oldest: it.since };
+    const p = personRow(it.userId);
     if (it.kind === 'missed_call') p.missedCalls += 1;
     else if (it.kind === 'text') p.texts += 1;
     else p.voicemails += 1;
-    if (it.since < p.oldest) p.oldest = it.since;
+    if (p.oldest === null || it.since < p.oldest) p.oldest = it.since;
     byPerson.set(it.userId, p);
+  }
+  // Shown beside the open counts so clearing a backlog with Done is visible
+  // to admins, not just a shorter list. Someone with nothing open but things
+  // marked Done still gets a row.
+  for (const d of dismissals) {
+    const p = personRow(d.userId);
+    p.markedDone += 1;
+    byPerson.set(d.userId, p);
   }
   return {
     generatedAt: new Date(now).toISOString(),
@@ -261,6 +284,7 @@ export async function computeFollowUps(scope: number | null) {
       missedCalls: items.filter((i) => i.kind === 'missed_call').length,
       texts: items.filter((i) => i.kind === 'text').length,
       voicemails: items.filter((i) => i.kind === 'voicemail').length,
+      markedDone: dismissals.length,
     },
     people: [...byPerson.values()].sort((a, b) => b.missedCalls + b.texts + b.voicemails - (a.missedCalls + a.texts + a.voicemails)),
     items: items.slice(0, 3000).map((it) => ({ ...it, personName: people.get(it.userId) ?? 'Unknown' })),
@@ -282,7 +306,7 @@ export function toExtensionFollowUps(f: FollowUps) {
   return {
     generatedAt: f.generatedAt,
     days: f.days,
-    totals: f.totals,
+    totals: { missedCalls: f.totals.missedCalls, texts: f.totals.texts, voicemails: f.totals.voicemails },
     count: f.items.length,
     items: f.items.map((it) => ({
       kind: it.kind,
@@ -318,6 +342,39 @@ export async function lookupRoutes(app: FastifyInstance) {
   app.get('/me/follow-ups/count', { onRequest: [app.authenticate] }, async (request) => {
     const { count, generatedAt } = await myFollowUps((request.user as { sub: number }).sub);
     return { count, generatedAt };
+  });
+
+  // Done: "this needs no reply" (a wrong number, a "thanks!"). Self-only —
+  // there is no userId parameter, so nobody can clear someone else's list.
+  app.post<{ Body: { number?: string } }>('/me/follow-ups/done', { onRequest: [app.authenticate] }, async (request, reply) => {
+    const userId = (request.user as JwtPayload).sub;
+    const key = last10(request.body?.number);
+    if (!key) return reply.code(400).send({ error: 'That number is too short to mark done.' });
+    const where = { userId_numberLast10: { userId, numberLast10: key } };
+    const prior = await prisma.followUpDismissal.findUnique({ where, select: { dismissedAt: true } });
+    const now = new Date();
+    await prisma.followUpDismissal.upsert({
+      where,
+      create: { userId, numberLast10: key, dismissedAt: now },
+      update: { dismissedAt: now, previousAt: prior?.dismissedAt ?? null },
+    });
+    followUpsCache.delete(userId);
+    void recordAudit(userId, 'followup.marked_done', userId, { numberLast4: key.slice(-4) });
+    return { ok: true };
+  });
+
+  // Undo puts back the Done this one replaced (server-held), or removes it.
+  app.delete<{ Querystring: { number?: string } }>('/me/follow-ups/done', { onRequest: [app.authenticate] }, async (request, reply) => {
+    const userId = (request.user as JwtPayload).sub;
+    const key = last10(request.query.number);
+    if (!key) return reply.code(400).send({ error: 'That number is too short to mark done.' });
+    const where = { userId_numberLast10: { userId, numberLast10: key } };
+    const row = await prisma.followUpDismissal.findUnique({ where, select: { previousAt: true } });
+    if (row?.previousAt) await prisma.followUpDismissal.update({ where, data: { dismissedAt: row.previousAt, previousAt: null } });
+    else if (row) await prisma.followUpDismissal.deleteMany({ where: { userId, numberLast10: key } });
+    followUpsCache.delete(userId);
+    void recordAudit(userId, 'followup.done_undone', userId, { numberLast4: key.slice(-4) });
+    return { ok: true };
   });
 
   // ── Search ──────────────────────────────────────────────────────────

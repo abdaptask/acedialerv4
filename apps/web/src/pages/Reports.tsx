@@ -224,6 +224,7 @@ export default function Reports({ user }: { user: User }) {
             drill={setDrill}
             openDay={(date) => go({ from: date, to: date })}
             openContact={setContact}
+            meId={user.id}
           />
           </TabBoundary>
           {drill && (
