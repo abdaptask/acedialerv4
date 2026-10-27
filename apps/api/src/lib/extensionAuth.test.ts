@@ -33,7 +33,7 @@ test('extension tokens reach only the follow-up and panel routes', () => {
   assert.equal(extensionMayCall('get', '/me/follow-ups/count'), true);
   assert.equal(extensionMayCall('POST', '/me/follow-ups/done'), true);
   assert.equal(extensionMayCall('DELETE', '/me/follow-ups/done'), true);
-  for (const u of ['/me/panel/recents', '/me/panel/threads', '/me/panel/contacts', '/phone-type']) {
+  for (const u of ['/me/panel/recents', '/me/panel/threads', '/me/panel/contacts', '/me/panel/history', '/phone-type']) {
     assert.equal(extensionMayCall('GET', u), true, u);
   }
   for (const [m, u] of [

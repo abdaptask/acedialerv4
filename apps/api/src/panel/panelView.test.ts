@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { callIsRed, callLabel, nameBook, toPanelContacts, toPanelRecent, toPanelThread } from './panelView.js';
+import { callIsRed, callLabel, nameBook, toPanelContacts, toPanelHistory, toPanelRecent, toPanelThread } from './panelView.js';
 
 const fav = (phone: string, firstName: string | null, lastName: string | null = null, label: string | null = null) => ({
   phone,
@@ -87,4 +87,37 @@ test('favorites keep the dialer’s order and each favorite’s number order', (
     { label: 'Work', number: '+12125550123' },
   ]);
   assert.deepEqual(c[1].numbers, [{ label: null, number: '+19175550000' }]);
+});
+
+test('history: calls, texts and voicemails newest first, with outcomes and no content', () => {
+  const book = nameBook([fav('+17322001305', 'Sarah', 'Chen')]);
+  const h = toPanelHistory('+17322001305', 30, {
+    calls: [
+      { ...call('inbound', 'missed'), startedAt: at('09:40:00') },
+      { ...call('outbound', 'completed'), startedAt: at('08:00:00'), durationSeconds: 252 },
+    ],
+    texts: [
+      { direction: 'outbound', status: 'delivered', createdAt: at('08:05:00') },
+      { direction: 'outbound', status: 'delivery_failed', createdAt: at('08:06:00') },
+      { direction: 'inbound', status: 'received', createdAt: at('09:00:00') },
+    ],
+    voicemails: [{ receivedAt: at('09:41:00'), durationSeconds: 38 }],
+  }, book, noJobDiva);
+  assert.equal(h.name, 'Sarah Chen');
+  assert.deepEqual(h.items.map((i) => [i.label, i.detail, i.red]), [
+    ['Voicemail', '0:38', false],
+    ['Missed', '', true],
+    ['They texted', '', false],
+    ['You texted', 'Didn’t deliver', true],
+    ['You texted', 'Delivered', false],
+    ['Outgoing', '4:12', false],
+  ]);
+  for (const i of h.items) assert.deepEqual(Object.keys(i).sort(), ['at', 'detail', 'direction', 'kind', 'label', 'red']);
+});
+
+test('history: extra columns on a source row never ride through', () => {
+  const leaky = { direction: 'inbound', status: 'received', createdAt: at('09:00:00'), body: 'secret', mediaUrls: ['x'] };
+  const vm = { receivedAt: at('09:00:00'), durationSeconds: 5, transcription: 'secret', recordingUrl: 'https://x' };
+  const json = JSON.stringify(toPanelHistory('+1', 30, { calls: [], texts: [leaky], voicemails: [vm] }, new Map(), noJobDiva));
+  for (const leak of ['secret', 'https://x', 'body', 'mediaUrls', 'transcription', 'recordingUrl']) assert.equal(json.includes(leak), false, leak);
 });

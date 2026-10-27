@@ -11,6 +11,7 @@ import {
   canDial,
   detail,
   formatNumber,
+  initials,
   keypadValue,
   recentDetail,
   subtitle,
@@ -30,6 +31,7 @@ import {
   API_BASE,
   SignInError,
   apiGet,
+  apiRead,
   apiSend,
   clearSession,
   getSession,
@@ -37,6 +39,7 @@ import {
   type FollowUpItem,
   type FollowUps,
   type PanelContact,
+  type PanelHistory,
   type PanelRecent,
   type PanelThread,
 } from './session';
@@ -66,6 +69,8 @@ const ICONS = {
   alert: 'M12 8v4M12 16h.01M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0z',
   incoming: 'M17 7 7 17M17 17H7V7',
   done: 'M20 6 9 17l-5-5',
+  more: 'M5 11a1 1 0 1 0 0 2 1 1 0 1 0 0-2zM12 11a1 1 0 1 0 0 2 1 1 0 1 0 0-2zM19 11a1 1 0 1 0 0 2 1 1 0 1 0 0-2z',
+  chevron: 'm6 9 6 6 6-6',
 };
 
 function icon(path: string, size = 20): SVGSVGElement {
@@ -86,6 +91,18 @@ function icon(path: string, size = 20): SVGSVGElement {
 function openInDialer(number: string, action: 'call' | 'sms'): void {
   void chrome.runtime.sendMessage({ type: 'ace-open', to: number, action });
 }
+
+/** 640px+ is the two-pane layout (panel.html); below it a row has no detail. */
+const wide = matchMedia('(min-width: 640px)');
+
+const last10 = (n: string) => n.replace(/\D/g, '').slice(-10);
+
+/** Who the detail pane is showing. */
+interface Person {
+  number: string;
+  name: string | null;
+}
+let selected: Person | null = null;
 
 function actionButton(number: string, label: string, action: 'call' | 'sms', who: string): HTMLButtonElement {
   const b = document.createElement('button');
@@ -116,58 +133,144 @@ interface RowSpec {
   onDone?: () => void;
 }
 
+// ── The "…" menu: where a compact row keeps its second action and Done ──
+
+let openMenu: { row: HTMLElement; menu: HTMLElement; button: HTMLElement } | null = null;
+
+function closeMenu(): void {
+  if (!openMenu) return;
+  openMenu.menu.remove();
+  openMenu.row.classList.remove('menu-open');
+  openMenu.button.setAttribute('aria-expanded', 'false');
+  openMenu = null;
+}
+
+document.addEventListener('pointerdown', (e) => {
+  if (openMenu && !openMenu.row.contains(e.target as Node)) closeMenu();
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closeMenu();
+});
+
+function menuItem(path: string, text: string, run: () => void): HTMLButtonElement {
+  const b = document.createElement('button');
+  b.type = 'button';
+  const t = document.createElement('span');
+  t.textContent = text;
+  b.append(icon(path, 18), t);
+  b.addEventListener('click', () => {
+    closeMenu();
+    run();
+  });
+  return b;
+}
+
 function row(s: RowSpec): HTMLElement {
   const r = document.createElement('div');
   r.className = 'row';
+  r.dataset.key = last10(s.number);
+  if (wide.matches && selected && last10(selected.number) === r.dataset.key) r.classList.add('sel');
+  const label = s.name ?? formatNumber(s.number);
+
+  // The row's identity is one button: in the wide layout it opens the detail
+  // pane; narrower, focusing it shows the row's actions.
+  const open = document.createElement('button');
+  open.type = 'button';
+  open.className = 'open';
   if (s.unread) {
     const d = document.createElement('span');
     d.className = 'dot';
     d.setAttribute('aria-label', 'Unread');
-    r.append(d);
+    open.append(d);
   }
-  const who = document.createElement('div');
+  const av = document.createElement('span');
+  av.className = 'av';
+  av.setAttribute('aria-hidden', 'true');
+  av.textContent = initials(s.name);
+  const who = document.createElement('span');
   who.className = 'who';
-  const label = s.name ?? formatNumber(s.number);
   // Server values only ever go in through textContent — a saved name is user
   // input, and this page has extension privileges.
-  const name = document.createElement('div');
+  const name = document.createElement('span');
   name.className = 'name';
+  name.style.display = 'block';
   name.textContent = label;
-  const d = document.createElement('div');
-  d.className = s.warn ? 'detail warn' : 'detail';
+  const d = document.createElement('span');
+  d.className = s.warn ? 'line warn' : 'line';
   if (s.arrow) d.append(icon(s.arrow === 'outbound' ? ICONS.outgoing : ICONS.incoming, 12));
   const text = document.createElement('span');
   // Keep "4 hr ago" together when the line wraps.
-  text.textContent = s.detail.replace(/(\d+) (min|hr|days) ago/, '$1 $2 ago');
+  text.textContent = s.detail.replace(/(\d+) (min|hr|days) ago/, '$1 $2 ago');
   d.append(text);
   d.title = s.detail;
   who.append(name, d);
   const sub = s.sub ?? (s.name ? formatNumber(s.number) : '');
   if (sub) {
-    const n = document.createElement('div');
+    const n = document.createElement('span');
     n.className = 'num';
+    n.style.display = 'block';
     n.textContent = sub;
     who.append(n);
   }
-  r.append(who);
+  open.append(av, who);
+  open.addEventListener('click', () => {
+    if (wide.matches) showPerson({ number: s.number, name: s.name });
+  });
+  r.append(open);
+
   if (s.time) {
     const t = document.createElement('span');
     t.className = 'time';
     t.textContent = s.time;
     r.append(t);
   }
+
+  const acts = document.createElement('div');
+  acts.className = 'acts';
   const call = actionButton(s.number, s.callLabel ?? 'Call', 'call', label);
   const sms = actionButton(s.number, 'Text', 'sms', label);
-  r.append(...(s.lead === 'sms' ? [sms, call] : [call, sms]));
+  const [first, second] = s.lead === 'sms' ? [sms, call] : [call, sms];
+  // A compact row shows only the lead action; the rest move into "…".
+  second.classList.add('secondary');
+  acts.append(first, second);
   if (s.onDone) {
     const done = document.createElement('button');
-    done.className = 'act done';
+    done.className = 'act done secondary';
     done.title = 'Done — no reply needed';
     done.setAttribute('aria-label', `Mark ${label} done`);
     done.appendChild(icon(ICONS.done));
     done.addEventListener('click', s.onDone);
-    r.append(done);
+    acts.append(done);
   }
+  const more = document.createElement('button');
+  more.className = 'act more';
+  more.title = 'More';
+  more.setAttribute('aria-label', `More for ${label}`);
+  more.setAttribute('aria-haspopup', 'menu');
+  more.setAttribute('aria-expanded', 'false');
+  more.appendChild(icon(ICONS.more));
+  more.addEventListener('click', () => {
+    const mine = openMenu?.row === r;
+    closeMenu();
+    if (mine) return;
+    const menu = document.createElement('div');
+    menu.className = 'menu';
+    menu.setAttribute('role', 'menu');
+    menu.append(
+      s.lead === 'sms'
+        ? menuItem(ICONS.phone, s.callLabel ?? 'Call', () => openInDialer(s.number, 'call'))
+        : menuItem(ICONS.message, 'Text', () => openInDialer(s.number, 'sms')),
+    );
+    if (s.onDone) menu.append(menuItem(ICONS.done, 'Done — no reply needed', s.onDone));
+    for (const item of menu.children) item.setAttribute('role', 'menuitem');
+    r.append(menu);
+    r.classList.add('menu-open');
+    more.setAttribute('aria-expanded', 'true');
+    openMenu = { row: r, menu, button: more };
+    (menu.firstElementChild as HTMLElement | null)?.focus();
+  });
+  acts.append(more);
+  r.append(acts);
   return r;
 }
 
@@ -175,6 +278,47 @@ function group(rows: HTMLElement[]): HTMLElement {
   const g = document.createElement('div');
   g.className = 'group';
   g.append(...rows);
+  return g;
+}
+
+// Which follow-up groups are folded away; a per-browser convenience only.
+const COLLAPSE_KEY = 'aceCollapsedGroups';
+const collapsed = new Set<string>(readCollapsed());
+
+function readCollapsed(): string[] {
+  try {
+    const v: unknown = JSON.parse(localStorage.getItem(COLLAPSE_KEY) ?? '[]');
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+function section(title: string, key: string, rows: HTMLElement[]): HTMLElement {
+  const g = group([]);
+  const h = document.createElement('button');
+  h.type = 'button';
+  h.className = 'gh';
+  const t = document.createElement('span');
+  t.textContent = title;
+  h.append(t, icon(ICONS.chevron, 16));
+  const paint = () => {
+    const open = !collapsed.has(key);
+    h.setAttribute('aria-expanded', String(open));
+    for (const r of rows) r.hidden = !open;
+  };
+  h.addEventListener('click', () => {
+    if (collapsed.has(key)) collapsed.delete(key);
+    else collapsed.add(key);
+    try {
+      localStorage.setItem(COLLAPSE_KEY, JSON.stringify([...collapsed]));
+    } catch {
+      /* storage blocked: the fold just won't be remembered */
+    }
+    paint();
+  });
+  g.append(h, ...rows);
+  paint();
   return g;
 }
 
@@ -207,11 +351,10 @@ function renderFollowUps(f: FollowUps): void {
     // Oldest first within a group: the one who's waited longest gets answered first.
     const items = f.items.filter((i) => i.kind === g.kind).sort((a, b) => a.since.localeCompare(b.since));
     if (!items.length) continue;
-    const h = document.createElement('h2');
-    h.textContent = `${g.title} · ${items.length}`;
     out.push(
-      h,
-      group(
+      section(
+        `${g.title} · ${items.length}`,
+        g.kind,
         items.map((it: FollowUpItem) =>
           row({
             number: it.number,
@@ -358,8 +501,6 @@ function showFollowUps(f: FollowUps): void {
   renderFollowUps(f);
 }
 
-const last10 = (n: string) => n.replace(/\D/g, '').slice(-10);
-
 /** Done hides every open item for that number (a missed call and a text from
  *  the same person are one conversation), straight away; the server agrees
  *  on the next load, and anything the number does later reopens it. */
@@ -369,10 +510,12 @@ async function markDone(it: FollowUpItem): Promise<void> {
   const key = last10(it.number);
   const items = before.items.filter((i) => last10(i.number) !== key);
   showFollowUps({ ...before, items, count: items.length });
+  renderPane();
   const r = await apiSend('POST', '/me/follow-ups/done', { number: it.number });
   if (!r.ok) {
     if (r.signedOut) return showSignedOut();
     showFollowUps(before);
+    renderPane();
     toast('Couldn’t mark that done. Try again.');
     return;
   }
@@ -380,8 +523,154 @@ async function markDone(it: FollowUpItem): Promise<void> {
     const u = await apiSend('DELETE', `/me/follow-ups/done?number=${encodeURIComponent(it.number)}`);
     if (!u.ok && !u.signedOut) toast('Couldn’t undo that. Try again.');
     await loadFollowUps();
+    renderPane();
   });
 }
+
+// ── Detail pane (wide layout) ───────────────────────────────────────────
+// Who, their line type, Call / Text / Done, and every call, text and
+// voicemail with them in the last 30 days — outcomes only, never content
+// (GET /me/panel/history).
+
+let history: { key: string; data: PanelHistory | null; failed: boolean } | null = null;
+let historySeq = 0;
+
+function showPerson(p: Person): void {
+  selected = p;
+  markSelected();
+  closeMenu();
+  void loadHistory(p.number);
+}
+
+function markSelected(): void {
+  const key = selected && wide.matches ? last10(selected.number) : null;
+  for (const r of document.querySelectorAll<HTMLElement>('.row')) r.classList.toggle('sel', r.dataset.key === key);
+}
+
+async function loadHistory(number: string): Promise<void> {
+  const key = last10(number);
+  const seq = ++historySeq;
+  if (history?.key !== key) history = { key, data: null, failed: false };
+  renderPane();
+  const r = await apiRead<PanelHistory>(`/me/panel/history?number=${encodeURIComponent(number)}`);
+  if (seq !== historySeq) return;
+  if (!r.ok && r.signedOut) return showSignedOut();
+  history = { key, data: r.ok ? r.data : (history?.key === key ? history.data : null), failed: !r.ok };
+  renderPane();
+}
+
+function pill(cls: string, path: string, text: string, run: () => void): HTMLButtonElement {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.className = `pill ${cls}`;
+  const t = document.createElement('span');
+  t.textContent = text;
+  b.append(icon(path, 17), t);
+  b.addEventListener('click', run);
+  return b;
+}
+
+function renderPane(): void {
+  const pane = $('pane');
+  if (!wide.matches) return;
+  if (!selected) {
+    pane.replaceChildren(emptyState('Select someone', 'Their calls, texts and voicemails with you show up here.'));
+    return;
+  }
+  const p = selected;
+  const key = last10(p.number);
+  const h = history?.key === key ? history : null;
+  const name = p.name ?? h?.data?.name ?? null;
+  const label = name ?? formatNumber(p.number);
+  const open = followUps?.items.filter((i) => last10(i.number) === key) ?? [];
+
+  const card = document.createElement('div');
+  card.className = 'dcard';
+  const head = document.createElement('div');
+  head.className = 'dhead';
+  const av = document.createElement('span');
+  av.className = 'av big';
+  av.setAttribute('aria-hidden', 'true');
+  av.textContent = initials(name);
+  const who = document.createElement('div');
+  who.style.minWidth = '0';
+  const n = document.createElement('div');
+  n.className = 'dname';
+  n.textContent = label;
+  who.append(n);
+  if (name) {
+    const num = document.createElement('div');
+    num.className = 'dnum';
+    num.textContent = formatNumber(p.number);
+    who.append(num);
+  }
+  const type = document.createElement('div');
+  type.className = 'ptype';
+  who.append(type);
+  head.append(av, who);
+  void updateLineType(p.number, type);
+
+  const btns = document.createElement('div');
+  btns.className = 'dbtns';
+  const waiting = open.some((i) => i.kind !== 'text');
+  btns.append(
+    pill('call', ICONS.phone, waiting ? 'Call back' : 'Call', () => openInDialer(p.number, 'call')),
+    pill('text', ICONS.message, 'Text', () => openInDialer(p.number, 'sms')),
+  );
+  if (open.length) btns.append(pill('done', ICONS.done, 'Done', () => void markDone(open[0])));
+  card.append(head, btns);
+
+  const hist = group([]);
+  hist.classList.add('hcard');
+  const hh = document.createElement('div');
+  hh.className = 'hhead';
+  hh.textContent = `With this number · last ${h?.data?.days ?? 30} days`;
+  hist.append(hh);
+  if (!h?.data) {
+    const note = document.createElement('div');
+    note.className = 'hnote';
+    note.textContent = h?.failed ? 'Couldn’t load the history. It retries when the list refreshes.' : 'Loading…';
+    hist.append(note);
+  } else if (!h.data.items.length) {
+    const note = document.createElement('div');
+    note.className = 'hnote';
+    note.textContent = `Nothing with this number in the last ${h.data.days} days.`;
+    hist.append(note);
+  } else {
+    for (const e of h.data.items) {
+      const ev = document.createElement('div');
+      ev.className = 'ev';
+      const dot = document.createElement('span');
+      dot.className = `evdot${e.red ? ' red' : e.kind === 'voicemail' ? '' : ` ${e.kind}`}`;
+      dot.setAttribute('aria-hidden', 'true');
+      const body = document.createElement('div');
+      body.style.minWidth = '0';
+      const what = document.createElement('div');
+      what.className = 'what';
+      what.textContent = e.label;
+      body.append(what);
+      if (e.detail) {
+        const how = document.createElement('div');
+        how.className = 'how';
+        how.textContent = e.detail;
+        body.append(how);
+      }
+      const t = document.createElement('span');
+      t.className = 'time';
+      t.textContent = when(e.at);
+      ev.append(dot, body, t);
+      hist.append(ev);
+    }
+  }
+  pane.replaceChildren(card, hist);
+}
+
+wide.addEventListener('change', () => {
+  markSelected();
+  closeMenu();
+  if (wide.matches && selected) void loadHistory(selected.number);
+  else renderPane();
+});
 
 let toastTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -443,6 +732,8 @@ async function load(): Promise<void> {
       }
     }
     await followUps;
+    if (wide.matches && selected && view !== 'keypad') void loadHistory(selected.number);
+    else renderPane();
   } finally {
     loading = false;
     $('refresh').classList.remove('spin');
@@ -451,6 +742,8 @@ async function load(): Promise<void> {
 
 function select(view: View): void {
   current = view;
+  $('app').dataset.view = view;
+  closeMenu();
   void chrome.storage.local.set({ [TAB_KEY]: view });
   for (const v of VIEWS) {
     $(`tab-${v}`).setAttribute('aria-selected', String(v === view));
@@ -503,7 +796,9 @@ const FAILURE_TTL_MS = 60_000;
 const NOT_CONFIGURED_BACKOFF_MS = 10 * 60_000;
 const typeCache = new Map<string, { state: LookupState; expiresAt: number }>();
 let lookupsDisabledUntil = 0;
-let typeSeq = 0;
+/** One lookup sequence per badge (the Keypad's, the detail pane's), so a
+ *  slow answer for an old number never paints over a newer one. */
+const typeSeqs = new WeakMap<HTMLElement, number>();
 
 /** Not apiGet: a refused lookup (an API that predates the extension being
  *  allowed this route) must cost only the badge, never the session. */
@@ -528,8 +823,7 @@ async function fetchLineType(e164: string): Promise<LookupState> {
   }
 }
 
-function paintLineType(d: PhoneTypeDisplay): void {
-  const el = $('ptype');
+function paintLineType(d: PhoneTypeDisplay, el: HTMLElement): void {
   el.className = 'ptype';
   el.removeAttribute('title');
   if (d.state === 'hidden') {
@@ -555,36 +849,38 @@ function paintLineType(d: PhoneTypeDisplay): void {
   }
 }
 
-async function updateLineType(raw: string): Promise<void> {
-  const seq = ++typeSeq;
+async function updateLineType(raw: string, el: HTMLElement = $('ptype')): Promise<void> {
+  const seq = (typeSeqs.get(el) ?? 0) + 1;
+  typeSeqs.set(el, seq);
+  const stale = () => typeSeqs.get(el) !== seq;
   const base = inferPhoneType(raw);
   // International numbers the bundled metadata can't type get the full set.
   const inf = base.kind === 'inferred' && base.typeMissing ? await refineWithFullMetadata(base.e164) : base;
-  if (seq !== typeSeq) return;
+  if (stale()) return;
   if (!shouldLookUp(base)) {
-    paintLineType(describePhoneType(inf, { status: 'idle' }));
+    paintLineType(describePhoneType(inf, { status: 'idle' }), el);
     return;
   }
   const e164 = base.e164;
   if (Date.now() < lookupsDisabledUntil) {
-    paintLineType(describePhoneType(inf, { status: 'unavailable', reason: 'not_configured' }));
+    paintLineType(describePhoneType(inf, { status: 'unavailable', reason: 'not_configured' }), el);
     return;
   }
   const hit = typeCache.get(e164);
   if (hit && hit.expiresAt > Date.now()) {
-    paintLineType(describePhoneType(inf, hit.state));
+    paintLineType(describePhoneType(inf, hit.state), el);
     return;
   }
-  paintLineType(describePhoneType(inf, { status: 'loading' }));
+  paintLineType(describePhoneType(inf, { status: 'loading' }), el);
   // A number that's valid for a moment mid-edit shouldn't cost a carrier dip.
   await new Promise((r) => setTimeout(r, LOOKUP_DEBOUNCE_MS));
-  if (seq !== typeSeq) return;
+  if (stale()) return;
   const state = await fetchLineType(e164);
   if (state.status === 'unavailable' && state.reason === 'not_configured') {
     lookupsDisabledUntil = Date.now() + NOT_CONFIGURED_BACKOFF_MS;
   }
   typeCache.set(e164, { state, expiresAt: Date.now() + (state.status === 'verified' ? VERIFIED_TTL_MS : FAILURE_TTL_MS) });
-  if (seq === typeSeq) paintLineType(describePhoneType(inf, state));
+  if (!stale()) paintLineType(describePhoneType(inf, state), el);
 }
 
 function press(ch: string): void {

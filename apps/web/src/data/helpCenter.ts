@@ -308,6 +308,7 @@ export const HELP_AREAS: HelpArea[] = [
         keywords: ['extension', 'chrome', 'edge', 'side panel', 'follow-ups', 'badge', 'toolbar', 'waiting', 'call back', 'sign in', 'done', 'dismiss', 'clear', 'mark as read'],
         steps: [
           'Click the ACE Dialer icon in the browser toolbar to open the panel, then Sign in with Microsoft.',
+          'Drag the panel’s edge to resize it. Narrow, a row shows its time until you point at it, then Call and “…” (Text and Done). Wider than about 640 pixels, click anyone to see their calls, texts and voicemails with you on the right.',
           'Call back and Text fill the number into the dialer (an open web dialer tab, else the desktop app or a new tab, per the extension’s settings). Nothing dials or sends until you press the button in the dialer.',
           'An item clears once you call or text that number back. It’s the same list as Reports → Follow-ups, and it never shows what a text or voicemail said.',
           'If it doesn’t need a reply (a wrong number, a “thanks!”), press the check mark to mark it Done. Undo appears for a few seconds. If that number calls or texts again, it comes back. Admins can see how many items each person marked Done.',

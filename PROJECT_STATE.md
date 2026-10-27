@@ -44,6 +44,8 @@ If you're a fresh Claude session opening this project:
 | Web SPA (`ace-web`) | **v0.10.227 live** | `apps/web/dist` rebuilt Aug 27 15:40 — absolute `/assets/` base verified. Serves off disk, so a build IS a deploy — see §5 | `pm2 list` |
 | Auto-update status | distributing | 0.10.224 reached 64 devices and 0.10.225 is now published, so current releases satisfy the v0.10.143 signing gate. The old "LOCKED on v0.10.132" line no longer described reality and has been removed; `docs/ev-cert-procurement.md` keeps the history | GitHub Releases |
 
+**October 27, 2026: extension panel redesign (branch `feat/extension-panel-redesign`, extension 0.10.243.5).** White-and-blue light theme (dark keeps iOS tokens; follows the OS; call buttons green), compact rows with initials, layout by panel width (narrow / medium / wide two-pane with a detail pane), collapsible Follow-ups groups. New `GET /me/panel/history?number=` (metadata only, on the extension allowlist) feeds the detail pane — ace-api must be deployed before the extension is published, or the pane shows "Couldn't load the history" (it signs out on 401 only). Mockups: https://claude.ai/artifact/4gCV3HYLEkGu24WULYjRuR.
+
 **October 27, 2026: Follow-ups "Done" (branch `feat/follow-up-done`, not merged).**
 - A follow-up can be marked **Done** (no reply needed) from the extension panel (check mark + Undo toast) and Reports → Follow-ups (own items only). Per number; any later call/text/voicemail from it reopens the item. Admins see a **Marked done** column per person + a KPI.
 - New table `FollowUpDismissal` (`follow_up_dismissals`), routes `POST`/`DELETE /me/follow-ups/done` (on the extension allowlist), extension **0.10.243.4**.
